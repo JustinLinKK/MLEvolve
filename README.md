@@ -78,7 +78,7 @@ Cold-start recommends pretrained models per task category based on `engine/colds
 bash run_single_task.sh <EXP_ID> <DATASET_DIR> [SERVER_ID]
 
 # Example
-bash run_single_task.sh spaceship-titanic /mle-bench/data 1
+bash run_single_task.sh denoising-dirty-documents /mle-bench/data 1
 ```
 
 Results are written to `./runs/<timestamp>_<exp_id>/` including search tree logs, best solution code, and top-K candidate submissions.
