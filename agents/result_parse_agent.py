@@ -166,6 +166,7 @@ def _build_introduction(agent) -> str:
         )
     intro += "\nDo NOT omit any field."
     return intro
+    
 
 
 def _check_submission_file(agent, node: SearchNode) -> bool:

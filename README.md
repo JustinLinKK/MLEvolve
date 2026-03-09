@@ -2,6 +2,8 @@
   <img src="assets/logo.svg" alt="MLEvolve" width="400"/>
 </p>
 
+🌐 **Project Page**: https://internscience.github.io/MLEvolve/
+
 An agentic MLE (Machine Learning Engineering) system that automatically solves Kaggle-style ML competitions through Monte Carlo Graph Search (MCGS) with multi-agent collaboration. This is an advanced version based on [AutoMLGen](https://arxiv.org/abs/2510.08511). MLEvolve achieves **#1 on the [MLE-bench](https://github.com/openai/mle-bench) leaderboard** with **only 12 hours** of runtime.
 
 ## Timeline
@@ -76,7 +78,7 @@ Cold-start recommends pretrained models per task category based on `engine/colds
 bash run_single_task.sh <EXP_ID> <DATASET_DIR> [SERVER_ID]
 
 # Example
-bash run_single_task.sh spaceship-titanic /mle-bench/data 1
+bash run_single_task.sh denoising-dirty-documents /mle-bench/data 1
 ```
 
 Results are written to `./runs/<timestamp>_<exp_id>/` including search tree logs, best solution code, and top-K candidate submissions.
