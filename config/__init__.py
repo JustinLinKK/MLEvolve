@@ -1,6 +1,6 @@
 """configuration and setup utils"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
 from typing import Hashable, cast
@@ -110,6 +110,12 @@ class ColdstartConfig:
     model_json_path: str
     description: str
 
+
+@dataclass
+class InitSolutionConfig:
+    use: bool = False
+
+
 @dataclass
 class Config(Hashable):
     data_dir: Path
@@ -128,6 +134,7 @@ class Config(Hashable):
 
     exp_name: str
     exp_id: str
+    use_grading_server: bool = True
 
     torch_hub_dir: str
     pretrain_model_dir: str
@@ -138,6 +145,7 @@ class Config(Hashable):
     cpu_number: str
 
     coldstart: ColdstartConfig
+    init_solution: InitSolutionConfig = field(default_factory=InitSolutionConfig)
 
 
 def _get_next_logindex(dir: Path) -> int:
