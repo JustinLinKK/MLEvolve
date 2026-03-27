@@ -134,7 +134,6 @@ class Config(Hashable):
 
     exp_name: str
     exp_id: str
-    use_grading_server: bool = True
 
     torch_hub_dir: str
     pretrain_model_dir: str
@@ -145,6 +144,8 @@ class Config(Hashable):
     cpu_number: str
 
     coldstart: ColdstartConfig
+
+    use_grading_server: bool = True
     init_solution: InitSolutionConfig = field(default_factory=InitSolutionConfig)
 
 
