@@ -69,6 +69,8 @@ agent:
 
 Other tunable fields (`agent.steps`, `agent.time_limit`, etc.) have sensible defaults — see comments in the yaml file.
 
+If `agent.use_global_memory: True`, you must also set `agent.memory_embedding_model_path` to a valid HuggingFace embedding model name or local model path. Set `agent.memory_embedding_device` to `cpu` if CUDA is unavailable.
+
 ### Cold-Start Models (optional)
 
 Cold-start recommends pretrained models per task category based on `engine/coldstart/models_guidance_classified.json`. Most models auto-download from HuggingFace; for models requiring local weights, set `torch_hub_dir` in `config.yaml`. To disable cold-start entirely, set `coldstart.use_coldstart: False`.
