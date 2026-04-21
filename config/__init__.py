@@ -34,6 +34,7 @@ class StageConfig:
     temp: float
     base_url: str
     api_key: str
+    provider: str = ""
 
 @dataclass
 class DecayConfig:
@@ -112,6 +113,15 @@ class ColdstartConfig:
 
 
 @dataclass
+class MonitorConfig:
+    enabled: bool = True
+    interval_seconds: float = 5
+    gpu_idle_util_threshold: float = 10
+    gpu_idle_memory_threshold_mb: float = 1024
+    cpu_idle_util_threshold: float = 20
+
+
+@dataclass
 class InitSolutionConfig:
     use: bool = False
 
@@ -145,6 +155,7 @@ class Config(Hashable):
 
     coldstart: ColdstartConfig
 
+    monitor: MonitorConfig = field(default_factory=MonitorConfig)
     use_grading_server: bool = True
     init_solution: InitSolutionConfig = field(default_factory=InitSolutionConfig)
 

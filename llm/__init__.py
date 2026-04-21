@@ -6,8 +6,24 @@ from config import Config
 logger = logging.getLogger("MLEvolve")
 
 
-def _provider(model: str) -> str:
-    """Use Gemini backend for model names starting with 'gemini', else OpenAI-compatible (e.g. Qwen)."""
+def _stage_config_for_model(cfg: Config | None, model: str):
+    if cfg is None:
+        return None
+    if getattr(cfg.agent.code, "model", None) == model:
+        return cfg.agent.code
+    if getattr(cfg.agent.feedback, "model", None) == model:
+        return cfg.agent.feedback
+    return None
+
+
+def _provider(model: str, cfg: Config | None = None) -> str:
+    """Select LLM backend from explicit provider first, then legacy model-name routing."""
+    stage = _stage_config_for_model(cfg, model)
+    provider = (getattr(stage, "provider", "") or "").lower()
+    if provider in {"openrouter", "openai", "openai-compatible"}:
+        return "openai"
+    if provider in {"gemini", "google"}:
+        return "gemini"
     return "gemini" if (model or "").lower().startswith("gemini") else "openai"
 
 
@@ -59,7 +75,7 @@ def query(
     if func_spec:
         logger.info(f"function spec: {func_spec.to_dict()}", extra={"verbose": True})
 
-    provider = _provider(model)
+    provider = _provider(model, cfg)
     if provider == "openai":
         output, req_time, in_tok_count, out_tok_count, info = _openai.query(
             system_message=system_message,
@@ -93,7 +109,7 @@ def generate(
 ):
     """Streaming text generation. Dispatches to Gemini or OpenAI-compatible backend by cfg.agent.code.model."""
     model = getattr(cfg.agent.code, "model", "") or ""
-    if _provider(model) == "openai":
+    if _provider(model, cfg) == "openai":
         return _openai.generate(
             prompt=prompt,
             cfg=cfg,

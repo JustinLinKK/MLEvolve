@@ -77,6 +77,10 @@ def _stage_config_for_model(cfg: Config, model: str):
     return cfg.agent.feedback
 
 
+def _is_openrouter_stage(stage) -> bool:
+    return (getattr(stage, "provider", "") or "").lower() == "openrouter"
+
+
 def _build_messages(system_message: str | None, user_message: str | None) -> list[dict[str, str]]:
     messages = []
     if system_message:
@@ -133,7 +137,7 @@ def query(
         params["extra_body"] = extra_body
     if func_spec is not None:
         tool_dict = func_spec.as_openai_tool_dict
-        if not supports_json_schema(model):
+        if _is_openrouter_stage(stage) or not supports_json_schema(model):
             tool_dict.pop("strict", None)
         params["tools"] = [tool_dict]
         params["tool_choice"] = func_spec.openai_tool_choice_dict

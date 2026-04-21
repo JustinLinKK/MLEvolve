@@ -60,11 +60,30 @@ dataset_dir: "/path/to/mle-bench/data"
 
 agent:
   code:
+    provider: "gemini"
     base_url: "https://your-gemini-endpoint"
     api_key: "your-api-key"
   feedback:
+    provider: "gemini"
     base_url: "https://your-gemini-endpoint"
     api_key: "your-api-key"
+```
+
+To use OpenRouter instead, select an OpenRouter model slug and the OpenRouter
+OpenAI-compatible endpoint:
+
+```yaml
+agent:
+  code:
+    provider: "openrouter"
+    model: "google/gemini-2.5-pro"
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: "your-openrouter-api-key"
+  feedback:
+    provider: "openrouter"
+    model: "google/gemini-2.5-pro"
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: "your-openrouter-api-key"
 ```
 
 Other tunable fields (`agent.steps`, `agent.time_limit`, etc.) have sensible defaults — see comments in the yaml file.
