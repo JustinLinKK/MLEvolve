@@ -19,6 +19,14 @@ copy_data: False
 start_cpu_id: 0
 cpu_number: 21
 
+# Hardware monitor
+monitor:
+  enabled: true
+  interval_seconds: 5
+  gpu_idle_util_threshold: 10
+  gpu_idle_memory_threshold_mb: 1024
+  cpu_idle_util_threshold: 20
+
 # Model paths
 torch_hub_dir: ""       # path to torch hub cache, e.g. /data/pretrain_models/torch_models
 pretrain_model_dir: ""  # path to pretrained model weights, e.g. /data/pretrain_models
@@ -44,15 +52,17 @@ agent:
 
   # --- LLM models ---
   code:
-    model: gemini-3-pro-preview
+    model: openai/gpt-oss-120b:free
     temp: 1
-    base_url: ""   # Gemini API endpoint
-    api_key: ""    # Gemini API key
+    provider: "openrouter"   # Optional: gemini, openai, or openrouter. Empty keeps model-name routing.
+    base_url: "https://openrouter.ai/api/v1"   # Gemini/OpenAI-compatible endpoint. OpenRouter: https://openrouter.ai/api/v1
+    api_key: "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"    # Provider API key
   feedback:
-    model: gemini-3-pro-preview
+    model: openai/gpt-oss-120b:free
     temp: 1
-    base_url: ""   # Gemini API endpoint
-    api_key: ""    # Gemini API key
+    provider: "openrouter"   # Optional: gemini, openai, or openrouter. Empty keeps model-name routing.
+    base_url: "https://openrouter.ai/api/v1"   # Gemini/OpenAI-compatible endpoint. OpenRouter: https://openrouter.ai/api/v1
+    api_key: "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"    # Provider API key
 
   # --- Submission check ---
   check_data_leakage: True
