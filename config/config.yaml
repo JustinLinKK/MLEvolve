@@ -56,13 +56,13 @@ agent:
     temp: 1
     provider: "openrouter"   # Optional: gemini, openai, or openrouter. Empty keeps model-name routing.
     base_url: "https://openrouter.ai/api/v1"   # Gemini/OpenAI-compatible endpoint. OpenRouter: https://openrouter.ai/api/v1
-    api_key: "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"    # Provider API key
+    api_key: "enter-your-api-key"    # Provider API key
   feedback:
     model: openai/gpt-oss-120b:free
     temp: 1
     provider: "openrouter"   # Optional: gemini, openai, or openrouter. Empty keeps model-name routing.
     base_url: "https://openrouter.ai/api/v1"   # Gemini/OpenAI-compatible endpoint. OpenRouter: https://openrouter.ai/api/v1
-    api_key: "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"    # Provider API key
+    api_key: "enter-your-api-key"    # Provider API key
 
   # --- Submission check ---
   check_data_leakage: True
