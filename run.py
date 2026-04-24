@@ -18,6 +18,8 @@ from engine.coldstart import build_guidance_description
 from utils.logging_config import setup_logging
 from utils.hardware_monitor import HardwareMonitor
 import torch
+from localml_scheduler.api import LocalMLSchedulerAPI
+from localml_scheduler.settings import SchedulerSettings
 
 
 def run():
@@ -29,6 +31,7 @@ def run():
     logger.info(f'Starting run "{cfg.exp_name}"')
     hardware_monitor = HardwareMonitor(cfg, logger)
     hardware_monitor.start()
+    scheduler_service = None
     previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
 
     def handle_sigterm(signum, frame):
@@ -66,6 +69,21 @@ def run():
         interpreter = Interpreter(
             cfg.workspace_dir, **OmegaConf.to_container(cfg.exec), cfg=cfg  # type: ignore
         )
+        scheduler_cfg = getattr(cfg, "scheduler", None)
+        if scheduler_cfg is not None and bool(getattr(scheduler_cfg, "enabled", False)):
+            scheduler_settings_path = getattr(scheduler_cfg, "settings_path", None)
+            scheduler_runtime_root = getattr(scheduler_cfg, "runtime_root", None) or str(cfg.workspace_dir / "scheduler_runtime")
+            scheduler_settings = SchedulerSettings.from_file(
+                scheduler_settings_path,
+                runtime_root=scheduler_runtime_root,
+            )
+            scheduler_api = LocalMLSchedulerAPI(scheduler_settings)
+            if bool(getattr(scheduler_cfg, "start_service", True)):
+                scheduler_service = scheduler_api.create_scheduler_service().start(background=True)
+                logger.info(f"🧭 localml_scheduler service started at {scheduler_settings.runtime_root}")
+            else:
+                logger.info(f"🧭 localml_scheduler bridge enabled using external service at {scheduler_settings.runtime_root}")
+            interpreter.attach_scheduler(scheduler_api, scheduler_cfg)
 
         global_step = len(journal)
         status = Status("[green]Generating code...")
@@ -186,6 +204,8 @@ def run():
         interpreter.cleanup_session(-1)
     finally:
         signal.signal(signal.SIGTERM, previous_sigterm_handler)
+        if scheduler_service is not None:
+            scheduler_service.stop()
         hardware_monitor.stop()
 
 

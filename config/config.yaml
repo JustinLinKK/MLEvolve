@@ -39,6 +39,23 @@ exec:
   agent_file_name: runfile.py
 
 # ============================================================
+#  Local scheduler bridge
+# ============================================================
+scheduler:
+  enabled: true
+  settings_path: null       # optional path to localml_scheduler/configs/scheduler.example.yaml
+  runtime_root: null        # null = use <workspace>/scheduler_runtime for this run
+  start_service: true
+  wait_poll_interval_seconds: 1
+  wait_timeout_seconds: null
+  requires_gpu: true
+  estimated_vram_mb: null
+  estimated_ram_mb: null
+  packing_eligible: false   # keep raw MLEvolve scripts exclusive unless explicitly profiled
+  packing_family: mlevolve_script
+  packing_max_slowdown_ratio: null
+
+# ============================================================
 #  Agent config
 # ============================================================
 agent:
@@ -86,7 +103,7 @@ agent:
   # --------------------------------------------------------
   search:
     # Parallel & resources
-    parallel_search_num: 3
+    parallel_search_num: 2
     num_gpus: 1
 
     # Node expansion limits

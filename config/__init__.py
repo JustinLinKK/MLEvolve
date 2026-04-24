@@ -105,6 +105,22 @@ class ExecConfig:
 
 
 @dataclass
+class SchedulerBridgeConfig:
+    enabled: bool = False
+    settings_path: str | None = None
+    runtime_root: str | None = None
+    start_service: bool = True
+    wait_poll_interval_seconds: float = 1.0
+    wait_timeout_seconds: int | None = None
+    requires_gpu: bool = True
+    estimated_vram_mb: int | None = None
+    estimated_ram_mb: int | None = None
+    packing_eligible: bool = False
+    packing_family: str = "mlevolve_script"
+    packing_max_slowdown_ratio: float | None = None
+
+
+@dataclass
 class ColdstartConfig:
     use_coldstart: bool
     task_json_path: str
@@ -149,6 +165,7 @@ class Config(Hashable):
     pretrain_model_dir: str
 
     exec: ExecConfig
+    scheduler: SchedulerBridgeConfig
     agent: AgentConfig
     start_cpu_id: str
     cpu_number: str

@@ -13,9 +13,12 @@ import threading
 import time
 import traceback
 import subprocess
+import json
+import uuid
 from dataclasses import dataclass
 from multiprocessing import Lock
 from pathlib import Path
+from typing import Any
 
 import humanize
 from dataclasses_json import DataClassJsonMixin
@@ -59,6 +62,7 @@ class Interpreter:
         """
         self.working_dir = Path(working_dir).resolve()
         assert self.working_dir.exists(), f"Working directory {self.working_dir} does not exist"
+        self.cfg = cfg
         self.timeout = timeout
         self.max_parallel_run = (
             cfg.agent.search.parallel_search_num if (cfg and getattr(cfg.agent.search, "parallel_search_num", None)) else max_parallel_run
@@ -76,6 +80,15 @@ class Interpreter:
         self.lock = Lock()
         self._procs_lock = threading.Lock()
         self._active_procs: dict[int, subprocess.Popen] = {}
+        self.scheduler_api = None
+        self.scheduler_cfg = None
+        self._scheduler_job_ids: set[str] = set()
+        self._scheduler_jobs_lock = threading.Lock()
+
+    def attach_scheduler(self, api: Any, scheduler_cfg: Any) -> None:
+        """Route future executions through localml_scheduler."""
+        self.scheduler_api = api
+        self.scheduler_cfg = scheduler_cfg
 
     def terminate_all_subprocesses(self) -> None:
         """Terminate all active subprocesses (for graceful Ctrl+C exit)."""
@@ -93,6 +106,14 @@ class Interpreter:
                         proc.wait()
             except Exception as e:
                 logger.warning(f"Error terminating subprocess slot {slot_id}: {e}")
+        if self.scheduler_api is not None:
+            with self._scheduler_jobs_lock:
+                job_ids = list(self._scheduler_job_ids)
+            for job_id in job_ids:
+                try:
+                    self.scheduler_api.cancel_job(job_id)
+                except Exception as e:
+                    logger.warning(f"Error cancelling scheduler job {job_id}: {e}")
 
     def check_current_status(self):
         """Check current parallel run number."""
@@ -169,7 +190,154 @@ class Interpreter:
         Returns:
             ExecutionResult: output, exec_time, exc_type, exc_info, exc_stack.
         """
+        if self.scheduler_api is not None:
+            return self._run_scheduler_job(code=code, id=id, working_dir=working_dir)
         return self._run_subprocess(code=code, id=id, working_dir=working_dir)
+
+    def _run_scheduler_job(self, code: str, id, working_dir: str | None = None) -> ExecutionResult:
+        """Submit generated code as a localml_scheduler job and wait for its result."""
+        from localml_scheduler.adapters.mlevolve import build_mlevolve_job
+        from localml_scheduler.schemas import ResourceRequirements
+
+        if self.scheduler_api is None:
+            return self._run_subprocess(code=code, id=id, working_dir=working_dir)
+
+        logger.info("REPL is submitting code to localml_scheduler")
+        process_id = None
+        job_id = None
+        runfile_path = None
+        start_time = time.time()
+
+        try:
+            with self.lock:
+                self.current_parallel_run += 1
+                for idx in range(self.max_parallel_run):
+                    if self.status_map[idx] == 0:
+                        self.status_map[idx] = 1
+                        process_id = idx
+                        logger.info(f"Assigned scheduler submission slot: {process_id}")
+                        break
+                    elif idx == self.max_parallel_run - 1:
+                        logger.info("reach max process parallel number")
+                        raise ValueError("reach max process parallel number")
+
+            cpu_number_per_session = max(1, int(self.cpu_number / self.max_parallel_run))
+            avail_cpus = sorted(os.sched_getaffinity(0))
+            start = process_id * cpu_number_per_session
+            cpu_set = set(avail_cpus[start:start + cpu_number_per_session])
+            if not cpu_set:
+                cpu_set = set(avail_cpus)
+            pre_code = "import os\nos.sched_setaffinity(0, {cpu_set})\n".format(cpu_set=cpu_set)
+
+            code = self.isolate_submission_path(code=code, _id=id)
+            code = self.isolate_model_path(code=code, _id=id)
+            code = pre_code + code
+
+            run_wd = Path(working_dir).resolve() if working_dir is not None else self.working_dir
+            run_wd.mkdir(parents=True, exist_ok=True)
+            runfile_path = run_wd / self.agent_file_name[process_id]
+            runfile_path.write_text(code, encoding="utf-8")
+
+            result_dir = run_wd / "working" / "scheduler_results"
+            result_path = result_dir / f"result_{id}_{process_id}_{uuid.uuid4().hex}.json"
+            scheduler_cfg = self.scheduler_cfg
+            runner_kwargs = {
+                "script_path": str(runfile_path),
+                "working_dir": str(run_wd),
+                "result_path": str(result_path),
+                "timeout": self.timeout,
+            }
+            resource_requirements = ResourceRequirements(
+                requires_gpu=bool(getattr(scheduler_cfg, "requires_gpu", True)),
+                estimated_vram_mb=getattr(scheduler_cfg, "estimated_vram_mb", None),
+                estimated_ram_mb=getattr(scheduler_cfg, "estimated_ram_mb", None),
+            )
+            job = build_mlevolve_job(
+                workflow_id=str(getattr(self.cfg, "exp_name", "mlevolve")),
+                baseline_model_id=f"mlevolve-script-{id}",
+                baseline_model_path=str(runfile_path),
+                runner_target="localml_scheduler.adapters.mlevolve_runner:run_mlevolve_script_job",
+                runner_kwargs=runner_kwargs,
+                task_type="mlevolve_script",
+                loader_target="localml_scheduler.adapters.mlevolve_runner:load_raw_file",
+                resource_requirements=resource_requirements,
+                packing_family=getattr(scheduler_cfg, "packing_family", "mlevolve_script"),
+                packing_eligible=bool(getattr(scheduler_cfg, "packing_eligible", False)),
+                packing_max_slowdown_ratio=getattr(scheduler_cfg, "packing_max_slowdown_ratio", None),
+                metadata={"mlevolve_node_id": str(id), "submission_slot": process_id},
+            )
+            submitted = self.scheduler_api.submit_job(job)
+            job_id = submitted.job_id
+            with self._scheduler_jobs_lock:
+                self._scheduler_job_ids.add(job_id)
+            logger.info(f"Submitted scheduler job {job_id} for node {id}")
+
+            wait_timeout = getattr(scheduler_cfg, "wait_timeout_seconds", None)
+            if wait_timeout is None:
+                wait_timeout = self.timeout * max(1, self.max_parallel_run) + 60
+            poll_interval = max(0.1, float(getattr(scheduler_cfg, "wait_poll_interval_seconds", 1.0)))
+            deadline = time.time() + float(wait_timeout)
+            final_job = None
+            while time.time() < deadline:
+                final_job = self.scheduler_api.get_job(job_id)
+                if final_job is not None and final_job.status.is_terminal:
+                    break
+                time.sleep(poll_interval)
+            else:
+                self.scheduler_api.cancel_job(job_id)
+                exec_time = time.time() - start_time
+                return ExecutionResult(
+                    term_out=[
+                        f"Execution time: TimeoutError: Scheduler job {job_id} exceeded wait limit of {humanize.naturaldelta(wait_timeout)}"
+                    ],
+                    exec_time=exec_time,
+                    exc_type="TimeoutError",
+                    exc_info={"message": "scheduler wait timeout", "job_id": job_id},
+                    exc_stack=[],
+                )
+
+            if result_path.exists():
+                payload = json.loads(result_path.read_text(encoding="utf-8"))
+                return ExecutionResult(
+                    term_out=payload.get("term_out", [""]),
+                    exec_time=float(payload.get("exec_time", time.time() - start_time)),
+                    exc_type=payload.get("exc_type"),
+                    exc_info=payload.get("exc_info") or {},
+                    exc_stack=payload.get("exc_stack") or [],
+                )
+
+            reason = final_job.status_reason if final_job is not None else "scheduler job finished without result"
+            return ExecutionResult(
+                term_out=[f"Scheduler job {job_id} finished without an execution result: {reason}\n"],
+                exec_time=time.time() - start_time,
+                exc_type="RuntimeError",
+                exc_info={"message": reason, "job_id": job_id},
+                exc_stack=[],
+            )
+        except Exception as e:
+            logger.error(f"Error in _run_scheduler_job: {e}")
+            error_trace = traceback.format_exc()
+            logger.error(error_trace)
+            return ExecutionResult(
+                term_out=[f"Scheduler execution error: {str(e)}", error_trace],
+                exec_time=time.time() - start_time,
+                exc_type="RuntimeError",
+                exc_info={"error": str(e)},
+                exc_stack=[],
+            )
+        finally:
+            if job_id is not None:
+                with self._scheduler_jobs_lock:
+                    self._scheduler_job_ids.discard(job_id)
+            try:
+                if runfile_path and runfile_path.exists():
+                    os.remove(runfile_path)
+            except Exception as e:
+                logger.warning(f"Failed to remove scheduler runfile after execution: {e}")
+            with self.lock:
+                if process_id is not None:
+                    self.status_map[process_id] = 0
+                    self.current_parallel_run -= 1
 
     def _run_subprocess(self, code: str, id, working_dir: str | None = None):
         """
@@ -384,5 +552,3 @@ class Interpreter:
                 if process_id is not None:
                     self.status_map[process_id] = 0
                     self.current_parallel_run -= 1
-
-
