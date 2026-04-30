@@ -7,6 +7,7 @@ Python interpreter for executing code snippets via subprocess.
 
 import logging
 import os
+import re
 import signal
 import sys
 import threading
@@ -15,6 +16,7 @@ import traceback
 import subprocess
 import json
 import uuid
+from hashlib import sha1
 from dataclasses import dataclass
 from multiprocessing import Lock
 from pathlib import Path
@@ -24,6 +26,46 @@ import humanize
 from dataclasses_json import DataClassJsonMixin
 
 logger = logging.getLogger("MLEvolve")
+
+_BATCH_PROBE_NORMALIZE_PATTERNS = (
+    r"(\b(?:batch_size|train_batch_size|eval_batch_size|per_device_train_batch_size|per_device_eval_batch_size)\b\s*=\s*)([^,\n\)]*)",
+)
+_BATCH_PROBE_ENABLE_PATTERN = re.compile(
+    r"\b(batch_size|train_batch_size|eval_batch_size|per_device_train_batch_size|per_device_eval_batch_size)\b"
+)
+_BATCH_PROBE_EVENT_TYPES = {
+    "batch_probe_cache_hit",
+    "batch_probe_cache_miss",
+    "batch_probe_started",
+    "batch_probe_trial",
+    "batch_probe_selected",
+    "batch_probe_warning",
+    "batch_probe_failed",
+}
+
+
+def _normalized_mlevolve_script_signature(code: str) -> str:
+    normalized = code
+    for pattern in _BATCH_PROBE_NORMALIZE_PATTERNS:
+        normalized = re.sub(pattern, r"\1<BS>", normalized)
+    return sha1(normalized.encode("utf-8")).hexdigest()
+
+
+def _code_supports_batch_probe(code: str) -> bool:
+    return _BATCH_PROBE_ENABLE_PATTERN.search(code) is not None
+
+
+def _detect_initial_batch_size(code: str) -> int | None:
+    match = re.search(
+        r"\b(?:batch_size|train_batch_size|eval_batch_size|per_device_train_batch_size|per_device_eval_batch_size)\b\s*=\s*(\d+)",
+        code,
+    )
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except (TypeError, ValueError):
+        return None
 
 @dataclass
 class ExecutionResult(DataClassJsonMixin):
@@ -84,6 +126,75 @@ class Interpreter:
         self.scheduler_cfg = None
         self._scheduler_job_ids: set[str] = set()
         self._scheduler_jobs_lock = threading.Lock()
+
+    def _format_scheduler_probe_event(self, event: dict[str, Any]) -> str | None:
+        event_type = str(event.get("event_type", ""))
+        if event_type not in _BATCH_PROBE_EVENT_TYPES:
+            return None
+        payload = event.get("payload") or {}
+        job_id = event.get("job_id") or "unknown"
+        prefix = f"[scheduler][batch_probe][job={job_id}]"
+
+        if event_type == "batch_probe_cache_hit":
+            return (
+                f"{prefix} cache hit: batch_size={payload.get('resolved_batch_size')} "
+                f"device={payload.get('device_type')} key={payload.get('probe_key')}"
+            )
+        if event_type == "batch_probe_cache_miss":
+            return f"{prefix} cache miss: device={payload.get('device_type')} key={payload.get('probe_key')}"
+        if event_type == "batch_probe_started":
+            return (
+                f"{prefix} started: model={payload.get('model_key')} device={payload.get('device_type')} "
+                f"start_batch_size={payload.get('start_batch_size')} key={payload.get('probe_key')}"
+            )
+        if event_type == "batch_probe_trial":
+            detail = str(payload.get("message") or "").strip().replace("\n", " ")
+            if len(detail) > 180:
+                detail = f"{detail[:177]}..."
+            suffix = f" detail={detail}" if detail else ""
+            return (
+                f"{prefix} trial: batch_size={payload.get('batch_size')} fits={payload.get('fits')} "
+                f"within_budget={payload.get('within_budget')} peak_vram_mb={payload.get('peak_vram_mb')} "
+                f"target_budget_mb={payload.get('target_budget_mb')}{suffix}"
+            )
+        if event_type == "batch_probe_selected":
+            return (
+                f"{prefix} selected: batch_size={payload.get('resolved_batch_size')} "
+                f"target_budget_mb={payload.get('target_budget_mb')} key={payload.get('probe_key')}"
+            )
+        if event_type == "batch_probe_warning":
+            detail = str(payload.get("warning_message") or "").strip().replace("\n", " ")
+            if len(detail) > 220:
+                detail = f"{detail[:217]}..."
+            return (
+                f"{prefix} warning: source={payload.get('source')} "
+                f"reason={payload.get('warning_reason')} detail={detail}"
+            )
+        if event_type == "batch_probe_failed":
+            detail = str(payload.get("reason") or "").strip().replace("\n", " ")
+            if len(detail) > 220:
+                detail = f"{detail[:217]}..."
+            return f"{prefix} failed: {detail}"
+        return None
+
+    def _log_scheduler_probe_updates(self, job_id: str, last_event_id: int) -> int:
+        if self.scheduler_api is None:
+            return last_event_id
+        try:
+            events = self.scheduler_api.store.list_events(job_id=job_id)
+        except Exception as exc:
+            logger.debug(f"Skipping scheduler event polling for {job_id}: {exc}")
+            return last_event_id
+        next_event_id = last_event_id
+        for event in events:
+            event_id = int(event.get("event_id") or 0)
+            if event_id <= last_event_id:
+                continue
+            next_event_id = max(next_event_id, event_id)
+            formatted = self._format_scheduler_probe_event(event)
+            if formatted:
+                logger.info(formatted)
+        return next_event_id
 
     def attach_scheduler(self, api: Any, scheduler_cfg: Any) -> None:
         """Route future executions through localml_scheduler."""
@@ -197,7 +308,7 @@ class Interpreter:
     def _run_scheduler_job(self, code: str, id, working_dir: str | None = None) -> ExecutionResult:
         """Submit generated code as a localml_scheduler job and wait for its result."""
         from localml_scheduler.adapters.mlevolve import build_mlevolve_job
-        from localml_scheduler.schemas import ResourceRequirements
+        from localml_scheduler.schemas import BatchProbeSpec, ResourceRequirements
 
         if self.scheduler_api is None:
             return self._run_subprocess(code=code, id=id, working_dir=working_dir)
@@ -246,7 +357,29 @@ class Interpreter:
                 "working_dir": str(run_wd),
                 "result_path": str(result_path),
                 "timeout": self.timeout,
+                "probe_timeout_seconds": int(getattr(scheduler_cfg, "batch_probe_probe_timeout_seconds", 45)),
+                "probe_poll_interval_seconds": float(getattr(scheduler_cfg, "batch_probe_poll_interval_seconds", 0.5)),
             }
+            batch_probe_enabled = bool(getattr(scheduler_cfg, "batch_probe_enabled", True)) and _code_supports_batch_probe(code)
+            detected_batch_size = _detect_initial_batch_size(code)
+            if detected_batch_size is not None:
+                probe_max_multiplier = max(1, int(getattr(scheduler_cfg, "batch_probe_max_multiplier", 32)))
+                runner_kwargs["batch_size"] = detected_batch_size
+                runner_kwargs["probe_max_batch_size"] = max(
+                    detected_batch_size,
+                    detected_batch_size * probe_max_multiplier,
+                )
+            task_id = str(getattr(self.cfg, "exp_id", "mlevolve"))
+            batch_probe = BatchProbeSpec(
+                enabled=batch_probe_enabled,
+                probe_target="localml_scheduler.adapters.mlevolve_runner:probe_mlevolve_script_job" if batch_probe_enabled else None,
+                batch_param_name="batch_size",
+                model_key=getattr(scheduler_cfg, "batch_probe_model_key", None) or f"mlevolve-task:{task_id}",
+                shape_hints={
+                    "task_id": task_id,
+                    "script_signature": _normalized_mlevolve_script_signature(code),
+                },
+            )
             resource_requirements = ResourceRequirements(
                 requires_gpu=bool(getattr(scheduler_cfg, "requires_gpu", True)),
                 estimated_vram_mb=getattr(scheduler_cfg, "estimated_vram_mb", None),
@@ -260,6 +393,7 @@ class Interpreter:
                 runner_kwargs=runner_kwargs,
                 task_type="mlevolve_script",
                 loader_target="localml_scheduler.adapters.mlevolve_runner:load_raw_file",
+                batch_probe=batch_probe,
                 resource_requirements=resource_requirements,
                 packing_family=getattr(scheduler_cfg, "packing_family", "mlevolve_script"),
                 packing_eligible=bool(getattr(scheduler_cfg, "packing_eligible", False)),
@@ -278,8 +412,10 @@ class Interpreter:
             poll_interval = max(0.1, float(getattr(scheduler_cfg, "wait_poll_interval_seconds", 1.0)))
             deadline = time.time() + float(wait_timeout)
             final_job = None
+            last_probe_event_id = 0
             while time.time() < deadline:
                 final_job = self.scheduler_api.get_job(job_id)
+                last_probe_event_id = self._log_scheduler_probe_updates(job_id, last_probe_event_id)
                 if final_job is not None and final_job.status.is_terminal:
                     break
                 time.sleep(poll_interval)
@@ -295,6 +431,8 @@ class Interpreter:
                     exc_info={"message": "scheduler wait timeout", "job_id": job_id},
                     exc_stack=[],
                 )
+
+            last_probe_event_id = self._log_scheduler_probe_updates(job_id, last_probe_event_id)
 
             if result_path.exists():
                 payload = json.loads(result_path.read_text(encoding="utf-8"))

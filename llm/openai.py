@@ -66,6 +66,44 @@ def _parse_json_args(args: str) -> dict:
     cleaned = _strip_markdown_fences(normalized_str)
     return json.loads(cleaned)
 
+
+def _extract_json_object(text: str) -> str:
+    """Extract the first top-level JSON object from plain-text model output."""
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("Empty content; cannot extract JSON object")
+
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL)
+    if fence_match:
+        return fence_match.group(1)
+
+    start = text.find("{")
+    if start == -1:
+        raise ValueError("No JSON object found in assistant content")
+
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    raise ValueError("Unterminated JSON object in assistant content")
+
 # Return type aligned with gemini.query
 OutputType = str | dict
 
@@ -160,17 +198,22 @@ def query(
         output = message.content or ""
         logger.info(f"OpenAI response: {output}", extra={"verbose": True})
     else:
-        if not message.tool_calls:
-            raise ValueError("Expected function call, got no tool_calls")
-        tc = message.tool_calls[0]
-        if tc.function.name != func_spec.name:
-            raise ValueError(f"Function name mismatch: expected {func_spec.name}, got {tc.function.name}")
-        try:
-            output = _parse_json_args(tc.function.arguments or "{}")
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid function arguments: {tc.function.arguments}")
-            raise e
-        logger.info(f"OpenAI function call response: {output}", extra={"verbose": True})
+        if message.tool_calls:
+            tc = message.tool_calls[0]
+            if tc.function.name != func_spec.name:
+                raise ValueError(f"Function name mismatch: expected {func_spec.name}, got {tc.function.name}")
+            try:
+                output = _parse_json_args(tc.function.arguments or "{}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid function arguments: {tc.function.arguments}")
+                raise e
+            logger.info(f"OpenAI function call response: {output}", extra={"verbose": True})
+        else:
+            logger.warning("Expected function call, got no tool_calls; attempting JSON content fallback")
+            raw_content = message.content or ""
+            json_payload = _extract_json_object(raw_content)
+            output = _parse_json_args(json_payload)
+            logger.info(f"OpenAI JSON content fallback response: {output}", extra={"verbose": True})
 
     in_tok = getattr(completion.usage, "prompt_tokens", 0) or 0
     out_tok = getattr(completion.usage, "completion_tokens", 0) or 0

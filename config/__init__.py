@@ -118,6 +118,11 @@ class SchedulerBridgeConfig:
     packing_eligible: bool = False
     packing_family: str = "mlevolve_script"
     packing_max_slowdown_ratio: float | None = None
+    batch_probe_enabled: bool = True
+    batch_probe_model_key: str | None = None
+    batch_probe_probe_timeout_seconds: int = 45
+    batch_probe_poll_interval_seconds: float = 0.5
+    batch_probe_max_multiplier: int = 32
 
 
 @dataclass
