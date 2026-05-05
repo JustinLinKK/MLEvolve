@@ -124,8 +124,10 @@ class Interpreter:
         self._active_procs: dict[int, subprocess.Popen] = {}
         self.scheduler_api = None
         self.scheduler_cfg = None
+        self._scheduler_service = None
         self._scheduler_job_ids: set[str] = set()
         self._scheduler_jobs_lock = threading.Lock()
+        self._scheduler_legacy_warnings: set[str] = set()
 
     def _format_scheduler_probe_event(self, event: dict[str, Any]) -> str | None:
         event_type = str(event.get("event_type", ""))
@@ -201,6 +203,77 @@ class Interpreter:
         self.scheduler_api = api
         self.scheduler_cfg = scheduler_cfg
 
+    def _available_cpus(self) -> list[int]:
+        try:
+            return sorted(os.sched_getaffinity(0))
+        except AttributeError:
+            return list(range(max(1, os.cpu_count() or 1)))
+
+    def _warn_scheduler_legacy_override(self, field_name: str, legacy_value: Any, scheduler_value: Any) -> None:
+        key = f"{field_name}:{legacy_value!r}:{scheduler_value!r}"
+        if key in self._scheduler_legacy_warnings:
+            return
+        self._scheduler_legacy_warnings.add(key)
+        logger.warning(
+            "Scheduler bridge field '%s' is deprecated for submission defaults; using scheduler settings value %r instead of legacy %r",
+            field_name,
+            scheduler_value,
+            legacy_value,
+        )
+
+    def _scheduler_submission_defaults(self) -> Any:
+        if self.scheduler_api is None:
+            return None
+        return self.scheduler_api.settings.gpu_scheduler.submission_defaults
+
+    def _scheduler_bridge_start_service_enabled(self) -> bool:
+        if self.scheduler_cfg is None:
+            return True
+        return bool(getattr(self.scheduler_cfg, "start_service", True))
+
+    def _ensure_scheduler_service_available(self) -> None:
+        if self.scheduler_api is None:
+            return
+        if self._scheduler_service is not None:
+            return
+        if self._scheduler_bridge_start_service_enabled():
+            return
+        try:
+            if self.scheduler_api.scheduler_service_active():
+                return
+        except Exception as exc:
+            logger.warning("Could not verify external scheduler service heartbeat: %s", exc)
+        logger.warning(
+            "No active external scheduler service detected at %s; starting an in-process scheduler service fallback.",
+            self.scheduler_api.settings.runtime_root,
+        )
+        self._scheduler_service = self.scheduler_api.create_scheduler_service().start(background=True)
+
+    def _normalized_raw_packing_defaults(self, submission_defaults: Any) -> tuple[bool, list[str]]:
+        packing_eligible = bool(getattr(submission_defaults, "packing_eligible", False))
+        configured_allowlist = getattr(submission_defaults, "backend_allowlist", None)
+        if not configured_allowlist:
+            configured_allowlist = ["mps", "cuda_process"]
+        supported_backends = {"mps", "cuda_process"}
+        normalized_allowlist = [str(name) for name in configured_allowlist if str(name) in supported_backends]
+        if packing_eligible and not normalized_allowlist:
+            logger.warning(
+                "Raw MLEvolve script jobs do not support the configured packed backends %r; disabling packing for this submission.",
+                list(configured_allowlist),
+            )
+            return False, []
+        return packing_eligible, normalized_allowlist
+
+    def _stop_managed_scheduler_service(self) -> None:
+        if self._scheduler_service is None:
+            return
+        try:
+            self._scheduler_service.stop()
+        except Exception as exc:
+            logger.warning("Error stopping fallback scheduler service: %s", exc)
+        finally:
+            self._scheduler_service = None
+
     def terminate_all_subprocesses(self) -> None:
         """Terminate all active subprocesses (for graceful Ctrl+C exit)."""
         with self._procs_lock:
@@ -225,6 +298,7 @@ class Interpreter:
                     self.scheduler_api.cancel_job(job_id)
                 except Exception as e:
                     logger.warning(f"Error cancelling scheduler job {job_id}: {e}")
+        self._stop_managed_scheduler_service()
 
     def check_current_status(self):
         """Check current parallel run number."""
@@ -287,7 +361,8 @@ class Interpreter:
     
     def cleanup_session(self, process_id: int = -1) -> None:
         """Clean up resources for the given process slot."""
-        pass
+        if process_id == -1:
+            self._stop_managed_scheduler_service()
 
     def run(self, code: str, id, reset_session=True, working_dir: str | None = None):
         """
@@ -320,6 +395,7 @@ class Interpreter:
         start_time = time.time()
 
         try:
+            self._ensure_scheduler_service_available()
             with self.lock:
                 self.current_parallel_run += 1
                 for idx in range(self.max_parallel_run):
@@ -333,12 +409,14 @@ class Interpreter:
                         raise ValueError("reach max process parallel number")
 
             cpu_number_per_session = max(1, int(self.cpu_number / self.max_parallel_run))
-            avail_cpus = sorted(os.sched_getaffinity(0))
+            avail_cpus = self._available_cpus()
             start = process_id * cpu_number_per_session
             cpu_set = set(avail_cpus[start:start + cpu_number_per_session])
             if not cpu_set:
                 cpu_set = set(avail_cpus)
-            pre_code = "import os\nos.sched_setaffinity(0, {cpu_set})\n".format(cpu_set=cpu_set)
+            pre_code = ""
+            if hasattr(os, "sched_setaffinity"):
+                pre_code = "import os\nos.sched_setaffinity(0, {cpu_set})\n".format(cpu_set=cpu_set)
 
             code = self.isolate_submission_path(code=code, _id=id)
             code = self.isolate_model_path(code=code, _id=id)
@@ -352,18 +430,40 @@ class Interpreter:
             result_dir = run_wd / "working" / "scheduler_results"
             result_path = result_dir / f"result_{id}_{process_id}_{uuid.uuid4().hex}.json"
             scheduler_cfg = self.scheduler_cfg
+            scheduler_settings = self.scheduler_api.settings
+            submission_defaults = scheduler_settings.gpu_scheduler.submission_defaults
+            packing_eligible, packing_backend_allowlist = self._normalized_raw_packing_defaults(submission_defaults)
+            legacy_defaults = {
+                "requires_gpu": True,
+                "estimated_vram_mb": None,
+                "estimated_ram_mb": None,
+                "packing_eligible": False,
+                "packing_family": "mlevolve_script",
+                "packing_max_slowdown_ratio": None,
+                "batch_probe_enabled": True,
+                "batch_probe_model_key": None,
+                "batch_probe_probe_timeout_seconds": 45,
+                "batch_probe_poll_interval_seconds": 0.5,
+                "batch_probe_max_multiplier": 32,
+                "batch_probe_search_mode": "binary",
+            }
+            for field_name, legacy_default in legacy_defaults.items():
+                legacy_value = getattr(scheduler_cfg, field_name, legacy_default) if scheduler_cfg is not None else legacy_default
+                scheduler_value = getattr(submission_defaults, field_name)
+                if legacy_value != legacy_default and legacy_value != scheduler_value:
+                    self._warn_scheduler_legacy_override(field_name, legacy_value, scheduler_value)
             runner_kwargs = {
                 "script_path": str(runfile_path),
                 "working_dir": str(run_wd),
                 "result_path": str(result_path),
                 "timeout": self.timeout,
-                "probe_timeout_seconds": int(getattr(scheduler_cfg, "batch_probe_probe_timeout_seconds", 45)),
-                "probe_poll_interval_seconds": float(getattr(scheduler_cfg, "batch_probe_poll_interval_seconds", 0.5)),
+                "probe_timeout_seconds": int(submission_defaults.batch_probe_probe_timeout_seconds),
+                "probe_poll_interval_seconds": float(submission_defaults.batch_probe_poll_interval_seconds),
             }
-            batch_probe_enabled = bool(getattr(scheduler_cfg, "batch_probe_enabled", True)) and _code_supports_batch_probe(code)
+            batch_probe_enabled = bool(submission_defaults.batch_probe_enabled) and _code_supports_batch_probe(code)
             detected_batch_size = _detect_initial_batch_size(code)
             if detected_batch_size is not None:
-                probe_max_multiplier = max(1, int(getattr(scheduler_cfg, "batch_probe_max_multiplier", 32)))
+                probe_max_multiplier = max(1, int(submission_defaults.batch_probe_max_multiplier))
                 runner_kwargs["batch_size"] = detected_batch_size
                 runner_kwargs["probe_max_batch_size"] = max(
                     detected_batch_size,
@@ -374,16 +474,17 @@ class Interpreter:
                 enabled=batch_probe_enabled,
                 probe_target="localml_scheduler.adapters.mlevolve_runner:probe_mlevolve_script_job" if batch_probe_enabled else None,
                 batch_param_name="batch_size",
-                model_key=getattr(scheduler_cfg, "batch_probe_model_key", None) or f"mlevolve-task:{task_id}",
+                model_key=submission_defaults.batch_probe_model_key or f"mlevolve-task:{task_id}",
+                search_mode=submission_defaults.batch_probe_search_mode,
                 shape_hints={
                     "task_id": task_id,
                     "script_signature": _normalized_mlevolve_script_signature(code),
                 },
             )
             resource_requirements = ResourceRequirements(
-                requires_gpu=bool(getattr(scheduler_cfg, "requires_gpu", True)),
-                estimated_vram_mb=getattr(scheduler_cfg, "estimated_vram_mb", None),
-                estimated_ram_mb=getattr(scheduler_cfg, "estimated_ram_mb", None),
+                requires_gpu=bool(submission_defaults.requires_gpu),
+                estimated_vram_mb=submission_defaults.estimated_vram_mb,
+                estimated_ram_mb=submission_defaults.estimated_ram_mb,
             )
             job = build_mlevolve_job(
                 workflow_id=str(getattr(self.cfg, "exp_name", "mlevolve")),
@@ -395,9 +496,10 @@ class Interpreter:
                 loader_target="localml_scheduler.adapters.mlevolve_runner:load_raw_file",
                 batch_probe=batch_probe,
                 resource_requirements=resource_requirements,
-                packing_family=getattr(scheduler_cfg, "packing_family", "mlevolve_script"),
-                packing_eligible=bool(getattr(scheduler_cfg, "packing_eligible", False)),
-                packing_max_slowdown_ratio=getattr(scheduler_cfg, "packing_max_slowdown_ratio", None),
+                packing_family=submission_defaults.packing_family,
+                packing_eligible=packing_eligible,
+                packing_max_slowdown_ratio=submission_defaults.packing_max_slowdown_ratio,
+                packing_backend_allowlist=packing_backend_allowlist,
                 metadata={"mlevolve_node_id": str(id), "submission_slot": process_id},
             )
             submitted = self.scheduler_api.submit_job(job)
@@ -504,13 +606,15 @@ class Interpreter:
         
         try:
             cpu_number_per_session = max(1, int(self.cpu_number / self.max_parallel_run))
-            avail_cpus = sorted(os.sched_getaffinity(0))
+            avail_cpus = self._available_cpus()
             start = process_id * cpu_number_per_session
             cpu_set = set(avail_cpus[start:start + cpu_number_per_session])
             if not cpu_set:
                 cpu_set = set(avail_cpus)
             logger.info(f"has set process_id:{process_id} to use cpu: {cpu_set}")
-            pre_code = "import os\nos.sched_setaffinity(0, {cpu_set})\n".format(cpu_set=cpu_set)
+            pre_code = ""
+            if hasattr(os, "sched_setaffinity"):
+                pre_code = "import os\nos.sched_setaffinity(0, {cpu_set})\n".format(cpu_set=cpu_set)
 
             code = self.isolate_submission_path(code=code, _id=id)
             code = self.isolate_model_path(code=code, _id=id)

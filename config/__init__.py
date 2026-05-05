@@ -123,6 +123,7 @@ class SchedulerBridgeConfig:
     batch_probe_probe_timeout_seconds: int = 45
     batch_probe_poll_interval_seconds: float = 0.5
     batch_probe_max_multiplier: int = 32
+    batch_probe_search_mode: str = "binary"
 
 
 @dataclass

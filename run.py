@@ -82,7 +82,14 @@ def run():
                 scheduler_service = scheduler_api.create_scheduler_service().start(background=True)
                 logger.info(f"🧭 localml_scheduler service started at {scheduler_settings.runtime_root}")
             else:
-                logger.info(f"🧭 localml_scheduler bridge enabled using external service at {scheduler_settings.runtime_root}")
+                if scheduler_api.scheduler_service_active():
+                    logger.info(f"🧭 localml_scheduler bridge enabled using external service at {scheduler_settings.runtime_root}")
+                else:
+                    scheduler_service = scheduler_api.create_scheduler_service().start(background=True)
+                    logger.warning(
+                        "🧭 No active external localml_scheduler service detected at %s; started an in-process fallback service instead.",
+                        scheduler_settings.runtime_root,
+                    )
             interpreter.attach_scheduler(scheduler_api, scheduler_cfg)
 
         global_step = len(journal)
@@ -204,6 +211,8 @@ def run():
         interpreter.cleanup_session(-1)
     finally:
         signal.signal(signal.SIGTERM, previous_sigterm_handler)
+        if "interpreter" in locals():
+            interpreter.cleanup_session(-1)
         if scheduler_service is not None:
             scheduler_service.stop()
         hardware_monitor.stop()
