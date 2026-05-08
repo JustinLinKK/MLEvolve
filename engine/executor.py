@@ -67,6 +67,23 @@ def _detect_initial_batch_size(code: str) -> int | None:
     except (TypeError, ValueError):
         return None
 
+
+def _build_scheduler_preload_source(scheduler_cfg: Any) -> dict[str, str] | None:
+    if scheduler_cfg is None:
+        return None
+    raw_model_path = getattr(scheduler_cfg, "preload_source_model_path", None)
+    if not raw_model_path:
+        return None
+    resolved_path = str(Path(raw_model_path).resolve())
+    explicit_model_id = getattr(scheduler_cfg, "preload_source_model_id", None)
+    model_id = str(explicit_model_id or f"mlevolve-preload:{sha1(resolved_path.encode('utf-8')).hexdigest()[:16]}")
+    loader_target = getattr(scheduler_cfg, "preload_source_loader_target", None) or "localml_scheduler.adapters.mlevolve_runner:load_raw_file"
+    return {
+        "model_id": model_id,
+        "model_path": resolved_path,
+        "loader_target": str(loader_target),
+    }
+
 @dataclass
 class ExecutionResult(DataClassJsonMixin):
     """
@@ -122,12 +139,11 @@ class Interpreter:
         self.lock = Lock()
         self._procs_lock = threading.Lock()
         self._active_procs: dict[int, subprocess.Popen] = {}
-        self.scheduler_api = None
+        self.scheduler_client = None
         self.scheduler_cfg = None
         self._scheduler_service = None
         self._scheduler_job_ids: set[str] = set()
         self._scheduler_jobs_lock = threading.Lock()
-        self._scheduler_legacy_warnings: set[str] = set()
 
     def _format_scheduler_probe_event(self, event: dict[str, Any]) -> str | None:
         event_type = str(event.get("event_type", ""))
@@ -180,10 +196,10 @@ class Interpreter:
         return None
 
     def _log_scheduler_probe_updates(self, job_id: str, last_event_id: int) -> int:
-        if self.scheduler_api is None:
+        if self.scheduler_client is None:
             return last_event_id
         try:
-            events = self.scheduler_api.store.list_events(job_id=job_id)
+            events = self.scheduler_client.store.list_events(job_id=job_id)
         except Exception as exc:
             logger.debug(f"Skipping scheduler event polling for {job_id}: {exc}")
             return last_event_id
@@ -198,9 +214,9 @@ class Interpreter:
                 logger.info(formatted)
         return next_event_id
 
-    def attach_scheduler(self, api: Any, scheduler_cfg: Any) -> None:
+    def attach_scheduler(self, client: Any, scheduler_cfg: Any) -> None:
         """Route future executions through localml_scheduler."""
-        self.scheduler_api = api
+        self.scheduler_client = client
         self.scheduler_cfg = scheduler_cfg
 
     def _available_cpus(self) -> list[int]:
@@ -209,45 +225,28 @@ class Interpreter:
         except AttributeError:
             return list(range(max(1, os.cpu_count() or 1)))
 
-    def _warn_scheduler_legacy_override(self, field_name: str, legacy_value: Any, scheduler_value: Any) -> None:
-        key = f"{field_name}:{legacy_value!r}:{scheduler_value!r}"
-        if key in self._scheduler_legacy_warnings:
-            return
-        self._scheduler_legacy_warnings.add(key)
-        logger.warning(
-            "Scheduler bridge field '%s' is deprecated for submission defaults; using scheduler settings value %r instead of legacy %r",
-            field_name,
-            scheduler_value,
-            legacy_value,
-        )
-
-    def _scheduler_submission_defaults(self) -> Any:
-        if self.scheduler_api is None:
-            return None
-        return self.scheduler_api.settings.gpu_scheduler.submission_defaults
-
     def _scheduler_bridge_start_service_enabled(self) -> bool:
         if self.scheduler_cfg is None:
             return True
         return bool(getattr(self.scheduler_cfg, "start_service", True))
 
     def _ensure_scheduler_service_available(self) -> None:
-        if self.scheduler_api is None:
+        if self.scheduler_client is None:
             return
         if self._scheduler_service is not None:
             return
         if self._scheduler_bridge_start_service_enabled():
             return
         try:
-            if self.scheduler_api.scheduler_service_active():
+            if self.scheduler_client.scheduler_service_active():
                 return
         except Exception as exc:
             logger.warning("Could not verify external scheduler service heartbeat: %s", exc)
         logger.warning(
             "No active external scheduler service detected at %s; starting an in-process scheduler service fallback.",
-            self.scheduler_api.settings.runtime_root,
+            self.scheduler_client.settings.runtime_root,
         )
-        self._scheduler_service = self.scheduler_api.create_scheduler_service().start(background=True)
+        self._scheduler_service = self.scheduler_client.create_service().start(background=True)
 
     def _normalized_raw_packing_defaults(self, submission_defaults: Any) -> tuple[bool, list[str]]:
         packing_eligible = bool(getattr(submission_defaults, "packing_eligible", False))
@@ -290,12 +289,12 @@ class Interpreter:
                         proc.wait()
             except Exception as e:
                 logger.warning(f"Error terminating subprocess slot {slot_id}: {e}")
-        if self.scheduler_api is not None:
+        if self.scheduler_client is not None:
             with self._scheduler_jobs_lock:
                 job_ids = list(self._scheduler_job_ids)
             for job_id in job_ids:
                 try:
-                    self.scheduler_api.cancel_job(job_id)
+                    self.scheduler_client.cancel(job_id)
                 except Exception as e:
                     logger.warning(f"Error cancelling scheduler job {job_id}: {e}")
         self._stop_managed_scheduler_service()
@@ -376,16 +375,16 @@ class Interpreter:
         Returns:
             ExecutionResult: output, exec_time, exc_type, exc_info, exc_stack.
         """
-        if self.scheduler_api is not None:
+        if self.scheduler_client is not None:
             return self._run_scheduler_job(code=code, id=id, working_dir=working_dir)
         return self._run_subprocess(code=code, id=id, working_dir=working_dir)
 
     def _run_scheduler_job(self, code: str, id, working_dir: str | None = None) -> ExecutionResult:
         """Submit generated code as a localml_scheduler job and wait for its result."""
         from localml_scheduler.adapters.mlevolve import build_mlevolve_job
-        from localml_scheduler.schemas import BatchProbeSpec, ResourceRequirements
+        from localml_scheduler.domain import BatchProbeSpec, PreloadSource, ResourceRequirements, RuntimeProbeSpec
 
-        if self.scheduler_api is None:
+        if self.scheduler_client is None:
             return self._run_subprocess(code=code, id=id, working_dir=working_dir)
 
         logger.info("REPL is submitting code to localml_scheduler")
@@ -430,28 +429,9 @@ class Interpreter:
             result_dir = run_wd / "working" / "scheduler_results"
             result_path = result_dir / f"result_{id}_{process_id}_{uuid.uuid4().hex}.json"
             scheduler_cfg = self.scheduler_cfg
-            scheduler_settings = self.scheduler_api.settings
+            scheduler_settings = self.scheduler_client.settings
             submission_defaults = scheduler_settings.gpu_scheduler.submission_defaults
             packing_eligible, packing_backend_allowlist = self._normalized_raw_packing_defaults(submission_defaults)
-            legacy_defaults = {
-                "requires_gpu": True,
-                "estimated_vram_mb": None,
-                "estimated_ram_mb": None,
-                "packing_eligible": False,
-                "packing_family": "mlevolve_script",
-                "packing_max_slowdown_ratio": None,
-                "batch_probe_enabled": True,
-                "batch_probe_model_key": None,
-                "batch_probe_probe_timeout_seconds": 45,
-                "batch_probe_poll_interval_seconds": 0.5,
-                "batch_probe_max_multiplier": 32,
-                "batch_probe_search_mode": "binary",
-            }
-            for field_name, legacy_default in legacy_defaults.items():
-                legacy_value = getattr(scheduler_cfg, field_name, legacy_default) if scheduler_cfg is not None else legacy_default
-                scheduler_value = getattr(submission_defaults, field_name)
-                if legacy_value != legacy_default and legacy_value != scheduler_value:
-                    self._warn_scheduler_legacy_override(field_name, legacy_value, scheduler_value)
             runner_kwargs = {
                 "script_path": str(runfile_path),
                 "working_dir": str(run_wd),
@@ -481,11 +461,18 @@ class Interpreter:
                     "script_signature": _normalized_mlevolve_script_signature(code),
                 },
             )
+            runtime_probe = RuntimeProbeSpec(
+                enabled=bool(getattr(submission_defaults, "runtime_probe_enabled", False)),
+                probe_target=getattr(submission_defaults, "runtime_probe_target", None),
+                model_key=getattr(submission_defaults, "runtime_probe_model_key", None) or f"mlevolve-task:{task_id}",
+                strategy=getattr(submission_defaults, "runtime_probe_strategy", "epoch_1"),
+            )
             resource_requirements = ResourceRequirements(
                 requires_gpu=bool(submission_defaults.requires_gpu),
                 estimated_vram_mb=submission_defaults.estimated_vram_mb,
                 estimated_ram_mb=submission_defaults.estimated_ram_mb,
             )
+            preload_source_payload = _build_scheduler_preload_source(scheduler_cfg)
             job = build_mlevolve_job(
                 workflow_id=str(getattr(self.cfg, "exp_name", "mlevolve")),
                 baseline_model_id=f"mlevolve-script-{id}",
@@ -495,14 +482,16 @@ class Interpreter:
                 task_type="mlevolve_script",
                 loader_target="localml_scheduler.adapters.mlevolve_runner:load_raw_file",
                 batch_probe=batch_probe,
+                runtime_probe=runtime_probe,
                 resource_requirements=resource_requirements,
                 packing_family=submission_defaults.packing_family,
                 packing_eligible=packing_eligible,
                 packing_max_slowdown_ratio=submission_defaults.packing_max_slowdown_ratio,
                 packing_backend_allowlist=packing_backend_allowlist,
+                preload_source=PreloadSource.from_dict(preload_source_payload),
                 metadata={"mlevolve_node_id": str(id), "submission_slot": process_id},
             )
-            submitted = self.scheduler_api.submit_job(job)
+            submitted = self.scheduler_client.submit(job)
             job_id = submitted.job_id
             with self._scheduler_jobs_lock:
                 self._scheduler_job_ids.add(job_id)
@@ -516,13 +505,13 @@ class Interpreter:
             final_job = None
             last_probe_event_id = 0
             while time.time() < deadline:
-                final_job = self.scheduler_api.get_job(job_id)
+                final_job = self.scheduler_client.inspect(job_id)
                 last_probe_event_id = self._log_scheduler_probe_updates(job_id, last_probe_event_id)
                 if final_job is not None and final_job.status.is_terminal:
                     break
                 time.sleep(poll_interval)
             else:
-                self.scheduler_api.cancel_job(job_id)
+                self.scheduler_client.cancel(job_id)
                 exec_time = time.time() - start_time
                 return ExecutionResult(
                     term_out=[

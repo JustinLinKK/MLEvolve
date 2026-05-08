@@ -1,15 +1,10 @@
 from dataclasses import dataclass
 
-from llm import compile_prompt_to_md
-
-from engine.agent_search import AgentSearch as Agent
-from engine.executor import Interpreter
-from engine.search_node import Journal
-from engine.search_node import SearchNode
-from omegaconf import OmegaConf
-from rich.status import Status
-from config import load_task_desc, prep_agent_workspace, save_run, _load_cfg, prep_cfg
-from pathlib import Path
+try:
+    from llm import compile_prompt_to_md
+except ModuleNotFoundError:  # pragma: no cover - optional dependency for runtime experiments
+    def compile_prompt_to_md(*args, **kwargs):
+        raise ModuleNotFoundError("Optional dependency 'llm' is required for prompt compilation features.")
 
 @dataclass
 class Solution:
@@ -26,6 +21,12 @@ class Experiment:
             goal (str): Description of the goal of the task.
             eval (str | None, optional): Optional description of the preferred way for the agent to evaluate its solutions.
         """
+        from config import _load_cfg, load_task_desc, prep_agent_workspace, prep_cfg
+        from engine.agent_search import AgentSearch as Agent
+        from engine.executor import Interpreter
+        from engine.search_node import Journal
+        from omegaconf import OmegaConf
+        from rich.status import Status
 
         _cfg = _load_cfg(use_cli_args=False)
         _cfg.data_dir = data_dir
@@ -49,6 +50,8 @@ class Experiment:
         )
 
     def run(self, steps: int) -> Solution:
+        from config import save_run
+
         for _i in range(steps):
             self.agent.step(exec_callback=self.interpreter.run)
             save_run(self.cfg, self.journal)

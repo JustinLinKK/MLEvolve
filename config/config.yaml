@@ -48,17 +48,9 @@ scheduler:
   start_service: true
   wait_poll_interval_seconds: 1
   wait_timeout_seconds: null
-  requires_gpu: true
-  estimated_vram_mb: null
-  estimated_ram_mb: null
-  packing_eligible: false   # keep raw MLEvolve scripts exclusive unless explicitly profiled
-  packing_family: mlevolve_script
-  packing_max_slowdown_ratio: null
-  batch_probe_enabled: true
-  batch_probe_model_key: null
-  batch_probe_probe_timeout_seconds: 45
-  batch_probe_poll_interval_seconds: 0.5
-  batch_probe_max_multiplier: 32
+  preload_source_model_id: null
+  preload_source_model_path: null
+  preload_source_loader_target: null  # null = use raw-byte warm-only preload for the shared startpoint
 
 # ============================================================
 #  Agent config

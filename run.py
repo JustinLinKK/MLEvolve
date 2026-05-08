@@ -18,8 +18,8 @@ from engine.coldstart import build_guidance_description
 from utils.logging_config import setup_logging
 from utils.hardware_monitor import HardwareMonitor
 import torch
-from localml_scheduler.api import LocalMLSchedulerAPI
-from localml_scheduler.settings import SchedulerSettings
+from localml_scheduler.client import SchedulerClient
+from localml_scheduler.config import SchedulerSettings
 
 
 def run():
@@ -77,20 +77,20 @@ def run():
                 scheduler_settings_path,
                 runtime_root=scheduler_runtime_root,
             )
-            scheduler_api = LocalMLSchedulerAPI(scheduler_settings)
+            scheduler_client = SchedulerClient(scheduler_settings)
             if bool(getattr(scheduler_cfg, "start_service", True)):
-                scheduler_service = scheduler_api.create_scheduler_service().start(background=True)
+                scheduler_service = scheduler_client.create_service().start(background=True)
                 logger.info(f"🧭 localml_scheduler service started at {scheduler_settings.runtime_root}")
             else:
-                if scheduler_api.scheduler_service_active():
+                if scheduler_client.scheduler_service_active():
                     logger.info(f"🧭 localml_scheduler bridge enabled using external service at {scheduler_settings.runtime_root}")
                 else:
-                    scheduler_service = scheduler_api.create_scheduler_service().start(background=True)
+                    scheduler_service = scheduler_client.create_service().start(background=True)
                     logger.warning(
                         "🧭 No active external localml_scheduler service detected at %s; started an in-process fallback service instead.",
                         scheduler_settings.runtime_root,
                     )
-            interpreter.attach_scheduler(scheduler_api, scheduler_cfg)
+            interpreter.attach_scheduler(scheduler_client, scheduler_cfg)
 
         global_step = len(journal)
         status = Status("[green]Generating code...")

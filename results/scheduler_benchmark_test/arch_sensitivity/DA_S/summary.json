@@ -1,0 +1,73 @@
+{
+  "config_id": "DA_S",
+  "mode": "serial_basic",
+  "backend": "exclusive",
+  "batch_search": "off",
+  "vram_budget_gib": 30.0,
+  "target_vram_fraction": 0.97,
+  "trace_path": "/workspaces/MLEvolve/scheduler_benchmark_test/arch_sensitivity_inputs/cross_arch_pair.jsonl",
+  "n_jobs": 2,
+  "by_status": {
+    "COMPLETED": 2
+  },
+  "treat_elapsed_s": 25.984,
+  "n_pack_dispatches": 0,
+  "n_exclusive_dispatches": 2,
+  "pack_rate": 0.0,
+  "pack_pair_keys": {},
+  "packed_group_size_counts": {},
+  "placement_mode_counts": {
+    "exclusive": 2
+  },
+  "packing_policy": {
+    "max_packed_jobs_per_gpu": 2
+  },
+  "cache_policy": {
+    "warm_queue_policy": "top_k",
+    "warm_queue_top_k": 2,
+    "entry_capacity": 4,
+    "max_ram_percent": 0.1,
+    "memory_budget_gib": 8.0
+  },
+  "cache_stats": {},
+  "cache_event_counts": {
+    "cache_loaded": 2,
+    "cache_touched": 63,
+    "cache_hit": 2
+  },
+  "optimizer_thresholds": {
+    "binary_range_up": 16,
+    "binary_range_down": 8,
+    "power_of_two_range_up": 1,
+    "power_of_two_range_down": 1
+  },
+  "batch_probe_event_counts": {},
+  "per_job": [
+    {
+      "job_id": "bb2764ab-1879-4d06-8112-53f8acf30cd1",
+      "step_idx": 0,
+      "agent_used": "draft",
+      "model_class": "CNN",
+      "model_name": "convnext_base",
+      "bs": 16,
+      "resolved_batch_size": null,
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T23:41:28.788719+00:00",
+      "finished_at": "2026-05-07T23:41:42.039005+00:00",
+      "elapsed_s": 13.25
+    },
+    {
+      "job_id": "9c3506a5-bf5d-46d5-b400-f5aedfa4f954",
+      "step_idx": 1,
+      "agent_used": "improve",
+      "model_class": "Transformer",
+      "model_name": "vit_base_patch16_224",
+      "bs": 16,
+      "resolved_batch_size": null,
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T23:41:42.579999+00:00",
+      "finished_at": "2026-05-07T23:41:52.390376+00:00",
+      "elapsed_s": 9.81
+    }
+  ]
+}

@@ -112,18 +112,9 @@ class SchedulerBridgeConfig:
     start_service: bool = True
     wait_poll_interval_seconds: float = 1.0
     wait_timeout_seconds: int | None = None
-    requires_gpu: bool = True
-    estimated_vram_mb: int | None = None
-    estimated_ram_mb: int | None = None
-    packing_eligible: bool = False
-    packing_family: str = "mlevolve_script"
-    packing_max_slowdown_ratio: float | None = None
-    batch_probe_enabled: bool = True
-    batch_probe_model_key: str | None = None
-    batch_probe_probe_timeout_seconds: int = 45
-    batch_probe_poll_interval_seconds: float = 0.5
-    batch_probe_max_multiplier: int = 32
-    batch_probe_search_mode: str = "binary"
+    preload_source_model_id: str | None = None
+    preload_source_model_path: str | None = None
+    preload_source_loader_target: str | None = None
 
 
 @dataclass

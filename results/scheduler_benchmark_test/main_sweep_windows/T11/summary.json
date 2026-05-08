@@ -1,0 +1,498 @@
+{
+  "config_id": "T11",
+  "mode": "torch_mp_pool",
+  "backend": "stream",
+  "batch_search": "power_of_two",
+  "n_workers": 2,
+  "trace_path": "/workspaces/MLEvolve/scheduler_benchmark_test/workload_trace_W3.jsonl",
+  "n_jobs": 20,
+  "by_status": {
+    "COMPLETED": 20,
+    "FAILED": 0
+  },
+  "treat_elapsed_s": 749.146,
+  "per_job": [
+    {
+      "step_idx": 1,
+      "agent_used": "improve",
+      "model_class": "CNN",
+      "model_name": "efficientnet_b3",
+      "bs": 32,
+      "resolved_batch_size": 32,
+      "status": "COMPLETED",
+      "elapsed_s": 60.464
+    },
+    {
+      "step_idx": 0,
+      "agent_used": "debug",
+      "model_class": "Mixer",
+      "model_name": "resmlp_24_224",
+      "bs": 16,
+      "resolved_batch_size": 16,
+      "status": "COMPLETED",
+      "elapsed_s": 65.185
+    },
+    {
+      "step_idx": 2,
+      "agent_used": "improve",
+      "model_class": "Mixer",
+      "model_name": "mixer_b16_224",
+      "bs": 32,
+      "resolved_batch_size": 32,
+      "status": "COMPLETED",
+      "elapsed_s": 65.236
+    },
+    {
+      "step_idx": 3,
+      "agent_used": "improve",
+      "model_class": "CNN",
+      "model_name": "efficientnet_b3",
+      "bs": 32,
+      "resolved_batch_size": 32,
+      "status": "COMPLETED",
+      "elapsed_s": 64.955
+    },
+    {
+      "step_idx": 4,
+      "agent_used": "improve",
+      "model_class": "Transformer",
+      "model_name": "vit_base_patch16_224",
+      "bs": 16,
+      "resolved_batch_size": 16,
+      "status": "COMPLETED",
+      "elapsed_s": 76.391
+    },
+    {
+      "step_idx": 5,
+      "agent_used": "evolution",
+      "model_class": "Transformer",
+      "model_name": "deit_base_patch16_224",
+      "bs": 32,
+      "resolved_batch_size": 32,
+      "status": "COMPLETED",
+      "elapsed_s": 72.857
+    },
+    {
+      "step_idx": 6,
+      "agent_used": "draft",
+      "model_class": "Mixer",
+      "model_name": "mixer_b16_224",
+      "bs": 48,
+      "resolved_batch_size": 48,
+      "status": "COMPLETED",
+      "elapsed_s": 65.371
+    },
+    {
+      "step_idx": 7,
+      "agent_used": "improve",
+      "model_class": "Mixer",
+      "model_name": "gmlp_s16_224",
+      "bs": 16,
+      "resolved_batch_size": 16,
+      "status": "COMPLETED",
+      "elapsed_s": 66.298
+    },
+    {
+      "step_idx": 8,
+      "agent_used": "improve",
+      "model_class": "CNN",
+      "model_name": "resnet101",
+      "bs": 24,
+      "resolved_batch_size": 24,
+      "status": "COMPLETED",
+      "elapsed_s": 63.064
+    },
+    {
+      "step_idx": 9,
+      "agent_used": "fusion",
+      "model_class": "Transformer",
+      "model_name": "swin_small_patch4_window7_224",
+      "bs": 16,
+      "resolved_batch_size": 16,
+      "status": "COMPLETED",
+      "elapsed_s": 79.956
+    },
+    {
+      "step_idx": 10,
+      "agent_used": "draft",
+      "model_class": "Mixer",
+      "model_name": "gmlp_s16_224",
+      "bs": 32,
+      "resolved_batch_size": 32,
+      "status": "COMPLETED",
+      "elapsed_s": 60.016
+    },
+    {
+      "step_idx": 11,
+      "agent_used": "draft",
+      "model_class": "Transformer",
+      "model_name": "vit_base_patch16_224",
+      "bs": 32,
+      "resolved_batch_size": 32,
+      "status": "COMPLETED",
+      "elapsed_s": 71.929
+    },
+    {
+      "step_idx": 12,
+      "agent_used": "improve",
+      "model_class": "CNN",
+      "model_name": "convnext_base",
+      "bs": 32,
+      "resolved_batch_size": 32,
+      "status": "COMPLETED",
+      "elapsed_s": 94.785
+    },
+    {
+      "step_idx": 13,
+      "agent_used": "improve",
+      "model_class": "Transformer",
+      "model_name": "swin_small_patch4_window7_224",
+      "bs": 32,
+      "resolved_batch_size": 32,
+      "status": "COMPLETED",
+      "elapsed_s": 72.437
+    },
+    {
+      "step_idx": 15,
+      "agent_used": "improve",
+      "model_class": "Mixer",
+      "model_name": "mixer_b16_224",
+      "bs": 16,
+      "resolved_batch_size": 16,
+      "status": "COMPLETED",
+      "elapsed_s": 70.039
+    },
+    {
+      "step_idx": 14,
+      "agent_used": "evolution",
+      "model_class": "CNN",
+      "model_name": "convnext_base",
+      "bs": 24,
+      "resolved_batch_size": 24,
+      "status": "COMPLETED",
+      "elapsed_s": 92.315
+    },
+    {
+      "step_idx": 16,
+      "agent_used": "debug",
+      "model_class": "Transformer",
+      "model_name": "vit_base_patch16_224",
+      "bs": 16,
+      "resolved_batch_size": 16,
+      "status": "COMPLETED",
+      "elapsed_s": 77.112
+    },
+    {
+      "step_idx": 17,
+      "agent_used": "fusion",
+      "model_class": "Transformer",
+      "model_name": "vit_base_patch16_224",
+      "bs": 32,
+      "resolved_batch_size": 32,
+      "status": "COMPLETED",
+      "elapsed_s": 72.605
+    },
+    {
+      "step_idx": 18,
+      "agent_used": "improve",
+      "model_class": "CNN",
+      "model_name": "convnext_base",
+      "bs": 24,
+      "resolved_batch_size": 24,
+      "status": "COMPLETED",
+      "elapsed_s": 99.469
+    },
+    {
+      "step_idx": 19,
+      "agent_used": "evolution",
+      "model_class": "CNN",
+      "model_name": "convnext_base",
+      "bs": 32,
+      "resolved_batch_size": 32,
+      "status": "COMPLETED",
+      "elapsed_s": 98.308
+    }
+  ],
+  "results": [
+    {
+      "worker_id": 1,
+      "step_idx": 1,
+      "rc": 0,
+      "elapsed_s": 60.464,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778174505.528583,
+      "metadata": {
+        "agent_used": "improve",
+        "model_class": "CNN",
+        "model_name": "efficientnet_b3",
+        "bs": 32
+      }
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 0,
+      "rc": 0,
+      "elapsed_s": 65.185,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778174510.243033,
+      "metadata": {
+        "agent_used": "debug",
+        "model_class": "Mixer",
+        "model_name": "resmlp_24_224",
+        "bs": 16
+      }
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 2,
+      "rc": 0,
+      "elapsed_s": 65.236,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778174570.7652504,
+      "metadata": {
+        "agent_used": "improve",
+        "model_class": "Mixer",
+        "model_name": "mixer_b16_224",
+        "bs": 32
+      }
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 3,
+      "rc": 0,
+      "elapsed_s": 64.955,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778174575.1989675,
+      "metadata": {
+        "agent_used": "improve",
+        "model_class": "CNN",
+        "model_name": "efficientnet_b3",
+        "bs": 32
+      }
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 4,
+      "rc": 0,
+      "elapsed_s": 76.391,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778174647.1570072,
+      "metadata": {
+        "agent_used": "improve",
+        "model_class": "Transformer",
+        "model_name": "vit_base_patch16_224",
+        "bs": 16
+      }
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 5,
+      "rc": 0,
+      "elapsed_s": 72.857,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778174648.0560694,
+      "metadata": {
+        "agent_used": "evolution",
+        "model_class": "Transformer",
+        "model_name": "deit_base_patch16_224",
+        "bs": 32
+      }
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 6,
+      "rc": 0,
+      "elapsed_s": 65.371,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778174712.5279016,
+      "metadata": {
+        "agent_used": "draft",
+        "model_class": "Mixer",
+        "model_name": "mixer_b16_224",
+        "bs": 48
+      }
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 7,
+      "rc": 0,
+      "elapsed_s": 66.298,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778174714.3540828,
+      "metadata": {
+        "agent_used": "improve",
+        "model_class": "Mixer",
+        "model_name": "gmlp_s16_224",
+        "bs": 16
+      }
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 8,
+      "rc": 0,
+      "elapsed_s": 63.064,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778174775.592466,
+      "metadata": {
+        "agent_used": "improve",
+        "model_class": "CNN",
+        "model_name": "resnet101",
+        "bs": 24
+      }
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 9,
+      "rc": 0,
+      "elapsed_s": 79.956,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778174794.3100266,
+      "metadata": {
+        "agent_used": "fusion",
+        "model_class": "Transformer",
+        "model_name": "swin_small_patch4_window7_224",
+        "bs": 16
+      }
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 10,
+      "rc": 0,
+      "elapsed_s": 60.016,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778174835.608835,
+      "metadata": {
+        "agent_used": "draft",
+        "model_class": "Mixer",
+        "model_name": "gmlp_s16_224",
+        "bs": 32
+      }
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 11,
+      "rc": 0,
+      "elapsed_s": 71.929,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778174866.2389426,
+      "metadata": {
+        "agent_used": "draft",
+        "model_class": "Transformer",
+        "model_name": "vit_base_patch16_224",
+        "bs": 32
+      }
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 12,
+      "rc": 0,
+      "elapsed_s": 94.785,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778174930.3937895,
+      "metadata": {
+        "agent_used": "improve",
+        "model_class": "CNN",
+        "model_name": "convnext_base",
+        "bs": 32
+      }
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 13,
+      "rc": 0,
+      "elapsed_s": 72.437,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778174938.6760418,
+      "metadata": {
+        "agent_used": "improve",
+        "model_class": "Transformer",
+        "model_name": "swin_small_patch4_window7_224",
+        "bs": 32
+      }
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 15,
+      "rc": 0,
+      "elapsed_s": 70.039,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778175008.714926,
+      "metadata": {
+        "agent_used": "improve",
+        "model_class": "Mixer",
+        "model_name": "mixer_b16_224",
+        "bs": 16
+      }
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 14,
+      "rc": 0,
+      "elapsed_s": 92.315,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778175022.7090695,
+      "metadata": {
+        "agent_used": "evolution",
+        "model_class": "CNN",
+        "model_name": "convnext_base",
+        "bs": 24
+      }
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 16,
+      "rc": 0,
+      "elapsed_s": 77.112,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778175085.827451,
+      "metadata": {
+        "agent_used": "debug",
+        "model_class": "Transformer",
+        "model_name": "vit_base_patch16_224",
+        "bs": 16
+      }
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 17,
+      "rc": 0,
+      "elapsed_s": 72.605,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778175095.3144345,
+      "metadata": {
+        "agent_used": "fusion",
+        "model_class": "Transformer",
+        "model_name": "vit_base_patch16_224",
+        "bs": 32
+      }
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 18,
+      "rc": 0,
+      "elapsed_s": 99.469,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778175185.296612,
+      "metadata": {
+        "agent_used": "improve",
+        "model_class": "CNN",
+        "model_name": "convnext_base",
+        "bs": 24
+      }
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 19,
+      "rc": 0,
+      "elapsed_s": 98.308,
+      "stderr_tail_chars": 0,
+      "completed_at": 1778175193.6231585,
+      "metadata": {
+        "agent_used": "evolution",
+        "model_class": "CNN",
+        "model_name": "convnext_base",
+        "bs": 32
+      }
+    }
+  ]
+}
