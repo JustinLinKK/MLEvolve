@@ -1,0 +1,189 @@
+{
+  "config_id": "T2",
+  "mode": "parallel_default",
+  "backend": "stream",
+  "batch_search": "off",
+  "vram_budget_gib": 14.0,
+  "trace_path": "/tmp/sweep_2026-05-06/workload_trace.jsonl",
+  "n_jobs": 20,
+  "by_status": {
+    "COMPLETED": 20
+  },
+  "treat_elapsed_s": 134.24,
+  "n_pack_dispatches": 18,
+  "n_exclusive_dispatches": 2,
+  "pack_rate": 0.9,
+  "pack_pair_keys": {
+    "986baccf-0cdc-4dc1-97f8-86b56a43beb1+cf8f8c2f-6930-4602-b922-a4f5d77a4aae": 2,
+    "1d3589bd-5874-45c9-8d8c-9b981a81ecce+cd66dd8e-7b58-420a-9e19-e2f69ba9c8ba": 2,
+    "7fcee8c7-5fe1-45de-ac7d-4bfdc7dd4dcf+da0afb7b-f072-4f5c-873c-88f99dd6abab": 2,
+    "4ce6672e-a949-4c66-ac2e-c0e3abbb3ef4+8eccca37-05ab-4721-81e2-a20aa29f8a95": 2,
+    "939408b0-b15a-41d9-8502-e6b028b948c9+cfae328e-91af-4a60-9d77-8d8e25df5b3b": 2,
+    "90df9808-e93b-41a1-98f7-6aafc0936ac3+eb232f1d-2e26-4bdb-8d56-f09f77c5a91c": 2,
+    "2bd0ae2b-bc0e-4b27-a8fe-0ea96a293462+bcec9f89-f124-4f44-b9fd-22dcd75f09ab": 2,
+    "5d29639e-1920-4724-8981-d31cedb3717e+9f108485-84f7-4f0c-8744-b38e3ff2ed6c": 2,
+    "401d8013-a67a-4751-9622-73d48b45a8e7+e46558e3-6861-43c4-8801-c2f8aebbcd56": 2
+  },
+  "per_job": [
+    {
+      "job_id": "cd66dd8e-7b58-420a-9e19-e2f69ba9c8ba",
+      "step_idx": 0,
+      "agent_used": "draft",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:15.123963+00:00",
+      "finished_at": "2026-05-07T01:26:20.258182+00:00"
+    },
+    {
+      "job_id": "986baccf-0cdc-4dc1-97f8-86b56a43beb1",
+      "step_idx": 1,
+      "agent_used": "draft",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:14.506603+00:00",
+      "finished_at": "2026-05-07T01:27:12.015787+00:00"
+    },
+    {
+      "job_id": "cf8f8c2f-6930-4602-b922-a4f5d77a4aae",
+      "step_idx": 2,
+      "agent_used": "draft",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:14.507120+00:00",
+      "finished_at": "2026-05-07T01:27:45.016732+00:00"
+    },
+    {
+      "job_id": "1d3589bd-5874-45c9-8d8c-9b981a81ecce",
+      "step_idx": 3,
+      "agent_used": "improve",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:15.124536+00:00",
+      "finished_at": "2026-05-07T01:26:20.152253+00:00"
+    },
+    {
+      "job_id": "cfae328e-91af-4a60-9d77-8d8e25df5b3b",
+      "step_idx": 4,
+      "agent_used": "improve",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:31.412478+00:00",
+      "finished_at": "2026-05-07T01:26:35.936899+00:00"
+    },
+    {
+      "job_id": "90df9808-e93b-41a1-98f7-6aafc0936ac3",
+      "step_idx": 5,
+      "agent_used": "improve",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:36.726217+00:00",
+      "finished_at": "2026-05-07T01:26:41.406064+00:00"
+    },
+    {
+      "job_id": "da0afb7b-f072-4f5c-873c-88f99dd6abab",
+      "step_idx": 6,
+      "agent_used": "improve",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:20.513605+00:00",
+      "finished_at": "2026-05-07T01:26:25.742380+00:00"
+    },
+    {
+      "job_id": "2bd0ae2b-bc0e-4b27-a8fe-0ea96a293462",
+      "step_idx": 7,
+      "agent_used": "improve",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:41.851318+00:00",
+      "finished_at": "2026-05-07T01:26:46.952754+00:00"
+    },
+    {
+      "job_id": "939408b0-b15a-41d9-8502-e6b028b948c9",
+      "step_idx": 8,
+      "agent_used": "improve",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:31.413121+00:00",
+      "finished_at": "2026-05-07T01:26:36.504383+00:00"
+    },
+    {
+      "job_id": "7fcee8c7-5fe1-45de-ac7d-4bfdc7dd4dcf",
+      "step_idx": 9,
+      "agent_used": "improve",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:20.514247+00:00",
+      "finished_at": "2026-05-07T01:26:25.740786+00:00"
+    },
+    {
+      "job_id": "4ce6672e-a949-4c66-ac2e-c0e3abbb3ef4",
+      "step_idx": 10,
+      "agent_used": "improve",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:25.966670+00:00",
+      "finished_at": "2026-05-07T01:26:31.053778+00:00"
+    },
+    {
+      "job_id": "e46558e3-6861-43c4-8801-c2f8aebbcd56",
+      "step_idx": 11,
+      "agent_used": "improve",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:52.227889+00:00",
+      "finished_at": "2026-05-07T01:26:56.821710+00:00"
+    },
+    {
+      "job_id": "8eccca37-05ab-4721-81e2-a20aa29f8a95",
+      "step_idx": 12,
+      "agent_used": "improve",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:25.967467+00:00",
+      "finished_at": "2026-05-07T01:26:31.098436+00:00"
+    },
+    {
+      "job_id": "eb232f1d-2e26-4bdb-8d56-f09f77c5a91c",
+      "step_idx": 13,
+      "agent_used": "evolution",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:36.727021+00:00",
+      "finished_at": "2026-05-07T01:26:41.605808+00:00"
+    },
+    {
+      "job_id": "e33ab287-c30d-4005-a8b7-448b01afe4bd",
+      "step_idx": 14,
+      "agent_used": "evolution",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:27:11.954623+00:00",
+      "finished_at": "2026-05-07T01:28:05.443173+00:00"
+    },
+    {
+      "job_id": "a97e6755-e08c-4639-b88f-e3dca9e05cfa",
+      "step_idx": 15,
+      "agent_used": "evolution",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:28:05.896391+00:00",
+      "finished_at": "2026-05-07T01:28:26.779212+00:00"
+    },
+    {
+      "job_id": "5d29639e-1920-4724-8981-d31cedb3717e",
+      "step_idx": 16,
+      "agent_used": "debug",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:47.156586+00:00",
+      "finished_at": "2026-05-07T01:26:51.900418+00:00"
+    },
+    {
+      "job_id": "401d8013-a67a-4751-9622-73d48b45a8e7",
+      "step_idx": 17,
+      "agent_used": "debug",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:52.228625+00:00",
+      "finished_at": "2026-05-07T01:27:11.760128+00:00"
+    },
+    {
+      "job_id": "9f108485-84f7-4f0c-8744-b38e3ff2ed6c",
+      "step_idx": 18,
+      "agent_used": "fusion",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:47.157255+00:00",
+      "finished_at": "2026-05-07T01:26:51.961881+00:00"
+    },
+    {
+      "job_id": "bcec9f89-f124-4f44-b9fd-22dcd75f09ab",
+      "step_idx": 19,
+      "agent_used": "fusion",
+      "status": "COMPLETED",
+      "started_at": "2026-05-07T01:26:41.851942+00:00",
+      "finished_at": "2026-05-07T01:26:46.569976+00:00"
+    }
+  ]
+}

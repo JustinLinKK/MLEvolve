@@ -1,0 +1,254 @@
+{
+  "config_id": "T10",
+  "mode": "torch_mp_pool",
+  "backend": "stream",
+  "batch_search": "binary",
+  "n_workers": 2,
+  "trace_path": "/tmp/sweep_2026-05-06/workload_trace.jsonl",
+  "n_jobs": 20,
+  "n_completed": 20,
+  "n_failed": 0,
+  "treat_elapsed_s": 464.589,
+  "results": [
+    {
+      "worker_id": 1,
+      "step_idx": 0,
+      "rc": 0,
+      "elapsed_s": 33.582,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120159.7850635
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 1,
+      "rc": 0,
+      "elapsed_s": 56.324,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120182.5324588
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 3,
+      "rc": 0,
+      "elapsed_s": 42.114,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120224.6465948
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 4,
+      "rc": 0,
+      "elapsed_s": 20.731,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120245.377623
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 2,
+      "rc": 0,
+      "elapsed_s": 90.244,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120250.0297005
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 5,
+      "rc": 0,
+      "elapsed_s": 33.417,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120278.7944484
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 7,
+      "rc": 0,
+      "elapsed_s": 34.756,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120313.550332
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 6,
+      "rc": 0,
+      "elapsed_s": 67.063,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120317.0931504
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 8,
+      "rc": 0,
+      "elapsed_s": 40.325,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120353.875622
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 9,
+      "rc": 0,
+      "elapsed_s": 65.939,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120383.0319312
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 11,
+      "rc": 0,
+      "elapsed_s": 61.525,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120444.5576127
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 10,
+      "rc": 0,
+      "elapsed_s": 101.506,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120455.381639
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 13,
+      "rc": 0,
+      "elapsed_s": 23.028,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120478.4094372
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 12,
+      "rc": 0,
+      "elapsed_s": 39.42,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120483.9779625
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 15,
+      "rc": 0,
+      "elapsed_s": 24.24,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120508.2177982
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 14,
+      "rc": 0,
+      "elapsed_s": 58.262,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120536.6717303
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 17,
+      "rc": 0,
+      "elapsed_s": 18.109,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120554.7808368
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 16,
+      "rc": 0,
+      "elapsed_s": 50.828,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120559.045495
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 18,
+      "rc": 0,
+      "elapsed_s": 19.621,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120574.4015737
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 19,
+      "rc": 0,
+      "elapsed_s": 31.093,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778120590.1380906
+    }
+  ]
+}

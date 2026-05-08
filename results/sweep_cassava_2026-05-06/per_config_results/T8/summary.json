@@ -1,0 +1,254 @@
+{
+  "config_id": "T8",
+  "mode": "torch_mp_pool",
+  "backend": "mps",
+  "batch_search": "binary",
+  "n_workers": 2,
+  "trace_path": "/tmp/sweep_2026-05-06/workload_trace.jsonl",
+  "n_jobs": 20,
+  "n_completed": 20,
+  "n_failed": 0,
+  "treat_elapsed_s": 490.493,
+  "results": [
+    {
+      "worker_id": 1,
+      "step_idx": 0,
+      "rc": 0,
+      "elapsed_s": 38.621,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119163.4996083
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 1,
+      "rc": 0,
+      "elapsed_s": 56.272,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119181.1505704
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 3,
+      "rc": 0,
+      "elapsed_s": 45.835,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119226.9863749
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 4,
+      "rc": 0,
+      "elapsed_s": 22.235,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119249.2212696
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 2,
+      "rc": 0,
+      "elapsed_s": 90.274,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119253.7736466
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 5,
+      "rc": 0,
+      "elapsed_s": 31.714,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119280.9349053
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 7,
+      "rc": 0,
+      "elapsed_s": 31.651,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119312.5857122
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 6,
+      "rc": 0,
+      "elapsed_s": 74.558,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119328.3315148
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 8,
+      "rc": 0,
+      "elapsed_s": 40.776,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119353.3621604
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 9,
+      "rc": 0,
+      "elapsed_s": 74.669,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119403.001054
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 11,
+      "rc": 0,
+      "elapsed_s": 56.466,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119459.466709
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 10,
+      "rc": 0,
+      "elapsed_s": 109.87,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119463.2318847
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 13,
+      "rc": 0,
+      "elapsed_s": 21.04,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119484.271617
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 12,
+      "rc": 0,
+      "elapsed_s": 45.457,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119504.9239554
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 15,
+      "rc": 0,
+      "elapsed_s": 26.027,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119530.9514847
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 14,
+      "rc": 0,
+      "elapsed_s": 58.236,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119542.5077565
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 17,
+      "rc": 0,
+      "elapsed_s": 16.987,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119559.4944127
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 18,
+      "rc": 0,
+      "elapsed_s": 19.759,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119579.2540069
+    },
+    {
+      "worker_id": 1,
+      "step_idx": 16,
+      "rc": 0,
+      "elapsed_s": 58.452,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119589.4038975
+    },
+    {
+      "worker_id": 0,
+      "step_idx": 19,
+      "rc": 0,
+      "elapsed_s": 35.46,
+      "stderr_tail_chars": 0,
+      "probe": {
+        "mode": "binary",
+        "executed": false
+      },
+      "completed_at": 1778119614.7140808
+    }
+  ]
+}
