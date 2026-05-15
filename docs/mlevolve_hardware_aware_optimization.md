@@ -4,6 +4,7 @@ This report describes how MLEvolve can become a hardware-aware training optimize
 
 1. the scheduler graph MCP database, which records empirical runtime, batch, VRAM, backend, and job-profile evidence from actual runs
 2. a Qdrant-backed hardware feature vector database, which records curated accelerator capabilities, architecture details, and coding guidance
+3. an optional Redis read-through cache, which keeps hot derived MCP responses in RAM so repeated agent calls avoid unnecessary graph, vector, and embedding work
 
 The goal is not to replace validation-metric search. The goal is to make every generated training program more feasible, faster to evaluate, and easier for later agents to improve.
 
@@ -41,6 +42,12 @@ Hardware feature vector database:
 - stores architecture features, framework usage guidance, precision policy, memory-transfer patterns, checkpointing practices, and source metadata
 - is most useful during cold start, before the graph has enough run-specific evidence
 
+Redis read-through cache:
+
+- answers repeated MCP context requests quickly from RAM
+- should cache derived context payloads, not replace the graph database or Qdrant
+- is most useful once hardware-aware context is requested before every draft, improve, debug, evolution, fusion, and aggregation prompt
+
 Together they produce a stronger `HardwareOptimizationBrief`:
 
 ```text
@@ -48,8 +55,83 @@ HardwareOptimizationBrief =
   scheduler graph evidence from actual runs
   + vector-retrieved hardware capability notes
   + current hardware and toolkit limits
+  + Redis-cached hot context when available
   + fallback-safe coding recommendations
 ```
+
+## Redis Read-Through Cache
+
+Redis should sit in front of the graph and vector databases as a hot derived-context cache:
+
+```text
+Agent or MCP caller
+  -> Redis read-through cache
+  -> scheduler graph MCP database and Qdrant on cache miss
+  -> compact HardwareOptimizationBrief
+```
+
+The source of truth remains:
+
+- graph database or SQLite fallback for scheduler run evidence
+- Qdrant for hardware feature vectors
+- scheduler config for current limits and backend policy
+
+Redis should cache the result of expensive or frequently repeated reads:
+
+- `get_hardware_context(hardware_key)`
+- `get_job_design_context(candidate_hash)`
+- `search_hardware_features(query_hash + filters)`
+- `get_hardware_feature_context(hardware_key + workload_type + model_family + framework)`
+- `get_hardware_optimization_context(candidate_hash)`
+
+The highest-value cache entry is the final `get_hardware_optimization_context(...)` payload because it avoids repeated graph queries, Qdrant vector search, and embedding calls for similar stage-agent prompts.
+
+Redis should not aggressively cache:
+
+- live job status
+- active queue state
+- recent debug or failure state
+- write paths such as `record_tuning_outcome(...)`
+- full Qdrant collections or large graph neighborhoods
+
+Recommended TTLs:
+
+| Payload | Suggested TTL | Reason |
+| --- | ---: | --- |
+| `hardware_context` | 10-60 minutes | Current GPU and scheduler limits rarely change during a run. |
+| `hardware_feature_context` | 6-24 hours | Curated hardware capability records change slowly. |
+| `search_hardware_features` | 1-24 hours | Vector feature retrieval is mostly static between corpus ingests. |
+| `job_design_context` | 1-10 minutes | Scheduler profiles can update after each run. |
+| `hardware_optimization_context` | 1-10 minutes | Best overall speedup, but should follow graph updates closely. |
+| failed or empty database calls | 15-60 seconds | Avoid hammering unavailable services without hiding recovery for long. |
+
+Cache keys should include:
+
+- tool name
+- normalized hardware key
+- normalized candidate hash or query hash
+- workload type, model family, framework, architecture, and vendor filters
+- embedding model name and vector collection name
+- graph schema or profile-data version
+- hardware feature corpus version
+
+Invalidate or version-bump cache keys when:
+
+- new hardware feature records are ingested into Qdrant
+- scheduler profiles are updated
+- `record_tuning_outcome(...)` records a new outcome
+- the embedding model, Qdrant collection, graph schema, or scheduler config changes
+- hardware detection changes the current `hardware_key`
+
+The intended behavior is read-through:
+
+1. MCP tool receives a context request.
+2. It builds a stable cache key from normalized inputs and version fields.
+3. It returns the Redis payload immediately on hit.
+4. On miss, it queries graph/Qdrant, builds the same public response shape, stores it with TTL, and returns it.
+5. If Redis is unavailable, the system falls back to direct graph/Qdrant reads.
+
+Redis is therefore an acceleration layer, not a correctness layer. A cache miss should be slower but equivalent; a stale cache entry should be bounded by TTL and versioned keys.
 
 ## MCP Integration
 
@@ -245,11 +327,12 @@ The vector layer supplies architecture guidance. The graph layer keeps that guid
 
 The target loop is:
 
-1. graph MCP context and vector feature retrieval inform the next training-code proposal
-2. the stage agent writes hardware-aware code
-3. code review catches unsafe resource choices
-4. the scheduler executes and profiles the run
-5. result parsing and evaluation update metric and resource state
-6. scheduler graph evidence improves future recommendations
+1. Redis returns a hot hardware optimization context when available
+2. graph MCP context and vector feature retrieval fill the context on cache miss
+3. the stage agent writes hardware-aware code
+4. code review catches unsafe resource choices
+5. the scheduler executes and profiles the run
+6. result parsing and evaluation update metric and resource state
+7. scheduler graph evidence and cache invalidation improve future recommendations
 
 That turns MLEvolve from a metric-searching agent into a hardware-aware training optimizer that learns which code patterns work best on the actual GPU, toolkit, scheduler backend, and workload family it is using.
