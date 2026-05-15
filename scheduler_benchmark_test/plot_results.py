@@ -2,7 +2,7 @@
 
 Run after sweep_run.sh completes. Reads each config's:
   summary.json   per_job + by_status + treat_elapsed_s
-  dmon.csv       nvidia-smi dmon -s pucvmet -d 1 -o T
+  gpu_metrics.csv or dmon.csv
   wall_clock.txt total elapsed sec
 
 Outputs:
@@ -82,34 +82,62 @@ def selected_configs() -> list[tuple[str, str, str, str, str]]:
     return CONFIGS_MAIN
 
 
-def parse_dmon(csv_path: Path):
-    """Return list of (t_sec, sm%, mem%, fb_MiB, rxpci_MB)."""
+def parse_gpu_metrics(csv_path: Path):
+    """Return list of (t_sec, gpu%, mem%, fb_MiB, aux_metric)."""
     if not csv_path.exists():
         return []
-    rows = []
-    base = None
     with csv_path.open() as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = re.split(r"\s+", line)
-            if len(parts) < 22:
+        lines = [line.strip() for line in f if line.strip()]
+    if not lines:
+        return []
+
+    if lines[0].startswith("timestamp,"):
+        rows = []
+        base = None
+        for line in lines[1:]:
+            parts = [part.strip() for part in line.split(",")]
+            if len(parts) < 8:
                 continue
             try:
-                tt = dt.datetime.strptime(parts[0], "%H:%M:%S")
-                sm_v = float(parts[5])
-                mem_v = float(parts[6])
-                fb_v = float(parts[15])
-                rx_v = float(parts[21])
+                try:
+                    tt = dt.datetime.strptime(parts[0], "%Y/%m/%d %H:%M:%S.%f")
+                except ValueError:
+                    tt = dt.datetime.strptime(parts[0], "%Y/%m/%d %H:%M:%S")
+                sm_v = float(parts[3])
+                fb_v = float(parts[4])
+                fb_total = float(parts[5])
+                mem_v = (fb_v / fb_total) * 100.0 if fb_total > 0 else 0.0
+                aux_v = float(parts[7])
             except Exception:
                 continue
             if base is None:
                 base = tt
             secs = (tt - base).total_seconds()
-            if secs < 0:
-                secs += 86400
-            rows.append((secs, sm_v, mem_v, fb_v, rx_v))
+            rows.append((secs, sm_v, mem_v, fb_v, aux_v))
+        return rows
+
+    rows = []
+    base = None
+    for line in lines:
+        if line.startswith("#"):
+            continue
+        parts = re.split(r"\s+", line)
+        if len(parts) < 22:
+            continue
+        try:
+            tt = dt.datetime.strptime(parts[0], "%H:%M:%S")
+            sm_v = float(parts[5])
+            mem_v = float(parts[6])
+            fb_v = float(parts[15])
+            aux_v = float(parts[21])
+        except Exception:
+            continue
+        if base is None:
+            base = tt
+        secs = (tt - base).total_seconds()
+        if secs < 0:
+            secs += 86400
+        rows.append((secs, sm_v, mem_v, fb_v, aux_v))
     return rows
 
 
@@ -164,7 +192,7 @@ def main():
             "mode": mode, "backend": backend, "probe": probe, "runner": runner,
             "wallclock": load_wallclock(cfg_dir),
             "summary": load_summary(cfg_dir),
-            "dmon": parse_dmon(cfg_dir / "dmon.csv"),
+            "dmon": parse_gpu_metrics(cfg_dir / "gpu_metrics.csv") or parse_gpu_metrics(cfg_dir / "dmon.csv"),
         }
 
     cids = list(data.keys())
@@ -172,7 +200,7 @@ def main():
 
     # Plot 1: GPU utility-time overlay
     fig, axes = plt.subplots(4, 1, figsize=(15, 12), sharex=False)
-    panels = [("SM_ACTIVE %", 1), ("DRAM_ACTIVE %", 2), ("FB MEM (MiB)", 3), ("PCIE RX (MB/s)", 4)]
+    panels = [("GPU Util %", 1), ("Memory Util %", 2), ("FB MEM (MiB)", 3), ("Power / PCIe RX", 4)]
     cmap = plt.get_cmap("tab20")
     for ax, (title, idx) in zip(axes, panels):
         for i, cid in enumerate(cids):
@@ -184,7 +212,7 @@ def main():
             ax.plot(ts, ys, color=cmap(i % 20), linewidth=0.7, label=cid, alpha=0.7)
         ax.set_ylabel(title)
         ax.grid(True, alpha=0.3)
-    axes[-1].set_xlabel("seconds since dmon start")
+    axes[-1].set_xlabel("seconds since GPU sampler start")
     axes[0].legend(loc="upper right", ncol=7, fontsize=7)
     axes[0].set_title(f"GPU utility timeline overlay ({len(cids)} configs)")
     plt.tight_layout()

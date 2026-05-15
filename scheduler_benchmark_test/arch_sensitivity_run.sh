@@ -15,6 +15,8 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BENCH_DIR="$REPO/scheduler_benchmark_test"
 PY="$REPO/.venv/bin/python"
 [ -x "$PY" ] || PY="python3"
+source "$BENCH_DIR/benchmark_runtime.sh"
+bench_init_runtime "arch_sensitivity" "$BENCH_DIR"
 
 RESULTS_BASE="${RESULTS_BASE:-$REPO/results/scheduler_benchmark_test/arch_sensitivity}"
 TRACE_DIR="$BENCH_DIR/arch_sensitivity_inputs"
@@ -29,52 +31,50 @@ COMMON_CACHE_MEMORY_BUDGET_GIB="${COMMON_CACHE_MEMORY_BUDGET_GIB:-8.0}"
 
 mkdir -p "$RESULTS_BASE" "$CODE_CACHE"
 
-cleanup_gpu() {
-    pkill -9 -f "replay_scheduler.py|step_[0-9]+\\.py|nvidia-cuda-mps" 2>/dev/null || true
-    sleep 2
-}
-
 run_sched() {
     local id="$1" trace_name="$2" mode="$3" backend="$4" probe="$5"
     shift 5
     local trace="$TRACE_DIR/${trace_name}.jsonl"
     local cfg_dir="$RESULTS_BASE/$id"
     mkdir -p "$cfg_dir"
-    cleanup_gpu
-    rm -rf "/tmp/replay_workdirs/$id" "/tmp/scheduler_benchmark_runtime_$id"
+    bench_prepare_case "$id"
 
     echo "[$(date -Iseconds)] === $id trace=$trace_name mode=$mode backend=$backend probe=$probe ==="
+    bench_start_gpu_sampler "$cfg_dir/gpu_metrics.csv"
     local t0
     t0=$(date +%s.%N)
-    timeout "$CONFIG_TIMEOUT" "$PY" "$BENCH_DIR/replay_scheduler.py" \
-        --config-id "$id" \
-        --mode "$mode" \
-        --backend "$backend" \
-        --batch-search "$probe" \
-        --trace "$trace" \
-        --runtime-root "/tmp/scheduler_benchmark_runtime_$id" \
-        --results-dir "$cfg_dir/results" \
-        --summary "$cfg_dir/summary.json" \
-        --code-cache-dir "$CODE_CACHE" \
-        --duration-s $(( CONFIG_TIMEOUT - 60 )) \
-        --vram-budget-gib "$COMMON_VRAM_BUDGET_GIB" \
-        --cache-warm-policy "$COMMON_CACHE_WARM_POLICY" \
-        --cache-warm-top-k "$COMMON_CACHE_WARM_TOP_K" \
-        --cache-entry-capacity "$COMMON_CACHE_ENTRY_CAPACITY" \
-        --cache-max-ram-percent "$COMMON_CACHE_MAX_RAM_PERCENT" \
-        --cache-memory-budget-gib "$COMMON_CACHE_MEMORY_BUDGET_GIB" \
-        "$@" \
-        > "$cfg_dir/replay.log" 2>&1
-    local rc=$?
+    if bench_run_logged "$cfg_dir/replay.log" \
+        env REPLAY_WORKDIR_ROOT="$BENCH_CASE_WORKDIR_ROOT" \
+        timeout "$CONFIG_TIMEOUT" "$PY" "$BENCH_DIR/replay_scheduler.py" \
+            --config-id "$id" \
+            --mode "$mode" \
+            --backend "$backend" \
+            --batch-search "$probe" \
+            --trace "$trace" \
+            --runtime-root "$BENCH_CASE_RUNTIME_ROOT" \
+            --results-dir "$cfg_dir/results" \
+            --summary "$cfg_dir/summary.json" \
+            --code-cache-dir "$CODE_CACHE" \
+            --duration-s $(( CONFIG_TIMEOUT - 60 )) \
+            --vram-budget-gib "$COMMON_VRAM_BUDGET_GIB" \
+            --cache-warm-policy "$COMMON_CACHE_WARM_POLICY" \
+            --cache-warm-top-k "$COMMON_CACHE_WARM_TOP_K" \
+            --cache-entry-capacity "$COMMON_CACHE_ENTRY_CAPACITY" \
+            --cache-max-ram-percent "$COMMON_CACHE_MAX_RAM_PERCENT" \
+            --cache-memory-budget-gib "$COMMON_CACHE_MEMORY_BUDGET_GIB" \
+            "$@"; then
+        local rc=0
+    else
+        local rc=$?
+    fi
     local t1
     t1=$(date +%s.%N)
     local elapsed
-    elapsed=$("$PY" - <<PY
-t0 = float("$t0")
-t1 = float("$t1")
-print(t1 - t0)
-PY
-)
+    elapsed="$(bench_elapsed_seconds "$t0" "$t1")"
+    if [ -n "${BENCH_GPU_SAMPLER_PID:-}" ]; then
+        bench_stop_pid "$BENCH_GPU_SAMPLER_PID"
+        unset BENCH_GPU_SAMPLER_PID
+    fi
     echo "$elapsed" > "$cfg_dir/wall_clock.txt"
     echo "$rc" > "$cfg_dir/rc.txt"
     echo "[$(date -Iseconds)] $id rc=$rc elapsed=${elapsed}s"

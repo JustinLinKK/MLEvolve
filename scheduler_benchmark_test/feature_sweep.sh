@@ -6,11 +6,8 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BENCH_DIR="$REPO/scheduler_benchmark_test"
 PY="$REPO/.venv/bin/python"
 [ -x "$PY" ] || PY="python3"
-
-if ! "$PY" "$BENCH_DIR/check_benchmark_env.py" --trace "$TRACE" >/dev/null; then
-    "$PY" "$BENCH_DIR/check_benchmark_env.py" --trace "$TRACE"
-    exit 1
-fi
+source "$BENCH_DIR/benchmark_runtime.sh"
+bench_init_runtime "feature_sweep" "$BENCH_DIR"
 
 FEATURE_DIR="${FEATURE_DIR:-/tmp/scheduler_benchmark_feature_sweep}"
 TRACE="${TRACE:-$FEATURE_DIR/smoke_trace.jsonl}"
@@ -18,32 +15,41 @@ CODE_CACHE="$FEATURE_DIR/codes"
 RESULTS_BASE="${RESULTS_BASE:-$REPO/results/scheduler_benchmark_test/feature_sweep}"
 mkdir -p "$FEATURE_DIR" "$CODE_CACHE" "$RESULTS_BASE"
 
-SMOKE_DIR="$FEATURE_DIR" "$PY" "$BENCH_DIR/gen_smoke_trace.py"
+if ! "$PY" "$BENCH_DIR/check_benchmark_env.py" --trace "$TRACE" >/dev/null; then
+    "$PY" "$BENCH_DIR/check_benchmark_env.py" --trace "$TRACE"
+    exit 1
+fi
 
-cleanup_gpu() {
-    pkill -9 -f "replay_scheduler.py|replay_torch_mp.py|step_[0-9]\+\.py|nvidia-cuda-mps" 2>/dev/null || true
-    echo quit | nvidia-cuda-mps-control 2>/dev/null || true
-    sleep 2
-}
+SMOKE_DIR="$FEATURE_DIR" "$PY" "$BENCH_DIR/gen_smoke_trace.py"
 
 run_case() {
     local id="$1"
     shift
     local cfg_dir="$RESULTS_BASE/$id"
     mkdir -p "$cfg_dir"
-    cleanup_gpu
+    bench_prepare_case "$id"
     echo "[$(date -Iseconds)] === feature case $id ==="
-    timeout 420 "$PY" "$BENCH_DIR/replay_scheduler.py" \
-        --config-id "$id" \
-        --trace "$TRACE" \
-        --runtime-root "/tmp/scheduler_benchmark_feature_runtime_$id" \
-        --results-dir "$cfg_dir/results" \
-        --summary "$cfg_dir/summary.json" \
-        --code-cache-dir "$CODE_CACHE" \
-        --duration-s 360 \
-        --vram-budget-gib 28.0 \
-        "$@" > "$cfg_dir/replay.log" 2>&1
-    local rc=$?
+    bench_start_gpu_sampler "$cfg_dir/gpu_metrics.csv"
+    if bench_run_logged "$cfg_dir/replay.log" \
+        env REPLAY_WORKDIR_ROOT="$BENCH_CASE_WORKDIR_ROOT" \
+        timeout 420 "$PY" "$BENCH_DIR/replay_scheduler.py" \
+            --config-id "$id" \
+            --trace "$TRACE" \
+            --runtime-root "$BENCH_CASE_RUNTIME_ROOT" \
+            --results-dir "$cfg_dir/results" \
+            --summary "$cfg_dir/summary.json" \
+            --code-cache-dir "$CODE_CACHE" \
+            --duration-s 360 \
+            --vram-budget-gib 28.0 \
+            "$@"; then
+        local rc=0
+    else
+        local rc=$?
+    fi
+    if [ -n "${BENCH_GPU_SAMPLER_PID:-}" ]; then
+        bench_stop_pid "$BENCH_GPU_SAMPLER_PID"
+        unset BENCH_GPU_SAMPLER_PID
+    fi
     local done_count
     done_count=$(grep -o '"COMPLETED": *[0-9]*' "$cfg_dir/summary.json" 2>/dev/null | head -1 || echo "no_summary")
     echo "[$(date -Iseconds)] $id rc=$rc $done_count"

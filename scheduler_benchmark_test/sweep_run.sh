@@ -7,15 +7,17 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BENCH_DIR="$REPO/scheduler_benchmark_test"
 PY="$REPO/.venv/bin/python"
 [ -x "$PY" ] || PY="python3"
+source "$BENCH_DIR/benchmark_runtime.sh"
+bench_init_runtime "sweep_run" "$BENCH_DIR"
 NO_MPS="${NO_MPS:-0}"
 HAS_MPS_CONTROL=0
-if command -v nvidia-cuda-mps-control >/dev/null 2>&1; then
+if bench_has_mps_control; then
     HAS_MPS_CONTROL=1
 fi
 
 TRACE="$BENCH_DIR/workload_trace_W3.jsonl"
 CODE_CACHE="$BENCH_DIR/replay_codes_W3"
-if [ "$NO_MPS" = "1" ]; then
+if ! bench_mps_enabled; then
     RESULTS_BASE="${RESULTS_BASE:-$REPO/results/scheduler_benchmark_test/main_sweep_windows}"
 else
     RESULTS_BASE="${RESULTS_BASE:-$REPO/results/scheduler_benchmark_test/main_sweep}"
@@ -44,65 +46,54 @@ if [ ! -f "$TRACE" ]; then
     OUT_DIR="$BENCH_DIR" "$PY" "$BENCH_DIR/gen_trace_W3.py"
 fi
 
-cleanup_gpu() {
-    pkill -9 -f "replay_scheduler.py|replay_torch_mp.py|step_[0-9]\+\.py|nvidia-cuda-mps" 2>/dev/null || true
-    if [ "$HAS_MPS_CONTROL" -eq 1 ]; then
-        echo quit | nvidia-cuda-mps-control 2>/dev/null || true
-    fi
-    sleep 3
-}
-
 run_sched() {
     local id="$1" mode="$2" backend="$3" probe="$4"
     shift 4
     local cfg_dir="$RESULTS_BASE/$id"
     mkdir -p "$cfg_dir"
-    cleanup_gpu
-    rm -rf "/tmp/replay_workdirs/$id"
+    bench_prepare_case "$id"
 
     echo "[$(date -Iseconds)] === $id  mode=$mode  backend=$backend  probe=$probe ==="
-    nohup nvidia-smi dmon -s pucvmet -d 1 -o T > "$cfg_dir/dmon.csv" 2>&1 &
-    local dmon_pid=$!
-    sleep 2
+    bench_start_gpu_sampler "$cfg_dir/gpu_metrics.csv"
 
     local t0
     t0=$(date +%s.%N)
-    timeout "$CONFIG_TIMEOUT" "$PY" "$BENCH_DIR/replay_scheduler.py" \
-        --config-id "$id" \
-        --mode "$mode" \
-        --backend "$backend" \
-        --batch-search "$probe" \
-        --trace "$TRACE" \
-        --runtime-root "/tmp/scheduler_benchmark_runtime_$id" \
-        --results-dir "$cfg_dir/results" \
-        --summary "$cfg_dir/summary.json" \
-        --code-cache-dir "$CODE_CACHE" \
-        --duration-s $(( CONFIG_TIMEOUT - 60 )) \
-        --vram-budget-gib "$COMMON_VRAM_BUDGET_GIB" \
-        --cache-warm-policy "$COMMON_CACHE_WARM_POLICY" \
-        --cache-warm-top-k "$COMMON_CACHE_WARM_TOP_K" \
-        --cache-entry-capacity "$COMMON_CACHE_ENTRY_CAPACITY" \
-        --cache-max-ram-percent "$COMMON_CACHE_MAX_RAM_PERCENT" \
-        --cache-memory-budget-gib "$COMMON_CACHE_MEMORY_BUDGET_GIB" \
-        --binary-range-up "$COMMON_BINARY_RANGE_UP" \
-        --binary-range-down "$COMMON_BINARY_RANGE_DOWN" \
-        --power-of-two-range-up "$COMMON_POWER_OF_TWO_RANGE_UP" \
-        --power-of-two-range-down "$COMMON_POWER_OF_TWO_RANGE_DOWN" \
-        "$@" \
-        > "$cfg_dir/replay.log" 2>&1
-    local rc=$?
+    if bench_run_logged "$cfg_dir/replay.log" \
+        env REPLAY_WORKDIR_ROOT="$BENCH_CASE_WORKDIR_ROOT" \
+        timeout "$CONFIG_TIMEOUT" "$PY" "$BENCH_DIR/replay_scheduler.py" \
+            --config-id "$id" \
+            --mode "$mode" \
+            --backend "$backend" \
+            --batch-search "$probe" \
+            --trace "$TRACE" \
+            --runtime-root "$BENCH_CASE_RUNTIME_ROOT" \
+            --results-dir "$cfg_dir/results" \
+            --summary "$cfg_dir/summary.json" \
+            --code-cache-dir "$CODE_CACHE" \
+            --duration-s $(( CONFIG_TIMEOUT - 60 )) \
+            --vram-budget-gib "$COMMON_VRAM_BUDGET_GIB" \
+            --cache-warm-policy "$COMMON_CACHE_WARM_POLICY" \
+            --cache-warm-top-k "$COMMON_CACHE_WARM_TOP_K" \
+            --cache-entry-capacity "$COMMON_CACHE_ENTRY_CAPACITY" \
+            --cache-max-ram-percent "$COMMON_CACHE_MAX_RAM_PERCENT" \
+            --cache-memory-budget-gib "$COMMON_CACHE_MEMORY_BUDGET_GIB" \
+            --binary-range-up "$COMMON_BINARY_RANGE_UP" \
+            --binary-range-down "$COMMON_BINARY_RANGE_DOWN" \
+            --power-of-two-range-up "$COMMON_POWER_OF_TWO_RANGE_UP" \
+            --power-of-two-range-down "$COMMON_POWER_OF_TWO_RANGE_DOWN" \
+            "$@"; then
+        local rc=0
+    else
+        local rc=$?
+    fi
     local t1
     t1=$(date +%s.%N)
     local elapsed
-    elapsed=$("$PY" - <<PY
-t0 = float("$t0")
-t1 = float("$t1")
-print(t1 - t0)
-PY
-)
-    kill "$dmon_pid" 2>/dev/null || true
-    wait "$dmon_pid" 2>/dev/null || true
-    sleep 1
+    elapsed="$(bench_elapsed_seconds "$t0" "$t1")"
+    if [ -n "${BENCH_GPU_SAMPLER_PID:-}" ]; then
+        bench_stop_pid "$BENCH_GPU_SAMPLER_PID"
+        unset BENCH_GPU_SAMPLER_PID
+    fi
     echo "$elapsed" > "$cfg_dir/wall_clock.txt"
     echo "$rc" > "$cfg_dir/rc.txt"
     echo "[$(date -Iseconds)] $id rc=$rc elapsed=${elapsed}s"
@@ -112,46 +103,43 @@ run_torchmp() {
     local id="$1" backend="$2" probe="$3"
     local cfg_dir="$RESULTS_BASE/$id"
     mkdir -p "$cfg_dir"
-    cleanup_gpu
-    rm -rf "/tmp/replay_workdirs/$id"
+    bench_prepare_case "$id"
 
     echo "[$(date -Iseconds)] === $id  torch_mp  backend=$backend  probe=$probe ==="
-    nohup nvidia-smi dmon -s pucvmet -d 1 -o T > "$cfg_dir/dmon.csv" 2>&1 &
-    local dmon_pid=$!
-    sleep 2
+    bench_start_gpu_sampler "$cfg_dir/gpu_metrics.csv"
 
     local t0
     t0=$(date +%s.%N)
-    timeout "$CONFIG_TIMEOUT" "$PY" "$BENCH_DIR/replay_torch_mp.py" \
-        --config-id "$id" \
-        --backend "$backend" \
-        --batch-search "$probe" \
-        --n-workers 2 \
-        --trace "$TRACE" \
-        --results-dir "$cfg_dir/results" \
-        --summary "$cfg_dir/summary.json" \
-        --code-cache-dir "$CODE_CACHE" \
-        --duration-s $(( CONFIG_TIMEOUT - 60 )) \
-        > "$cfg_dir/replay.log" 2>&1
-    local rc=$?
+    if bench_run_logged "$cfg_dir/replay.log" \
+        env REPLAY_WORKDIR_ROOT="$BENCH_CASE_WORKDIR_ROOT" \
+        timeout "$CONFIG_TIMEOUT" "$PY" "$BENCH_DIR/replay_torch_mp.py" \
+            --config-id "$id" \
+            --backend "$backend" \
+            --batch-search "$probe" \
+            --n-workers 2 \
+            --trace "$TRACE" \
+            --results-dir "$cfg_dir/results" \
+            --summary "$cfg_dir/summary.json" \
+            --code-cache-dir "$CODE_CACHE" \
+            --duration-s $(( CONFIG_TIMEOUT - 60 )); then
+        local rc=0
+    else
+        local rc=$?
+    fi
     local t1
     t1=$(date +%s.%N)
     local elapsed
-    elapsed=$("$PY" - <<PY
-t0 = float("$t0")
-t1 = float("$t1")
-print(t1 - t0)
-PY
-)
-    kill "$dmon_pid" 2>/dev/null || true
-    wait "$dmon_pid" 2>/dev/null || true
-    sleep 1
+    elapsed="$(bench_elapsed_seconds "$t0" "$t1")"
+    if [ -n "${BENCH_GPU_SAMPLER_PID:-}" ]; then
+        bench_stop_pid "$BENCH_GPU_SAMPLER_PID"
+        unset BENCH_GPU_SAMPLER_PID
+    fi
     echo "$elapsed" > "$cfg_dir/wall_clock.txt"
     echo "$rc" > "$cfg_dir/rc.txt"
     echo "[$(date -Iseconds)] $id rc=$rc elapsed=${elapsed}s"
 }
 
-if [ "$NO_MPS" != "1" ] && [ "$HAS_MPS_CONTROL" -ne 1 ]; then
+if bench_mps_enabled && [ "$HAS_MPS_CONTROL" -ne 1 ]; then
     echo "MPS is not available in this environment. Use NO_MPS=1 or run scheduler_benchmark_test/sweep_run_windows.sh." >&2
     exit 1
 fi
@@ -161,7 +149,7 @@ summary_ids=()
 run_sched   B1  serial_basic             exclusive    off
 summary_ids+=(B1)
 
-if [ "$NO_MPS" = "1" ]; then
+if ! bench_mps_enabled; then
     run_sched   B3  serial_batch_optimized   exclusive    power_of_two
     run_sched   W1  parallel_default         cuda_process off
     run_sched   T2  parallel_default         stream       off

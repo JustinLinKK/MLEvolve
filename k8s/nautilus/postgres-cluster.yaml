@@ -1,0 +1,23 @@
+apiVersion: acid.zalan.do/v1
+kind: postgresql
+metadata:
+  name: scheduler-logs
+spec:
+  teamId: scheduler
+  numberOfInstances: 1
+  volume:
+    size: 50Gi
+  users:
+    scheduler:
+      - login
+  databases:
+    scheduler: scheduler
+  postgresql:
+    version: "16"
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"

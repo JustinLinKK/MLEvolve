@@ -1,0 +1,114 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mlevolve-full-run
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mlevolve-full-run
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 90
+      initContainers:
+        - name: repo-sync
+          image: alpine/git:2.47.2
+          command:
+            - /bin/sh
+            - -lc
+            - |
+              set -eu
+              git clone --depth 1 --branch "${GIT_REF}" "${GIT_REPO_URL}" /workspace/repo
+          env:
+            - name: GIT_REPO_URL
+              value: https://github.com/your-org/MLEvolve.git
+            - name: GIT_REF
+              value: main
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+              ephemeral-storage: "2Gi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+              ephemeral-storage: "4Gi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: mlevolve
+          image: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+          workingDir: /workspace/repo
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              set -euo pipefail
+              python -m pip install --no-cache-dir -r requirements_base.txt -r requirements_domain.txt -r requirements_ml.txt
+              bash k8s/nautilus/run_mlevolve_job.sh
+          env:
+            - name: REPO_ROOT
+              value: /workspace/repo
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: DATASET_DIR
+              value: /datasets/mle-bench-data
+            - name: EXP_ID
+              value: replace-me-task-id
+            - name: RUNS_ROOT
+              value: /results/runs
+            - name: SCHEDULER_RUNTIME_ROOT
+              value: /runtime/localml_scheduler
+            - name: SCHEDULER_CONFIG_PATH
+              value: /workspace/repo/localml_scheduler/configs/scheduler.nautilus.yaml
+          envFrom:
+            - secretRef:
+                name: scheduler-db-env
+                optional: true
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: runtime
+              mountPath: /runtime
+            - name: datasets
+              mountPath: /datasets
+              readOnly: true
+            - name: results
+              mountPath: /results
+          resources:
+            requests:
+              cpu: "12"
+              memory: "64Gi"
+              ephemeral-storage: "60Gi"
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "16"
+              memory: "72Gi"
+              ephemeral-storage: "72Gi"
+              nvidia.com/gpu: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: workspace
+          emptyDir:
+            sizeLimit: 8Gi
+        - name: runtime
+          emptyDir:
+            sizeLimit: 64Gi
+        - name: datasets
+          persistentVolumeClaim:
+            claimName: mlevolve-datasets
+        - name: results
+          persistentVolumeClaim:
+            claimName: mlevolve-results

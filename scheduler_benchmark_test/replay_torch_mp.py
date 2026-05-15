@@ -28,7 +28,13 @@ REPO = os.environ.get("REPO_ROOT", str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, REPO)
 
 
-def _start_mps_daemon(pipe_dir: str = "/tmp/nvidia-mps", log_dir: str = "/tmp/nvidia-mps-log"):
+def _mps_directory(var_name: str, default: str) -> str:
+    return str(os.environ.get(var_name) or default)
+
+
+def _start_mps_daemon(pipe_dir: str | None = None, log_dir: str | None = None):
+    pipe_dir = pipe_dir or _mps_directory("CUDA_MPS_PIPE_DIRECTORY", "/tmp/nvidia-mps")
+    log_dir = log_dir or _mps_directory("CUDA_MPS_LOG_DIRECTORY", "/tmp/nvidia-mps-log")
     Path(pipe_dir).mkdir(parents=True, exist_ok=True)
     Path(log_dir).mkdir(parents=True, exist_ok=True)
     if shutil.which("nvidia-cuda-mps-control") is None:
@@ -42,10 +48,21 @@ def _start_mps_daemon(pipe_dir: str = "/tmp/nvidia-mps", log_dir: str = "/tmp/nv
     return proc
 
 
-def _stop_mps_daemon():
+def _stop_mps_daemon(pipe_dir: str | None = None, log_dir: str | None = None):
     try:
-        subprocess.run(["nvidia-cuda-mps-control"], input=b"quit\n", timeout=10,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        env = {
+            **os.environ,
+            "CUDA_MPS_PIPE_DIRECTORY": pipe_dir or _mps_directory("CUDA_MPS_PIPE_DIRECTORY", "/tmp/nvidia-mps"),
+            "CUDA_MPS_LOG_DIRECTORY": log_dir or _mps_directory("CUDA_MPS_LOG_DIRECTORY", "/tmp/nvidia-mps-log"),
+        }
+        subprocess.run(
+            ["nvidia-cuda-mps-control"],
+            input=b"quit\n",
+            timeout=10,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=env,
+        )
     except Exception:
         pass
 
@@ -121,11 +138,14 @@ def main():
             code_paths[step["step_idx"]] = str(cp)
 
     mps_proc = None
+    mps_pipe_dir = _mps_directory("CUDA_MPS_PIPE_DIRECTORY", "/tmp/nvidia-mps")
+    mps_log_dir = _mps_directory("CUDA_MPS_LOG_DIRECTORY", "/tmp/nvidia-mps-log")
     if args.backend == "mps":
-        mps_proc = _start_mps_daemon()
+        mps_proc = _start_mps_daemon(mps_pipe_dir, mps_log_dir)
         if mps_proc is None:
             print("WARN: nvidia-cuda-mps-control not found; running without MPS", file=sys.stderr)
-        atexit.register(_stop_mps_daemon)
+        else:
+            atexit.register(_stop_mps_daemon, mps_pipe_dir, mps_log_dir)
 
     n = args.n_workers
     worker_envs = []
@@ -134,8 +154,8 @@ def main():
         if args.backend == "mps" and mps_proc is not None:
             pct = max(10, 100 // n)
             e["CUDA_MPS_ACTIVE_THREAD_PERCENTAGE"] = str(pct)
-            e["CUDA_MPS_PIPE_DIRECTORY"] = "/tmp/nvidia-mps"
-            e["CUDA_MPS_LOG_DIRECTORY"] = "/tmp/nvidia-mps-log"
+            e["CUDA_MPS_PIPE_DIRECTORY"] = mps_pipe_dir
+            e["CUDA_MPS_LOG_DIRECTORY"] = mps_log_dir
         e.setdefault("CUDA_VISIBLE_DEVICES", "0")
         worker_envs.append(e)
 
@@ -152,6 +172,8 @@ def main():
 
     # Submit all tasks burst
     submit_t0 = time.time()
+    workdir_root = Path(os.environ.get("REPLAY_WORKDIR_ROOT", f"/tmp/replay_workdirs/{args.config_id}")).resolve()
+    workdir_root.mkdir(parents=True, exist_ok=True)
     for step in trace:
         si = step["step_idx"]
         if si not in code_paths:
@@ -159,7 +181,7 @@ def main():
         task_q.put({
             "step_idx": si,
             "code_path": code_paths[si],
-            "workdir": f"/tmp/replay_workdirs/{args.config_id}/step_{si:03d}",
+            "workdir": str((workdir_root / f"step_{si:03d}").resolve()),
             "timeout": 1500.0,
             "metadata": {
                 "agent_used": step.get("agent_used"),
@@ -189,7 +211,7 @@ def main():
             w.terminate()
 
     if mps_proc is not None:
-        _stop_mps_daemon()
+        _stop_mps_daemon(mps_pipe_dir, mps_log_dir)
 
     n_completed = sum(1 for r in results if r.get("rc") == 0)
     n_failed = sum(1 for r in results if r.get("rc", -1) != 0)

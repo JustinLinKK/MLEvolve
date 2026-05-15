@@ -1,0 +1,643 @@
+version: 1
+graph_name: mlevolve_localml_scheduler_graph
+graph_style: property_graph
+graph_targets:
+  - neo4j
+  - graphrag
+description: >
+  Property-graph schema for migrating localml_scheduler SQLite state into
+  an entity-and-observation graph that supports both scheduling logic and
+  GraphRAG retrieval.
+
+assumptions:
+  - "PacketProfile means the scheduler's packing or co-run profile concept derived from pair_profiles and combination_profiles."
+  - "RunProfile is a new normalized fact node materialized from jobs, events, probe results, and runtime summaries."
+
+common_node_properties:
+  uid:
+    type: string
+    required: true
+    description: Globally unique graph identifier.
+  created_at:
+    type: datetime
+    required: false
+  updated_at:
+    type: datetime
+    required: false
+  source_table:
+    type: string
+    required: false
+    description: Originating SQLite table or synthetic source name.
+  source_record_id:
+    type: string
+    required: false
+  metadata_json:
+    type: string
+    required: false
+    description: JSON-serialized overflow metadata from the source system.
+  summary_text:
+    type: string
+    required: false
+    description: Retrieval-ready natural-language summary for GraphRAG.
+
+node_types:
+  Workflow:
+    category: dimension
+    key: workflow_id
+    source_tables: [jobs]
+    description: Logical workflow grouping for submitted jobs.
+    properties:
+      workflow_id: {type: string, required: true}
+      agent_id: {type: string, required: false}
+      submitted_jobs: {type: integer, required: false}
+      first_submitted_at: {type: datetime, required: false}
+      last_updated_at: {type: datetime, required: false}
+
+  Job:
+    category: control_plane
+    key: job_id
+    source_tables: [jobs]
+    description: Persistent scheduler job created from TrainingJob or JobSpec.
+    properties:
+      job_id: {type: string, required: true}
+      workflow_id: {type: string, required: false}
+      agent_id: {type: string, required: false}
+      baseline_model_id: {type: string, required: true}
+      baseline_model_path: {type: string, required: false}
+      task_type: {type: string, required: false}
+      runner_target: {type: string, required: false}
+      loader_target: {type: string, required: false}
+      priority: {type: integer, required: true}
+      status: {type: string, required: true}
+      status_reason: {type: string, required: false}
+      queue_sequence: {type: integer, required: true}
+      submitted_at: {type: datetime, required: true}
+      started_at: {type: datetime, required: false}
+      finished_at: {type: datetime, required: false}
+      latest_checkpoint_path: {type: string, required: false}
+      hold: {type: boolean, required: false}
+      requires_gpu: {type: boolean, required: false}
+      estimated_vram_mb: {type: integer, required: false}
+      estimated_ram_mb: {type: integer, required: false}
+      gpu_slots: {type: integer, required: false}
+      packing_eligible: {type: boolean, required: false}
+      packing_family: {type: string, required: false}
+      packing_signature: {type: string, required: false}
+      packing_max_slowdown_ratio: {type: float, required: false}
+      batch_probe_enabled: {type: boolean, required: false}
+      batch_probe_model_key: {type: string, required: false}
+      batch_probe_search_mode: {type: string, required: false}
+      runtime_probe_enabled: {type: boolean, required: false}
+      runtime_probe_strategy: {type: string, required: false}
+      max_steps: {type: integer, required: false}
+      max_epochs: {type: integer, required: false}
+
+  Model:
+    category: dimension
+    key: model_key
+    source_tables: [jobs, batch_probe_profiles, batch_size_observations]
+    description: Semantic model identity used across jobs and profiles.
+    properties:
+      model_key: {type: string, required: true}
+      model_name: {type: string, required: true}
+      baseline_model_id: {type: string, required: false}
+      task_type: {type: string, required: false}
+      model_family: {type: string, required: false}
+      parameter_count_millions: {type: float, required: false}
+      source_framework: {type: string, required: false}
+
+  WorkloadSignature:
+    category: dimension
+    key: signature
+    source_tables: [jobs, solo_profiles, pair_profiles, runtime_profiles, combination_profiles]
+    description: Exact scheduler-owned workload identity used for packing and runtime planning.
+    properties:
+      signature: {type: string, required: true}
+      family: {type: string, required: false}
+      runner_target: {type: string, required: false}
+      task_type: {type: string, required: false}
+      default_batch_size: {type: integer, required: false}
+      default_epochs: {type: integer, required: false}
+      default_steps: {type: integer, required: false}
+
+  Backend:
+    category: dimension
+    key: backend_name
+    source_tables: [pair_profiles, batch_size_observations, runtime_profiles, combination_profiles]
+    description: Execution backend such as exclusive, mps, cuda_process, or stream.
+    properties:
+      backend_name: {type: string, required: true}
+      backend_class: {type: string, required: false}
+      concurrent_group_capable: {type: boolean, required: false}
+
+  Toolkit:
+    category: dimension
+    key: toolkit_key
+    source_tables: [synthetic]
+    description: Runtime stack used by hardware or runs, for example cuda:12.4 or rocm:6.1.
+    properties:
+      toolkit_key: {type: string, required: true}
+      toolkit_name: {type: string, required: true}
+      toolkit_version: {type: string, required: true}
+      driver_version: {type: string, required: false}
+      torch_version: {type: string, required: false}
+
+  Accelerator:
+    category: dimension
+    key: accelerator_key
+    source_tables: [batch_probe_profiles, synthetic]
+    description: Reusable accelerator class independent of one machine instance.
+    properties:
+      accelerator_key: {type: string, required: true}
+      accelerator_name: {type: string, required: true}
+      vendor: {type: string, required: false}
+      architecture: {type: string, required: false}
+      compute_capability: {type: string, required: false}
+      total_vram_mb: {type: integer, required: false}
+
+  Hardware:
+    category: dimension
+    key: hardware_key
+    source_tables: [solo_profiles, pair_profiles, batch_size_observations, combination_profiles, runtime_profiles]
+    description: Exact hardware and software execution environment.
+    properties:
+      hardware_key: {type: string, required: true}
+      os_name: {type: string, required: true}
+      host_name: {type: string, required: false}
+      gpu_name: {type: string, required: true}
+      cpu_name: {type: string, required: false}
+      total_ram_mb: {type: integer, required: false}
+      total_vram_mb: {type: integer, required: false}
+      compute_capability: {type: string, required: false}
+      toolkit_name: {type: string, required: false}
+      toolkit_version: {type: string, required: false}
+      torch_version: {type: string, required: false}
+      device_index: {type: integer, required: false}
+
+  BatchShape:
+    category: dimension
+    key: shape_signature
+    source_tables: [batch_probe_profiles, batch_size_observations]
+    description: Shape or input signature that scopes batch-size probing.
+    properties:
+      shape_signature: {type: string, required: true}
+      batch_param_name: {type: string, required: false}
+      input_shape_json: {type: string, required: false}
+
+  RunProfile:
+    category: fact
+    key: run_profile_id
+    source_tables: [jobs, events, synthetic]
+    description: >
+      Atomic execution or probe fact node. One node should exist for each
+      completed job run, resume run, batch probe attempt series, runtime
+      probe, or packed execution episode. For current repo data,
+      avg_sm_utilization can be backfilled from avg_gpu_utilization and
+      avg_ram_utilization can remain null until host RAM telemetry exists.
+    properties:
+      run_profile_id: {type: string, required: true}
+      job_id: {type: string, required: false}
+      run_kind: {type: string, required: true}
+      probe_kind: {type: string, required: false}
+      status: {type: string, required: true}
+      backend_name: {type: string, required: false}
+      toolkit_name: {type: string, required: false}
+      toolkit_version: {type: string, required: false}
+      model_key: {type: string, required: false}
+      signature: {type: string, required: false}
+      shape_signature: {type: string, required: false}
+      resolved_batch_size: {type: integer, required: false}
+      epochs: {type: integer, required: false}
+      steps_per_epoch: {type: integer, required: false}
+      total_steps: {type: integer, required: false}
+      startup_seconds: {type: float, required: false}
+      epoch_time_seconds: {type: float, required: false}
+      avg_step_time_ms: {type: float, required: false}
+      estimated_total_runtime_seconds: {type: float, required: false}
+      avg_sm_utilization: {type: float, required: false}
+      avg_gpu_utilization: {type: float, required: false}
+      avg_ram_utilization: {type: float, required: false}
+      avg_memory_utilization: {type: float, required: false}
+      peak_vram_mb: {type: integer, required: false}
+      memory_total_mb: {type: integer, required: false}
+      target_budget_mb: {type: integer, required: false}
+      slowdown_ratio: {type: float, required: false}
+      confidence: {type: float, required: false}
+      observation_count: {type: integer, required: false}
+      started_at: {type: datetime, required: false}
+      finished_at: {type: datetime, required: false}
+      result_payload_json: {type: string, required: false}
+
+  BatchProbeProfile:
+    category: fact
+    key: probe_key
+    source_tables: [batch_probe_profiles]
+    description: Reusable batch-size resolution profile for a model, accelerator class, and shape signature.
+    properties:
+      probe_key: {type: string, required: true}
+      model_key: {type: string, required: true}
+      device_type: {type: string, required: true}
+      shape_signature: {type: string, required: true}
+      batch_param_name: {type: string, required: true}
+      resolved_batch_size: {type: integer, required: true}
+      peak_vram_mb: {type: integer, required: false}
+      memory_total_mb: {type: integer, required: false}
+      target_budget_mb: {type: integer, required: false}
+      observations: {type: integer, required: true}
+      last_job_id: {type: string, required: false}
+
+  BatchSizeObservation:
+    category: fact
+    key: observation_key
+    source_tables: [batch_size_observations]
+    description: >
+      One reusable observation for a specific model, shape, hardware,
+      backend, and batch size. Current telemetry directly provides
+      avg_gpu_utilization and avg_memory_utilization; avg_sm_utilization
+      and avg_ram_utilization are forward-compatible fields.
+    properties:
+      observation_key: {type: string, required: true}
+      model_key: {type: string, required: true}
+      shape_signature: {type: string, required: true}
+      hardware_key: {type: string, required: true}
+      backend_name: {type: string, required: true}
+      batch_param_name: {type: string, required: true}
+      batch_size: {type: integer, required: true}
+      peak_vram_mb: {type: integer, required: false}
+      memory_total_mb: {type: integer, required: false}
+      avg_step_time_ms: {type: float, required: false}
+      avg_sm_utilization: {type: float, required: false}
+      avg_gpu_utilization: {type: float, required: false}
+      avg_ram_utilization: {type: float, required: false}
+      avg_memory_utilization: {type: float, required: false}
+      observations: {type: integer, required: true}
+      last_job_id: {type: string, required: false}
+
+  RuntimeProfile:
+    category: fact
+    key: profile_key
+    source_tables: [runtime_profiles]
+    description: Runtime calibration profile used for duration-aware scheduling and pack-eligibility decisions.
+    properties:
+      profile_key: {type: string, required: true}
+      signature: {type: string, required: true}
+      hardware_key: {type: string, required: true}
+      backend_name: {type: string, required: true}
+      resolved_batch_size: {type: integer, required: true}
+      strategy: {type: string, required: true}
+      startup_seconds: {type: float, required: false}
+      epoch_1_seconds: {type: float, required: false}
+      steps_per_epoch: {type: integer, required: false}
+      avg_step_time_ms: {type: float, required: false}
+      estimated_total_runtime_seconds: {type: float, required: false}
+      confidence: {type: float, required: true}
+      observations: {type: integer, required: true}
+      last_job_id: {type: string, required: false}
+      source: {type: string, required: true}
+
+  SoloProfile:
+    category: fact
+    key: solo_profile_id
+    source_tables: [solo_profiles]
+    description: >
+      Solo-run hardware utilization summary for one workload signature on
+      one hardware target. Current scheduler telemetry comes from
+      nvidia-smi GPU and memory utilization counters.
+    properties:
+      solo_profile_id: {type: string, required: true}
+      signature: {type: string, required: true}
+      hardware_key: {type: string, required: true}
+      family: {type: string, required: false}
+      peak_vram_mb: {type: integer, required: false}
+      avg_sm_utilization: {type: float, required: false}
+      avg_gpu_utilization: {type: float, required: false}
+      avg_ram_utilization: {type: float, required: false}
+      avg_memory_utilization: {type: float, required: false}
+      sample_count: {type: integer, required: true}
+      last_job_id: {type: string, required: false}
+
+  PacketProfile:
+    category: fact
+    key: packet_profile_id
+    source_tables: [pair_profiles, combination_profiles]
+    description: >
+      Co-run or packed execution profile. This is the graph equivalent of
+      pairwise and grouped packing evidence.
+    synonyms: [PackProfile, PackedProfile]
+    properties:
+      packet_profile_id: {type: string, required: true}
+      profile_scope: {type: string, required: true}
+      pair_key: {type: string, required: false}
+      combination_key: {type: string, required: false}
+      group_signature: {type: string, required: false}
+      hardware_key: {type: string, required: true}
+      backend_name: {type: string, required: true}
+      scheduler_mode: {type: string, required: false}
+      compatible: {type: boolean, required: true}
+      observations: {type: integer, required: true}
+      peak_vram_mb: {type: integer, required: false}
+      memory_total_mb: {type: integer, required: false}
+      avg_sm_utilization: {type: float, required: false}
+      avg_gpu_utilization: {type: float, required: false}
+      avg_ram_utilization: {type: float, required: false}
+      avg_memory_utilization: {type: float, required: false}
+      avg_step_time_ms: {type: float, required: false}
+      slowdown_ratio: {type: float, required: false}
+      objective_score: {type: float, required: false}
+      resolved_optimal: {type: boolean, required: false}
+      cooldown_until: {type: datetime, required: false}
+      last_failure_reason: {type: string, required: false}
+      fallback_order_json: {type: string, required: false}
+      batch_vector_json: {type: string, required: false}
+
+  Checkpoint:
+    category: control_plane
+    key: checkpoint_id
+    source_tables: [checkpoints]
+    description: Persisted checkpoint emitted by a job safe point.
+    properties:
+      checkpoint_id: {type: string, required: true}
+      job_id: {type: string, required: true}
+      checkpoint_path: {type: string, required: true}
+      created_at: {type: datetime, required: true}
+      is_latest: {type: boolean, required: true}
+      epoch: {type: integer, required: false}
+      global_step: {type: integer, required: false}
+      reason: {type: string, required: false}
+
+  Event:
+    category: control_plane
+    key: event_id
+    source_tables: [events]
+    description: Structured scheduler event, including probe and lifecycle activity.
+    properties:
+      event_id: {type: string, required: true}
+      job_id: {type: string, required: false}
+      event_type: {type: string, required: true}
+      created_at: {type: datetime, required: true}
+      payload_json: {type: string, required: false}
+
+  Command:
+    category: control_plane
+    key: command_id
+    source_tables: [commands]
+    description: Durable command intent to submit, pause, resume, cancel, or preload.
+    properties:
+      command_id: {type: string, required: true}
+      job_id: {type: string, required: false}
+      command_type: {type: string, required: true}
+      created_at: {type: datetime, required: true}
+      processed_at: {type: datetime, required: false}
+      payload_json: {type: string, required: false}
+
+  CacheEntry:
+    category: control_plane
+    key: cache_key
+    source_tables: [cache_entries]
+    description: RAM cache metadata for immutable baseline models.
+    properties:
+      cache_key: {type: string, required: true}
+      model_id: {type: string, required: true}
+      baseline_model_path: {type: string, required: true}
+      size_bytes: {type: integer, required: true}
+      pinned: {type: boolean, required: true}
+      hits: {type: integer, required: true}
+      misses: {type: integer, required: true}
+      last_loaded_at: {type: datetime, required: false}
+      last_accessed_at: {type: datetime, required: false}
+
+relationship_types:
+  HAS_JOB:
+    from: Workflow
+    to: Job
+    cardinality: one_to_many
+    description: Workflow contains submitted jobs.
+
+  USES_MODEL:
+    from: Job
+    to: Model
+    cardinality: many_to_one
+    description: Job targets one model identity.
+
+  USES_SIGNATURE:
+    from: Job
+    to: WorkloadSignature
+    cardinality: many_to_one
+    description: Job resolves to one scheduler workload signature when packing is enabled.
+
+  DESCRIBES_MODEL:
+    from: WorkloadSignature
+    to: Model
+    cardinality: many_to_one
+    description: Scheduler signature belongs to one semantic model.
+
+  HAS_ACCELERATOR:
+    from: Hardware
+    to: Accelerator
+    cardinality: many_to_one
+    description: Exact hardware environment includes an accelerator class.
+
+  RUNS_TOOLKIT:
+    from: Hardware
+    to: Toolkit
+    cardinality: many_to_one
+    description: Exact hardware environment runs one toolkit stack.
+
+  HAS_RUN_PROFILE:
+    from: Job
+    to: RunProfile
+    cardinality: one_to_many
+    description: Job has one or more observed execution or probe runs.
+
+  FOR_MODEL:
+    from: RunProfile
+    to: Model
+    cardinality: many_to_one
+    description: RunProfile is for one model.
+
+  FOR_SIGNATURE:
+    from: RunProfile
+    to: WorkloadSignature
+    cardinality: many_to_one
+    description: RunProfile is for one scheduler signature when known.
+
+  ON_HARDWARE:
+    from: RunProfile
+    to: Hardware
+    cardinality: many_to_one
+    description: RunProfile happened on one exact hardware target.
+
+  USED_BACKEND:
+    from: RunProfile
+    to: Backend
+    cardinality: many_to_one
+    description: RunProfile used one backend.
+
+  USED_TOOLKIT:
+    from: RunProfile
+    to: Toolkit
+    cardinality: many_to_one
+    description: RunProfile used one toolkit runtime.
+
+  FOR_BATCH_SHAPE:
+    from: RunProfile
+    to: BatchShape
+    cardinality: many_to_one
+    description: RunProfile is scoped to one input shape signature when probed.
+
+  AGGREGATED_INTO_BATCH_PROBE:
+    from: RunProfile
+    to: BatchProbeProfile
+    cardinality: many_to_one
+    description: Probe run contributes to a reusable batch probe profile.
+
+  AGGREGATED_INTO_BATCH_OBSERVATION:
+    from: RunProfile
+    to: BatchSizeObservation
+    cardinality: many_to_one
+    description: Probe run contributes to a batch-size observation.
+
+  AGGREGATED_INTO_RUNTIME_PROFILE:
+    from: RunProfile
+    to: RuntimeProfile
+    cardinality: many_to_one
+    description: Run contributes to a reusable runtime profile.
+
+  AGGREGATED_INTO_SOLO_PROFILE:
+    from: RunProfile
+    to: SoloProfile
+    cardinality: many_to_one
+    description: Solo training run contributes to a solo utilization profile.
+
+  AGGREGATED_INTO_PACKET_PROFILE:
+    from: RunProfile
+    to: PacketProfile
+    cardinality: many_to_one
+    description: Packed run contributes to a packet profile.
+
+  FOR_ACCELERATOR:
+    from: BatchProbeProfile
+    to: Accelerator
+    cardinality: many_to_one
+    description: Batch probe profile is reusable for an accelerator class.
+
+  OBSERVES_MODEL:
+    from: BatchProbeProfile
+    to: Model
+    cardinality: many_to_one
+    description: Batch probe profile belongs to a model.
+
+  OBSERVES_SHAPE:
+    from: BatchProbeProfile
+    to: BatchShape
+    cardinality: many_to_one
+    description: Batch probe profile belongs to an input shape signature.
+
+  OBSERVED_ON_HARDWARE:
+    from: BatchSizeObservation
+    to: Hardware
+    cardinality: many_to_one
+    description: Batch-size observation belongs to exact hardware.
+
+  OBSERVED_WITH_BACKEND:
+    from: BatchSizeObservation
+    to: Backend
+    cardinality: many_to_one
+    description: Batch-size observation used a specific backend.
+
+  RUNTIME_FOR_SIGNATURE:
+    from: RuntimeProfile
+    to: WorkloadSignature
+    cardinality: many_to_one
+    description: Runtime profile belongs to one signature.
+
+  RUNTIME_ON_HARDWARE:
+    from: RuntimeProfile
+    to: Hardware
+    cardinality: many_to_one
+    description: Runtime profile belongs to one exact hardware target.
+
+  RUNTIME_WITH_BACKEND:
+    from: RuntimeProfile
+    to: Backend
+    cardinality: many_to_one
+    description: Runtime profile belongs to one backend.
+
+  SOLO_FOR_SIGNATURE:
+    from: SoloProfile
+    to: WorkloadSignature
+    cardinality: many_to_one
+    description: Solo profile belongs to one signature.
+
+  SOLO_ON_HARDWARE:
+    from: SoloProfile
+    to: Hardware
+    cardinality: many_to_one
+    description: Solo profile belongs to one exact hardware target.
+
+  PACKET_ON_HARDWARE:
+    from: PacketProfile
+    to: Hardware
+    cardinality: many_to_one
+    description: Packet profile belongs to one exact hardware target.
+
+  PACKET_WITH_BACKEND:
+    from: PacketProfile
+    to: Backend
+    cardinality: many_to_one
+    description: Packet profile belongs to one backend.
+
+  INVOLVES_MODEL:
+    from: PacketProfile
+    to: Model
+    cardinality: many_to_many
+    description: Packet profile includes one or more models.
+    relationship_properties:
+      position: {type: integer, required: false}
+      signature: {type: string, required: false}
+      batch_size: {type: integer, required: false}
+      role: {type: string, required: false}
+
+  INVOLVES_SIGNATURE:
+    from: PacketProfile
+    to: WorkloadSignature
+    cardinality: many_to_many
+    description: Packet profile includes one or more workload signatures.
+    relationship_properties:
+      position: {type: integer, required: false}
+      batch_size: {type: integer, required: false}
+
+  PRODUCED_CHECKPOINT:
+    from: Job
+    to: Checkpoint
+    cardinality: one_to_many
+    description: Job produced one or more checkpoints.
+
+  EMITTED_EVENT:
+    from: Job
+    to: Event
+    cardinality: one_to_many
+    description: Job emitted structured events.
+
+  EXECUTED_COMMAND:
+    from: Job
+    to: Command
+    cardinality: one_to_many
+    description: Job received one or more command intents.
+
+  CACHES_MODEL:
+    from: CacheEntry
+    to: Model
+    cardinality: many_to_one
+    description: RAM cache entry corresponds to one model baseline.
+
+recommended_graph_views:
+  scheduler_control_view:
+    nodes: [Workflow, Job, Command, Event, Checkpoint, CacheEntry]
+    purpose: Queue state, lifecycle, recovery, and operator inspection.
+  profiling_view:
+    nodes: [Model, WorkloadSignature, Hardware, Accelerator, Toolkit, RunProfile, BatchProbeProfile, BatchSizeObservation, RuntimeProfile, SoloProfile]
+    purpose: Retrieval and decision support for batch-size, runtime, and utilization evidence.
+  packing_view:
+    nodes: [Model, WorkloadSignature, Hardware, Backend, PacketProfile, RunProfile]
+    purpose: Pairwise and grouped packing compatibility analysis.

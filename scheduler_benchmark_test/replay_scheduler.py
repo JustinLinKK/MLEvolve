@@ -53,6 +53,10 @@ from localml_scheduler.config import (
 )
 
 
+def _mps_directory_env(var_name: str, default: str) -> str:
+    return str(os.environ.get(var_name) or os.environ.get(f"CUDA_{var_name[6:]}") or default)
+
+
 def build_settings(
     *,
     mode: str,
@@ -74,6 +78,8 @@ def build_settings(
 ) -> SchedulerSettings:
     gpu = GpuSchedulerSettings()
     gpu.mode = mode
+    mps_pipe_directory = _mps_directory_env("BENCH_MPS_PIPE_DIRECTORY", "/tmp/nvidia-mps")
+    mps_log_directory = _mps_directory_env("BENCH_MPS_LOG_DIRECTORY", "/tmp/nvidia-mps-log")
     gpu.memory = GpuMemorySettings(
         safe_vram_budget_gib=vram_budget_gib,
         hard_stop_memory_fraction=0.92,
@@ -91,7 +97,11 @@ def build_settings(
         gpu.backend_priority = ["exclusive"]
     elif backend == "mps":
         gpu.backend_priority = ["mps", "exclusive"]
-        gpu.mps = MPSSettings(enabled=True)
+        gpu.mps = MPSSettings(
+            enabled=True,
+            pipe_directory=mps_pipe_directory,
+            log_directory=mps_log_directory,
+        )
     elif backend == "stream":
         gpu.backend_priority = ["stream", "exclusive"]
         gpu.stream = StreamSettings(enabled=True)
@@ -206,6 +216,8 @@ def main():
     if runtime_root.exists():
         shutil.rmtree(runtime_root)
     runtime_root.mkdir(parents=True, exist_ok=True)
+    workdir_root = Path(os.environ.get("REPLAY_WORKDIR_ROOT", f"/tmp/replay_workdirs/{args.config_id}")).resolve()
+    workdir_root.mkdir(parents=True, exist_ok=True)
 
     trace: list[dict[str, object]] = []
     with Path(args.trace).open("r", encoding="utf-8") as handle:
@@ -258,7 +270,7 @@ def main():
             batch_size = int(step["bs"])
             max_batch_size = int(step.get("max_bs") or batch_size)
             dataset_seed = int(step.get("dataset_seed") or 42)
-            working_dir = Path(f"/tmp/replay_workdirs/{args.config_id}/step_{step_idx:03d}").resolve()
+            working_dir = (workdir_root / f"step_{step_idx:03d}").resolve()
             working_dir.mkdir(parents=True, exist_ok=True)
             runner_kwargs = {
                 "data_root": str(step["data_root"]),

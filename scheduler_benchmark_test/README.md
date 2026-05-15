@@ -62,6 +62,19 @@ RESULTS_DIR=results/scheduler_benchmark_test/main_sweep_windows \
 python scheduler_benchmark_test/plot_results.py
 ```
 
+## Runtime Controls
+
+The Linux benchmark wrappers now isolate each run under `scheduler_benchmark_test/runtime/` by default and support these overrides:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `BENCH_RUN_ROOT` | `scheduler_benchmark_test/runtime` | Parent scratch directory for per-run runtime state, workdirs, and MPS sockets |
+| `BENCH_GPU_SAMPLER` | `query` | GPU telemetry mode: `query`, `dmon`, or `none` |
+| `BENCH_CLEANUP_GRACE_SECONDS` | `10` | Grace period before a tracked child process is force-killed |
+| `BENCH_ENABLE_MPS` | `true` unless `NO_MPS=1` | Enables the MPS-specific matrix and per-run MPS socket directories |
+
+`gpu_metrics.csv` is now the default telemetry artifact. `plot_results.py` accepts either the new query-format sampler output or the legacy `dmon.csv` format.
+
 ## Generated Assets
 
 `gen_trace_W3.py` and `gen_smoke_trace.py` generate:
@@ -74,6 +87,7 @@ python scheduler_benchmark_test/plot_results.py
   - `max_bs`
   - `dataset_seed`
   - `data_root`
+- per-run scratch state under `scheduler_benchmark_test/runtime/<script>-<timestamp>-<pid>/`
 
 This means:
 
