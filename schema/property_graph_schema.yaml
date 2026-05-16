@@ -1,4 +1,11 @@
 version: 1
+legacy_notice: >
+  Deprecated migration reference for the previous control-plane-plus-profile
+  graph. The canonical evidence graph is schema/graph_schema.yaml. New Neo4j
+  writes should use Job:SingleJob, Job:PackedJob, PackedJobMember, Hardware,
+  Model, TrainingConfig, and Technology instead of the RunProfile,
+  RuntimeProfile, BatchProbeProfile, SoloProfile, and PacketProfile labels in
+  this file.
 graph_name: mlevolve_localml_scheduler_graph
 graph_style: property_graph
 graph_targets:

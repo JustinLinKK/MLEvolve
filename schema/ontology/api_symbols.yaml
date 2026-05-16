@@ -1,0 +1,20 @@
+version: 1
+keys:
+  torch.amp.autocast:
+    framework: pytorch
+    technology_keys: [pytorch_amp, bf16_autocast, fp16_autocast]
+  torch.amp.GradScaler:
+    framework: pytorch
+    technology_keys: [pytorch_amp, fp16_autocast]
+  torch.set_float32_matmul_precision:
+    framework: pytorch
+    technology_keys: [tf32_matmul]
+  torch.backends.cuda.matmul.allow_tf32:
+    framework: pytorch
+    technology_keys: [tf32_matmul]
+  torch.compile:
+    framework: pytorch
+    technology_keys: [torch_compile]
+  torch.cuda.CUDAGraph:
+    framework: pytorch
+    technology_keys: [cuda_graphs]

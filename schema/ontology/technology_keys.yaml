@@ -1,0 +1,41 @@
+version: 1
+keys:
+  pytorch_amp:
+    name: PyTorch AMP
+    categories: [precision_optimization, tensor_core_enablement]
+    api_symbols: [torch.amp.autocast, torch.amp.GradScaler]
+  bf16_autocast:
+    name: BF16 autocast
+    categories: [precision_optimization]
+    hardware_feature_keys: [bf16_support, tensor_core]
+  fp16_autocast:
+    name: FP16 autocast
+    categories: [precision_optimization]
+    hardware_feature_keys: [fp16_support, tensor_core]
+  tf32_matmul:
+    name: TF32 matmul
+    categories: [tensor_core_enablement]
+    api_symbols: [torch.set_float32_matmul_precision, torch.backends.cuda.matmul.allow_tf32]
+  torch_compile:
+    name: torch.compile
+    categories: [compiler_optimization]
+    api_symbols: [torch.compile]
+  cuda_graphs:
+    name: CUDA Graphs
+    categories: [launch_overhead_reduction]
+    api_symbols: [torch.cuda.CUDAGraph]
+  triton_kernel:
+    name: Triton custom kernel
+    categories: [custom_kernel_optimization]
+  nvidia_mps:
+    name: NVIDIA MPS
+    categories: [packing, concurrency]
+  cuda_streams:
+    name: CUDA streams
+    categories: [packing, concurrency]
+  cuda_process:
+    name: CUDA process packing
+    categories: [packing, concurrency]
+  power_of_two_batch_optimizer:
+    name: Power-of-two batch optimizer
+    categories: [batch_size_search]

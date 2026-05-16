@@ -1,0 +1,13 @@
+version: 1
+keys:
+  improve_sm_utilization: {}
+  improve_throughput: {}
+  reduce_step_time: {}
+  reduce_vram: {}
+  avoid_oom: {}
+  enable_tensor_core: {}
+  improve_precision_efficiency: {}
+  reduce_kernel_launch_overhead: {}
+  improve_memory_efficiency: {}
+  improve_dataloader: {}
+  improve_packing: {}

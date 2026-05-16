@@ -1,211 +1,113 @@
 # Hardware-Aware Optimization for MLEvolve
 
-This report describes how MLEvolve can become a hardware-aware training optimizer by combining two complementary knowledge sources:
+MLEvolve uses two separate memory layers:
 
-1. the scheduler graph MCP database, which records empirical runtime, batch, VRAM, backend, and job-profile evidence from actual runs
-2. a Qdrant-backed hardware feature vector database, which records curated accelerator capabilities, architecture details, and coding guidance
-3. an optional Redis read-through cache, which keeps hot derived MCP responses in RAM so repeated agent calls avoid unnecessary graph, vector, and embedding work
+1. Profile graph DB: measured facts from training, probing, and packed runs.
+2. Code-knowledge vector DB: coding guidance, framework docs, API usage, and optimization recipes.
+3. Optional Redis cache: hot derived MCP responses only.
 
-The goal is not to replace validation-metric search. The goal is to make every generated training program more feasible, faster to evaluate, and easier for later agents to improve.
-
-## Why Hardware Awareness Matters
-
-Many MLEvolve code changes are also hardware decisions. Model family, image size, sequence length, batch size, precision, gradient accumulation, checkpointing, dataloader settings, and number of epochs all affect both score and feasibility.
-
-The current search tree learns mainly from validation metric and bug state. That is necessary, but incomplete for GPU-heavy workloads because two candidates with similar metrics can have very different runtime, VRAM pressure, OOM risk, and scheduler packing behavior.
-
-The scheduler graph already stores or exposes the empirical evidence needed for better choices:
-
-- `Hardware`
-- `RunProfile`
-- `RuntimeProfile`
-- `BatchProbeProfile`
-- `BatchSizeObservation`
-- `SoloProfile`
-- `PacketProfile`
-- backend capabilities
-- safe scheduler limits
-
-The vector database adds semantic hardware knowledge that may not yet exist in local run history. For example, an RTX 5090 record can explain that it is a Blackwell accelerator, what precision paths are reasonable to try, what should remain inference-only unless the framework supports it, and which PyTorch coding patterns usually expose the hardware well.
-
-## Two Complementary Knowledge Layers
-
-Scheduler graph MCP database:
-
-- answers what actually happened on this machine
-- captures resolved batch sizes, runtime estimates, peak VRAM, backend placement, OOMs, packet compatibility, and run outcomes
-- should be treated as the strongest evidence when it has matching current-hardware profiles
-
-Hardware feature vector database:
-
-- answers what the accelerator and software stack are expected to support
-- stores architecture features, framework usage guidance, precision policy, memory-transfer patterns, checkpointing practices, and source metadata
-- is most useful during cold start, before the graph has enough run-specific evidence
-
-Redis read-through cache:
-
-- answers repeated MCP context requests quickly from RAM
-- should cache derived context payloads, not replace the graph database or Qdrant
-- is most useful once hardware-aware context is requested before every draft, improve, debug, evolution, fusion, and aggregation prompt
-
-Together they produce a stronger `HardwareOptimizationBrief`:
+Core rule:
 
 ```text
-HardwareOptimizationBrief =
-  scheduler graph evidence from actual runs
-  + vector-retrieved hardware capability notes
-  + current hardware and toolkit limits
-  + Redis-cached hot context when available
-  + fallback-safe coding recommendations
+Graph DB  = what happened.
+Vector DB = how to change code.
+MCP       = compact context for stage agents.
 ```
 
-## Redis Read-Through Cache
+The graph is not the scheduler control plane. SQLite/current scheduler state remains authoritative for live jobs, commands, checkpoints, events, and cache metadata. Neo4j stores empirical evidence that agents can reuse.
 
-Redis should sit in front of the graph and vector databases as a hot derived-context cache:
+## Evidence Graph
 
-```text
-Agent or MCP caller
-  -> Redis read-through cache
-  -> scheduler graph MCP database and Qdrant on cache miss
-  -> compact HardwareOptimizationBrief
+The canonical graph schema is `schema/graph_schema.yaml`.
+
+Use these labels:
+
+- `(:Job:SingleJob)` for one model/workload running alone.
+- `(:Job:PackedJob)` for a concurrent packed/co-run group.
+- `PackedJobMember` for per-model evidence inside a packed group.
+- `Hardware`, `Model`, `TrainingConfig`, and `Technology` for reusable dimensions.
+
+Do not persist control-plane records such as `Command`, `Event`, `Checkpoint`, `CacheEntry`, or raw job payload mirrors in Neo4j.
+
+Legacy scheduler profile concepts map into the evidence graph like this:
+
+| Legacy source | Evidence graph target |
+| --- | --- |
+| batch probe profile | `SingleJob` with `purpose=batch_size_probe` |
+| batch size observation | `SingleJob` with `purpose=batch_size_probe` |
+| runtime profile | `SingleJob` with `purpose=runtime_probe` |
+| solo profile | `SingleJob` with `purpose=baseline_benchmark` |
+| pair profile | `PackedJob` plus two `PackedJobMember` nodes |
+| combination profile | `PackedJob` plus one member per packed signature |
+| terminal scheduler job | `SingleJob` with `purpose=real_training` or `smoke_test` |
+
+The graph should store structured evidence: status, purpose, model/config/hardware keys, batch-size decisions, runtime estimates, VRAM, utilization, throughput, metrics, failure reason, and compact fallback JSON. Human-readable summaries are generated by MCP responses rather than stored as graph facts.
+
+## Vector Knowledge
+
+The vector DB stores coding knowledge, not profile facts. It uses Qdrant collections:
+
+- `code_doc_chunks`
+- `optimization_recipe_chunks`
+- `api_symbol_chunks`
+
+Existing `hardware_feature_record_v1` seed records are converted into code-knowledge docs and recipes. Hardware capability facts can guide retrieval, but detailed coding instructions belong in the vector layer.
+
+Shared ontology files live in `schema/ontology/` and connect graph evidence to vector filters:
+
+- `technology_keys`
+- `hardware_feature_keys`
+- `model_families`
+- `workload_types`
+- `profile_symptoms`
+- `optimization_targets`
+- `api_symbols`
+
+## MCP Entry Point
+
+Stage agents should prefer:
+
+```python
+context = scheduler_client.get_optimization_context(candidate=candidate, limit=8)
 ```
 
-The source of truth remains:
+Response shape:
 
-- graph database or SQLite fallback for scheduler run evidence
-- Qdrant for hardware feature vectors
-- scheduler config for current limits and backend policy
+```yaml
+hardware_context: current hardware, toolkit, backend capabilities, scheduler limits
+graph_evidence:
+  exact_profiles: []
+  similar_profiles: []
+  packed_profiles: []
+derived_diagnosis:
+  profile_symptoms: []
+  optimization_targets: []
+vector_evidence:
+  recipes: []
+  docs: []
+  api_symbols: []
+recommendations: []
+risk_flags: []
+evidence_refs: []
+confidence: 0.0
+```
 
-Redis should cache the result of expensive or frequently repeated reads:
+Lower-level MCP helpers:
 
-- `get_hardware_context(hardware_key)`
-- `get_job_design_context(candidate_hash)`
-- `search_hardware_features(query_hash + filters)`
-- `get_hardware_feature_context(hardware_key + workload_type + model_family + framework)`
-- `get_hardware_optimization_context(candidate_hash)`
+- `get_profile_evidence(candidate, limit=8)`
+- `search_code_knowledge(query, filters, record_types, limit=8)`
+- `get_code_optimization_context(candidate, graph_context=None, limit=8)`
 
-The highest-value cache entry is the final `get_hardware_optimization_context(...)` payload because it avoids repeated graph queries, Qdrant vector search, and embedding calls for similar stage-agent prompts.
+Compatibility wrappers remain available but are deprecated:
 
-Redis should not aggressively cache:
-
-- live job status
-- active queue state
-- recent debug or failure state
-- write paths such as `record_tuning_outcome(...)`
-- full Qdrant collections or large graph neighborhoods
-
-Recommended TTLs:
-
-| Payload | Suggested TTL | Reason |
-| --- | ---: | --- |
-| `hardware_context` | 10-60 minutes | Current GPU and scheduler limits rarely change during a run. |
-| `hardware_feature_context` | 6-24 hours | Curated hardware capability records change slowly. |
-| `search_hardware_features` | 1-24 hours | Vector feature retrieval is mostly static between corpus ingests. |
-| `job_design_context` | 1-10 minutes | Scheduler profiles can update after each run. |
-| `hardware_optimization_context` | 1-10 minutes | Best overall speedup, but should follow graph updates closely. |
-| failed or empty database calls | 15-60 seconds | Avoid hammering unavailable services without hiding recovery for long. |
-
-Cache keys should include:
-
-- tool name
-- normalized hardware key
-- normalized candidate hash or query hash
-- workload type, model family, framework, architecture, and vendor filters
-- embedding model name and vector collection name
-- graph schema or profile-data version
-- hardware feature corpus version
-
-Invalidate or version-bump cache keys when:
-
-- new hardware feature records are ingested into Qdrant
-- scheduler profiles are updated
-- `record_tuning_outcome(...)` records a new outcome
-- the embedding model, Qdrant collection, graph schema, or scheduler config changes
-- hardware detection changes the current `hardware_key`
-
-The intended behavior is read-through:
-
-1. MCP tool receives a context request.
-2. It builds a stable cache key from normalized inputs and version fields.
-3. It returns the Redis payload immediately on hit.
-4. On miss, it queries graph/Qdrant, builds the same public response shape, stores it with TTL, and returns it.
-5. If Redis is unavailable, the system falls back to direct graph/Qdrant reads.
-
-Redis is therefore an acceleration layer, not a correctness layer. A cache miss should be slower but equivalent; a stale cache entry should be bounded by TTL and versioned keys.
-
-## MCP Integration
-
-The scheduler graph MCP surface already exposes:
-
-- `search_hardware(...)`
-- `get_hardware_context(...)`
 - `get_job_design_context(...)`
-- `recommend_batch_size(...)`
-- `recommend_epochs(...)`
-- `get_packet_compatibility(...)`
-
-The hardware feature vector layer adds:
-
 - `search_hardware_features(...)`
 - `get_hardware_feature_context(...)`
 - `get_hardware_optimization_context(...)`
 
-`get_hardware_optimization_context(candidate, limit=8)` is the preferred agent-facing entrypoint. It combines graph evidence and vector retrieval into one response containing:
+## Agent Flow
 
-- `hardware_context`
-- `job_design_context`
-- `feature_context`
-- `combined_recommendations`
-- `risk_notes`
-- `evidence_refs`
-- `confidence`
-
-The MCP tools are read-only. Ingestion happens through the CLI:
-
-```bash
-docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
-python -m localml_scheduler.cli hardware-features ingest --settings localml_scheduler/configs/scheduler.example.yaml
-```
-
-Use `--dry-run` to validate records without writing to Qdrant.
-
-## Hardware Feature Record Shape
-
-The curated vector corpus uses `hardware_feature_record_v1` records:
-
-```yaml
-schema_version: hardware_feature_record_v1
-record_id: vendor.arch.feature.unique_id
-title: Human-readable capability or coding guidance
-summary_text: Short retrieval summary
-detail_text: Detailed report-ready guidance
-vendor: nvidia
-architectures: [blackwell]
-accelerator_names: [rtx_5090]
-compute_capabilities: ["12.0"]
-toolkits: [cuda]
-frameworks: [pytorch]
-workload_types: [vision_training, transformer_training]
-features: [tensor_cores, amp, bf16, fp16]
-recommended_patterns:
-  - Use torch.amp autocast.
-  - Keep batch size configurable.
-avoid_patterns:
-  - Do not hard-code unsupported precision modes.
-source_refs:
-  - title: NVIDIA GeForce RTX 5090 product page
-    url: https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5090/
-    source_type: vendor_product_page
-    retrieved_or_verified_date: "2026-05-15"
-confidence: 0.86
-tags: [memory, precision, throughput]
-```
-
-Records should remain factual and source-metadata-heavy. They should not overclaim that a feature is safe for all training workloads.
-
-## Recommended Agent Flow
-
-Before each stage agent prompt, create a proposed job-design candidate:
+Before each draft, improve, debug, evolution, fusion, or aggregation prompt, build a candidate:
 
 ```python
 candidate = {
@@ -220,67 +122,83 @@ candidate = {
     "script_signature": proposed_or_parent_workload_signature,
     "backend_preference": proposed_backend,
     "uses_amp": parent_or_planned_amp_flag,
-    "notes": short_training_plan_summary,
+    "framework": "pytorch",
 }
 ```
 
-Then call:
+Then call `get_optimization_context(...)` and inject only the compact brief into prompts. The brief should guide choices about batch size, epochs, precision, dataloading, checkpointing, packing, and runtime risk.
 
-```python
-context = scheduler_client.get_hardware_optimization_context(candidate=candidate, limit=8)
+The prompt should treat recommendations as evidence, not law. If score improvement requires exceeding a graph recommendation, the agent should state why and include a fallback such as smaller batch size, gradient accumulation, AMP, reduced resolution, fewer probe steps, or checkpointing.
+
+## Diagnosis Bridge
+
+MCP converts graph metrics into vector-search filters:
+
+```yaml
+graph_measurements:
+  avg_sm_utilization_pct: 25
+  peak_vram_mb: 36000
+  precision: fp32
+  status: succeeded
+
+derived_diagnosis:
+  profile_symptoms:
+    - low_sm_utilization
+    - precision_not_optimized
+    - tensor_core_not_used
+  optimization_targets:
+    - improve_sm_utilization
+    - improve_throughput
+    - enable_tensor_core
+
+vector_filters:
+  framework: pytorch
+  model_families: [transformer]
+  hardware_feature_keys: [tensor_core, bf16_support]
+  profile_symptoms: [low_sm_utilization, precision_not_optimized]
+  optimization_targets: [improve_throughput, enable_tensor_core]
 ```
 
-Inject a compact brief into the draft, improve, debug, evolution, fusion, and aggregation prompts. The brief should include:
+Use graph evidence for whether an optimization is worth trying on this hardware and workload. Use vector evidence for how to implement it correctly.
 
-- current GPU name, VRAM, compute capability, toolkit, and torch version
-- scheduler safe VRAM budget and backend allowlist
-- recommended batch size and its evidence source
-- recommended epoch count or historical median
-- estimated runtime for the closest matching workload
-- feature recommendations from Qdrant
-- risk flags and avoid-pattern notes
-- confidence score and evidence refs
-
-The prompt should treat this as a constraint and tuning guide, not as an absolute rule. If competition score requires intentionally exceeding a recommendation, the generated plan should say why and add a fallback such as gradient accumulation, AMP, smaller image size, or shorter probing epochs.
-
-## Stage-Specific Behavior
+## Stage Guidance
 
 Draft agent:
 
-- choose an initial model size, precision policy, batch size, and epoch budget that fit the current hardware
+- choose initial model size, precision, batch size, and epoch budget that fit current hardware
 - prefer graph-supported defaults when confidence is high
-- keep first drafts diverse by varying model family or augmentation strategy, but not by blindly exceeding memory limits
+- keep diversity through model/augmentation choices, not blind memory-limit violations
 
 Improve agent:
 
-- if the parent metric is promising and runtime or VRAM headroom exists, try higher resolution, larger batch, longer training, stronger augmentation, or a larger backbone
-- if the parent is slow, memory-heavy, or close to scheduler limits, improve efficiency first through AMP, gradient accumulation, dataloader tuning, layer freezing, checkpointing, or smaller architecture changes
-- use `recommend_batch_size(...)`, `get_runtime_estimate(...)`, and vector feature hits as tie-breakers when several improvements look equally plausible
+- use headroom to try larger batch, higher resolution, stronger augmentation, longer training, or larger backbone
+- when close to limits, improve efficiency first with AMP, accumulation, dataloader tuning, freezing, checkpointing, or smaller architecture changes
 
 Debug agent:
 
-- interpret OOM, timeout, CUDA launch failures, worker crashes, and checkpoint-resume failures as hardware-aware debug cases
-- lower batch size or enable accumulation when graph evidence flags an oversized proposal
-- avoid applying fixes learned from other hardware unless retrieved evidence matches current hardware
+- treat OOM, timeout, CUDA launch failures, worker crashes, and checkpoint failures as hardware-aware cases
+- lower batch size or enable accumulation when graph evidence flags oversized proposals
+- avoid copying fixes from other hardware unless evidence matches current hardware/toolkit/backend
 
 Evolution and fusion agents:
 
-- compare resource profiles across successful branches, not just validation metrics
-- borrow training tactics only when graph and vector evidence are compatible with the current accelerator, toolkit, and backend
-- favor fusing a high-score idea with a low-runtime or low-VRAM implementation when the final score is similar
+- compare branches by metric and resource profile
+- fuse high-score ideas with low-runtime or low-VRAM implementations when metrics are similar
+- use packed evidence only when the current run mode supports packing
 
 Aggregation agent:
 
-- synthesize root-level candidates that are both algorithmically diverse and scheduler-compatible
-- use `PacketProfile` and `get_packet_compatibility(...)` evidence if the run is using packed or concurrent scheduler modes
+- synthesize candidates that are algorithmically diverse and scheduler-compatible
+- use `PackedJob` and `PackedJobMember` evidence when packed/concurrent modes are enabled
 
 ## Search Node Metadata
 
-Future prompt integration should store hardware evidence directly on each search node:
+Future prompt integration should store compact hardware evidence on each search node:
 
 - `hardware_context`
-- `job_design_context`
-- `feature_context`
+- `graph_evidence`
+- `derived_diagnosis`
+- `vector_evidence`
 - `scheduler_risk_flags`
 - `scheduler_confidence`
 - `hardware_evidence_refs`
@@ -289,50 +207,31 @@ Future prompt integration should store hardware evidence directly on each search
 - `peak_vram_mb`
 - `backend_name`
 
-This makes hardware-aware decisions visible in the journal and gives later stage agents branch-local memory about which tuning choices actually worked.
+This makes hardware-aware choices visible in the journal and gives later agents branch-local memory.
 
-## Code Review and Evaluation
+## Cache Policy
 
-The code review agent can reject or patch code when:
+Redis is optional and should cache derived MCP responses, not source facts.
 
-- hard-coded batch size is above the graph recommendation without a fallback
-- training uses GPU but does not use AMP when the brief recommends it
-- dataloaders omit GPU-throughput settings such as `pin_memory`, `persistent_workers`, or `non_blocking=True`
-- checkpointing is missing for long-running jobs
-- the code ignores scheduler-provided batch or epoch settings
-- the script uses a backend preference outside the scheduler allowlist
+Recommended cache entries:
 
-Evaluation should remain metric-first, but hardware-aware tie-breakers can:
+- `get_hardware_context(hardware_key)`
+- `get_profile_evidence(candidate_hash)`
+- `search_code_knowledge(query_hash + filters_hash)`
+- `get_code_optimization_context(candidate_hash)`
+- `get_optimization_context(candidate_hash)`
 
-- penalize OOM, timeout, or repeated hardware-risk failures
-- prefer lower runtime or lower peak VRAM when validation metrics are statistically similar
-- boost branches that improve metric while staying inside safe VRAM and runtime estimates
-- deprioritize branches whose proposals repeatedly exceed graph recommendations without producing better metrics
-- reserve exploration budget for unknown model families when graph confidence is low
+Cache keys should include graph schema version, vector collection names, embedding model, hardware key, candidate hash, and corpus version. Write paths and live queue state should not be cached.
 
 ## Feedback Loop
 
-After each scheduler-backed run, MLEvolve should feed tuning outcomes back into the graph:
+After each scheduler-backed run:
 
-- resolved batch size
-- chosen epochs
-- backend
-- validation metric
-- runtime
-- peak VRAM
-- OOM or timeout reason
-- whether AMP, gradient accumulation, checkpointing, or packing was used
+1. Scheduler/result parser records the outcome in SQLite/runtime state.
+2. Evidence ingestion writes a `SingleJob` or `PackedJob` record to Neo4j.
+3. MCP uses graph evidence to derive symptoms and risk flags.
+4. MCP retrieves matching code knowledge from Qdrant.
+5. Stage agents generate better hardware-aware code.
+6. Repeated successful code patterns can become internal `optimization_recipe_chunks`.
 
-The vector layer supplies architecture guidance. The graph layer keeps that guidance honest with empirical results.
-
-The target loop is:
-
-1. Redis returns a hot hardware optimization context when available
-2. graph MCP context and vector feature retrieval fill the context on cache miss
-3. the stage agent writes hardware-aware code
-4. code review catches unsafe resource choices
-5. the scheduler executes and profiles the run
-6. result parsing and evaluation update metric and resource state
-7. scheduler graph evidence and cache invalidation improve future recommendations
-
-That turns MLEvolve from a metric-searching agent into a hardware-aware training optimizer that learns which code patterns work best on the actual GPU, toolkit, scheduler backend, and workload family it is using.
+That keeps empirical profiling clean while still giving agents detailed coding knowledge.

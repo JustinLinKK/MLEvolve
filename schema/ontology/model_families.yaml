@@ -1,0 +1,18 @@
+version: 1
+keys:
+  cnn:
+    workload_types: [conv_heavy, tensor_core_candidate]
+  resnet:
+    workload_types: [conv_heavy, tensor_core_candidate]
+  convnext:
+    workload_types: [conv_heavy, memory_bound]
+  vit:
+    workload_types: [attention_heavy, matmul_heavy, activation_memory]
+  transformer:
+    workload_types: [attention_heavy, matmul_heavy, activation_memory]
+  diffusion:
+    workload_types: [unet_memory, attention_memory, mixed_precision_candidate]
+  tabular:
+    workload_types: [small_batch, cpu_preprocessing]
+  custom:
+    workload_types: [unknown]
