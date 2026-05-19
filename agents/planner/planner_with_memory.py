@@ -69,10 +69,12 @@ def generate_initial_plan(
     )
 
     memory_section = f"# Memory\n{prompt_base.get('Memory', '')}"
+    hardware_section = prompt_base.get("Hardware/Profile Optimization Context", "")
 
     user_prompt = (
         f"\n# Task description\n{prompt_base.get('Task description', '')}\n\n"
         f"{memory_section}\n\n"
+        f"{hardware_section}\n"
         f"{instructions}\n"
     )
 
@@ -305,10 +307,16 @@ def _build_refine_user_prompt(
         "# Task description",
         prompt_base.get("Task description", ""),
         "",
+    ]
+    hardware_section = prompt_base.get("Hardware/Profile Optimization Context", "")
+    if hardware_section:
+        parts.extend([hardware_section, ""])
+
+    parts.extend([
         "# Initial Plan (Stage 1)",
         initial_plan_text,
         "",
-    ]
+    ])
 
     if refinement_guidance:
         parts.extend([refinement_guidance, ""])

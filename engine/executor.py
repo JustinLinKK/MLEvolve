@@ -7,7 +7,6 @@ Python interpreter for executing code snippets via subprocess.
 
 import logging
 import os
-import re
 import signal
 import sys
 import threading
@@ -16,7 +15,6 @@ import traceback
 import subprocess
 import json
 import uuid
-from hashlib import sha1
 from dataclasses import dataclass
 from multiprocessing import Lock
 from pathlib import Path
@@ -24,15 +22,14 @@ from typing import Any
 
 import humanize
 from dataclasses_json import DataClassJsonMixin
+from engine.script_introspection import (
+    code_supports_batch_probe as _code_supports_batch_probe,
+    detect_initial_batch_size as _detect_initial_batch_size,
+    normalized_mlevolve_script_signature as _normalized_mlevolve_script_signature,
+)
 
 logger = logging.getLogger("MLEvolve")
 
-_BATCH_PROBE_NORMALIZE_PATTERNS = (
-    r"(\b(?:batch_size|train_batch_size|eval_batch_size|per_device_train_batch_size|per_device_eval_batch_size)\b\s*=\s*)([^,\n\)]*)",
-)
-_BATCH_PROBE_ENABLE_PATTERN = re.compile(
-    r"\b(batch_size|train_batch_size|eval_batch_size|per_device_train_batch_size|per_device_eval_batch_size)\b"
-)
 _BATCH_PROBE_EVENT_TYPES = {
     "batch_probe_cache_hit",
     "batch_probe_cache_miss",
@@ -42,30 +39,6 @@ _BATCH_PROBE_EVENT_TYPES = {
     "batch_probe_warning",
     "batch_probe_failed",
 }
-
-
-def _normalized_mlevolve_script_signature(code: str) -> str:
-    normalized = code
-    for pattern in _BATCH_PROBE_NORMALIZE_PATTERNS:
-        normalized = re.sub(pattern, r"\1<BS>", normalized)
-    return sha1(normalized.encode("utf-8")).hexdigest()
-
-
-def _code_supports_batch_probe(code: str) -> bool:
-    return _BATCH_PROBE_ENABLE_PATTERN.search(code) is not None
-
-
-def _detect_initial_batch_size(code: str) -> int | None:
-    match = re.search(
-        r"\b(?:batch_size|train_batch_size|eval_batch_size|per_device_train_batch_size|per_device_eval_batch_size)\b\s*=\s*(\d+)",
-        code,
-    )
-    if not match:
-        return None
-    try:
-        return int(match.group(1))
-    except (TypeError, ValueError):
-        return None
 
 
 def _build_scheduler_preload_source(scheduler_cfg: Any) -> dict[str, str] | None:

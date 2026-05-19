@@ -62,6 +62,7 @@ class AgentSearch:
         self.branch_node_count: Dict[int, int] = {}
         self.use_coldstart = cfg.coldstart.use_coldstart
         self.coldstart_description = cfg.coldstart.description
+        self.scheduler_client = None
 
         # Top-N candidates
         self.top_k = self.scfg.top_candidates_size
@@ -103,6 +104,19 @@ class AgentSearch:
                 self.global_memory = None
         else:
             logger.info("[AgentSearch] Global memory is disabled by config")
+
+    def attach_scheduler(self, scheduler_client) -> None:
+        """Expose the in-process scheduler client to stage agents for read-only context."""
+        self.scheduler_client = scheduler_client
+
+    def refresh_hardware_context(self, node: SearchNode) -> None:
+        """Refresh compact hardware/profile evidence for a generated node."""
+        try:
+            from agents.hardware_context import refresh_node_hardware_context
+
+            refresh_node_hardware_context(self, node)
+        except Exception as exc:
+            logger.debug("Skipping hardware/profile context refresh for node %s: %s", node.id, exc)
 
     def _serialize_prompt(self, prompt_complete) -> str | None:
         """Serialize prompt (str or dict) to string for saving in node."""
@@ -189,6 +203,7 @@ class AgentSearch:
                     logger.warning(f"[_run_single_step] node {parent_node.id} is_buggy is None.")
 
                 if result_node:
+                    self.refresh_hardware_context(result_node)
                     if init_solution_path:
                         logger.info(f"Node {result_node.id} from init_solution, skipping code review")
                     else:
@@ -196,6 +211,7 @@ class AgentSearch:
                         if reviewed_code.strip() != result_node.code.strip():
                             logger.info(f"Node {result_node.id} code has been reviewed and modified")
                             result_node.code = reviewed_code
+                            self.refresh_hardware_context(result_node)
                         else:
                             logger.info(f"Node {result_node.id} passed code review without changes")
 

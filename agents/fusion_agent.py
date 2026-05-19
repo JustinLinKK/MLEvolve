@@ -6,6 +6,11 @@ from typing import Any, List
 from llm import compile_prompt_to_md
 from engine.search_node import SearchNode
 from utils.response import wrap_code
+from agents.hardware_context import (
+    apply_hardware_context_to_node,
+    get_hardware_context_for_stage,
+    hardware_context_instructions,
+)
 from agents.prompts import prompt_resp_fmt, get_impl_guideline_from_agent
 from agents.improve_agent import run as run_improve
 from agents.planner import run_planner, build_planner_task, build_chat_prompt_for_model
@@ -56,6 +61,11 @@ def fuse_two_nodes(agent, source_node: SearchNode, target_node: SearchNode) -> S
         "Reference Solution": reference_trajectory,
         "Instructions": {},
     }
+    hardware_ctx = get_hardware_context_for_stage(agent, "fusion", parent_node=source_node)
+    hardware_section = hardware_ctx.prompt_section
+    if hardware_section:
+        prompt["Hardware/Profile Optimization Context"] = hardware_section
+    prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
 
     prompt["Instructions"] |= {
         "🔬 Critical: Scientific Approach to Fusion": [
@@ -133,7 +143,7 @@ def fuse_two_nodes(agent, source_node: SearchNode, target_node: SearchNode) -> S
     instructions = "\n# Instructions\n\n"
     instructions += compile_prompt_to_md(prompt["Instructions"], 2)
 
-    user_prompt = f"\n# Task description\n{prompt['Task description']}\n\n# Reference Solution\n{prompt['Reference Solution']}\n\n{instructions}"
+    user_prompt = f"\n# Task description\n{prompt['Task description']}\n\n{hardware_section}# Reference Solution\n{prompt['Reference Solution']}\n\n{instructions}"
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nMy current solution:\nPlan: {prompt['Current Solution']['Plan']}\nCode: {prompt['Current Solution']['Code']}\nPerformance: {prompt['Current Solution']['Performance']}\nAnalysis: {prompt['Current Solution']['Analysis']}\nI'll now analyze the reference solution and selectively incorporate its best ideas."
     prompt_complete = build_chat_prompt_for_model(agent.acfg.code.model, introduction, user_prompt, assistant_prefix)
 
@@ -157,6 +167,7 @@ def fuse_two_nodes(agent, source_node: SearchNode, target_node: SearchNode) -> S
         local_best_node=source_node.local_best_node,
         from_topk=from_topk
     )
+    apply_hardware_context_to_node(fused_node, hardware_ctx)
     register_node(agent, fused_node, prompt_complete, parent_node=source_node)
 
     if hasattr(source_node, '_topk_triggered'):
@@ -195,6 +206,11 @@ def _fuse_with_multiple_references(
         "Reference Solutions": reference_memory,
         "Instructions": {},
     }
+    hardware_ctx = get_hardware_context_for_stage(agent, "fusion", parent_node=parent_node)
+    hardware_section = hardware_ctx.prompt_section
+    if hardware_section:
+        prompt["Hardware/Profile Optimization Context"] = hardware_section
+    prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
 
     prompt["Instructions"] |= {
         "🔬 Critical: Scientific Approach to Multi-Reference Fusion": [
@@ -275,7 +291,7 @@ def _fuse_with_multiple_references(
     instructions = "\n# Instructions\n\n"
     instructions += compile_prompt_to_md(prompt["Instructions"], 2)
 
-    user_prompt = f"\n# Task description\n{prompt['Task description']}\n\n# Reference Solutions\n{prompt['Reference Solutions']}\n\n{instructions}"
+    user_prompt = f"\n# Task description\n{prompt['Task description']}\n\n{hardware_section}# Reference Solutions\n{prompt['Reference Solutions']}\n\n{instructions}"
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nMy current solution:\nPlan: {prompt['Current Solution']['Plan']}\nCode: {prompt['Current Solution']['Code']}\nPerformance: {prompt['Current Solution']['Performance']}\nAnalysis: {prompt['Current Solution']['Analysis']}\nI'll now analyze the reference solutions and selectively incorporate the best ideas."
     prompt_complete = build_chat_prompt_for_model(agent.acfg.code.model, introduction, user_prompt, assistant_prefix)
 
@@ -299,6 +315,7 @@ def _fuse_with_multiple_references(
         local_best_node=parent_node.local_best_node,
         from_topk=from_topk
     )
+    apply_hardware_context_to_node(fused_node, hardware_ctx)
     register_node(agent, fused_node, prompt_complete, parent_node=parent_node)
 
     if hasattr(parent_node, '_topk_triggered'):
@@ -410,6 +427,7 @@ def _diff_fusion(agent, prompt_base, data_preview, source_node):
         "current_performance": source_node.metric.value if source_node.metric else 'N/A',
         "current_analysis": source_node.analysis if source_node.analysis else 'N/A',
         "reference_solution": reference_solution,
+        "hardware_prompt_section": prompt_base.get("Hardware/Profile Optimization Context", ""),
     }
 
     planning_result = run_planner(
@@ -447,6 +465,7 @@ def _diff_fusion(agent, prompt_base, data_preview, source_node):
         execution_output="",
         introduction=_FUSION_DIFF_INTRODUCTION,
         extra_context=extra_context,
+        extra_user_sections=context.get("hardware_prompt_section", ""),
     )
 
 
@@ -460,6 +479,7 @@ def _diff_multi_fusion(agent, prompt_base, data_preview, parent_node):
         "current_performance": parent_node.metric.value if parent_node.metric else 'N/A',
         "current_analysis": parent_node.analysis if parent_node.analysis else 'N/A',
         "reference_solutions": reference_solutions,
+        "hardware_prompt_section": prompt_base.get("Hardware/Profile Optimization Context", ""),
     }
 
     planning_result = run_planner(
@@ -497,4 +517,5 @@ def _diff_multi_fusion(agent, prompt_base, data_preview, parent_node):
         execution_output="",
         introduction=_MULTI_FUSION_DIFF_INTRODUCTION,
         extra_context=extra_context,
+        extra_user_sections=context.get("hardware_prompt_section", ""),
     )

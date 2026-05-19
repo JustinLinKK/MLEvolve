@@ -6,6 +6,10 @@ from typing import cast
 
 from llm import FunctionSpec, query
 from engine.search_node import SearchNode
+from agents.hardware_context import (
+    get_hardware_context_for_stage,
+    hardware_context_instructions,
+)
 from agents.prompts.validation_template_prompts import get_code_review_prompt
 from agents.prompts import get_internet_clarification
 
@@ -67,6 +71,23 @@ def run(agent, node: SearchNode) -> str:
         task_desc=agent.task_desc,
         code=node.code,
     )
+    hardware_ctx = get_hardware_context_for_stage(
+        agent,
+        "code_review",
+        parent_node=getattr(node, "parent", None),
+        code=node.code,
+    )
+    hardware_section = hardware_ctx.prompt_section
+    if hardware_section:
+        prompt_instructions = prompt.pop("Instructions")
+        prompt["Hardware/Profile Optimization Context"] = hardware_section
+        prompt["Instructions"] = prompt_instructions
+        prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
+        prompt["Instructions"]["Hardware-aware review guidance"] = [
+            "Review concrete hardware-critical issues only when the provided profile evidence is strong.",
+            "Examples: obvious OOM/timeout risk from an oversized fixed batch size, missing fallback around known risky settings, or ignoring a high-confidence precision/dataloader recommendation.",
+            "Preserve the existing solution approach and model/backbone. Do not redesign the model to satisfy hardware guidance.",
+        ]
     internet_clarification = get_internet_clarification(getattr(agent.cfg, "pretrain_model_dir", ""))
     if "Instructions" not in prompt:
         prompt["Instructions"] = {}

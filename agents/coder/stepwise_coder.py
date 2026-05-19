@@ -12,7 +12,7 @@ Main entry: stepwise_plan_and_code_query()
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Any
 
 from llm import generate, compile_prompt_to_md
@@ -33,6 +33,9 @@ class StepwiseContext:
     memory: str = ""
     previous_code: str = ""
     execution_output: str = ""
+    hardware_brief: str = ""
+    hardware_candidate: Dict[str, Any] = field(default_factory=dict)
+    hardware_context: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -183,6 +186,7 @@ class StepAgent:
             "Task description": task_desc,
             "Data preview": data_preview_str,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
+            "Hardware/Profile Optimization Context": context.hardware_brief,
             "Previous steps": prev_summary,
             "Current step": {
                 "Name": self.name,
@@ -244,6 +248,8 @@ class StepAgent:
             else:
                 memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
 
+        hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
+
         previous_solution_section = ""
         if context.stage == "improve" and "Previous solution" in prompt:
             previous_solution_section = f"\n# Previous solution\n{prompt['Previous solution']['Code']}\n"
@@ -251,6 +257,7 @@ class StepAgent:
         user_prompt = (
             f"\n# Task description\n{prompt['Task description']}\n\n"
             f"{memory_section}\n"
+            f"{hardware_section}\n"
             f"{previous_solution_section}"
             f"# Previous steps\n{prompt['Previous steps']}\n\n"
             f"# Current step: {prompt['Current step']['Name']}\n{prompt['Current step']['Description']}\n\n"
@@ -347,6 +354,7 @@ class MetaAgent:
             "Introduction": introduction,
             "Task description": task_desc,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
+            "Hardware/Profile Optimization Context": context.hardware_brief,
             "Data preview": data_preview_str,
             "Step results": "".join(steps_summary),
             "Instructions": prompt_instructions,
@@ -369,6 +377,7 @@ class MetaAgent:
                 memory_section = f"\n# Memory\nBelow is a record of previous improvement attempts and their outcomes:\n {prompt['Memory']}\n"
             else:
                 memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
+        hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
 
         okay_text = "Let me approach this systematically.\nFirst, I'll examine the dataset:"
 
@@ -391,6 +400,7 @@ class MetaAgent:
         user_prompt = (
             f"\n# Task description\n{prompt['Task description']}\n\n"
             f"{memory_section}\n\n"
+            f"{hardware_section}\n"
             f"# Step results\n{prompt['Step results']}\n\n"
             f"{instructions}"
         )
@@ -415,6 +425,7 @@ def create_default_step_agents() -> List[StepAgent]:
                 "CRITICAL: This step MUST include BOTH data loading AND feature engineering. Do NOT only load the raw data. You must actively create, transform, and enhance features to improve model performance.",
                 "IMPORTANT: Apply feature engineering techniques such as feature scaling, encoding, transformation, and data augmentation methods appropriate for the task. Explore and implement feature engineering strategies that can enhance the model's ability to learn from the data.",
                 "CRITICAL: Do NOT build models, write training code, or perform evaluation. Focus ONLY on data preparation and feature engineering.",
+                "Hardware-aware data pipeline: when using GPU training, keep input resolution/sequence length configurable, use DataLoader settings compatible with the hardware brief, and prefer pin_memory/non-blocking transfers when tensors move to CUDA.",
             ],
         ),
         StepAgent(
@@ -426,6 +437,7 @@ def create_default_step_agents() -> List[StepAgent]:
                 "CRITICAL: Do NOT write the training loop, data processing, or feature engineering code. Only define the model, criterion, and optimizer objects.",
                 "IMPORTANT: Consider the task's evaluation metric (from the task description's Evaluation section) when designing the model. The model output format should be compatible with the required evaluation metric calculation.",
                 "IMPORTANT: When designing custom model architectures, include appropriate regularization components (e.g., Dropout layers) to prevent overfitting.",
+                "Hardware-aware model design: choose model size and precision compatibility using the hardware/profile context; prefer tensor-core-friendly PyTorch paths when the evidence supports AMP/bf16/fp16.",
             ],
         ),
         StepAgent(
@@ -450,6 +462,8 @@ def create_default_step_agents() -> List[StepAgent]:
                 "CRITICAL: If the Evaluation section specifies multiple thresholds, components, or aggregation steps, you MUST implement ALL of them. Do not skip any required calculation steps or use shortcuts.",
                 "CRITICAL: The metric calculation must match the Evaluation section exactly - use the same matching criteria, the same formula, the same thresholds (if any), and the same aggregation method as specified.",
                 "CRITICAL: The final line must be: `print(f'Final Validation Score: {{score}}')`. This is required for the score parser.",
+                "Hardware-aware training: use the hardware/profile context to choose physical batch size, epoch budget, AMP dtype, gradient accumulation, checkpoint cadence, and dataloader settings. If choosing a riskier setting for score reasons, include an explicit fallback path for OOM/timeout such as smaller batch size, accumulation, lower resolution, fewer epochs, or checkpoint resume.",
+                "When feasible, log resolved batch size, selected precision, elapsed time, throughput, and peak CUDA memory so later scheduler graph evidence can learn from this run.",
             ],
         ),
     ]
@@ -468,6 +482,9 @@ def stepwise_plan_and_code_query(
         memory=context.get("memory", ""),
         previous_code=context.get("previous_code", ""),
         execution_output=context.get("execution_output", ""),
+        hardware_brief=context.get("hardware_prompt_section", ""),
+        hardware_candidate=context.get("hardware_candidate", {}) or {},
+        hardware_context=context.get("hardware_context", {}) or {},
     )
 
     step_agents = create_default_step_agents()

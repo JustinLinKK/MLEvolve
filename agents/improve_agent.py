@@ -7,6 +7,11 @@ from typing import Any
 from llm import compile_prompt_to_md
 from engine.search_node import SearchNode
 from utils.response import wrap_code
+from agents.hardware_context import (
+    apply_hardware_context_to_node,
+    get_hardware_context_for_stage,
+    hardware_context_instructions,
+)
 from agents.triggers import get_patience_counter, register_node
 from agents.prompts import (
     ROBUSTNESS_GENERALIZATION_STRATEGY,
@@ -43,6 +48,11 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
         "Memory": parent_node.fetch_child_memory(include_code=False),
         "Instructions": {},
     }
+    hardware_ctx = get_hardware_context_for_stage(agent, "improve", parent_node=parent_node)
+    hardware_section = hardware_ctx.prompt_section
+    if hardware_section:
+        prompt["Hardware/Profile Optimization Context"] = hardware_section
+    prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
     prompt["Previous solution"] = {
         "Code": wrap_code(parent_node.code),
     }
@@ -231,7 +241,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
     if prompt.get("Memory", "").strip():
         memory_section = f"\n# Memory\nBelow is a record of previous improvement attempts and their outcomes:\n {prompt['Memory']}\n"
 
-    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{instructions}"
+    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{hardware_section}\n{instructions}"
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nThe current solution uses the following code:\n{prompt['Previous solution']['Code']}\nIts output was:\n{output}\nBuilding on this, I'll develop an improved approach."
     prompt_complete = build_chat_prompt_for_model(agent.acfg.code.model, introduction, user_prompt, assistant_prefix)
 
@@ -251,6 +261,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
 
     new_node = SearchNode(plan=plan, code=code, parent=parent_node, stage="improve",
                         local_best_node=parent_node.local_best_node, from_topk=from_topk)
+    apply_hardware_context_to_node(new_node, hardware_ctx)
     register_node(agent, new_node, prompt_complete, parent_node=parent_node)
 
     if hasattr(parent_node, '_topk_triggered'):
@@ -294,6 +305,7 @@ def _diff_improve(agent, prompt_base, data_preview, parent_node):
         "previous_code_summary": parent_node.code_summary if hasattr(parent_node, 'code_summary') and parent_node.code_summary else None,
         "execution_output": parent_node.term_out if hasattr(parent_node, 'term_out') else "",
         "parent_node": parent_node,
+        "hardware_prompt_section": prompt_base.get("Hardware/Profile Optimization Context", ""),
     }
 
     use_memory = (
@@ -334,4 +346,5 @@ def _diff_improve(agent, prompt_base, data_preview, parent_node):
         data_preview=data_preview,
         execution_output=context["execution_output"],
         introduction=_IMPROVE_DIFF_INTRODUCTION,
+        extra_user_sections=context.get("hardware_prompt_section", ""),
     )

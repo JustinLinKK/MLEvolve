@@ -253,6 +253,7 @@ def build_planner_suffix(
 
     code = prompt_base.get("Previous solution", {}).get("Code", "")
     execution_output = context.get("execution_output", "")
+    hardware_section = context.get("hardware_prompt_section") or prompt_base.get("Hardware/Profile Optimization Context", "")
 
     suffix = (
         f"Let me approach this systematically.\n"
@@ -260,6 +261,8 @@ def build_planner_suffix(
         f"Regarding this task, I previously made attempts with the following code:\n{code}\n"
         f"The execution of this code yielded the following results:\n{wrap_code(execution_output, lang='')}\n"
     )
+    if hardware_section:
+        suffix += f"Hardware/profile context:\n{hardware_section}\n"
     if extra_text:
         suffix += extra_text + "\n"
     suffix += "Now I will output my analysis in JSON format only (no additional text):"
@@ -320,6 +323,9 @@ def run_planner(
         f"\n# Task description\n{planning_prompt_dict['Task description']}\n",
         f"{memory_section}\n" if memory_section else "",
     ]
+    hardware_section = planning_prompt_dict.get("Hardware/Profile Optimization Context", "")
+    if hardware_section:
+        user_prompt_parts.append(f"{hardware_section}\n")
     if extra_prompt_sections:
         for section_text in extra_prompt_sections.values():
             if section_text:

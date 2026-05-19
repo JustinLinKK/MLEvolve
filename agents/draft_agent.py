@@ -9,6 +9,11 @@ from llm import compile_prompt_to_md
 from engine.search_node import SearchNode
 from agents.coder import plan_and_code_query, stepwise_plan_and_code_query
 from agents.triggers import register_node
+from agents.hardware_context import (
+    apply_hardware_context_to_node,
+    get_hardware_context_for_stage,
+    hardware_context_instructions,
+)
 from agents.prompts import (
     ROBUSTNESS_GENERALIZATION_STRATEGY,
     prompt_leakage_prevention,
@@ -31,6 +36,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
             init_solution_path = None
         else:
             plan = "User-provided init solution."
+            hardware_ctx = get_hardware_context_for_stage(agent, "draft", code=code)
             agent.virtual_root.add_expected_child_count()
             new_node = SearchNode(
                 plan=plan,
@@ -39,6 +45,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
                 stage="draft",
                 local_best_node=agent.virtual_root,
             )
+            apply_hardware_context_to_node(new_node, hardware_ctx)
             register_node(agent, new_node, "User-provided init solution (no LLM).", new_branch=True)
             logger.info(f"[draft] → node {new_node.id} (branch={new_node.branch_id}) [init_solution]")
             return new_node
@@ -66,7 +73,10 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
         "Memory": agent.virtual_root.fetch_child_memory(),
         "Instructions": {},
     }
+    hardware_ctx = get_hardware_context_for_stage(agent, "draft")
+    hardware_section = hardware_ctx.prompt_section
     prompt["Instructions"] |= prompt_resp_fmt()
+    prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
 
     prompt["Instructions"] |= {
         "🔬 Critical: Scientific Approach to Design": [
@@ -161,7 +171,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
     if prompt.get("Memory", "").strip():
         memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
 
-    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{instructions}"
+    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{hardware_section}\n{instructions}"
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll examine the dataset:\n{agent.data_preview}"
     prompt_complete = build_chat_prompt_for_model(
         agent.acfg.code.model, introduction, user_prompt, assistant_prefix
@@ -176,12 +186,16 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
             context={
                 "stage": "draft",
                 "memory": prompt.get("Memory", ""),
+                "hardware_prompt_section": hardware_section,
+                "hardware_candidate": hardware_ctx.candidate,
+                "hardware_context": hardware_ctx.compact_context,
             },
         )
     else:
         plan, code = plan_and_code_query(agent, prompt_complete)
     new_node = SearchNode(plan=plan, code=code, parent=agent.virtual_root, stage="draft",
                         local_best_node=agent.virtual_root)
+    apply_hardware_context_to_node(new_node, hardware_ctx)
     register_node(agent, new_node, prompt_complete, new_branch=True)
 
     logger.info(f"[draft] → node {new_node.id} (branch={new_node.branch_id})")

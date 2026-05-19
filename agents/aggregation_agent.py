@@ -3,6 +3,11 @@ from typing import Any, List, Optional
 
 from llm import compile_prompt_to_md
 from engine.search_node import SearchNode
+from agents.hardware_context import (
+    apply_hardware_context_to_node,
+    get_hardware_context_for_stage,
+    hardware_context_instructions,
+)
 from agents.prompts import prompt_resp_fmt, get_impl_guideline_from_agent
 from agents.planner import build_chat_prompt_for_model
 from agents.coder import plan_and_code_query
@@ -119,8 +124,11 @@ def run(
         "Branch Experiences": reference_experiences,
         "Instructions": {},
     }
+    hardware_ctx = get_hardware_context_for_stage(agent, "aggregation")
+    hardware_section = hardware_ctx.prompt_section
 
     prompt["Instructions"] |= prompt_resp_fmt()
+    prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
 
     if mode == "node":
         prompt["Instructions"] |= {
@@ -167,7 +175,7 @@ def run(
 
     user_prompt = (
         f"\n# Task description\n{prompt['Task description']}\n\n"
-        f"# Branch Experiences\n{prompt['Branch Experiences']}\n\n{instructions}"
+        f"{hardware_section}# Branch Experiences\n{prompt['Branch Experiences']}\n\n{instructions}"
     )
     prompt_complete = build_chat_prompt_for_model(agent.acfg.code.model, introduction, user_prompt, assistant_prefix)
 
@@ -180,6 +188,7 @@ def run(
         stage="fusion_draft",
         local_best_node=agent.virtual_root,
     )
+    apply_hardware_context_to_node(aggregation_node, hardware_ctx)
     register_node(agent, aggregation_node, prompt_complete, new_branch=True)
     agent.fusion_draft_count += 1
 

@@ -17,7 +17,8 @@ def get_code_review_prompt(task_desc: str, code: str) -> Dict[str, Any]:
         "⚠️ **CRITICAL INSTRUCTION**:\n"
         "You must strictly follow the [Code Review Guidelines] provided below.\n"
         "Do NOT rely on your general knowledge if it conflicts with the Environment Facts listed in the guidelines.\n"
-        "Your output must be a structured review focusing ONLY on Data Leakage and Critical Integrity."
+        "Your output must be a structured review focusing ONLY on Data Leakage, Critical Integrity, "
+        "and concrete hardware-critical execution risks when scheduler evidence is provided.\n"
         "**STRICTLY FORBIDDEN**: Do NOT replace the user's model architecture with other backbones (e.g., ResNet, VGG) just to make code executable. Do not question or change the user's model choice.\n"
     )
     prompt = {
@@ -92,12 +93,17 @@ def get_code_review_guidelines() -> list:
         "  • AdamW: Use `from torch.optim import AdamW` (not from transformers)",
         "  • NO tqdm, NO verbose=1 in training",
         "",
+        "### P1.5 Hardware-Critical Execution Risk",
+        "  • If a hardware/profile context section is provided, flag only concrete high-confidence risks such as fixed oversized batch size, missing OOM fallback around known risky settings, or timeout-prone training budgets.",
+        "  • Do NOT change model/backbone choices for hardware reasons. Prefer targeted fallbacks such as smaller batch size, AMP, gradient accumulation, lower resolution, fewer epochs, or checkpointing.",
+        "",
         "---\n",
         "## 📋 Decision Rule\n",
         "",
         "**needs_revision=True** ONLY IF:",
         "  • P0 data leakage found (MUST FIX)",
         "  • OR P1 critical bug found",
+        "  • OR concrete high-confidence hardware-critical execution risk found in the provided hardware/profile context",
         "",
         "**needs_revision=False** IF:",
         "  • No P0/P1 bugs found",

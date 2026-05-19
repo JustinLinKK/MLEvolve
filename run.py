@@ -91,6 +91,7 @@ def run():
                         scheduler_settings.runtime_root,
                     )
             interpreter.attach_scheduler(scheduler_client, scheduler_cfg)
+            agent.attach_scheduler(scheduler_client)
 
         global_step = len(journal)
         status = Status("[green]Generating code...")

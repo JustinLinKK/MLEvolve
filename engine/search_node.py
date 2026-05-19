@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from dataclasses_json import DataClassJsonMixin
 from engine.executor import ExecutionResult
@@ -73,6 +73,19 @@ class SearchNode(DataClassJsonMixin):
     from_topk: bool = field(default=False, kw_only=True)
     code_summary: Optional[str] = field(default=None, kw_only=True)
     work_dir: Optional[str] = field(default=None, kw_only=True)
+
+    # ---- hardware/profile prompt evidence ----
+    hardware_context: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
+    graph_evidence: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
+    derived_diagnosis: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
+    vector_evidence: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
+    scheduler_risk_flags: List[str] = field(default_factory=list, kw_only=True)
+    scheduler_confidence: float = field(default=0.0, kw_only=True)
+    hardware_evidence_refs: List[str] = field(default_factory=list, kw_only=True)
+    resolved_batch_size: Optional[int] = field(default=None, kw_only=True)
+    estimated_runtime_seconds: Optional[float] = field(default=None, kw_only=True)
+    peak_vram_mb: Optional[float] = field(default=None, kw_only=True)
+    backend_name: Optional[str] = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         if self.parent is not None:

@@ -83,6 +83,9 @@ agent:
 
   # --- Code gen mode ---
   use_diff_mode: True                # SEARCH/REPLACE patch
+  hardware_context_enabled: True
+  hardware_context_limit: 8
+  hardware_context_max_prompt_chars: 3500
 
   # --- Branch strategy ---
   fusion_vs_evolution_prob: 0.3

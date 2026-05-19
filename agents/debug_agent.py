@@ -3,6 +3,11 @@ from typing import Any, List, Tuple
 
 from llm import compile_prompt_to_md, generate
 from engine.search_node import SearchNode
+from agents.hardware_context import (
+    apply_hardware_context_to_node,
+    get_hardware_context_for_stage,
+    hardware_context_instructions,
+)
 from agents.coder import plan_and_code_query
 from utils.response import extract_plan_from_diff_response, wrap_code
 from agents.prompts import (
@@ -101,6 +106,9 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
         "Execution output": wrap_code(parent_node.term_out, lang=""),
         "Instructions": {},
     }
+    hardware_ctx = get_hardware_context_for_stage(agent, "debug", parent_node=parent_node)
+    hardware_section = hardware_ctx.prompt_section
+    prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
     prompt["Instructions"] |= {
         "Bugfix improvement sketch guideline": [
             "- You should write a brief natural language description (2-3 sentences) of how the issue in the previous implementation can be fixed.\n",
@@ -148,7 +156,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
 
     def build_prompt_complete(instructions_with_format, use_full_code_requirement=False):
         current_introduction = introduction_base + (full_code_requirement if use_full_code_requirement else "")
-        user_prompt = f"\n# Task description\n{prompt['Task description']}\n{instructions_with_format}"
+        user_prompt = f"\n# Task description\n{prompt['Task description']}\n{hardware_section}\n{instructions_with_format}"
         assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nThe code that needs fixing:\n{prompt['Previous (buggy) implementation']}\nThe error/issue encountered:\n{prompt['Execution output']}\nAnalyzing the root cause: {parent_node.analysis}\nI'll now fix this issue."
         return build_chat_prompt_for_model(agent.acfg.code.model, current_introduction, user_prompt, assistant_prefix)
 
@@ -298,6 +306,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
 
     new_node = SearchNode(plan=plan, code=code, parent=parent_node, stage="debug",
                         local_best_node=parent_node.local_best_node, from_topk=from_topk)
+    apply_hardware_context_to_node(new_node, hardware_ctx)
     register_node(agent, new_node, prompt_complete, parent_node=parent_node)
 
     logger.info(f"[debug] {parent_node.id} → node {new_node.id}")
