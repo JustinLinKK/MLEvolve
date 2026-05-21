@@ -4,9 +4,8 @@ title: torch.autocast (PyTorch 2.1-2.12)
 api_symbol: torch.autocast
 signature: (device_type, dtype=None, enabled=True, cache_enabled=None)
 parameters_json: '[{"name": "device_type", "default": ""}, {"name": "dtype", "default": "None"}, {"name": "enabled", "default": "True"}, {"name": "cache_enabled", "default": "None"}]'
-usage_summary: Context manager that runs ops in lower precision (bf16/fp16) where safe; activates tensor cores
-example_code: "import torch\nwith torch.autocast(device_type='cuda', dtype=torch.bfloat16):\n    out = model(x)\n    loss = criterion(out, y)"
-text: Context manager that runs ops in lower precision (bf16/fp16) where safe; activates tensor cores
+usage_summary: Context manager that casts eligible ops to bf16/fp16
+text: Context manager that casts eligible ops to bf16/fp16
 framework: pytorch
 framework_version: 2.1-2.12
 docs_url: https://docs.pytorch.org/docs/2.12/amp.html

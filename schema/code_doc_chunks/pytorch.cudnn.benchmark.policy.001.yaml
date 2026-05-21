@@ -1,9 +1,17 @@
 schema_version: code_doc_chunk_v1
 chunk_id: pytorch.cudnn.benchmark.policy.001
 title: cuDNN benchmark vs deterministic flags
-text: 'Set torch.backends.cudnn.benchmark=True so cuDNN autotunes the fastest kernel per input shape. Requires static shapes - dynamic shapes cause repeated autotune storms. Set torch.backends.cudnn.deterministic=True only when bit-exact reproducibility is required (paper repro, numerical debug); deterministic mode forbids atomicAdd-based kernels and reduces throughput (benchmark on your workload to quantify). Production training should keep benchmark=True, deterministic=False, and rely on seeded RNG + checkpoint for repro.
-
-  '
+text: |
+  Set torch.backends.cudnn.benchmark=True so that when a cuDNN
+  convolution is called with a new set of size parameters, cuDNN runs
+  multiple algorithms, benchmarks them to find the fastest one, and
+  reuses it for the rest of the process for the same size parameters.
+  Disabling it (benchmark=False) makes cuDNN deterministically select
+  an algorithm, possibly at the cost of reduced performance. The
+  separate torch.backends.cudnn.deterministic flag controls
+  reproducibility and is distinct from the benchmark setting; combine
+  it with seeded RNGs (Python, NumPy, PyTorch) when you need
+  reproducible runs.
 framework: pytorch
 framework_version: 2.x
 technology_keys:

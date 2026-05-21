@@ -21,7 +21,7 @@ The comparison below normalizes the schema purposes, validator minima, and stora
 | **A — `hardware_feature_record_v1`** | Curated record about an architecture, accelerator, compute capability, or generic hardware capability, plus programming guidance | Rich required record, including provenance | `architectures`, `accelerator_names`, `compute_capabilities`, `features`, `recommended_patterns`, `avoid_patterns`, `source_refs`, `confidence`, `last_verified` | `hardware_feature_knowledge`; may auto-convert into B and C |
 | **B — `code_doc_chunk_v1`** | Explanatory documentation chunk about a concept, API family, framework guide, or hardware-aware technique | `schema_version`, `chunk_id`, `title`, `text` | Source metadata, ontology labels, `api_symbols`, `risk_level`, `confidence`, `deprecated` | `code_doc_chunks` |
 | **C — `optimization_recipe_chunk_v1`** | Actionable recipe that can be turned into a concrete code mutation proposal | `schema_version`, `recipe_id`, `title`, `text`, `optimization_targets` | `problem_statement`, `solution_summary`, patterns, `source_chunk_ids`, `source_job_ids`, ontology labels, risk/confidence | `optimization_recipe_chunks` |
-| **D — `api_symbol_chunk_v1`** | Exact API usage record for a function, class, method, or config surface | `schema_version`, `api_symbol_id`, `api_symbol`, `usage_summary` | `signature`, `parameters_json`, `example_code`, source metadata, ontology labels, risk/confidence | `api_symbol_chunks` |
+| **D — `api_symbol_chunk_v1`** | Exact API usage record for a function, class, method, or config surface | `schema_version`, `api_symbol_id`, `api_symbol`, `usage_summary` | `signature`, `parameters_json`, source metadata, ontology labels, risk/confidence (runnable code examples live only in Schema B, not in D) | `api_symbol_chunks` |
 
 Analytically, the four schemas are not interchangeable chunks with different labels. Schema A is **hardware-first** and provenance-heavy; Schema B is **explanation-first** and retrieval-oriented; Schema C is **decision-first** and action-oriented; Schema D is **syntax-first** and code-generation-oriented. That division is coherent with the stated agent workflow and is one of the strongest parts of the design, because it separates “what is supported,” “why it matters,” “what to try,” and “how to write it.” (Uploaded markdown, lines 55–68, 212–223, 309–363, 398–453, 497–551.) fileciteturn0file0L55-L68 fileciteturn0file0L212-L223 fileciteturn0file0L309-L363 fileciteturn0file0L398-L453 fileciteturn0file0L497-L551
 
@@ -131,7 +131,6 @@ Schema C is particularly important because it formalizes the causal structure of
 | `usage_summary` | string | yes | Main API usage guidance |
 | `signature` | string | recommended | API signature when stable enough to record |
 | `parameters_json` | JSON string in YAML; ideally JSON object in relational mirror | recommended | Machine-readable parameter descriptions |
-| `example_code` | string | recommended | Short correct example |
 | `source_id` | string | recommended | Stable source ID |
 | `source_type` | string | recommended | API reference, official doc, etc. |
 | `source_title` | string | recommended | Source title |
@@ -258,10 +257,6 @@ records:
       Context manager for mixed-precision execution; on CUDA it is commonly used around forward and loss computation.
     parameters_json: >
       {"device_type":"cuda","dtype":"torch.bfloat16 or torch.float16","enabled":"runtime feature flag"}
-    example_code: |
-      with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=use_amp):
-          outputs = model(inputs)
-          loss = criterion(outputs, targets)
     source_id: pytorch.amp.docs
     source_type: api_reference
     source_title: Automatic Mixed Precision package - torch.amp

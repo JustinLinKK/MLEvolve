@@ -1,0 +1,76 @@
+schema_version: code_doc_chunk_v1
+chunk_id: nvidia.ada_lovelace.architecture.001
+title: NVIDIA Ada Lovelace (RTX 40 / L40 / L4) architecture summary
+text: |
+  Ada Lovelace is the NVIDIA GeForce RTX 40 Series GPU architecture.
+  Ada introduces fourth-generation Tensor Cores together with the FP8
+  Transformer Engine first introduced in the Hopper H100, increasing
+  throughput up to 5x to 1.4 Tensor-petaFLOPS. Ada also brings
+  third-generation RT Cores with twice the ray-triangle intersection
+  throughput, and eighth-generation NVENC with AV1 encoders
+  (not relevant for ML training). For ML use, target FP8 inference
+  via Transformer Engine on RTX 40 Series GPUs.
+framework: pytorch
+framework_version: 2.x
+technology_keys:
+- ada_lovelace
+- nvidia_architecture
+- consumer_gpu
+hardware_keys:
+- geforce_rtx_4060
+- geforce_rtx_4070
+- geforce_rtx_4080
+- geforce_rtx_4090
+- l4
+- l40
+- l40s
+- rtx_6000_ada_generation
+hardware_feature_keys:
+- tensor_cores
+- tensor_cores_4gen
+- bf16
+- fp16
+- fp8
+- fp8_e4m3
+- fp8_e5m2
+- tf32
+- int8
+- sm_89
+model_keys: []
+model_families:
+- transformer
+- cnn
+- vit
+workload_types:
+- vision_training
+- transformer_training
+- transformer_inference
+- generative_ai
+optimization_targets:
+- improve_throughput
+- enable_tensor_core
+profile_symptoms:
+- tensor_core_not_used
+- precision_not_optimized
+api_symbols:
+- torch.cuda.get_device_capability
+- torch.cuda.get_device_properties
+precision_modes:
+- bf16
+- fp16
+- fp8
+- tf32
+- int8
+risk_level: low
+confidence: 0.92
+deprecated: false
+source_id: nvidia.ada_lovelace.whitepaper
+source_type: vendor_reference
+source_title: NVIDIA Ada Lovelace GPU Architecture Whitepaper
+source_url: https://www.nvidia.com/en-us/geforce/ada-lovelace-architecture/
+source_version: "2022"
+example_code: |
+  import torch
+  p = torch.cuda.get_device_properties(0)
+  assert (p.major, p.minor) == (8, 9), f'expected Ada Lovelace CC 8.9, got {p.major}.{p.minor}'
+  print(f'{p.name}: SMs={p.multi_processor_count}, VRAM={p.total_memory // 1024 // 1024} MiB')

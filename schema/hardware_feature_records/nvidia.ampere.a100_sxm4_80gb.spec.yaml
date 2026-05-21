@@ -17,6 +17,9 @@ workload_types:
 - transformer_training
 - generative_ai
 - hpc
+- matmul_heavy
+- transformer_inference
+- vision_inference
 features:
 - tensor_cores
 - amp
@@ -39,8 +42,13 @@ recommended_patterns:
 - FP64 OK on this chip (1:2 ratio, 9.7 TFLOPS)
 - use NVLink + NCCL all_reduce for multi-GPU
 - MIG partitioning for inference packing
-- cap peak VRAM at 75 GiB per job
+- cap peak VRAM at 80896 MiB per job
 - flash-attn v2 for transformer attention (v3 is Hopper-only)
 avoid_patterns:
 - no fp8 (sm_80 lacks FP8 path)
 - no Blackwell-only kernels (no FP4, no 5gen TC)
+source_refs:
+- title: "NVIDIA Ampere Architecture"
+  url: "https://www.nvidia.com/en-us/data-center/ampere-architecture/"
+  source_type: vendor_reference
+  retrieved_or_verified_date: "2026-05-21"

@@ -1,9 +1,16 @@
 schema_version: code_doc_chunk_v1
 chunk_id: pytorch.compile.max_autotune.001
 title: torch.compile with mode='max-autotune'
-text: 'torch.compile(model, mode=''max-autotune'') uses the Inductor backend to fuse pointwise ops, generate Triton kernels, and search over kernel schedules. Best for steady-state hot loops with static shapes. First iteration is slow (compile + autotune); steady-state steps run faster on transformer/CNN training (benchmark to quantify on your model). sm_120 (Blackwell GeForce) is stable from PyTorch 2.7+ (initial 2.6 support was incomplete). Avoid recompilation by disabling dynamic shapes (torch._dynamo.config.dynamic_shapes=False) when batch is fixed.
-
-  '
+text: |
+  torch.compile(model, mode='max-autotune') routes through the
+  Inductor backend (default backend='inductor') and uses Triton or
+  template-based matmul plus Triton-based convolutions on GPU;
+  max-autotune profiles to pick the best matmul configuration and
+  enables CUDA Graphs by default on GPU. The epilogue_fusion option
+  (requires max_autotune) fuses pointwise ops into matmul templates.
+  To reduce repeated recompilation under shape variation, pass
+  dynamic=False or accept the recompile_limit ceiling (default 8)
+  before the compiled function falls back to eager.
 framework: pytorch
 framework_version: 2.7+
 technology_keys:

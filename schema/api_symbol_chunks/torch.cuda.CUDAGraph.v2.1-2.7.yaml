@@ -5,7 +5,6 @@ api_symbol: torch.cuda.CUDAGraph
 signature: ()
 parameters_json: '[]'
 usage_summary: CUDA Graph object capturable via torch.cuda.graph context, replayable via .replay()
-example_code: "import torch\ng = torch.cuda.CUDAGraph()\nwith torch.cuda.graph(g):\n    out = model(x)\ng.replay()"
 text: CUDA Graph object capturable via torch.cuda.graph context, replayable via .replay()
 framework: pytorch
 framework_version: 2.1-2.7
@@ -24,8 +23,7 @@ source_type: official_doc
 source_title: PyTorch 2.1-2.7 docs - torch.cuda.CUDAGraph
 source_url: https://docs.pytorch.org/docs/2.7/generated/torch.cuda.CUDAGraph.html
 source_version: pytorch-2.1-2.7
-technology_keys:
-- cuda_graphs
+technology_keys: []
 hardware_feature_keys:
 - cuda_graphs
 optimization_targets:

@@ -5,11 +5,6 @@ api_symbol: torch.cuda.reset_peak_memory_stats
 signature: (device=None)
 parameters_json: '[{"name": "device", "default": "None"}]'
 usage_summary: Resets the peak memory counter to the current allocated value (call before probing)
-example_code: 'import torch
-
-  torch.cuda.reset_peak_memory_stats()
-
-  peak = torch.cuda.max_memory_allocated()'
 text: Resets the peak memory counter to the current allocated value (call before probing)
 framework: pytorch
 framework_version: 2.1-2.12

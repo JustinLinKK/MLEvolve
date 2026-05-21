@@ -32,7 +32,7 @@ B_RECOMMENDED = {
 # from report section 8
 D_REQUIRED = {"schema_version", "api_symbol_id", "api_symbol", "usage_summary"}
 D_RECOMMENDED = {
-    "signature", "parameters_json", "example_code",
+    "signature", "parameters_json",
     "source_id", "source_type", "source_title", "source_url", "source_version",
     "framework", "framework_version",
     "technology_keys", "hardware_feature_keys",
@@ -148,12 +148,6 @@ def main() -> int:
             seen_d_ids.add(rid)
         check_record(rec, "api_symbol_chunk_v1", D_REQUIRED, D_RECOMMENDED,
                      "api_symbol_id", "usage_summary", fails)
-        # D-specific: example_code compiles if present
-        if "example_code" in rec and isinstance(rec["example_code"], str) and rec["example_code"].strip():
-            try:
-                compile(rec["example_code"], f"<{rid}.example>", "exec")
-            except SyntaxError as exc:
-                fails.append(f"[D/{rid}] example_code SyntaxError: {exc}")
     print(f"  unique api_symbol_ids: {len(seen_d_ids)}")
 
     # project validator round-trip

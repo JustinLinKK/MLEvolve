@@ -1,0 +1,152 @@
+# Per-feature authoritative documentation URLs.
+#
+# Design note: this file is the single source of truth for the "what does this
+# feature tag mean and where is its spec" mapping. We put it here, separate
+# from Schema A spec records, because:
+#   - Feature tags are reused across many Schema A records (one tag -> many
+#     accelerator specs). Inlining the URL into every A record would duplicate
+#     the same string dozens of times and drift on update.
+#   - Schema A records describe a single accelerator's capabilities; they
+#     should not own the global semantic dictionary.
+#   - Schema B chunks are per-source-snippet (different abstraction); they
+#     are not the right home either.
+# Hence: option (a) -- a single global file mapping feature_tag -> doc URL.
+#
+# Verification: see verify_feature_docs.py at repo root.
+# Date format: YYYY-MM-DD (ISO 8601).
+
+feature_docs:
+  amp:
+    title: "PyTorch Automatic Mixed Precision (torch.amp)"
+    url: "https://docs.pytorch.org/docs/stable/amp.html"
+    source_type: "official_doc"
+    retrieved_or_verified_date: "2026-05-21"
+
+  bf16:
+    title: "CUDA C++ Programming Guide -- bfloat16 floating-point format"
+    url: "https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#bfloat16-floating-point-format"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"
+
+  cuda_graphs:
+    title: "CUDA C++ Programming Guide -- CUDA Graphs"
+    url: "https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#cuda-graphs"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"
+
+  fp16:
+    title: "CUDA C++ Programming Guide -- half-precision (FP16) floating-point format"
+    url: "https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#half-precision-floating-point-format"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"
+
+  fp4:
+    title: "NVIDIA GeForce RTX 5090 (FP4 + 5th-gen Tensor Cores)"
+    url: "https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5090/"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"
+
+  fp64:
+    title: "CUDA C++ Programming Guide -- double-precision (FP64) floating-point format"
+    url: "https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#double-precision-floating-point-format"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"
+
+  fp8:
+    title: "FP8 Formats for Deep Learning (Micikevicius et al., 2022)"
+    url: "https://arxiv.org/abs/2209.05433"
+    source_type: "academic_paper"
+    retrieved_or_verified_date: "2026-05-21"
+
+  fp8_e4m3:
+    title: "FP8 Formats for Deep Learning -- E4M3 variant (Micikevicius et al., 2022)"
+    url: "https://arxiv.org/abs/2209.05433"
+    source_type: "academic_paper"
+    retrieved_or_verified_date: "2026-05-21"
+
+  fp8_e5m2:
+    title: "FP8 Formats for Deep Learning -- E5M2 variant (Micikevicius et al., 2022)"
+    url: "https://arxiv.org/abs/2209.05433"
+    source_type: "academic_paper"
+    retrieved_or_verified_date: "2026-05-21"
+
+  int8:
+    title: "PyTorch Quantization (INT8 quantized inference)"
+    url: "https://pytorch.org/docs/stable/quantization.html"
+    source_type: "official_doc"
+    retrieved_or_verified_date: "2026-05-21"
+
+  pcie5_x16:
+    title: "PCI-SIG PCI Express Base Specification (PCIe 5.0 x16)"
+    url: "https://pcisig.com/specifications"
+    source_type: "official_doc"
+    retrieved_or_verified_date: "2026-05-21"
+    # PCI-SIG returns HTTP 403 to automated User-Agents (anti-bot WAF).
+    # URL is canonical; reachability must be checked manually in a browser.
+    blocks_automated_check: true
+
+  sm_80:
+    title: "CUDA C++ Programming Guide -- Compute Capability (sm_80, Ampere)"
+    url: "https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#compute-capability"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"
+
+  sm_86:
+    title: "CUDA C++ Programming Guide -- Compute Capability (sm_86, Ampere consumer)"
+    url: "https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#compute-capability"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"
+
+  sm_89:
+    title: "CUDA C++ Programming Guide -- Compute Capability (sm_89, Ada Lovelace)"
+    url: "https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#compute-capability"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"
+
+  sm_90:
+    title: "CUDA C++ Programming Guide -- Compute Capability (sm_90, Hopper)"
+    url: "https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#compute-capability"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"
+
+  sm_100:
+    title: "CUDA C++ Programming Guide -- Compute Capability (sm_100, Blackwell datacenter)"
+    url: "https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#compute-capability"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"
+
+  sm_120:
+    title: "CUDA C++ Programming Guide -- Compute Capability (sm_120, Blackwell consumer)"
+    url: "https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#compute-capability"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"
+
+  tensor_cores:
+    title: "NVIDIA Tensor Cores (overview landing page)"
+    url: "https://www.nvidia.com/en-us/data-center/tensor-cores/"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"
+
+  tensor_cores_3gen:
+    title: "NVIDIA Ampere Architecture Whitepaper (3rd-generation Tensor Cores)"
+    url: "https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"
+
+  tensor_cores_4gen:
+    title: "NVIDIA Hopper H100 Architecture Whitepaper (4th-generation Tensor Cores)"
+    url: "https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"
+
+  tensor_cores_5gen:
+    title: "NVIDIA Blackwell Architecture Technical Brief (5th-generation Tensor Cores)"
+    url: "https://resources.nvidia.com/en-us-blackwell-architecture/blackwell-architecture-technical-brief"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"
+
+  tf32:
+    title: "NVIDIA TensorFloat-32 (TF32) precision format announcement"
+    url: "https://blogs.nvidia.com/blog/tensorfloat-32-precision-format/"
+    source_type: "vendor_reference"
+    retrieved_or_verified_date: "2026-05-21"

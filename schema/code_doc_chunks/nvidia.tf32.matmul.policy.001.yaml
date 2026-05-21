@@ -1,13 +1,17 @@
 schema_version: code_doc_chunk_v1
 chunk_id: nvidia.tf32.matmul.policy.001
 title: TF32 tensor-core path for FP32 matmul
-text: 'TF32 is a non-IEEE 19-bit format used internally by Ampere+ tensor cores: 1 sign + 8 exponent (same range as fp32) + 10 mantissa (same precision as fp16). Inputs and outputs stay fp32 in memory; only the matmul reduction runs in TF32. PyTorch defaults to False since 1.12. Enable with torch.backends.cuda.matmul.allow_tf32=True and torch.backends.cudnn.allow_tf32=True to accelerate FP32 paths that have not been migrated to bf16/fp16 autocast (benchmark to quantify). Avoid for scientific HPC where bit-exact fp32 is required.
-
-  '
+text: |
+  TensorFloat-32 (TF32) is a math mode introduced with the third
+  generation of Tensor Cores in the NVIDIA Ampere architecture for
+  accelerating FP32 convolutions and matrix math. TF32 uses 10 bits
+  of mantissa and one sign bit, while preserving the same range as
+  FP32. TF32 Tensor Cores in A100 GPUs operate on FP32 inputs and
+  produce FP32 outputs without code changes; only the matmul
+  reduction runs in TF32 internally.
 framework: pytorch
 framework_version: 1.12+
 technology_keys:
-- tf32
 - tensor_core_matmul
 hardware_keys: []
 hardware_feature_keys:
@@ -36,10 +40,10 @@ precision_modes:
 risk_level: low
 confidence: 0.95
 deprecated: false
-source_id: nvidia.tf32.blog
+source_id: nvidia.tf32.developer_blog
 source_type: vendor_reference
-source_title: NVIDIA TensorFloat-32 Precision Format
-source_url: https://blogs.nvidia.com/blog/tensorfloat-32-precision-format/
+source_title: NVIDIA Developer Blog -- Accelerating AI Training with NVIDIA TF32 Tensor Cores
+source_url: https://developer.nvidia.com/blog/accelerating-ai-training-with-tf32-tensor-cores/
 source_version: ampere+
 example_code: 'import torch
 

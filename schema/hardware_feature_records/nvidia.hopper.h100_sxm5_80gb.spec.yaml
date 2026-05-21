@@ -18,6 +18,9 @@ workload_types:
 - generative_ai
 - llm_training
 - hpc
+- matmul_heavy
+- transformer_inference
+- vision_inference
 features:
 - tensor_cores
 - amp
@@ -45,7 +48,12 @@ recommended_patterns:
 - NVLink + NCCL for multi-GPU
 - MIG up to 7 partitions for inference
 - flash-attn v3 (sm_90 native)
-- cap peak VRAM at 75 GiB per job
+- cap peak VRAM at 80896 MiB per job
 avoid_patterns:
 - no FP4 (Blackwell-only)
 - no 5gen tensor cores (4gen only on Hopper)
+source_refs:
+- title: "NVIDIA Hopper Architecture"
+  url: "https://www.nvidia.com/en-us/data-center/technologies/hopper-architecture/"
+  source_type: vendor_reference
+  retrieved_or_verified_date: "2026-05-21"

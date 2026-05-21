@@ -5,13 +5,6 @@ api_symbol: torch.cuda.max_memory_allocated
 signature: (device=None)
 parameters_json: '[{"name": "device", "default": "None"}]'
 usage_summary: Returns peak VRAM (bytes) allocated by tensors on a given device since last reset
-example_code: 'import torch
-
-  torch.cuda.reset_peak_memory_stats()
-
-  out = model(x); out.sum().backward()
-
-  peak_mib = torch.cuda.max_memory_allocated() / 1024 / 1024'
 text: Returns peak VRAM (bytes) allocated by tensors on a given device since last reset
 framework: pytorch
 framework_version: 2.1-2.12

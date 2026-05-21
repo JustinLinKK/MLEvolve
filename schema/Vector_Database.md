@@ -1,14 +1,6 @@
 # Hardware Knowledge Vector Database Construction Report
 
-## Purpose of This Report
-
-This report summarizes the current two-database design in MLEvolve and explains why the hardware knowledge vector database requires manual construction. It is written as a professor-facing request for labour assistance: the implementation exists, but the usefulness of the system depends on carefully collected, source-backed hardware and software optimization knowledge.
-
-The main assistance needed is not ordinary data entry. Helpers must read vendor documents, framework documents, API references, architecture notes, benchmark reports, and MLEvolve internal findings, then convert them into structured vector-database records with stable metadata.
-
-## 1. Current System Design
-
-The current design follows `mlevolve_two_database_design_plan.md` and the implementation in `localml_scheduler`. MLEvolve uses two complementary memory layers:
+## Current System Design
 
 ```text
 Profile Graph DB = what happened.
@@ -16,7 +8,7 @@ Vector DB        = how to change code.
 Agent            = why this change should be tried now.
 ```
 
-### 1.1 Profile Graph Database
+### Profile Graph Database
 
 The graph database stores measured evidence from actual runs. It should answer questions such as:
 
@@ -29,7 +21,7 @@ The graph database stores measured evidence from actual runs. It should answer q
 
 The graph database is an empirical evidence store, not a programming manual. It records `SingleJob`, `PackedJob`, `PackedJobMember`, `Hardware`, `Model`, `TrainingConfig`, and `Technology` evidence. SQLite remains the live scheduler control-plane source of truth for current jobs, commands, checkpoints, and events.
 
-### 1.2 Code-Knowledge Vector Database
+### Code-Knowledge Vector Database
 
 The vector database stores coding knowledge, not profile facts. It answers questions such as:
 
@@ -66,19 +58,6 @@ The intended agent loop is:
 ```
 
 For example, a graph record may show FP32 transformer training on a Tensor Core GPU with low SM utilization and moderate VRAM usage. The agent derives labels such as `low_sm_utilization`, `precision_not_optimized`, and `tensor_core_not_used`, then retrieves vector records about `pytorch_amp`, `bf16_autocast`, `tf32_matmul`, and `torch.amp.autocast`.
-
-## 2. Why Manual Labour Is Needed
-
-The hardware vector database cannot be produced reliably by automatic scraping alone. Hardware optimization knowledge is version-sensitive, source-sensitive, and often conditional:
-
-- Vendor marketing pages, architecture PDFs, framework docs, and API references contain different levels of detail.
-- Some features are hardware capabilities, while others are framework-supported programming paths.
-- Low-precision modes such as BF16, FP16, TF32, INT8, or FP4 do not have identical training semantics.
-- A recommendation may be safe for inference but risky or unsupported for training.
-- The same API can have different behavior across PyTorch, CUDA, driver, and GPU architecture versions.
-- MLEvolve needs concise records that agents can retrieve and use safely, not unstructured document dumps.
-
-Therefore, helpers should manually collect, verify, classify, and write structured records. Each record must cite sources, state its confidence, include applicability tags, and separate recommended patterns from avoid patterns.
 
 ## 3. Shared Metadata and Ontology Rules
 
@@ -856,17 +835,3 @@ Important current behavior:
 - Record payloads are embedded using selected text fields plus metadata labels.
 - Search filters currently use exact metadata matches. Consistent ontology spelling is therefore important.
 - Compatibility wrappers such as `search_hardware_features` still exist, but new work should prefer `search_code_knowledge` and `get_code_optimization_context`.
-
-## 13. Requested Assistance
-
-I request labour assistance to construct the initial high-quality hardware knowledge corpus for MLEvolve. The code infrastructure for ingestion and retrieval is present, but the database requires careful manual curation to be useful and safe for optimization agents.
-
-The desired outcome is a reviewed YAML corpus covering:
-
-- NVIDIA hardware architecture and compute capability guidance.
-- Tensor Core and precision-mode guidance.
-- PyTorch AMP, TF32, `torch.compile`, CUDA Graphs, dataloader, checkpointing, and OOM fallback APIs.
-- Common MLEvolve optimization recipes linked to graph-derived symptoms.
-- Retrieval test queries and coverage notes.
-
-This work will make MLEvolve's hardware-aware agent behavior more reliable because future code mutations will be grounded in both measured graph evidence and curated implementation knowledge.

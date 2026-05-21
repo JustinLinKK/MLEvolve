@@ -5,18 +5,17 @@ generate_schema_d.py - this is a separate ground-truth pass so a bug in
 the generator's parser would not also pass verify.
 
 For each record:
-  1. schema_version + 14 required fields present
+  1. schema_version + 13 required fields present
   2. covers_versions: non-empty list of "X.Y" strings
   3. framework_version: "X.Y" (single) or "X.Y-A.B" (range) matches covers_versions
   4. parameters_json: valid JSON list of {name, default}
   5. signature string: round-trip from parameters_json
-  6. example_code: compiles cleanly
-  7. docs_url: HTTP 200, version in URL is in covers_versions
-  8. for EVERY version v in covers_versions: independently fetch the docs
+  6. docs_url: HTTP 200, version in URL is in covers_versions
+  7. for EVERY version v in covers_versions: independently fetch the docs
      page for v (URL derived from docs_url with /<rep>/ -> /<v>/), parse
      the <dt> block for api_symbol, normalize params, compare to yaml
      parameters_json exactly. Handles memory.* namespace change at 2.8.
-  9. project validator accepts the record
+  8. project validator accepts the record
 """
 from __future__ import annotations
 import html as html_mod
@@ -39,7 +38,7 @@ SCHEMA_VERSION = "api_symbol_chunk_v1"
 USER_AGENT = "Mozilla/5.0 (verify-schema-d)"
 REQUIRED = {
     "schema_version", "api_symbol_id", "title", "api_symbol",
-    "signature", "parameters_json", "usage_summary", "example_code",
+    "signature", "parameters_json", "usage_summary",
     "text", "framework", "framework_version", "docs_url",
     "covers_versions", "deprecated",
 }
@@ -218,13 +217,7 @@ def main() -> int:
                     f"     regen: {regen}"
                 )
                 continue
-        # 6 example_code compiles
-        try:
-            compile(rec["example_code"], f"<{sym}.example>", "exec")
-        except SyntaxError as exc:
-            fails.append(f"{ctx} example_code SyntaxError: {exc}")
-            continue
-        # 7 docs_url version in covers
+        # 6 docs_url version in covers
         m = re.search(r"/docs/(\d+\.\d+)/", rec["docs_url"])
         if not m:
             fails.append(f"{ctx} docs_url has no version segment")

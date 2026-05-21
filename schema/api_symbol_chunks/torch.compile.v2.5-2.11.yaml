@@ -5,11 +5,6 @@ api_symbol: torch.compile
 signature: (model, *, fullgraph=False, dynamic=None, backend='inductor', mode=None, options=None, disable=False)
 parameters_json: '[{"name": "model", "default": ""}, {"name": "fullgraph", "default": "False"}, {"name": "dynamic", "default": "None"}, {"name": "backend", "default": "''inductor''"}, {"name": "mode", "default": "None"}, {"name": "options", "default": "None"}, {"name": "disable", "default": "False"}]'
 usage_summary: JIT-compiles a model via TorchDynamo + Inductor; mode='max-autotune' searches kernel schedules
-example_code: 'import torch
-
-  compiled = torch.compile(model, mode=''max-autotune'')
-
-  out = compiled(x)'
 text: JIT-compiles a model via TorchDynamo + Inductor; mode='max-autotune' searches kernel schedules
 framework: pytorch
 framework_version: 2.5-2.11

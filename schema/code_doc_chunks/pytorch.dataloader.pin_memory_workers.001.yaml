@@ -1,9 +1,17 @@
 schema_version: code_doc_chunk_v1
 chunk_id: pytorch.dataloader.pin_memory_workers.001
 title: DataLoader pin_memory and num_workers tuning
-text: 'Set DataLoader(pin_memory=True) so host-side tensors land in page-locked memory and async H2D transfers can overlap with compute. Set num_workers to roughly half the CPU thread count - higher values starve the main process and saturate disk. Also set persistent_workers=True to avoid worker respawn each epoch, and prefetch_factor=4 to keep the GPU fed. Use non_blocking=True on .to(device) calls. Symptoms of misconfig: low SM utilization with high CPU usage and idle GPU between steps.
-
-  '
+text: |
+  Set DataLoader(pin_memory=True) so that the loader automatically
+  puts fetched data tensors in pinned (page-locked) memory; per the
+  docs, host-to-GPU copies are much faster when they originate from
+  pinned memory. Use num_workers>0 to enable multi-process data
+  loading and tune prefetch_factor (default 2 when num_workers>0,
+  meaning 2 * num_workers batches prefetched across workers) to keep
+  batches loaded in advance. Set persistent_workers=True so the data
+  loader will not shut down the worker processes after a dataset has
+  been consumed once, keeping the worker dataset instances alive
+  across epochs.
 framework: pytorch
 framework_version: 2.x
 technology_keys:

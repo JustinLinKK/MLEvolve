@@ -1,13 +1,20 @@
 schema_version: code_doc_chunk_v1
 chunk_id: cuda.graphs.training_loop.001
 title: CUDA Graphs to amortize launch latency
-text: 'CUDA Graphs capture a sequence of kernel launches into a single replayable object, eliminating per-step CPU launch overhead. Best for training loops with many small kernels and fixed shapes. Use torch.cuda.graph(g) context around a warm-up step then graph.replay() per training step. Cannot contain CPU-GPU sync, dynamic shapes, or DataLoader fetch. Combine with cudnn.benchmark=True so the captured graph uses the autotuned kernels.
-
-  '
+text: |
+  CUDA Graphs capture a sequence of kernel launches and their
+  dependencies into a single replayable object; the overhead of
+  graph definition and instantiation can then be amortized over many
+  executions. A graph is a snapshot of a workflow including kernels,
+  their parameters, and their dependencies, replayed as rapidly as
+  possible. Best for workloads with many small kernels and fixed
+  launch parameters; structures with variable shapes or per-step
+  control flow cannot be captured directly. See the CUDA C++
+  Programming Guide CUDA Graphs section for the full set of capture
+  restrictions and the API surface.
 framework: pytorch
 framework_version: 2.x
-technology_keys:
-- cuda_graphs
+technology_keys: []
 hardware_keys: []
 hardware_feature_keys:
 - cuda_graphs

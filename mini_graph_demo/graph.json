@@ -273,7 +273,7 @@
   "edges": [
     {
       "data": {
-        "id": "e6672",
+        "id": "e6693",
         "source": "mgd:job-001",
         "target": "mgd:cuda_graphs",
         "type": "JOB_USES_TECHNOLOGY",
@@ -283,7 +283,7 @@
     },
     {
       "data": {
-        "id": "e6671",
+        "id": "e6692",
         "source": "mgd:job-001",
         "target": "mgd:tf32_matmul",
         "type": "JOB_USES_TECHNOLOGY",
@@ -293,7 +293,7 @@
     },
     {
       "data": {
-        "id": "e6670",
+        "id": "e6691",
         "source": "mgd:job-001",
         "target": "mgd:bf16_autocast",
         "type": "JOB_USES_TECHNOLOGY",
@@ -303,7 +303,7 @@
     },
     {
       "data": {
-        "id": "e6669",
+        "id": "e6690",
         "source": "mgd:job-001",
         "target": "mgd:pytorch_amp",
         "type": "JOB_USES_TECHNOLOGY",
@@ -313,7 +313,7 @@
     },
     {
       "data": {
-        "id": "e6666",
+        "id": "e6687",
         "source": "mgd:job-001",
         "target": "mgd:nvidia.rtx_5090.cu128",
         "type": "JOB_USED_HARDWARE",
@@ -325,7 +325,7 @@
     },
     {
       "data": {
-        "id": "e6664",
+        "id": "e6685",
         "source": "mgd:job-001",
         "target": "mgd:cfg-rn50-bs256-bf16",
         "type": "SINGLE_USES_CONFIG",
@@ -334,7 +334,7 @@
     },
     {
       "data": {
-        "id": "e6662",
+        "id": "e6683",
         "source": "mgd:job-001",
         "target": "mgd:resnet50.timm",
         "type": "SINGLE_TRAINS_MODEL",
@@ -343,7 +343,7 @@
     },
     {
       "data": {
-        "id": "e6667",
+        "id": "e6688",
         "source": "mgd:job-002",
         "target": "mgd:nvidia.rtx_5090.cu128",
         "type": "JOB_USED_HARDWARE",
@@ -355,7 +355,7 @@
     },
     {
       "data": {
-        "id": "e6665",
+        "id": "e6686",
         "source": "mgd:job-002",
         "target": "mgd:cfg-vit-bs128-bf16",
         "type": "SINGLE_USES_CONFIG",
@@ -364,7 +364,7 @@
     },
     {
       "data": {
-        "id": "e6663",
+        "id": "e6684",
         "source": "mgd:job-002",
         "target": "mgd:vit_base_patch16_224.timm",
         "type": "SINGLE_TRAINS_MODEL",
@@ -373,7 +373,7 @@
     },
     {
       "data": {
-        "id": "e6674",
+        "id": "e6695",
         "source": "mgd:job-003",
         "target": "mgd:vit_base_patch16_224.timm",
         "type": "HAS_PACKED_MEMBER",
@@ -382,7 +382,7 @@
     },
     {
       "data": {
-        "id": "e6673",
+        "id": "e6694",
         "source": "mgd:job-003",
         "target": "mgd:resnet50.timm",
         "type": "HAS_PACKED_MEMBER",
@@ -391,7 +391,7 @@
     },
     {
       "data": {
-        "id": "e6668",
+        "id": "e6689",
         "source": "mgd:job-003",
         "target": "mgd:nvidia.rtx_5090.cu128",
         "type": "JOB_USED_HARDWARE",
@@ -403,7 +403,7 @@
     },
     {
       "data": {
-        "id": "e6681",
+        "id": "e6702",
         "source": "mgd:resnet50.timm",
         "target": "mgd:job-001",
         "type": "MEMBER_BASELINE_SINGLE_JOB",
@@ -412,7 +412,7 @@
     },
     {
       "data": {
-        "id": "e6679",
+        "id": "e6700",
         "source": "mgd:resnet50.timm",
         "target": "mgd:pytorch_amp",
         "type": "MEMBER_USES_TECHNOLOGY",
@@ -421,7 +421,7 @@
     },
     {
       "data": {
-        "id": "e6677",
+        "id": "e6698",
         "source": "mgd:resnet50.timm",
         "target": "mgd:cfg-rn50-bs256-bf16",
         "type": "MEMBER_USES_CONFIG",
@@ -430,7 +430,7 @@
     },
     {
       "data": {
-        "id": "e6675",
+        "id": "e6696",
         "source": "mgd:resnet50.timm",
         "target": "mgd:resnet50.timm",
         "type": "MEMBER_TRAINS_MODEL",
@@ -439,7 +439,7 @@
     },
     {
       "data": {
-        "id": "e6682",
+        "id": "e6703",
         "source": "mgd:vit_base_patch16_224.timm",
         "target": "mgd:job-002",
         "type": "MEMBER_BASELINE_SINGLE_JOB",
@@ -448,7 +448,7 @@
     },
     {
       "data": {
-        "id": "e6680",
+        "id": "e6701",
         "source": "mgd:vit_base_patch16_224.timm",
         "target": "mgd:pytorch_amp",
         "type": "MEMBER_USES_TECHNOLOGY",
@@ -457,7 +457,7 @@
     },
     {
       "data": {
-        "id": "e6678",
+        "id": "e6699",
         "source": "mgd:vit_base_patch16_224.timm",
         "target": "mgd:cfg-vit-bs128-bf16",
         "type": "MEMBER_USES_CONFIG",
@@ -466,7 +466,7 @@
     },
     {
       "data": {
-        "id": "e6676",
+        "id": "e6697",
         "source": "mgd:vit_base_patch16_224.timm",
         "target": "mgd:vit_base_patch16_224.timm",
         "type": "MEMBER_TRAINS_MODEL",

@@ -54,103 +54,49 @@ APIS = [
         "api_symbol": "torch.autocast",
         "dt_id": "torch.autocast",
         "url_fn": lambda v: f"{DOCS_BASE}/{v}/amp.html",
-        "text": "Context manager that runs ops in lower precision (bf16/fp16) where safe; activates tensor cores",
-        "example_code": (
-            "import torch\n"
-            "with torch.autocast(device_type='cuda', dtype=torch.bfloat16):\n"
-            "    out = model(x)\n"
-            "    loss = criterion(out, y)"
-        ),
+        "text": "Context manager that casts eligible ops to bf16/fp16",
     },
     {
         "api_symbol": "torch.cuda.amp.GradScaler",
         "dt_id": "torch.cuda.amp.GradScaler",
         "url_fn": lambda v: f"{DOCS_BASE}/{v}/amp.html",
         "text": "Loss-scaling helper required for fp16 autocast (not needed for bf16) to avoid gradient underflow",
-        "example_code": (
-            "import torch\n"
-            "scaler = torch.cuda.amp.GradScaler()\n"
-            "with torch.autocast('cuda', dtype=torch.float16):\n"
-            "    out = model(x); loss = criterion(out, y)\n"
-            "scaler.scale(loss).backward()\n"
-            "scaler.step(optimizer); scaler.update()"
-        ),
     },
     {
         "api_symbol": "torch.compile",
         "dt_id": "torch.compile",
         "url_fn": lambda v: f"{DOCS_BASE}/{v}/generated/torch.compile.html",
         "text": "JIT-compiles a model via TorchDynamo + Inductor; mode='max-autotune' searches kernel schedules",
-        "example_code": (
-            "import torch\n"
-            "compiled = torch.compile(model, mode='max-autotune')\n"
-            "out = compiled(x)"
-        ),
     },
     {
         "api_symbol": "torch.cuda.graph",
         "dt_id": "torch.cuda.graph",
         "url_fn": lambda v: f"{DOCS_BASE}/{v}/generated/torch.cuda.graph.html",
         "text": "Context manager capturing kernel launches into a CUDA Graph for low-overhead replay",
-        "example_code": (
-            "import torch\n"
-            "g = torch.cuda.CUDAGraph()\n"
-            "for _ in range(3):\n"
-            "    out = model(x)\n"
-            "with torch.cuda.graph(g):\n"
-            "    out = model(x)\n"
-            "g.replay()"
-        ),
     },
     {
         "api_symbol": "torch.cuda.CUDAGraph",
         "dt_id": "torch.cuda.CUDAGraph",
         "url_fn": lambda v: f"{DOCS_BASE}/{v}/generated/torch.cuda.CUDAGraph.html",
         "text": "CUDA Graph object capturable via torch.cuda.graph context, replayable via .replay()",
-        "example_code": (
-            "import torch\n"
-            "g = torch.cuda.CUDAGraph()\n"
-            "with torch.cuda.graph(g):\n"
-            "    out = model(x)\n"
-            "g.replay()"
-        ),
     },
     {
         "api_symbol": "torch.utils.data.DataLoader",
         "dt_id": "torch.utils.data.DataLoader",
         "url_fn": lambda v: f"{DOCS_BASE}/{v}/data.html",
         "text": "Iterable wrapper around a Dataset with batching, shuffling, parallel loading, and pinning",
-        "example_code": (
-            "from torch.utils.data import DataLoader\n"
-            "loader = DataLoader(\n"
-            "    dataset, batch_size=32, shuffle=True,\n"
-            "    num_workers=10, pin_memory=True,\n"
-            "    persistent_workers=True, prefetch_factor=4,\n"
-            ")"
-        ),
     },
     {
         "api_symbol": "torch.cuda.max_memory_allocated",
         "dt_id_fn": lambda v: memory_dt_id(v, "max_memory_allocated"),
         "url_fn": lambda v: memory_url(v, "max_memory_allocated"),
         "text": "Returns peak VRAM (bytes) allocated by tensors on a given device since last reset",
-        "example_code": (
-            "import torch\n"
-            "torch.cuda.reset_peak_memory_stats()\n"
-            "out = model(x); out.sum().backward()\n"
-            "peak_mib = torch.cuda.max_memory_allocated() / 1024 / 1024"
-        ),
     },
     {
         "api_symbol": "torch.cuda.reset_peak_memory_stats",
         "dt_id_fn": lambda v: memory_dt_id(v, "reset_peak_memory_stats"),
         "url_fn": lambda v: memory_url(v, "reset_peak_memory_stats"),
         "text": "Resets the peak memory counter to the current allocated value (call before probing)",
-        "example_code": (
-            "import torch\n"
-            "torch.cuda.reset_peak_memory_stats()\n"
-            "peak = torch.cuda.max_memory_allocated()"
-        ),
     },
 ]
 
@@ -290,7 +236,6 @@ def main() -> int:
                 "signature": sig_str,
                 "parameters_json": params_json(norm),
                 "usage_summary": api["text"].rstrip("."),
-                "example_code": api["example_code"].strip(),
                 "text": api["text"].strip(),
                 "framework": "pytorch",
                 "framework_version": label,

@@ -1,9 +1,17 @@
 schema_version: code_doc_chunk_v1
 chunk_id: pytorch.amp.autocast.bf16.training.001
 title: PyTorch bf16 autocast for training
-text: 'Wrap the forward pass and loss computation in torch.amp.autocast(device_type=''cuda'', dtype=torch.bfloat16). bf16 has the same 8-bit exponent as fp32 so no GradScaler is needed; fp16 still requires GradScaler. Use on Ampere+ (compute capability >= 8.0) where tensor cores accelerate bf16 matmul. Cast model weights to fp32; autocast only changes op dtype inside the context. Log resolved dtype, throughput, peak VRAM.
-
-  '
+text: |
+  Wrap the forward pass and loss computation in
+  torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16); inside
+  the region ops run in an autocast-chosen dtype while tensors outside
+  stay in their original dtype. PyTorch lists torch.float16 and
+  torch.bfloat16 as the supported lower-precision autocast dtypes.
+  fp16 training additionally requires torch.amp.GradScaler (gradient
+  scaling multiplies the loss by a scale factor to prevent fp16
+  underflow); the docs note bf16-pretrained models cannot safely
+  operate in the fp16 numerical range. Keep model parameters in
+  float32 and let autocast pick the per-op dtype inside the context.
 framework: pytorch
 framework_version: 2.x
 technology_keys:

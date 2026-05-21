@@ -1,9 +1,16 @@
 schema_version: code_doc_chunk_v1
 chunk_id: flash_attn.v3.usage.001
 title: FlashAttention v3 for transformer self-attention
-text: 'flash-attn v3 (sm_90+ kernels, experimental support for sm_120 Blackwell GeForce (main branch / prereleases)) replaces standard self-attention with a fused IO-aware kernel that does not materialize the N x N attention matrix. Memory drops from O(N^2) to O(N); throughput improves substantially for long sequences (benchmark to quantify). Use flash_attn_func(q, k, v, causal=True) or hook into HuggingFace transformers via attn_implementation=''flash_attention_2''. Requires contiguous tensors with dtype bf16 or fp16; will OOM-fallback on fp32.
-
-  '
+text: |
+  FlashAttention-3 (beta release) is an IO-aware fused attention
+  kernel optimized for Hopper and Blackwell GPUs (for example H100
+  and B200). It replaces standard self-attention to reduce memory
+  traffic of the attention matrix. The Python entry point is
+  flash_attn_interface.flash_attn_func(q, k, v, causal=True). For
+  FA2 on Ampere or Ada (A100, RTX 3090, RTX 4090, H100), use the
+  flash_attn package. Supported dtypes on the CUDA path are fp16 and
+  bf16. HuggingFace integration is available via the huggingface
+  kernels library.
 framework: pytorch
 framework_version: 2.x
 technology_keys:
@@ -17,7 +24,6 @@ hardware_feature_keys:
 model_keys: []
 model_families:
 - transformer
-- llama
 - gpt
 workload_types:
 - transformer_training

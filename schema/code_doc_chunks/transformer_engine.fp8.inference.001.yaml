@@ -1,9 +1,17 @@
 schema_version: code_doc_chunk_v1
 chunk_id: transformer_engine.fp8.inference.001
 title: NVIDIA Transformer Engine fp8 path
-text: 'Transformer Engine wraps GEMM and attention with FP8 quantization (E4M3 for forward activations, E5M2 for gradients). Use the te.fp8_autocast context for inference on Hopper (sm_90) and Blackwell (sm_100/120). FP8 training remains unstable for general LLMs - keep to inference and benchmark loss curves vs bf16 before adopting. Requires CUDA >= 12.1 and TE >= 1.0. Combine with FlashAttention for end-to-end fp8 attention.
-
-  '
+text: |
+  NVIDIA Transformer Engine accelerates Transformer training and
+  inference with FP8 and FP4 precision on Hopper, Ada and Blackwell
+  GPUs. Wrap the forward pass in te.fp8_autocast with a
+  recipe.DelayedScaling recipe (fp8_format=recipe.Format.E4M3 or
+  HYBRID); TE inserts per-tensor amax tracking and applies the scale
+  automatically. The README reports that fp8/mxfp8 training loss
+  curves match bf16 on tested LLMs, so FP8 can be used for both
+  training and inference. Software requirements per README: CUDA 12.1+
+  on Hopper/Ada/Ampere or 12.8+ on Blackwell, plus cuDNN 9.3+. Can be
+  combined with the bundled FlashAttention path.
 framework: pytorch
 framework_version: 2.x
 technology_keys:
@@ -19,7 +27,6 @@ hardware_feature_keys:
 model_keys: []
 model_families:
 - transformer
-- llama
 - gpt
 workload_types:
 - generative_ai
