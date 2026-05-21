@@ -1,0 +1,109 @@
+schema_version: optimization_recipe_chunk_v1
+recipe_id: hardware_feature_recipe.nvidia.ada_lovelace.geforce_rtx_4090.spec
+title: GeForce RTX 4090 optimization recipe
+problem_statement: Optimize vision_training / transformer_training / generative_ai on GeForce RTX 4090
+solution_summary: Keep batch size, precision, accumulation in top-level config; bf16 autocast default; TF32 on for FP32 matmul; cudnn.benchmark=True; torch.compile(mode='max-autotune'); CUDA Graphs for hot loop; DataLoader pin_memory=True; flash-attn v3 for attention (sm_89 fwd via CUTLASS); cap peak VRAM at 22000 MiB per job; fp8 inference via transformer_engine
+text: 'Recommended patterns:
+
+  - Keep batch size, precision, accumulation in top-level config
+
+  - bf16 autocast default
+
+  - TF32 on for FP32 matmul
+
+  - cudnn.benchmark=True
+
+  - torch.compile(mode=''max-autotune'')
+
+  - CUDA Graphs for hot loop
+
+  - DataLoader pin_memory=True
+
+  - flash-attn v3 for attention (sm_89 fwd via CUTLASS)
+
+  - cap peak VRAM at 22000 MiB per job
+
+  - fp8 inference via transformer_engine
+
+
+  Avoid patterns:
+
+  - no FP64 matmul (consumer Ada 1:64 ratio)
+
+  - no NVLink (PCIe only)
+
+  - no MIG (consumer card)'
+recommended_patterns:
+- Keep batch size, precision, accumulation in top-level config
+- bf16 autocast default
+- TF32 on for FP32 matmul
+- cudnn.benchmark=True
+- torch.compile(mode='max-autotune')
+- CUDA Graphs for hot loop
+- DataLoader pin_memory=True
+- flash-attn v3 for attention (sm_89 fwd via CUTLASS)
+- cap peak VRAM at 22000 MiB per job
+- fp8 inference via transformer_engine
+avoid_patterns:
+- no FP64 matmul (consumer Ada 1:64 ratio)
+- no NVLink (PCIe only)
+- no MIG (consumer card)
+source_chunk_ids:
+- flash_attn.v3.usage.001
+- nvidia.tf32.matmul.policy.001
+- pytorch.amp.autocast.bf16.training.001
+- pytorch.compile.max_autotune.001
+- pytorch.cudnn.benchmark.policy.001
+- transformer_engine.fp8.inference.001
+- cuda.graphs.training_loop.001
+- pytorch.dataloader.pin_memory_workers.001
+- pytorch.vram_probe.budget.001
+source_job_ids: []
+framework: pytorch
+framework_version: 2.x
+technology_keys:
+- tensor_cores
+- fp16
+- tensor_cores_4gen
+- int8
+- tf32
+- amp
+- fp8
+- fp8_e5m2
+- bf16
+- fp8_e4m3
+- sm_89
+hardware_keys:
+- geforce_rtx_4090
+hardware_feature_keys:
+- tensor_cores
+- fp16
+- tensor_cores_4gen
+- int8
+- tf32
+- amp
+- fp8
+- fp8_e5m2
+- bf16
+- fp8_e4m3
+- sm_89
+workload_types:
+- vision_training
+- transformer_training
+- generative_ai
+optimization_targets:
+- improve_throughput
+- reduce_vram
+- enable_tensor_core
+profile_symptoms:
+- precision_not_optimized
+- low_sm_utilization
+api_symbols: []
+precision_modes:
+- bf16
+- fp16
+- fp8
+- tf32
+risk_level: medium
+confidence: 0.85
+deprecated: false

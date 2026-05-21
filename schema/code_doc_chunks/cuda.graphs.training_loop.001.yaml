@@ -36,3 +36,4 @@ source_type: vendor_reference
 source_title: CUDA Graphs Programming Guide
 source_url: https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#cuda-graphs
 source_version: cuda-12.x
+example_code: "import torch\nimport torch.nn as nn\nif not torch.cuda.is_available():\n    raise SystemExit('SKIP: no CUDA')\nmodel = nn.Linear(64, 32).cuda()\nstatic_x = torch.randn(8, 64, device='cuda')\nfor _ in range(3):\n    out = model(static_x)\ntorch.cuda.synchronize()\ng = torch.cuda.CUDAGraph()\nwith torch.cuda.graph(g):\n    out = model(static_x)\ng.replay()\ntorch.cuda.synchronize()"

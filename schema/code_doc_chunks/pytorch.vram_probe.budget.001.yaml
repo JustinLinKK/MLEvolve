@@ -9,9 +9,7 @@ framework_version: 2.x
 technology_keys:
 - vram_probe
 - batch_search
-hardware_keys:
-- geforce_rtx_5070_ti
-- geforce_rtx_5090
+hardware_keys: []
 hardware_feature_keys: []
 model_keys: []
 model_families:
@@ -38,3 +36,4 @@ source_type: internal_note
 source_title: MLEvolve scheduler VRAM probe protocol
 source_url: ''
 source_version: scheduler-2026-05
+example_code: "import torch\nif not torch.cuda.is_available():\n    raise SystemExit('SKIP: no CUDA')\ntorch.cuda.reset_peak_memory_stats()\nx = torch.randn(1024, 1024, device='cuda')\ny = x @ x.T\npeak_mib = torch.cuda.max_memory_allocated() / 1024 / 1024"

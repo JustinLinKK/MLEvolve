@@ -1,7 +1,7 @@
 schema_version: code_doc_chunk_v1
 chunk_id: flash_attn.v3.usage.001
 title: FlashAttention v3 for transformer self-attention
-text: 'flash-attn v3 (sm_90+ kernels, also runs on sm_120 Blackwell GeForce) replaces standard self-attention with a fused IO-aware kernel that does not materialize the N x N attention matrix. Memory drops from O(N^2) to O(N), throughput improves 1.5x-3x for long sequences. Use flash_attn_func(q, k, v, causal=True) or hook into HuggingFace transformers via attn_implementation=''flash_attention_2''. Requires contiguous tensors with dtype bf16 or fp16; will OOM-fallback on fp32.
+text: 'flash-attn v3 (sm_90+ kernels, experimental support for sm_120 Blackwell GeForce (main branch / prereleases)) replaces standard self-attention with a fused IO-aware kernel that does not materialize the N x N attention matrix. Memory drops from O(N^2) to O(N); throughput improves substantially for long sequences (benchmark to quantify). Use flash_attn_func(q, k, v, causal=True) or hook into HuggingFace transformers via attn_implementation=''flash_attention_2''. Requires contiguous tensors with dtype bf16 or fp16; will OOM-fallback on fp32.
 
   '
 framework: pytorch
@@ -41,3 +41,20 @@ source_type: open_source_project
 source_title: FlashAttention v3 Repository
 source_url: https://github.com/Dao-AILab/flash-attention
 source_version: flash-attn-3.x
+example_code: 'import torch
+
+  import torch.nn.functional as F
+
+  device = ''cuda'' if torch.cuda.is_available() else ''cpu''
+
+  B, H, S, D = 1, 4, 128, 64
+
+  dtype = torch.bfloat16 if device == ''cuda'' else torch.float32
+
+  q = torch.randn(B, H, S, D, device=device, dtype=dtype)
+
+  k = torch.randn(B, H, S, D, device=device, dtype=dtype)
+
+  v = torch.randn(B, H, S, D, device=device, dtype=dtype)
+
+  out = F.scaled_dot_product_attention(q, k, v, is_causal=True)'

@@ -1,11 +1,11 @@
 schema_version: code_doc_chunk_v1
 chunk_id: pytorch.compile.max_autotune.001
 title: torch.compile with mode='max-autotune'
-text: 'torch.compile(model, mode=''max-autotune'') uses the Inductor backend to fuse pointwise ops, generate Triton kernels, and search over kernel schedules. Best for steady-state hot loops with static shapes. First iteration is slow (compile + autotune); subsequent steps see 1.3x-2x speedup on transformer/CNN training. sm_120 (Blackwell GeForce) is supported from PyTorch 2.6. Avoid recompilation by disabling dynamic shapes (torch._dynamo.config.dynamic_shapes=False) when batch is fixed.
+text: 'torch.compile(model, mode=''max-autotune'') uses the Inductor backend to fuse pointwise ops, generate Triton kernels, and search over kernel schedules. Best for steady-state hot loops with static shapes. First iteration is slow (compile + autotune); steady-state steps run faster on transformer/CNN training (benchmark to quantify on your model). sm_120 (Blackwell GeForce) is stable from PyTorch 2.7+ (initial 2.6 support was incomplete). Avoid recompilation by disabling dynamic shapes (torch._dynamo.config.dynamic_shapes=False) when batch is fixed.
 
   '
 framework: pytorch
-framework_version: 2.6+
+framework_version: 2.7+
 technology_keys:
 - torch_compile
 - inductor
@@ -38,3 +38,16 @@ source_type: official_doc
 source_title: torch.compile API reference
 source_url: https://docs.pytorch.org/docs/stable/generated/torch.compile.html
 source_version: pytorch-2.6+
+example_code: 'import torch
+
+  import torch.nn as nn
+
+  device = ''cuda'' if torch.cuda.is_available() else ''cpu''
+
+  model = nn.Linear(64, 32).to(device)
+
+  compiled = torch.compile(model)
+
+  x = torch.randn(8, 64, device=device)
+
+  y = compiled(x)'

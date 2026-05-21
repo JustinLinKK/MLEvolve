@@ -29,6 +29,8 @@ features:
 - int8
 - sm_90
 - tensor_cores_4gen
+- fp8_e4m3
+- fp8_e5m2
 vram_MB: 81920
 vram_type: hbm2e
 vram_clock_mhz: 1593

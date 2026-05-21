@@ -29,7 +29,23 @@ features:
 - int8
 - sm_90
 - tensor_cores_4gen
+- fp8_e4m3
+- fp8_e5m2
 vram_MB: 144384
 vram_type: hbm3e
 vram_clock_mhz: 1593
 sm_count: 132
+recommended_patterns:
+- Keep batch size, precision, accumulation in top-level config
+- bf16 autocast default
+- fp8 training+inference via transformer_engine (E4M3 fwd, E5M2 grad)
+- TF32 on for FP32 matmul
+- cudnn.benchmark=True for static shapes
+- FP64 OK on this chip (1:2 ratio)
+- fit larger batches given 141 GiB HBM3e
+- NVLink for multi-GPU all_reduce
+- MIG up to 7 partitions for inference
+- flash-attn v3
+- cap peak VRAM at 135 GiB per job
+avoid_patterns:
+- no FP4 (Blackwell-only)

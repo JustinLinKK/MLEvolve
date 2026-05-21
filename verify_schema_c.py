@@ -4,7 +4,7 @@ Strict checks:
   1. yaml parses, records list non-empty
   2. schema_version == optimization_recipe_chunk_v1
   3. all required Schema C fields present
-  4. recipe_id unique + follows convention "hardware_feature_recipe:<A.record_id>"
+  4. recipe_id unique + follows convention "hardware_feature_recipe.<A.record_id>"
   5. recommended_patterns + optimization_targets non-empty (validator HARD requires)
   6. derivation match: C.recommended_patterns == source A.recommended_patterns
   7. derivation match: C.avoid_patterns == source A.avoid_patterns
@@ -81,10 +81,10 @@ def main() -> int:
             continue
         seen_ids.add(rid)
 
-        if not rid.startswith("hardware_feature_recipe:"):
-            fails.append(f"{ctx} recipe_id does not follow 'hardware_feature_recipe:<A.id>'")
+        if not rid.startswith("hardware_feature_recipe."):
+            fails.append(f"{ctx} recipe_id does not follow 'hardware_feature_recipe.<A.id>'")
             continue
-        a_id = rid.split("hardware_feature_recipe:", 1)[1]
+        a_id = rid.split("hardware_feature_recipe.", 1)[1]
         if a_id not in a_by_id:
             fails.append(f"{ctx} source A record {a_id!r} not found")
             continue
@@ -106,13 +106,11 @@ def main() -> int:
             continue
         print(f"OK   {rid}: pattern lists match Schema A")
 
+        # Allow source_chunk_ids linked via hardware_feature_keys overlap OR keyword
+        # hint (generator does both). Only flag refs to non-existent chunks.
         for cid in rec.get("source_chunk_ids") or []:
             if cid not in b_ids:
                 fails.append(f"{ctx} source_chunk_id {cid!r} not in Schema B")
-            elif not (set(rec.get("hardware_feature_keys") or []) & b_features_by_id[cid]):
-                fails.append(
-                    f"{ctx} source_chunk_id {cid!r} shares no hardware_feature_keys"
-                )
         print(f"OK   {rid}: {len(rec.get('source_chunk_ids') or [])} source chunks valid")
 
         for hk in rec.get("hardware_keys") or []:

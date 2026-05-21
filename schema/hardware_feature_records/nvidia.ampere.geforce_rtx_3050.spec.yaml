@@ -1,6 +1,6 @@
 schema_version: hardware_feature_record_v1
 record_id: nvidia.ampere.geforce_rtx_3050.spec
-title: GeForce RTX 3050
+title: NVIDIA GeForce RTX 3050 8GB
 vendor: nvidia
 architectures:
 - ampere

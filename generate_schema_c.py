@@ -24,18 +24,51 @@ def schema_b_index(b_records: list[dict]) -> list[tuple[str, set[str]]]:
     out = []
     for rec in b_records:
         keys = set(rec.get("hardware_feature_keys") or [])
-        out.append((rec["chunk_id"], keys))
+        tech = set(rec.get("technology_keys") or [])
+        api  = set(rec.get("api_symbols") or [])
+        out.append((rec["chunk_id"], keys, tech, api))
     return out
 
 
-def derive_recipe(a_rec: dict, b_index: list[tuple[str, set[str]]]) -> dict:
+# Pattern-keyword -> Schema B chunk_id for keyword-based linking
+PATTERN_HINTS = {
+    "bf16 autocast":          "pytorch.amp.autocast.bf16.training.001",
+    "tf32 on":                "nvidia.tf32.matmul.policy.001",
+    "cudnn.benchmark":        "pytorch.cudnn.benchmark.policy.001",
+    "torch.compile":          "pytorch.compile.max_autotune.001",
+    "cuda graphs":            "cuda.graphs.training_loop.001",
+    "dataloader":             "pytorch.dataloader.pin_memory_workers.001",
+    "pin_memory":             "pytorch.dataloader.pin_memory_workers.001",
+    "flash-attn":             "flash_attn.v3.usage.001",
+    "transformer_engine":     "transformer_engine.fp8.inference.001",
+    "fp8 ":                   "transformer_engine.fp8.inference.001",
+    "cap peak vram":          "pytorch.vram_probe.budget.001",
+    "vram":                   "pytorch.vram_probe.budget.001",
+}
+
+
+def link_chunks_for_patterns(patterns: list[str], b_index, a_features: set[str]) -> list[str]:
+    linked: list[str] = []
+    # 1. hardware_feature_keys overlap
+    for cid, b_keys, _, _ in b_index:
+        if a_features & b_keys and cid not in linked:
+            linked.append(cid)
+    # 2. keyword hints from patterns
+    text = " ".join(patterns).lower()
+    for keyword, cid in PATTERN_HINTS.items():
+        if keyword in text and cid not in linked:
+            linked.append(cid)
+    return linked
+
+
+def derive_recipe(a_rec: dict, b_index) -> dict:
     a_features = set(a_rec.get("features") or [])
-    # link B chunks that share at least one hardware_feature_key with this A
-    source_chunk_ids = [cid for cid, b_keys in b_index if a_features & b_keys]
+    patterns = a_rec.get("recommended_patterns") or []
+    source_chunk_ids = link_chunks_for_patterns(patterns, b_index, a_features)
 
     return {
         "schema_version": "optimization_recipe_chunk_v1",
-        "recipe_id": f"hardware_feature_recipe:{a_rec['record_id']}",
+        "recipe_id": f"hardware_feature_recipe.{a_rec['record_id']}",
         "title": f"{a_rec['title']} optimization recipe",
         "problem_statement": (
             f"Optimize {' / '.join(a_rec.get('workload_types', []))} "

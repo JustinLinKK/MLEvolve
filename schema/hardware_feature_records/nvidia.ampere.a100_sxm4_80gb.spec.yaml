@@ -31,3 +31,16 @@ vram_MB: 81920
 vram_type: hbm2e
 vram_clock_mhz: 1593
 sm_count: 108
+recommended_patterns:
+- Keep batch size, precision, accumulation in top-level config
+- bf16 autocast default
+- TF32 on for FP32 matmul
+- cudnn.benchmark=True
+- FP64 OK on this chip (1:2 ratio, 9.7 TFLOPS)
+- use NVLink + NCCL all_reduce for multi-GPU
+- MIG partitioning for inference packing
+- cap peak VRAM at 75 GiB per job
+- flash-attn v2 for transformer attention (v3 is Hopper-only)
+avoid_patterns:
+- no fp8 (sm_80 lacks FP8 path)
+- no Blackwell-only kernels (no FP4, no 5gen TC)

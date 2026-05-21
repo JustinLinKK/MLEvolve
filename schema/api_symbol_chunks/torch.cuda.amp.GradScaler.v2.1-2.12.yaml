@@ -4,7 +4,7 @@ title: torch.cuda.amp.GradScaler (PyTorch 2.1-2.12)
 api_symbol: torch.cuda.amp.GradScaler
 signature: (init_scale=65536.0, growth_factor=2.0, backoff_factor=0.5, growth_interval=2000, enabled=True)
 parameters_json: '[{"name": "init_scale", "default": "65536.0"}, {"name": "growth_factor", "default": "2.0"}, {"name": "backoff_factor", "default": "0.5"}, {"name": "growth_interval", "default": "2000"}, {"name": "enabled", "default": "True"}]'
-usage_summary: Loss-scaling helper required for fp16 autocast (not needed for bf16) to avoid gradient underflow
+usage_summary: Loss-scaling helper required for fp16 autocast (not needed for bf16) to avoid gradient underflow (deprecated since PyTorch 2.4 in favor of torch.amp.GradScaler)
 example_code: "import torch\nscaler = torch.cuda.amp.GradScaler()\nwith torch.autocast('cuda', dtype=torch.float16):\n    out = model(x); loss = criterion(out, y)\nscaler.scale(loss).backward()\nscaler.step(optimizer); scaler.update()"
 text: Loss-scaling helper required for fp16 autocast (not needed for bf16) to avoid gradient underflow
 framework: pytorch
@@ -23,7 +23,7 @@ covers_versions:
 - '2.10'
 - '2.11'
 - '2.12'
-deprecated: false
+deprecated: true
 source_id: pytorch.docs.torch.cuda.amp.GradScaler.2.1-2.12
 source_type: official_doc
 source_title: PyTorch 2.1-2.12 docs - torch.cuda.amp.GradScaler

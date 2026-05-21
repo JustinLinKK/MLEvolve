@@ -36,3 +36,4 @@ source_type: official_doc
 source_title: PyTorch DataLoader Reference
 source_url: https://docs.pytorch.org/docs/stable/data.html
 source_version: pytorch-2.x
+example_code: "import torch\nfrom torch.utils.data import DataLoader, TensorDataset\nds = TensorDataset(torch.randn(64, 8), torch.randn(64, 2))\nloader = DataLoader(ds, batch_size=8, shuffle=True, num_workers=0,\n                     pin_memory=torch.cuda.is_available())\nfor x, y in loader:\n    break"

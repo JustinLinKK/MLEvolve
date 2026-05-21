@@ -47,3 +47,4 @@ source_type: official_doc
 source_title: PyTorch Automatic Mixed Precision Documentation
 source_url: https://docs.pytorch.org/docs/stable/amp.html
 source_version: pytorch-2.x
+example_code: "import torch\nimport torch.nn as nn\ndevice = 'cuda' if torch.cuda.is_available() else 'cpu'\nmodel = nn.Linear(64, 32).to(device)\nopt = torch.optim.SGD(model.parameters(), lr=1e-3)\nx = torch.randn(8, 64, device=device)\ny = torch.randn(8, 32, device=device)\nopt.zero_grad(set_to_none=True)\nwith torch.autocast(device_type='cuda' if device == 'cuda' else 'cpu', dtype=torch.bfloat16):\n    out = model(x)\n    loss = (out - y).pow(2).mean()\nloss.backward()\nopt.step()"

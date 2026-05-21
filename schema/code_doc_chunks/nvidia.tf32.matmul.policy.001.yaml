@@ -1,7 +1,7 @@
 schema_version: code_doc_chunk_v1
 chunk_id: nvidia.tf32.matmul.policy.001
 title: TF32 tensor-core path for FP32 matmul
-text: 'TF32 is a non-IEEE 19-bit format used internally by Ampere+ tensor cores: 1 sign + 8 exponent (same range as fp32) + 10 mantissa (same precision as fp16). Inputs and outputs stay fp32 in memory; only the matmul reduction runs in TF32. PyTorch defaults to False since 1.12. Enable with torch.backends.cuda.matmul.allow_tf32=True and torch.backends.cudnn.allow_tf32=True for free 4-10x speedup on FP32 paths that have not been migrated to bf16/fp16 autocast. Avoid for scientific HPC where bit-exact fp32 is required.
+text: 'TF32 is a non-IEEE 19-bit format used internally by Ampere+ tensor cores: 1 sign + 8 exponent (same range as fp32) + 10 mantissa (same precision as fp16). Inputs and outputs stay fp32 in memory; only the matmul reduction runs in TF32. PyTorch defaults to False since 1.12. Enable with torch.backends.cuda.matmul.allow_tf32=True and torch.backends.cudnn.allow_tf32=True to accelerate FP32 paths that have not been migrated to bf16/fp16 autocast (benchmark to quantify). Avoid for scientific HPC where bit-exact fp32 is required.
 
   '
 framework: pytorch
@@ -41,3 +41,16 @@ source_type: vendor_reference
 source_title: NVIDIA TensorFloat-32 Precision Format
 source_url: https://blogs.nvidia.com/blog/tensorfloat-32-precision-format/
 source_version: ampere+
+example_code: 'import torch
+
+  torch.backends.cuda.matmul.allow_tf32 = True
+
+  torch.backends.cudnn.allow_tf32 = True
+
+  device = ''cuda'' if torch.cuda.is_available() else ''cpu''
+
+  a = torch.randn(256, 256, device=device)
+
+  b = torch.randn(256, 256, device=device)
+
+  c = a @ b'

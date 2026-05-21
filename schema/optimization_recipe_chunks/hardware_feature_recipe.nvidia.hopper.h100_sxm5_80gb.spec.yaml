@@ -1,0 +1,108 @@
+schema_version: optimization_recipe_chunk_v1
+recipe_id: hardware_feature_recipe.nvidia.hopper.h100_sxm5_80gb.spec
+title: NVIDIA H100 SXM5 80GB optimization recipe
+problem_statement: Optimize vision_training / transformer_training / generative_ai / llm_training / hpc on NVIDIA H100 SXM5 80GB
+solution_summary: Keep batch size, precision, accumulation in top-level config; bf16 autocast default for training; fp8 training+inference via transformer_engine (E4M3 fwd, E5M2 grad); TF32 on for FP32 matmul; cudnn.benchmark=True; FP64 OK on this chip (1:2 ratio); NVLink + NCCL for multi-GPU; MIG up to 7 partitions for inference; flash-attn v3 (sm_90 native); cap peak VRAM at 75 GiB per job
+text: 'Recommended patterns:
+
+  - Keep batch size, precision, accumulation in top-level config
+
+  - bf16 autocast default for training
+
+  - fp8 training+inference via transformer_engine (E4M3 fwd, E5M2 grad)
+
+  - TF32 on for FP32 matmul
+
+  - cudnn.benchmark=True
+
+  - FP64 OK on this chip (1:2 ratio)
+
+  - NVLink + NCCL for multi-GPU
+
+  - MIG up to 7 partitions for inference
+
+  - flash-attn v3 (sm_90 native)
+
+  - cap peak VRAM at 75 GiB per job
+
+
+  Avoid patterns:
+
+  - no FP4 (Blackwell-only)
+
+  - no 5gen tensor cores (4gen only on Hopper)'
+recommended_patterns:
+- Keep batch size, precision, accumulation in top-level config
+- bf16 autocast default for training
+- fp8 training+inference via transformer_engine (E4M3 fwd, E5M2 grad)
+- TF32 on for FP32 matmul
+- cudnn.benchmark=True
+- FP64 OK on this chip (1:2 ratio)
+- NVLink + NCCL for multi-GPU
+- MIG up to 7 partitions for inference
+- flash-attn v3 (sm_90 native)
+- cap peak VRAM at 75 GiB per job
+avoid_patterns:
+- no FP4 (Blackwell-only)
+- no 5gen tensor cores (4gen only on Hopper)
+source_chunk_ids:
+- flash_attn.v3.usage.001
+- nvidia.tf32.matmul.policy.001
+- pytorch.amp.autocast.bf16.training.001
+- pytorch.compile.max_autotune.001
+- pytorch.cudnn.benchmark.policy.001
+- transformer_engine.fp8.inference.001
+- pytorch.vram_probe.budget.001
+source_job_ids: []
+framework: pytorch
+framework_version: 2.x
+technology_keys:
+- tensor_cores
+- fp16
+- sm_90
+- int8
+- tf32
+- tensor_cores_4gen
+- amp
+- fp8
+- fp8_e5m2
+- bf16
+- fp8_e4m3
+- fp64
+hardware_keys:
+- h100_sxm5_80gb
+hardware_feature_keys:
+- tensor_cores
+- fp16
+- sm_90
+- int8
+- tf32
+- tensor_cores_4gen
+- amp
+- fp8
+- fp8_e5m2
+- bf16
+- fp8_e4m3
+- fp64
+workload_types:
+- vision_training
+- transformer_training
+- generative_ai
+- llm_training
+- hpc
+optimization_targets:
+- improve_throughput
+- reduce_vram
+- enable_tensor_core
+profile_symptoms:
+- precision_not_optimized
+- low_sm_utilization
+api_symbols: []
+precision_modes:
+- bf16
+- fp16
+- fp8
+- tf32
+risk_level: medium
+confidence: 0.85
+deprecated: false

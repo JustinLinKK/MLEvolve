@@ -29,7 +29,23 @@ features:
 - int8
 - sm_90
 - tensor_cores_4gen
+- fp8_e4m3
+- fp8_e5m2
 vram_MB: 81920
 vram_type: hbm3
-vram_clock_mhz: 1313
+vram_clock_mhz: 1593
 sm_count: 132
+recommended_patterns:
+- Keep batch size, precision, accumulation in top-level config
+- bf16 autocast default for training
+- fp8 training+inference via transformer_engine (E4M3 fwd, E5M2 grad)
+- TF32 on for FP32 matmul
+- cudnn.benchmark=True
+- FP64 OK on this chip (1:2 ratio)
+- NVLink + NCCL for multi-GPU
+- MIG up to 7 partitions for inference
+- flash-attn v3 (sm_90 native)
+- cap peak VRAM at 75 GiB per job
+avoid_patterns:
+- no FP4 (Blackwell-only)
+- no 5gen tensor cores (4gen only on Hopper)

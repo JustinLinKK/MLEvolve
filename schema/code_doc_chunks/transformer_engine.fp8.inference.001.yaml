@@ -11,6 +11,7 @@ technology_keys:
 - fp8_quantization
 hardware_keys: []
 hardware_feature_keys:
+- tensor_cores
 - tensor_cores_4gen
 - tensor_cores_5gen
 - fp8_e4m3
@@ -43,3 +44,14 @@ source_type: vendor_reference
 source_title: NVIDIA Transformer Engine
 source_url: https://github.com/NVIDIA/TransformerEngine
 source_version: te-1.x
+example_code: 'import torch
+
+  device = ''cuda'' if torch.cuda.is_available() else ''cpu''
+
+  x_e4m3 = torch.empty(8, 8, dtype=torch.float8_e4m3fn, device=device)
+
+  x_e5m2 = torch.empty(8, 8, dtype=torch.float8_e5m2, device=device)
+
+  y = torch.randn(8, 8, device=device).to(torch.float8_e4m3fn)
+
+  back = y.to(torch.float32)'

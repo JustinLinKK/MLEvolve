@@ -26,6 +26,8 @@ features:
 - int8
 - sm_89
 - tensor_cores_4gen
+- fp8_e4m3
+- fp8_e5m2
 vram_MB: 16384
 vram_type: gddr6x
 vram_clock_mhz: 1438
