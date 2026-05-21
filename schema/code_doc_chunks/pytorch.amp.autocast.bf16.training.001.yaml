@@ -1,0 +1,49 @@
+schema_version: code_doc_chunk_v1
+chunk_id: pytorch.amp.autocast.bf16.training.001
+title: PyTorch bf16 autocast for training
+text: 'Wrap the forward pass and loss computation in torch.amp.autocast(device_type=''cuda'', dtype=torch.bfloat16). bf16 has the same 8-bit exponent as fp32 so no GradScaler is needed; fp16 still requires GradScaler. Use on Ampere+ (compute capability >= 8.0) where tensor cores accelerate bf16 matmul. Cast model weights to fp32; autocast only changes op dtype inside the context. Log resolved dtype, throughput, peak VRAM.
+
+  '
+framework: pytorch
+framework_version: 2.x
+technology_keys:
+- pytorch_amp
+- bf16_autocast
+- fp16_autocast
+- loss_scaling
+hardware_keys: []
+hardware_feature_keys:
+- tensor_cores
+- bf16
+- amp
+model_keys: []
+model_families:
+- transformer
+- cnn
+- vit
+workload_types:
+- vision_training
+- transformer_training
+- matmul_heavy
+optimization_targets:
+- improve_throughput
+- enable_tensor_core
+- reduce_vram
+profile_symptoms:
+- low_sm_utilization
+- tensor_core_not_used
+- precision_not_optimized
+api_symbols:
+- torch.amp.autocast
+- torch.amp.GradScaler
+precision_modes:
+- bf16
+- mixed
+risk_level: low
+confidence: 0.92
+deprecated: false
+source_id: pytorch.amp.docs
+source_type: official_doc
+source_title: PyTorch Automatic Mixed Precision Documentation
+source_url: https://docs.pytorch.org/docs/stable/amp.html
+source_version: pytorch-2.x

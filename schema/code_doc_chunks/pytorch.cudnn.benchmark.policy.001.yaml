@@ -1,0 +1,40 @@
+schema_version: code_doc_chunk_v1
+chunk_id: pytorch.cudnn.benchmark.policy.001
+title: cuDNN benchmark vs deterministic flags
+text: 'Set torch.backends.cudnn.benchmark=True so cuDNN autotunes the fastest kernel per input shape. Requires static shapes - dynamic shapes cause repeated autotune storms. Set torch.backends.cudnn.deterministic=True only when bit-exact reproducibility is required (paper repro, numerical debug); deterministic mode forbids atomicAdd-based kernels and cuts throughput by 1.2x to 4x. Production training should keep benchmark=True, deterministic=False, and rely on seeded RNG + checkpoint for repro.
+
+  '
+framework: pytorch
+framework_version: 2.x
+technology_keys:
+- cudnn_benchmark
+- cudnn_deterministic
+- cudnn
+hardware_keys: []
+hardware_feature_keys:
+- tensor_cores
+model_keys: []
+model_families:
+- cnn
+- vit
+workload_types:
+- vision_training
+- transformer_training
+optimization_targets:
+- improve_throughput
+- kernel_autotune
+profile_symptoms:
+- low_sm_utilization
+- slow_per_step
+api_symbols:
+- torch.backends.cudnn.benchmark
+- torch.backends.cudnn.deterministic
+precision_modes: []
+risk_level: low
+confidence: 0.9
+deprecated: false
+source_id: pytorch.cudnn.docs
+source_type: official_doc
+source_title: PyTorch Reproducibility and cuDNN Tuning
+source_url: https://docs.pytorch.org/docs/stable/notes/randomness.html
+source_version: pytorch-2.x

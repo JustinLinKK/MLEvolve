@@ -1,0 +1,47 @@
+schema_version: api_symbol_chunk_v1
+api_symbol_id: torch.compile.v2.5-2.11
+title: torch.compile (PyTorch 2.5-2.11)
+api_symbol: torch.compile
+signature: (model, *, fullgraph=False, dynamic=None, backend='inductor', mode=None, options=None, disable=False)
+parameters_json: '[{"name": "model", "default": ""}, {"name": "fullgraph", "default": "False"}, {"name": "dynamic", "default": "None"}, {"name": "backend", "default": "''inductor''"}, {"name": "mode", "default": "None"}, {"name": "options", "default": "None"}, {"name": "disable", "default": "False"}]'
+usage_summary: JIT-compiles a model via TorchDynamo + Inductor; mode='max-autotune' searches kernel schedules
+example_code: 'import torch
+
+  compiled = torch.compile(model, mode=''max-autotune'')
+
+  out = compiled(x)'
+text: JIT-compiles a model via TorchDynamo + Inductor; mode='max-autotune' searches kernel schedules
+framework: pytorch
+framework_version: 2.5-2.11
+docs_url: https://docs.pytorch.org/docs/2.11/generated/torch.compile.html
+covers_versions:
+- '2.5'
+- '2.6'
+- '2.7'
+- '2.8'
+- '2.9'
+- '2.10'
+- '2.11'
+deprecated: false
+source_id: pytorch.docs.torch.compile.2.5-2.11
+source_type: official_doc
+source_title: PyTorch 2.5-2.11 docs - torch.compile
+source_url: https://docs.pytorch.org/docs/2.11/generated/torch.compile.html
+source_version: pytorch-2.5-2.11
+technology_keys:
+- torch_compile
+- inductor
+- triton
+hardware_feature_keys:
+- tensor_cores
+optimization_targets:
+- improve_throughput
+- kernel_fusion
+profile_symptoms:
+- low_sm_utilization
+- kernel_launch_overhead
+precision_modes: []
+risk_level: medium
+confidence: 0.9
+api_symbols:
+- torch.compile

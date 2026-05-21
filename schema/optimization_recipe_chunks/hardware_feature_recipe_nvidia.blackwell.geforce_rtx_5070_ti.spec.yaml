@@ -1,0 +1,100 @@
+schema_version: optimization_recipe_chunk_v1
+recipe_id: hardware_feature_recipe:nvidia.blackwell.geforce_rtx_5070_ti.spec
+title: GeForce RTX 5070 Ti optimization recipe
+problem_statement: Optimize vision_training / transformer_training / generative_ai on GeForce RTX 5070 Ti
+solution_summary: bf16 autocast default; TF32 on for FP32 matmul; cudnn.benchmark=True for static shapes; torch.compile(mode='max-autotune'); CUDA Graphs for hot loop; DataLoader pin_memory=True; cap peak VRAM at 14000 MiB per job; flash-attn v3 for attention; fp8 via transformer_engine (inference only)
+text: 'Recommended patterns:
+
+  - bf16 autocast default
+
+  - TF32 on for FP32 matmul
+
+  - cudnn.benchmark=True for static shapes
+
+  - torch.compile(mode=''max-autotune'')
+
+  - CUDA Graphs for hot loop
+
+  - DataLoader pin_memory=True
+
+  - cap peak VRAM at 14000 MiB per job
+
+  - flash-attn v3 for attention
+
+  - fp8 via transformer_engine (inference only)
+
+
+  Avoid patterns:
+
+  - no FP64 matmul or weights
+
+  - no NVLink or P2P (PCIe only)'
+recommended_patterns:
+- bf16 autocast default
+- TF32 on for FP32 matmul
+- cudnn.benchmark=True for static shapes
+- torch.compile(mode='max-autotune')
+- CUDA Graphs for hot loop
+- DataLoader pin_memory=True
+- cap peak VRAM at 14000 MiB per job
+- flash-attn v3 for attention
+- fp8 via transformer_engine (inference only)
+avoid_patterns:
+- no FP64 matmul or weights
+- no NVLink or P2P (PCIe only)
+source_chunk_ids:
+- pytorch.amp.autocast.bf16.training.001
+- nvidia.tf32.matmul.policy.001
+- cuda.graphs.training_loop.001
+- flash_attn.v3.usage.001
+- transformer_engine.fp8.inference.001
+source_job_ids: []
+framework: pytorch
+framework_version: 2.x
+technology_keys:
+- fp8_e5m2
+- tensor_cores_5gen
+- int8
+- cuda_graphs
+- sm_120
+- pcie5_x16
+- bf16
+- fp8_e4m3
+- fp4
+- amp
+- tf32
+- fp16
+hardware_keys:
+- geforce_rtx_5070_ti
+hardware_feature_keys:
+- fp8_e5m2
+- tensor_cores_5gen
+- int8
+- cuda_graphs
+- sm_120
+- pcie5_x16
+- bf16
+- fp8_e4m3
+- fp4
+- amp
+- tf32
+- fp16
+workload_types:
+- vision_training
+- transformer_training
+- generative_ai
+optimization_targets:
+- improve_throughput
+- reduce_vram
+- enable_tensor_core
+profile_symptoms:
+- precision_not_optimized
+- low_sm_utilization
+api_symbols: []
+precision_modes:
+- bf16
+- fp16
+- tf32
+risk_level: medium
+confidence: 0.85
+deprecated: false

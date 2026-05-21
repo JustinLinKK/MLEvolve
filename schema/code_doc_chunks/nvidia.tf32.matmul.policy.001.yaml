@@ -1,0 +1,43 @@
+schema_version: code_doc_chunk_v1
+chunk_id: nvidia.tf32.matmul.policy.001
+title: TF32 tensor-core path for FP32 matmul
+text: 'TF32 is a non-IEEE 19-bit format used internally by Ampere+ tensor cores: 1 sign + 8 exponent (same range as fp32) + 10 mantissa (same precision as fp16). Inputs and outputs stay fp32 in memory; only the matmul reduction runs in TF32. PyTorch defaults to False since 1.12. Enable with torch.backends.cuda.matmul.allow_tf32=True and torch.backends.cudnn.allow_tf32=True for free 4-10x speedup on FP32 paths that have not been migrated to bf16/fp16 autocast. Avoid for scientific HPC where bit-exact fp32 is required.
+
+  '
+framework: pytorch
+framework_version: 1.12+
+technology_keys:
+- tf32
+- tensor_core_matmul
+hardware_keys: []
+hardware_feature_keys:
+- tensor_cores
+- tf32
+model_keys: []
+model_families:
+- transformer
+- cnn
+workload_types:
+- vision_training
+- transformer_training
+- matmul_heavy
+optimization_targets:
+- improve_throughput
+- enable_tensor_core
+profile_symptoms:
+- low_sm_utilization
+- tensor_core_not_used
+api_symbols:
+- torch.backends.cuda.matmul.allow_tf32
+- torch.backends.cudnn.allow_tf32
+precision_modes:
+- tf32
+- fp32
+risk_level: low
+confidence: 0.95
+deprecated: false
+source_id: nvidia.tf32.blog
+source_type: vendor_reference
+source_title: NVIDIA TensorFloat-32 Precision Format
+source_url: https://blogs.nvidia.com/blog/tensorfloat-32-precision-format/
+source_version: ampere+

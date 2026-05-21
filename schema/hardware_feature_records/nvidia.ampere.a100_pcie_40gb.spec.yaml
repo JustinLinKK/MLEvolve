@@ -1,0 +1,33 @@
+schema_version: hardware_feature_record_v1
+record_id: nvidia.ampere.a100_pcie_40gb.spec
+title: NVIDIA A100 PCIe 40GB
+vendor: nvidia
+architectures:
+- ampere
+accelerator_names:
+- a100_pcie_40gb
+compute_capabilities:
+- '8.0'
+toolkits:
+- cuda
+frameworks:
+- pytorch
+workload_types:
+- vision_training
+- transformer_training
+- generative_ai
+- hpc
+features:
+- tensor_cores
+- amp
+- bf16
+- fp16
+- fp64
+- tf32
+- int8
+- sm_80
+- tensor_cores_3gen
+vram_MB: 40960
+vram_type: hbm2e
+vram_clock_mhz: 1215
+sm_count: 108

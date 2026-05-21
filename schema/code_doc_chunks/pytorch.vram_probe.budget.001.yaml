@@ -1,0 +1,40 @@
+schema_version: code_doc_chunk_v1
+chunk_id: pytorch.vram_probe.budget.001
+title: Probe peak VRAM and set per-job budget
+text: 'Before launching a job, run one forward+backward step with a small batch and measure torch.cuda.max_memory_allocated(). Multiply by batch ratio to project for the target batch. Reserve 1-2 GiB headroom for cuDNN workspace and fragmentation. On a 16 GiB GPU cap effective peak below 14000 MiB. On 32 GiB GPU cap below 28000 MiB. The scheduler uses these probes to decide MPS / stream / cuda_process packing without OOM.
+
+  '
+framework: pytorch
+framework_version: 2.x
+technology_keys:
+- vram_probe
+- batch_search
+hardware_keys:
+- geforce_rtx_5070_ti
+- geforce_rtx_5090
+hardware_feature_keys: []
+model_keys: []
+model_families:
+- cnn
+- transformer
+workload_types:
+- vision_training
+- transformer_training
+optimization_targets:
+- reduce_vram
+- prevent_oom
+profile_symptoms:
+- vram_pressure
+- oom_risk
+api_symbols:
+- torch.cuda.max_memory_allocated
+- torch.cuda.reset_peak_memory_stats
+precision_modes: []
+risk_level: low
+confidence: 0.85
+deprecated: false
+source_id: localml_scheduler.budget
+source_type: internal_note
+source_title: MLEvolve scheduler VRAM probe protocol
+source_url: ''
+source_version: scheduler-2026-05

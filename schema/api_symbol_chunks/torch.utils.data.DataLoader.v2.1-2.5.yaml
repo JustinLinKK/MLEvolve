@@ -1,0 +1,40 @@
+schema_version: api_symbol_chunk_v1
+api_symbol_id: torch.utils.data.DataLoader.v2.1-2.5
+title: torch.utils.data.DataLoader (PyTorch 2.1-2.5)
+api_symbol: torch.utils.data.DataLoader
+signature: (dataset, batch_size=1, shuffle=None, sampler=None, batch_sampler=None, num_workers=0, collate_fn=None, pin_memory=False, drop_last=False, timeout=0, worker_init_fn=None, multiprocessing_context=None, generator=None, *, prefetch_factor=None, persistent_workers=False, pin_memory_device='')
+parameters_json: '[{"name": "dataset", "default": ""}, {"name": "batch_size", "default": "1"}, {"name": "shuffle", "default": "None"}, {"name": "sampler", "default": "None"}, {"name": "batch_sampler", "default": "None"}, {"name": "num_workers", "default": "0"}, {"name": "collate_fn", "default": "None"}, {"name": "pin_memory", "default": "False"}, {"name": "drop_last", "default": "False"}, {"name": "timeout", "default": "0"}, {"name": "worker_init_fn", "default": "None"}, {"name": "multiprocessing_context", "default": "None"}, {"name": "generator", "default": "None"}, {"name": "prefetch_factor", "default": "None"}, {"name": "persistent_workers", "default": "False"}, {"name": "pin_memory_device", "default": "''''"}]'
+usage_summary: Iterable wrapper around a Dataset with batching, shuffling, parallel loading, and pinning
+example_code: "from torch.utils.data import DataLoader\nloader = DataLoader(\n    dataset, batch_size=32, shuffle=True,\n    num_workers=10, pin_memory=True,\n    persistent_workers=True, prefetch_factor=4,\n)"
+text: Iterable wrapper around a Dataset with batching, shuffling, parallel loading, and pinning
+framework: pytorch
+framework_version: 2.1-2.5
+docs_url: https://docs.pytorch.org/docs/2.5/data.html
+covers_versions:
+- '2.1'
+- '2.2'
+- '2.3'
+- '2.4'
+- '2.5'
+deprecated: false
+source_id: pytorch.docs.torch.utils.data.DataLoader.2.1-2.5
+source_type: official_doc
+source_title: PyTorch 2.1-2.5 docs - torch.utils.data.DataLoader
+source_url: https://docs.pytorch.org/docs/2.5/data.html
+source_version: pytorch-2.1-2.5
+technology_keys:
+- dataloader_pin_memory
+- dataloader_workers
+hardware_feature_keys: []
+optimization_targets:
+- improve_throughput
+- reduce_io_bottleneck
+profile_symptoms:
+- low_sm_utilization
+- gpu_idle_between_steps
+- cpu_bound
+precision_modes: []
+risk_level: low
+confidence: 0.95
+api_symbols:
+- torch.utils.data.DataLoader

@@ -1,0 +1,45 @@
+schema_version: code_doc_chunk_v1
+chunk_id: transformer_engine.fp8.inference.001
+title: NVIDIA Transformer Engine fp8 path
+text: 'Transformer Engine wraps GEMM and attention with FP8 quantization (E4M3 for forward activations, E5M2 for gradients). Use the te.fp8_autocast context for inference on Hopper (sm_90) and Blackwell (sm_100/120). FP8 training remains unstable for general LLMs - keep to inference and benchmark loss curves vs bf16 before adopting. Requires CUDA >= 12.1 and TE >= 1.0. Combine with FlashAttention for end-to-end fp8 attention.
+
+  '
+framework: pytorch
+framework_version: 2.x
+technology_keys:
+- transformer_engine
+- fp8_quantization
+hardware_keys: []
+hardware_feature_keys:
+- tensor_cores_4gen
+- tensor_cores_5gen
+- fp8_e4m3
+- fp8_e5m2
+model_keys: []
+model_families:
+- transformer
+- llama
+- gpt
+workload_types:
+- generative_ai
+- transformer_inference
+optimization_targets:
+- reduce_vram
+- improve_throughput
+profile_symptoms:
+- vram_pressure
+- precision_not_optimized
+api_symbols:
+- transformer_engine.pytorch.fp8_autocast
+- transformer_engine.pytorch.Linear
+precision_modes:
+- fp8_e4m3
+- fp8_e5m2
+risk_level: high
+confidence: 0.75
+deprecated: false
+source_id: nvidia.transformer_engine
+source_type: vendor_reference
+source_title: NVIDIA Transformer Engine
+source_url: https://github.com/NVIDIA/TransformerEngine
+source_version: te-1.x

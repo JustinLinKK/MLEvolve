@@ -1,0 +1,38 @@
+schema_version: code_doc_chunk_v1
+chunk_id: pytorch.dataloader.pin_memory_workers.001
+title: DataLoader pin_memory and num_workers tuning
+text: 'Set DataLoader(pin_memory=True) so host-side tensors land in page-locked memory and async H2D transfers can overlap with compute. Set num_workers to roughly half the CPU thread count - higher values starve the main process and saturate disk. Also set persistent_workers=True to avoid worker respawn each epoch, and prefetch_factor=4 to keep the GPU fed. Use non_blocking=True on .to(device) calls. Symptoms of misconfig: low SM utilization with high CPU usage and idle GPU between steps.
+
+  '
+framework: pytorch
+framework_version: 2.x
+technology_keys:
+- dataloader_pin_memory
+- dataloader_workers
+hardware_keys: []
+hardware_feature_keys: []
+model_keys: []
+model_families:
+- cnn
+- transformer
+workload_types:
+- vision_training
+- transformer_training
+optimization_targets:
+- improve_throughput
+- reduce_io_bottleneck
+profile_symptoms:
+- low_sm_utilization
+- gpu_idle_between_steps
+- cpu_bound
+api_symbols:
+- torch.utils.data.DataLoader
+precision_modes: []
+risk_level: low
+confidence: 0.92
+deprecated: false
+source_id: pytorch.dataloader.docs
+source_type: official_doc
+source_title: PyTorch DataLoader Reference
+source_url: https://docs.pytorch.org/docs/stable/data.html
+source_version: pytorch-2.x

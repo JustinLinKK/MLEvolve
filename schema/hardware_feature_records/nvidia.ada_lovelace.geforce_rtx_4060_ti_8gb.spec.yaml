@@ -1,0 +1,32 @@
+schema_version: hardware_feature_record_v1
+record_id: nvidia.ada_lovelace.geforce_rtx_4060_ti_8gb.spec
+title: GeForce RTX 4060 Ti 8GB
+vendor: nvidia
+architectures:
+- ada_lovelace
+accelerator_names:
+- geforce_rtx_4060_ti_8gb
+compute_capabilities:
+- '8.9'
+toolkits:
+- cuda
+frameworks:
+- pytorch
+workload_types:
+- vision_training
+- transformer_training
+- generative_ai
+features:
+- tensor_cores
+- amp
+- bf16
+- fp16
+- fp8
+- tf32
+- int8
+- sm_89
+- tensor_cores_4gen
+vram_MB: 8192
+vram_type: gddr6
+vram_clock_mhz: 2250
+sm_count: 34

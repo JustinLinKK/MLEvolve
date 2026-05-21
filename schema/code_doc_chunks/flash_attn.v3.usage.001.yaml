@@ -1,0 +1,43 @@
+schema_version: code_doc_chunk_v1
+chunk_id: flash_attn.v3.usage.001
+title: FlashAttention v3 for transformer self-attention
+text: 'flash-attn v3 (sm_90+ kernels, also runs on sm_120 Blackwell GeForce) replaces standard self-attention with a fused IO-aware kernel that does not materialize the N x N attention matrix. Memory drops from O(N^2) to O(N), throughput improves 1.5x-3x for long sequences. Use flash_attn_func(q, k, v, causal=True) or hook into HuggingFace transformers via attn_implementation=''flash_attention_2''. Requires contiguous tensors with dtype bf16 or fp16; will OOM-fallback on fp32.
+
+  '
+framework: pytorch
+framework_version: 2.x
+technology_keys:
+- flash_attention
+- fused_attention
+hardware_keys: []
+hardware_feature_keys:
+- tensor_cores
+- sm_90
+- sm_120
+model_keys: []
+model_families:
+- transformer
+- llama
+- gpt
+workload_types:
+- transformer_training
+- generative_ai
+optimization_targets:
+- reduce_vram
+- improve_throughput
+profile_symptoms:
+- vram_pressure
+- attention_bottleneck
+api_symbols:
+- flash_attn.flash_attn_func
+precision_modes:
+- bf16
+- fp16
+risk_level: medium
+confidence: 0.88
+deprecated: false
+source_id: dao_ailab.flash_attention
+source_type: open_source_project
+source_title: FlashAttention v3 Repository
+source_url: https://github.com/Dao-AILab/flash-attention
+source_version: flash-attn-3.x
