@@ -251,6 +251,11 @@ def infer_workload_type(task_desc: Any, data_preview: str | None = None) -> str:
 
 
 def _hardware_context_enabled(agent: Any) -> bool:
+    cfg = getattr(agent, "cfg", None)
+    experiment = getattr(cfg, "experiment", None)
+    mode = str(getattr(experiment, "mode", "") or "").strip().lower().replace("-", "_")
+    if mode == "baseline":
+        return False
     acfg = getattr(agent, "acfg", None)
     return bool(getattr(acfg, "hardware_context_enabled", True))
 

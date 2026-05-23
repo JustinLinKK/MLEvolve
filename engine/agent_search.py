@@ -34,8 +34,10 @@ class AgentSearch:
             task_desc: str,
             cfg: Config,
             journal: Journal,
+            pipeline_logger=None,
     ):
         self.cfg = cfg
+        self.pipeline_logger = pipeline_logger
         self.acfg = cfg.agent
         self.scfg = cfg.agent.search
         self.task_desc = clean_task_desc(task_desc, cfg)
@@ -83,6 +85,17 @@ class AgentSearch:
         self.metric_maximize: bool | None = None
         self.metric_maximize_reasoning: str | None = None
         result_parse_agent.determine_metric_direction(self)
+        from utils.pipeline_logging import log_pipeline_event
+
+        log_pipeline_event(
+            self,
+            "agent_initialized",
+            payload={
+                "mode": getattr(getattr(cfg, "experiment", None), "mode", None),
+                "metric_maximize": self.metric_maximize,
+                "metric_maximize_reasoning": self.metric_maximize_reasoning,
+            },
+        )
 
         # Global memory
         self.global_memory = None
@@ -218,15 +231,29 @@ class AgentSearch:
                     if not execute_immediately:
                         logger.info(f"Node {result_node.id} code generated and reviewed, execution deferred")
                         result_node.pending_execution = True
+                        from utils.pipeline_logging import record_pipeline_node_action
+
+                        record_pipeline_node_action(self, result_node, "execution_deferred")
                         return _root, result_node
+                    from utils.pipeline_logging import record_pipeline_node_action
+
+                    record_pipeline_node_action(self, result_node, "execution_started")
                     exe_res = exec_callback(result_node.code, result_node.id, True)
                     result_node = result_parse_agent.run(self,
                         node=result_node,
                         exec_result=exe_res
                     )
+                    if self.pipeline_logger is not None and result_node.metric is not None:
+                        self.pipeline_logger.update_job_packet_for_node(
+                            str(result_node.id),
+                            metric=result_node.metric.value,
+                            duration_seconds=result_node.exec_time,
+                            status="parsed_buggy" if result_node.is_buggy else "parsed_valid",
+                        )
                     execution.validate_executed_node(self, result_node)
                     logger.info(f"The metric value of node {result_node.id} is {result_node.metric.value}.")
                     result_node.finish_time = time.strftime("%Y-%m-%dT%H:%M:%S")
+                    record_pipeline_node_action(self, result_node, "execution_finished")
 
                     if parent_node.is_buggy and result_node.is_buggy is False:
                         parent_node.is_debug_success = True
@@ -304,17 +331,28 @@ class AgentSearch:
         parent_node = node.parent
 
         try:
+            from utils.pipeline_logging import record_pipeline_node_action
+
+            record_pipeline_node_action(self, node, "execution_started")
             exe_res = exec_callback(node.code, node.id, True)
             node = result_parse_agent.run(self,
                 node=node,
                 exec_result=exe_res
             )
+            if self.pipeline_logger is not None and node.metric is not None:
+                self.pipeline_logger.update_job_packet_for_node(
+                    str(node.id),
+                    metric=node.metric.value,
+                    duration_seconds=node.exec_time,
+                    status="parsed_buggy" if node.is_buggy else "parsed_valid",
+                )
 
             execution.validate_executed_node(self, node)
 
             logger.info(f"Node {node.id} execution completed: metric={node.metric.value}, is_buggy={node.is_buggy}")
 
             node.finish_time = time.strftime("%Y-%m-%dT%H:%M:%S")
+            record_pipeline_node_action(self, node, "execution_finished")
 
             if parent_node and parent_node.is_buggy and node.is_buggy is False:
                 parent_node.is_debug_success = True

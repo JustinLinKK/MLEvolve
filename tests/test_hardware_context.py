@@ -9,6 +9,7 @@ from agents.hardware_context import (
     format_hardware_prompt_section,
     get_hardware_context_for_stage,
 )
+from agents.coder.stepwise_coder import create_default_step_agents
 from engine.script_introspection import introspect_training_script, normalized_mlevolve_script_signature
 from engine.search_node import Journal, SearchNode
 from utils.serialize import dumps_json, loads_json
@@ -143,6 +144,31 @@ def test_scheduler_lookup_is_non_fatal_and_uses_get_optimization_context() -> No
     agent.scheduler_client.get_optimization_context = lambda **_: (_ for _ in ()).throw(RuntimeError("down"))
     failed = get_hardware_context_for_stage(agent, "draft")
     assert failed.prompt_section == ""
+
+
+def test_baseline_mode_disables_hardware_context_and_static_guidance() -> None:
+    class FakeScheduler:
+        def get_optimization_context(self, *, candidate, limit):
+            raise AssertionError("baseline mode should not query scheduler hardware context")
+
+    agent = SimpleNamespace(
+        scheduler_client=FakeScheduler(),
+        acfg=SimpleNamespace(
+            hardware_context_enabled=True,
+            hardware_context_limit=3,
+            hardware_context_max_prompt_chars=1000,
+        ),
+        cfg=SimpleNamespace(experiment=SimpleNamespace(mode="baseline"), exp_id="task-a"),
+        task_desc="image classification",
+        data_preview="train.csv and train_images",
+    )
+
+    context = get_hardware_context_for_stage(agent, "draft")
+    agents = create_default_step_agents(hardware_aware=False)
+    all_guidelines = "\n".join(guideline for step_agent in agents for guideline in step_agent.guidelines)
+
+    assert context.prompt_section == ""
+    assert "Hardware-aware" not in all_guidelines
 
 
 def test_search_node_hardware_fields_round_trip_in_journal() -> None:

@@ -10,6 +10,18 @@ from engine.conditions import should_trigger_branch_fusion
 logger = logging.getLogger("MLEvolve")
 
 
+def _log_selected(agent, node: SearchNode, method: str, payload: dict | None = None) -> SearchNode:
+    try:
+        from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
+
+        details = {"method": method, **(payload or {})}
+        log_pipeline_event(agent, "tree_node_selected", node=node, payload=details)
+        record_pipeline_node_action(agent, node, "tree_node_selected", payload=details)
+    except Exception:
+        pass
+    return node
+
+
 def _piecewise_decay(t, initial_C=1.414, T1=100, T2=200, alpha=0.01, lower_bound=0.7):
     """Piecewise decay: initial_C until T1, linear to lower_bound by T2, then lower_bound."""
     if t < T1:
@@ -162,7 +174,7 @@ def select_with_soft_switch(agent) -> SearchNode:
     """Soft switch: exploration (UCT) vs exploitation (Top-K) by time progress."""
     if agent.search_start_time is None:
         logger.info("📊 Search not started yet, using standard UCT")
-        return select(agent, agent.virtual_root)
+        return _log_selected(agent, select(agent, agent.virtual_root), "uct_not_started")
 
     time_elapsed = time.time() - agent.search_start_time
     total_time = agent.acfg.time_limit
@@ -180,7 +192,12 @@ def select_with_soft_switch(agent) -> SearchNode:
     if random.random() < exploration_weight:
         logger.info(f"📊 Exploration mode (weight={exploration_weight:.2%}, "
                    f"time={time_progress:.1%})")
-        return select(agent, agent.virtual_root)
+        return _log_selected(
+            agent,
+            select(agent, agent.virtual_root),
+            "exploration_uct",
+            {"exploration_weight": exploration_weight, "time_progress": time_progress},
+        )
 
     else:
         # Top-K exploitation
@@ -206,7 +223,12 @@ def select_with_soft_switch(agent) -> SearchNode:
 
         if not top_k_nodes:
             logger.warning("No valid Top-K nodes found, fallback to standard UCT")
-            return select(agent, agent.virtual_root)
+            return _log_selected(
+                agent,
+                select(agent, agent.virtual_root),
+                "topk_fallback_uct",
+                {"exploration_weight": exploration_weight, "time_progress": time_progress},
+            )
 
         available_nodes = [
             item for item in top_k_nodes
@@ -217,11 +239,33 @@ def select_with_soft_switch(agent) -> SearchNode:
             selected_node = select_from_top_k_weighted(agent, available_nodes)
             logger.info(f"✅ Selected unexpanded Top-K node {selected_node.id} (from {len(available_nodes)}/{len(top_k_nodes)} available)")
             selected_node._topk_triggered = True
-            return selected_node
+            return _log_selected(
+                agent,
+                selected_node,
+                "topk_weighted",
+                {
+                    "exploration_weight": exploration_weight,
+                    "time_progress": time_progress,
+                    "top_k": k,
+                    "available_topk": len(available_nodes),
+                    "phase": phase,
+                },
+            )
         else:
             logger.info(f"⚠️ All Top-{len(top_k_nodes)} nodes fully expanded, will apply UCT from selected node")
             selected_node = select_from_top_k_weighted(agent, top_k_nodes)
             logger.info(f"Selected fully expanded node {selected_node.id}, applying UCT from it")
             uct_node = select(agent, selected_node)
             uct_node._topk_triggered = True
-            return uct_node
+            return _log_selected(
+                agent,
+                uct_node,
+                "topk_then_uct",
+                {
+                    "exploration_weight": exploration_weight,
+                    "time_progress": time_progress,
+                    "top_k": k,
+                    "phase": phase,
+                    "selected_topk_node_id": selected_node.id,
+                },
+            )

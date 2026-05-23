@@ -70,6 +70,7 @@ def get_patience_counter(agent, parent_node: SearchNode) -> tuple:
 
 
 def register_node(agent, node: SearchNode, prompt, parent_node=None, new_branch: bool = False):
+    import hashlib
     import time
 
     node.prompt_input = agent._serialize_prompt(prompt)
@@ -84,3 +85,18 @@ def register_node(agent, node: SearchNode, prompt, parent_node=None, new_branch:
         node.branch_id = parent_node.branch_id
         if node.branch_id in agent.branch_all_nodes:
             agent.branch_all_nodes[node.branch_id].append(node)
+    prompt_text = node.prompt_input or ""
+    try:
+        from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
+
+        payload = {
+            "new_branch": new_branch,
+            "branch_id": node.branch_id,
+            "prompt_chars": len(prompt_text),
+            "prompt_sha256": hashlib.sha256(prompt_text.encode("utf-8")).hexdigest() if prompt_text else None,
+            "parent_node_id": getattr(parent_node or node.parent, "id", None),
+        }
+        log_pipeline_event(agent, "node_created", node=node, payload=payload)
+        record_pipeline_node_action(agent, node, "node_created", payload=payload)
+    except Exception:
+        pass

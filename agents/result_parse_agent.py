@@ -94,6 +94,20 @@ def determine_metric_direction(agent) -> None:
             logger.info("=" * 80)
             logger.info(f"All subsequent nodes MUST use maximize={agent.metric_maximize}, otherwise they will be marked as buggy")
             logger.info("=" * 80)
+            try:
+                from utils.pipeline_logging import log_pipeline_event
+
+                log_pipeline_event(
+                    agent,
+                    "metric_direction_determined",
+                    payload={
+                        "lower_is_better": lower_is_better,
+                        "metric_maximize": agent.metric_maximize,
+                        "reasoning": reasoning,
+                    },
+                )
+            except Exception:
+                pass
             return
 
         except Exception as e:
@@ -108,6 +122,21 @@ def determine_metric_direction(agent) -> None:
                 logger.error("=" * 80)
                 agent.metric_maximize = True
                 agent.metric_maximize_reasoning = "Default: assuming higher is better (most common case)"
+                try:
+                    from utils.pipeline_logging import log_pipeline_event
+
+                    log_pipeline_event(
+                        agent,
+                        "metric_direction_determined",
+                        payload={
+                            "lower_is_better": False,
+                            "metric_maximize": True,
+                            "reasoning": agent.metric_maximize_reasoning,
+                            "fallback": True,
+                        },
+                    )
+                except Exception:
+                    pass
 
 
 def get_review_func_spec(use_memory: bool) -> FunctionSpec:
@@ -438,6 +467,22 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
             status = "FAIL" if node.is_buggy else "PASS"
             metric_val = node.metric.value if node.metric else None
             logger.info(f"[parse] node {node.id}: {status} | metric={metric_val}")
+            try:
+                from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
+
+                payload = {
+                    "status": status,
+                    "metric": metric_val,
+                    "is_buggy": node.is_buggy,
+                    "is_valid": node.is_valid,
+                    "exec_time": node.exec_time,
+                    "exc_type": node.exc_type,
+                    "summary": node.analysis,
+                }
+                log_pipeline_event(agent, "execution_result_parsed", node=node, payload=payload)
+                record_pipeline_node_action(agent, node, "execution_result_parsed", payload=payload)
+            except Exception:
+                pass
 
             _save_to_global_memory(agent, node)
 

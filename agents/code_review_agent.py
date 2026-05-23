@@ -122,6 +122,20 @@ def run(agent, node: SearchNode) -> str:
             revised_code = review_response.get("revised_code")
             logger.info(f"Code review for node {node.id}: needs_revision={needs_revision}")
             logger.info(f"Reasoning: {reasoning}", extra={"verbose": True})
+            try:
+                from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
+
+                payload = {
+                    "attempt": attempt + 1,
+                    "needs_revision": bool(needs_revision),
+                    "reasoning": reasoning,
+                    "hardware_context_used": bool(hardware_section),
+                    "revised_code_chars": len(revised_code or ""),
+                }
+                log_pipeline_event(agent, "code_review_completed", node=node, payload=payload)
+                record_pipeline_node_action(agent, node, "code_review_completed", payload=payload)
+            except Exception:
+                pass
 
             if needs_revision:
                 if revised_code and revised_code.strip():

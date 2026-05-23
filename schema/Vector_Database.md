@@ -742,7 +742,7 @@ Validate code-knowledge records without writing to Qdrant:
 
 ```bash
 python -m localml_scheduler.cli code-knowledge ingest \
-  --settings localml_scheduler/configs/scheduler.example.yaml \
+  --config config.yaml \
   --source path/to/code_knowledge_records.yaml \
   --dry-run
 ```
@@ -751,7 +751,7 @@ Validate hardware-feature records without writing to Qdrant:
 
 ```bash
 python -m localml_scheduler.cli hardware-features ingest \
-  --settings localml_scheduler/configs/scheduler.example.yaml \
+  --config config.yaml \
   --source path/to/hardware_feature_records.yaml \
   --dry-run
 ```
@@ -760,13 +760,13 @@ Validate the repo seed corpus:
 
 ```bash
 python -m localml_scheduler.cli code-knowledge ingest \
-  --settings localml_scheduler/configs/scheduler.example.yaml \
+  --config config.yaml \
   --dry-run
 ```
 
 ```bash
 python -m localml_scheduler.cli hardware-features ingest \
-  --settings localml_scheduler/configs/scheduler.example.yaml \
+  --config config.yaml \
   --dry-run
 ```
 
@@ -776,7 +776,7 @@ After review, ingest code knowledge:
 
 ```bash
 python -m localml_scheduler.cli code-knowledge ingest \
-  --settings localml_scheduler/configs/scheduler.example.yaml \
+  --config config.yaml \
   --source path/to/code_knowledge_records.yaml
 ```
 
@@ -784,7 +784,7 @@ After review, ingest hardware feature compatibility records:
 
 ```bash
 python -m localml_scheduler.cli hardware-features ingest \
-  --settings localml_scheduler/configs/scheduler.example.yaml \
+  --config config.yaml \
   --source path/to/hardware_feature_records.yaml
 ```
 
@@ -811,7 +811,7 @@ api_symbol_chunks
 hardware_feature_knowledge
 ```
 
-Current embedding configuration in `localml_scheduler/configs/scheduler.example.yaml`:
+Current embedding configuration in `config.yaml` under `scheduler.settings.hardware_feature_db`:
 
 ```yaml
 hardware_feature_db:

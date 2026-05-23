@@ -16,6 +16,7 @@ import subprocess
 import json
 import uuid
 from dataclasses import dataclass
+from hashlib import sha1
 from multiprocessing import Lock
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ from dataclasses_json import DataClassJsonMixin
 from engine.script_introspection import (
     code_supports_batch_probe as _code_supports_batch_probe,
     detect_initial_batch_size as _detect_initial_batch_size,
+    introspect_training_script as _introspect_training_script,
     normalized_mlevolve_script_signature as _normalized_mlevolve_script_signature,
 )
 
@@ -80,6 +82,7 @@ class Interpreter:
         agent_file_name: str = "runfile.py",
         max_parallel_run: int = 3,
         cfg=None,
+        pipeline_logger=None,
         **kwargs,
     ):
         """
@@ -95,6 +98,7 @@ class Interpreter:
         self.working_dir = Path(working_dir).resolve()
         assert self.working_dir.exists(), f"Working directory {self.working_dir} does not exist"
         self.cfg = cfg
+        self.pipeline_logger = pipeline_logger
         self.timeout = timeout
         self.max_parallel_run = (
             cfg.agent.search.parallel_search_num if (cfg and getattr(cfg.agent.search, "parallel_search_num", None)) else max_parallel_run
@@ -182,6 +186,11 @@ class Interpreter:
             if event_id <= last_event_id:
                 continue
             next_event_id = max(next_event_id, event_id)
+            self._pipeline_emit(
+                "scheduler_event",
+                job_id=job_id,
+                payload=event,
+            )
             formatted = self._format_scheduler_probe_event(event)
             if formatted:
                 logger.info(formatted)
@@ -191,6 +200,22 @@ class Interpreter:
         """Route future executions through localml_scheduler."""
         self.scheduler_client = client
         self.scheduler_cfg = scheduler_cfg
+
+    def _pipeline_emit(self, event_type: str, **kwargs: Any) -> None:
+        if self.pipeline_logger is None:
+            return
+        try:
+            self.pipeline_logger.emit(event_type, **kwargs)
+        except Exception:
+            return
+
+    def _pipeline_upsert_job(self, job_id: str, **fields: Any) -> None:
+        if self.pipeline_logger is None:
+            return
+        try:
+            self.pipeline_logger.upsert_job_packet(job_id, **fields)
+        except Exception:
+            return
 
     def _available_cpus(self) -> list[int]:
         try:
@@ -398,6 +423,30 @@ class Interpreter:
             run_wd.mkdir(parents=True, exist_ok=True)
             runfile_path = run_wd / self.agent_file_name[process_id]
             runfile_path.write_text(code, encoding="utf-8")
+            script_metadata = _introspect_training_script(code)
+            script_signature = script_metadata.get("script_signature") or _normalized_mlevolve_script_signature(code)
+            detected_batch_size = script_metadata.get("proposed_batch_size")
+            proposed_epochs = script_metadata.get("proposed_epochs")
+            model_key = script_metadata.get("model_key")
+            framework = script_metadata.get("framework")
+            uses_amp = script_metadata.get("uses_amp")
+            requires_gpu = script_metadata.get("requires_gpu")
+            self._pipeline_emit(
+                "job_script_created",
+                node_id=str(id),
+                stage="execution",
+                payload={
+                    "runfile_path": str(runfile_path),
+                    "submission_slot": process_id,
+                    "script_signature": script_signature,
+                    "detected_batch_size": detected_batch_size,
+                    "proposed_epochs": proposed_epochs,
+                    "model_key": model_key,
+                    "framework": framework,
+                    "uses_amp": uses_amp,
+                    "requires_gpu": requires_gpu,
+                },
+            )
 
             result_dir = run_wd / "working" / "scheduler_results"
             result_path = result_dir / f"result_{id}_{process_id}_{uuid.uuid4().hex}.json"
@@ -414,7 +463,7 @@ class Interpreter:
                 "probe_poll_interval_seconds": float(submission_defaults.batch_probe_poll_interval_seconds),
             }
             batch_probe_enabled = bool(submission_defaults.batch_probe_enabled) and _code_supports_batch_probe(code)
-            detected_batch_size = _detect_initial_batch_size(code)
+            detected_batch_size = detected_batch_size or _detect_initial_batch_size(code)
             if detected_batch_size is not None:
                 probe_max_multiplier = max(1, int(submission_defaults.batch_probe_max_multiplier))
                 runner_kwargs["batch_size"] = detected_batch_size
@@ -446,6 +495,24 @@ class Interpreter:
                 estimated_ram_mb=submission_defaults.estimated_ram_mb,
             )
             preload_source_payload = _build_scheduler_preload_source(scheduler_cfg)
+            experiment_mode = str(getattr(getattr(self.cfg, "experiment", None), "mode", "hardware_aware"))
+            job_metadata = {
+                "mlevolve_node_id": str(id),
+                "submission_slot": process_id,
+                "experiment_mode": experiment_mode,
+                "detected_batch_size": detected_batch_size,
+                "proposed_epochs": proposed_epochs,
+                "model_key": model_key,
+                "framework": framework,
+                "uses_amp": uses_amp,
+                "requires_gpu": requires_gpu,
+                "script_signature": script_signature,
+                "scheduler_mode": getattr(scheduler_settings.gpu_scheduler, "mode", None),
+                "batch_probe_enabled": batch_probe_enabled,
+                "runtime_probe_enabled": bool(getattr(submission_defaults, "runtime_probe_enabled", False)),
+                "packing_eligible": packing_eligible,
+                "packing_backend_allowlist": packing_backend_allowlist,
+            }
             job = build_mlevolve_job(
                 workflow_id=str(getattr(self.cfg, "exp_name", "mlevolve")),
                 baseline_model_id=f"mlevolve-script-{id}",
@@ -462,10 +529,35 @@ class Interpreter:
                 packing_max_slowdown_ratio=submission_defaults.packing_max_slowdown_ratio,
                 packing_backend_allowlist=packing_backend_allowlist,
                 preload_source=PreloadSource.from_dict(preload_source_payload),
-                metadata={"mlevolve_node_id": str(id), "submission_slot": process_id},
+                metadata=job_metadata,
             )
             submitted = self.scheduler_client.submit(job)
             job_id = submitted.job_id
+            self._pipeline_upsert_job(
+                job_id,
+                node_id=str(id),
+                scheduler_mode=getattr(scheduler_settings.gpu_scheduler, "mode", None),
+                placement_mode="scheduler",
+                placement_backend=None,
+                status=getattr(submitted.status, "value", str(submitted.status)),
+                submitted_at=getattr(submitted, "submitted_at", None),
+                detected_batch_size=detected_batch_size,
+                resolved_batch_size=None,
+                proposed_epochs=proposed_epochs,
+                model_key=model_key,
+                framework=framework,
+                uses_amp=uses_amp,
+                requires_gpu=requires_gpu,
+                script_signature=script_signature,
+                payload=submitted.to_dict() if hasattr(submitted, "to_dict") else {},
+            )
+            self._pipeline_emit(
+                "scheduler_submission_created",
+                node_id=str(id),
+                job_id=job_id,
+                stage="execution",
+                payload=job_metadata,
+            )
             with self._scheduler_jobs_lock:
                 self._scheduler_job_ids.add(job_id)
             logger.info(f"Submitted scheduler job {job_id} for node {id}")
@@ -486,6 +578,21 @@ class Interpreter:
             else:
                 self.scheduler_client.cancel(job_id)
                 exec_time = time.time() - start_time
+                self._pipeline_upsert_job(
+                    job_id,
+                    node_id=str(id),
+                    status="timeout",
+                    finished_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    duration_seconds=exec_time,
+                    detected_batch_size=detected_batch_size,
+                    proposed_epochs=proposed_epochs,
+                    model_key=model_key,
+                    framework=framework,
+                    uses_amp=uses_amp,
+                    requires_gpu=requires_gpu,
+                    script_signature=script_signature,
+                    payload={"reason": "scheduler wait timeout", "wait_timeout_seconds": wait_timeout},
+                )
                 return ExecutionResult(
                     term_out=[
                         f"Execution time: TimeoutError: Scheduler job {job_id} exceeded wait limit of {humanize.naturaldelta(wait_timeout)}"
@@ -497,9 +604,57 @@ class Interpreter:
                 )
 
             last_probe_event_id = self._log_scheduler_probe_updates(job_id, last_probe_event_id)
+            final_payload = final_job.to_dict() if final_job is not None and hasattr(final_job, "to_dict") else {}
+            final_metadata = final_payload.get("metadata") or {}
+            resolved_batch_size = (
+                final_metadata.get("resolved_batch_size")
+                or final_metadata.get("batch_size")
+                or runner_kwargs.get("batch_size")
+            )
+            placement_backend = final_metadata.get("placement_backend") or final_metadata.get("backend_name")
+            self._pipeline_upsert_job(
+                job_id,
+                node_id=str(id),
+                scheduler_mode=getattr(scheduler_settings.gpu_scheduler, "mode", None),
+                placement_mode="scheduler",
+                placement_backend=placement_backend,
+                status=final_payload.get("status") or (getattr(final_job.status, "value", str(final_job.status)) if final_job is not None else None),
+                submitted_at=final_payload.get("submitted_at"),
+                started_at=final_payload.get("started_at"),
+                finished_at=final_payload.get("finished_at"),
+                duration_seconds=time.time() - start_time,
+                detected_batch_size=detected_batch_size,
+                resolved_batch_size=resolved_batch_size,
+                proposed_epochs=proposed_epochs,
+                model_key=model_key,
+                framework=framework,
+                uses_amp=uses_amp,
+                requires_gpu=requires_gpu,
+                script_signature=script_signature,
+                payload=final_payload,
+            )
+            self._pipeline_emit(
+                "job_finished",
+                node_id=str(id),
+                job_id=job_id,
+                stage="execution",
+                payload={
+                    "status": final_payload.get("status"),
+                    "duration_seconds": time.time() - start_time,
+                    "placement_backend": placement_backend,
+                    "resolved_batch_size": resolved_batch_size,
+                },
+            )
 
             if result_path.exists():
                 payload = json.loads(result_path.read_text(encoding="utf-8"))
+                self._pipeline_upsert_job(
+                    job_id,
+                    node_id=str(id),
+                    status="result_available",
+                    duration_seconds=float(payload.get("exec_time", time.time() - start_time)),
+                    payload={"execution_result": payload},
+                )
                 return ExecutionResult(
                     term_out=payload.get("term_out", [""]),
                     exec_time=float(payload.get("exec_time", time.time() - start_time)),
@@ -520,6 +675,15 @@ class Interpreter:
             logger.error(f"Error in _run_scheduler_job: {e}")
             error_trace = traceback.format_exc()
             logger.error(error_trace)
+            if job_id is not None:
+                self._pipeline_upsert_job(
+                    job_id,
+                    node_id=str(id),
+                    status="executor_error",
+                    finished_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    duration_seconds=time.time() - start_time,
+                    payload={"error": str(e), "traceback": error_trace},
+                )
             return ExecutionResult(
                 term_out=[f"Scheduler execution error: {str(e)}", error_trace],
                 exec_time=time.time() - start_time,

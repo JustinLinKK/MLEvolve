@@ -66,8 +66,8 @@ spec:
               value: /results/runs
             - name: SCHEDULER_RUNTIME_ROOT
               value: /runtime/localml_scheduler
-            - name: SCHEDULER_CONFIG_PATH
-              value: /workspace/repo/localml_scheduler/configs/scheduler.nautilus.yaml
+            - name: MLEVOLVE_CONFIG
+              value: /workspace/repo/config.example.yaml
           envFrom:
             - secretRef:
                 name: scheduler-db-env

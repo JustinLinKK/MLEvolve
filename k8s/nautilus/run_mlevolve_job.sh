@@ -11,7 +11,13 @@ MEMORY_INDEX="${MEMORY_INDEX:-0}"
 START_CPU_ID="${START_CPU_ID:-0}"
 CPU_NUMBER="${CPU_NUMBER:-21}"
 SCHEDULER_RUNTIME_ROOT="${SCHEDULER_RUNTIME_ROOT:-/runtime/localml_scheduler}"
-SCHEDULER_CONFIG_PATH="${SCHEDULER_CONFIG_PATH:-$ROOT/localml_scheduler/configs/scheduler.nautilus.yaml}"
+if [ -z "${MLEVOLVE_CONFIG:-}" ]; then
+    if [ -f "$ROOT/config.yaml" ]; then
+        MLEVOLVE_CONFIG="$ROOT/config.yaml"
+    else
+        MLEVOLVE_CONFIG="$ROOT/config.example.yaml"
+    fi
+fi
 GRADING_LOG_DIR="${GRADING_LOG_DIR:-$SCHEDULER_RUNTIME_ROOT/grading_servers}"
 RUNS_ROOT="${RUNS_ROOT:-/results/runs}"
 EXP_NAME="${EXP_NAME:-$EXP_ID}"
@@ -24,6 +30,7 @@ GRADING_SERVER_PORT=$(( BASE_PORT + SERVER_ID ))
 export GRADING_SERVER_PORT
 export DATASET_DIR
 export MEMORY_INDEX
+export MLEVOLVE_CONFIG
 
 grading_server_pid=""
 
@@ -79,7 +86,16 @@ timeout --foreground --signal=TERM --kill-after=20s "${TIME_LIMIT_SECS}s" \
         log_dir="$RUNS_ROOT" \
         workspace_dir="$RUNS_ROOT" \
         scheduler.enabled=true \
-        scheduler.settings_path="$SCHEDULER_CONFIG_PATH" \
+        scheduler.settings.runtime_root="$SCHEDULER_RUNTIME_ROOT" \
+        scheduler.settings.graph_db.enabled=false \
+        scheduler.settings.graph_db.mode=off \
+        scheduler.settings.graph_db.uri="bolt://neo4j:7687" \
+        scheduler.settings.gpu_scheduler.backend_priority="[stream,cuda_process,exclusive]" \
+        scheduler.settings.gpu_scheduler.concurrent_backend_allowlist="[stream]" \
+        scheduler.settings.gpu_scheduler.submission_defaults.backend_allowlist="[stream,cuda_process]" \
+        scheduler.settings.gpu_scheduler.mps.enabled=false \
+        scheduler.settings.gpu_scheduler.stream.enabled=true \
+        scheduler.settings.hardware_feature_db.url="http://qdrant:6333" \
         scheduler.runtime_root="$SCHEDULER_RUNTIME_ROOT"
 RUN_EXIT=$?
 

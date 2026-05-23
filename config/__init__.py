@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 import json
+import os
 from pathlib import Path
 from typing import Hashable, cast
 import datetime
@@ -23,6 +24,22 @@ from utils import copytree, preproc_data, serialize
 
 shutup.mute_warnings()
 logger = logging.getLogger("MLEvolve")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+ROOT_CONFIG_PATH = REPO_ROOT / "config.yaml"
+ROOT_CONFIG_EXAMPLE_PATH = REPO_ROOT / "config.example.yaml"
+LEGACY_CONFIG_PATH = Path(__file__).parent / "config.yaml"
+CONFIG_ENV_VAR = "MLEVOLVE_CONFIG"
+
+EXPERIMENT_MODE_BASELINE = "baseline"
+EXPERIMENT_MODE_HARDWARE_AWARE = "hardware_aware"
+_EXPERIMENT_MODES = {EXPERIMENT_MODE_BASELINE, EXPERIMENT_MODE_HARDWARE_AWARE}
+
+
+def normalize_experiment_mode(value: str | None) -> str:
+    mode = str(value or EXPERIMENT_MODE_HARDWARE_AWARE).strip().lower().replace("-", "_")
+    if mode not in _EXPERIMENT_MODES:
+        raise ValueError(f"Unsupported experiment.mode: {value}. Expected one of {sorted(_EXPERIMENT_MODES)}")
+    return mode
 
 
 """ these dataclasses are just for type hinting, the actual config is in config.yaml """
@@ -111,6 +128,7 @@ class ExecConfig:
 class SchedulerBridgeConfig:
     enabled: bool = False
     settings_path: str | None = None
+    settings: dict | None = None
     runtime_root: str | None = None
     start_service: bool = True
     wait_poll_interval_seconds: float = 1.0
@@ -118,6 +136,11 @@ class SchedulerBridgeConfig:
     preload_source_model_id: str | None = None
     preload_source_model_path: str | None = None
     preload_source_loader_target: str | None = None
+
+
+@dataclass
+class ExperimentConfig:
+    mode: str = EXPERIMENT_MODE_HARDWARE_AWARE
 
 
 @dataclass
@@ -166,6 +189,7 @@ class Config(Hashable):
 
     exec: ExecConfig
     scheduler: SchedulerBridgeConfig
+    experiment: ExperimentConfig
     agent: AgentConfig
     start_cpu_id: str
     cpu_number: str
@@ -190,15 +214,49 @@ def _get_next_logindex(dir: Path) -> int:
     return max_index + 1
 
 
-def _load_cfg(
-    path: Path = Path(__file__).parent / "config.yaml", use_cli_args=True
-) -> Config:
-    cfg = OmegaConf.load(path)
+def resolve_config_path(path: str | Path | None = None) -> Path:
+    """Resolve the unified MLEvolve config path.
+
+    Precedence: explicit path, MLEVOLVE_CONFIG, root config.yaml, legacy
+    config/config.yaml, root config.example.yaml.
+    """
+    if path is not None:
+        return Path(path).expanduser().resolve()
+
+    env_path = os.getenv(CONFIG_ENV_VAR)
+    if env_path:
+        return Path(env_path).expanduser().resolve()
+
+    if ROOT_CONFIG_PATH.exists():
+        return ROOT_CONFIG_PATH.resolve()
+
+    if LEGACY_CONFIG_PATH.exists():
+        logger.warning(
+            "Loading legacy config path %s; move local settings to root config.yaml.",
+            LEGACY_CONFIG_PATH,
+        )
+        return LEGACY_CONFIG_PATH.resolve()
+
+    if ROOT_CONFIG_EXAMPLE_PATH.exists():
+        logger.warning(
+            "Local config.yaml not found; using sanitized config.example.yaml. "
+            "Copy it to config.yaml for local API keys and machine-specific settings."
+        )
+        return ROOT_CONFIG_EXAMPLE_PATH.resolve()
+
+    raise FileNotFoundError("No MLEvolve config found. Expected config.yaml or config.example.yaml at repo root.")
+
+
+def _load_cfg(path: str | Path | None = None, use_cli_args=True) -> Config:
+    cfg = OmegaConf.load(resolve_config_path(path))
+    env_mode = os.getenv("MLEVOLVE_EXPERIMENT_MODE")
+    if env_mode:
+        cfg = OmegaConf.merge(cfg, {"experiment": {"mode": env_mode}})
     if use_cli_args:
         cfg = OmegaConf.merge(cfg, OmegaConf.from_cli())
     return cfg
 
-def load_cfg(path: Path = Path(__file__).parent / "config.yaml") -> Config:
+def load_cfg(path: str | Path | None = None) -> Config:
     """Load config from .yaml file and CLI args, and set up logging directory."""
     return prep_cfg(_load_cfg(path))
 
@@ -242,6 +300,9 @@ def prep_cfg(cfg: Config):
     # validate the config
     cfg_schema: Config = OmegaConf.structured(Config)
     cfg = OmegaConf.merge(cfg_schema, cfg)
+    cfg.experiment.mode = normalize_experiment_mode(cfg.experiment.mode)
+    if cfg.experiment.mode == EXPERIMENT_MODE_BASELINE:
+        cfg.agent.hardware_context_enabled = False
 
     return cast(Config, cfg)
 

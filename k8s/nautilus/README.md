@@ -10,8 +10,8 @@ These manifests keep the scheduler compliant with Nautilus-style shared-cluster 
 
 Database guidance:
 
-- Use [scheduler.nautilus.yaml](/workspaces/MLEvolve/localml_scheduler/configs/scheduler.nautilus.yaml) for SQLite-only control-plane state.
-- Use [scheduler.nautilus.fullstack.yaml](/workspaces/MLEvolve/localml_scheduler/configs/scheduler.nautilus.fullstack.yaml) when you want SQLite primary plus best-effort Neo4j mirroring and Postgres analytics.
+- Use the root `config.yaml` or `config.example.yaml` through `MLEVOLVE_CONFIG`; scheduler runtime settings live under `scheduler.settings`.
+- The Nautilus job entrypoint applies cluster-specific overrides through CLI values such as `scheduler.settings.runtime_root`, graph DB mode, backend allowlists, and Qdrant URL.
 - `neo4j.yaml` is namespace-local and intentionally off the scheduler critical path.
 - `postgres-cluster.yaml` targets the Zalando Postgres operator. Create a `scheduler-db-env` Secret with `LOCALML_SCHEDULER_LOG_DSN` and optionally `LOCALML_SCHEDULER_NEO4J_PASSWORD` before enabling the full-stack preset.
 

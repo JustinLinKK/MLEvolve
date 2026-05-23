@@ -234,6 +234,7 @@ def update_best_solution(agent, node):
             agent.best_node = node
             save_best_solution(agent, node, submission_file_path)
             logger.info(f"[best] updated: node {node.id}, metric={node.metric.value}")
+            _log_best_update(agent, node)
         else:
             logger.debug(f"Node {node.id} is invalid, skipped")
     else:
@@ -241,5 +242,21 @@ def update_best_solution(agent, node):
             agent.best_node = node
             save_best_solution(agent, node, submission_file_path)
             logger.info(f"[best] updated: node {node.id}, metric={node.metric.value}")
+            _log_best_update(agent, node)
         else:
             logger.debug(f"Node {node.id} not the best (current best: {agent.best_node.id})")
+
+
+def _log_best_update(agent, node: SearchNode) -> None:
+    try:
+        from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
+
+        payload = {
+            "metric": node.metric.value if node.metric else None,
+            "metric_maximize": getattr(agent, "metric_maximize", None),
+            "is_valid": node.is_valid,
+        }
+        log_pipeline_event(agent, "best_node_updated", node=node, payload=payload)
+        record_pipeline_node_action(agent, node, "best_node_updated", payload=payload)
+    except Exception:
+        pass

@@ -1,11 +1,13 @@
 #!/bin/bash
 # Run MLEvolve on a single competition task.
-# Usage: bash run_single_task.sh <EXP_ID> <DATASET_DIR> [SERVER_ID]
+# Usage: bash run_single_task.sh <EXP_ID> <DATASET_DIR> [SERVER_ID] [baseline|hardware_aware]
 set -x
 
-EXP_ID=${1:?Usage: bash run_single_task.sh <EXP_ID> <DATASET_DIR> [SERVER_ID]}
-dataset_dir=${2:?Usage: bash run_single_task.sh <EXP_ID> <DATASET_DIR> [SERVER_ID]}
+EXP_ID=${1:?Usage: bash run_single_task.sh <EXP_ID> <DATASET_DIR> [SERVER_ID] [baseline|hardware_aware]}
+dataset_dir=${2:?Usage: bash run_single_task.sh <EXP_ID> <DATASET_DIR> [SERVER_ID] [baseline|hardware_aware]}
 SERVER_ID=${3:-111}
+EXPERIMENT_MODE=${4:-${MLEVOLVE_EXPERIMENT_MODE:-hardware_aware}}
+export MLEVOLVE_EXPERIMENT_MODE="${EXPERIMENT_MODE}"
 
 # ── Proxy (uncomment & fill in if behind a corporate firewall) ──
 # export http_proxy=http://YOUR_PROXY:PORT
@@ -13,6 +15,14 @@ SERVER_ID=${3:-111}
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
+
+if [ -z "${MLEVOLVE_CONFIG:-}" ]; then
+    if [ -f "$ROOT/config.yaml" ]; then
+        export MLEVOLVE_CONFIG="$ROOT/config.yaml"
+    else
+        export MLEVOLVE_CONFIG="$ROOT/config.example.yaml"
+    fi
+fi
 
 # ── Launch the local grading (format-validation) server ──
 export DATASET_DIR="${dataset_dir}"
@@ -69,6 +79,7 @@ CUDA_VISIBLE_DEVICES=$MEMORY_INDEX timeout --foreground --signal=TERM --kill-aft
   data_dir="${dataset_dir}/${EXP_ID}/prepared/public" \
   desc_file="${dataset_dir}/${EXP_ID}/prepared/public/description.md" \
   exp_name="${EXP_ID}" \
+  experiment.mode="${EXPERIMENT_MODE}" \
   start_cpu_id="${start_cpu}" \
   cpu_number="${CPUS_PER_TASK}"
 

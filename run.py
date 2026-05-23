@@ -17,12 +17,36 @@ from utils.seed import set_global_seed
 from engine.coldstart import build_guidance_description
 from utils.logging_config import setup_logging
 from utils.hardware_monitor import HardwareMonitor
+from utils.experiment_metrics import build_comparison_metrics, write_comparison_metrics
+from utils.pipeline_logging import PipelineActionLogger
 import torch
 from localml_scheduler.client import SchedulerClient
 from localml_scheduler.config import SchedulerSettings
 
 
+def _scheduler_settings_from_cfg(cfg, scheduler_cfg) -> SchedulerSettings:
+    scheduler_runtime_root = getattr(scheduler_cfg, "runtime_root", None) or str(cfg.workspace_dir / "scheduler_runtime")
+    nested_settings = getattr(scheduler_cfg, "settings", None)
+    if nested_settings:
+        payload = OmegaConf.to_container(nested_settings, resolve=True) if not isinstance(nested_settings, dict) else nested_settings
+        return SchedulerSettings.from_dict(payload, runtime_root=scheduler_runtime_root)
+
+    scheduler_settings_path = getattr(scheduler_cfg, "settings_path", None)
+    if scheduler_settings_path:
+        logger = logging.getLogger("MLEvolve")
+        logger.warning(
+            "scheduler.settings_path is deprecated; move scheduler settings under scheduler.settings in root config.yaml."
+        )
+        return SchedulerSettings.from_file(
+            scheduler_settings_path,
+            runtime_root=scheduler_runtime_root,
+        )
+
+    return SchedulerSettings(runtime_root=scheduler_runtime_root)
+
+
 def run():
+    run_started_at = time.time()
     cfg = load_cfg()
     if cfg.torch_hub_dir:
         torch.hub.set_dir(cfg.torch_hub_dir)
@@ -32,6 +56,21 @@ def run():
     hardware_monitor = HardwareMonitor(cfg, logger)
     hardware_monitor.start()
     scheduler_service = None
+    scheduler_client = None
+    pipeline_logger = PipelineActionLogger(
+        cfg.log_dir / "pipeline.sqlite3",
+        run_id=cfg.exp_name,
+        mode=cfg.experiment.mode,
+    )
+    pipeline_logger.emit(
+        "run_started",
+        payload={
+            "exp_name": cfg.exp_name,
+            "exp_id": cfg.exp_id,
+            "mode": cfg.experiment.mode,
+            "scheduler_enabled": bool(getattr(cfg.scheduler, "enabled", False)),
+        },
+    )
     previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
 
     def handle_sigterm(signum, frame):
@@ -64,19 +103,18 @@ def run():
             task_desc=task_desc,
             cfg=cfg,
             journal=journal,
+            pipeline_logger=pipeline_logger,
         )
 
         interpreter = Interpreter(
-            cfg.workspace_dir, **OmegaConf.to_container(cfg.exec), cfg=cfg  # type: ignore
+            cfg.workspace_dir,
+            **OmegaConf.to_container(cfg.exec),
+            cfg=cfg,  # type: ignore
+            pipeline_logger=pipeline_logger,
         )
         scheduler_cfg = getattr(cfg, "scheduler", None)
         if scheduler_cfg is not None and bool(getattr(scheduler_cfg, "enabled", False)):
-            scheduler_settings_path = getattr(scheduler_cfg, "settings_path", None)
-            scheduler_runtime_root = getattr(scheduler_cfg, "runtime_root", None) or str(cfg.workspace_dir / "scheduler_runtime")
-            scheduler_settings = SchedulerSettings.from_file(
-                scheduler_settings_path,
-                runtime_root=scheduler_runtime_root,
-            )
+            scheduler_settings = _scheduler_settings_from_cfg(cfg, scheduler_cfg)
             scheduler_client = SchedulerClient(scheduler_settings)
             if bool(getattr(scheduler_cfg, "start_service", True)):
                 scheduler_service = scheduler_client.create_service().start(background=True)
@@ -92,6 +130,14 @@ def run():
                     )
             interpreter.attach_scheduler(scheduler_client, scheduler_cfg)
             agent.attach_scheduler(scheduler_client)
+            pipeline_logger.emit(
+                "scheduler_attached",
+                payload={
+                    "settings_runtime_root": str(scheduler_settings.runtime_root),
+                    "scheduler_mode": scheduler_settings.gpu_scheduler.mode,
+                    "start_service": bool(getattr(scheduler_cfg, "start_service", True)),
+                },
+            )
 
         global_step = len(journal)
         status = Status("[green]Generating code...")
@@ -211,12 +257,28 @@ def run():
 
         interpreter.cleanup_session(-1)
     finally:
+        if "journal" in locals():
+            try:
+                metrics = build_comparison_metrics(
+                    cfg,
+                    journal,
+                    started_at=run_started_at,
+                    finished_at=time.time(),
+                    scheduler_client=scheduler_client,
+                    metric_maximize=getattr(locals().get("agent", None), "metric_maximize", None),
+                )
+                write_comparison_metrics(metrics, cfg.log_dir)
+                pipeline_logger.record_run_metrics(metrics)
+                pipeline_logger.emit("run_finished", payload=metrics)
+            except Exception as exc:
+                logger.warning("Failed to write comparison metrics: %s", exc)
         signal.signal(signal.SIGTERM, previous_sigterm_handler)
         if "interpreter" in locals():
             interpreter.cleanup_session(-1)
         if scheduler_service is not None:
             scheduler_service.stop()
         hardware_monitor.stop()
+        pipeline_logger.close()
 
 
 if __name__ == "__main__":    

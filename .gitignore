@@ -84,4 +84,6 @@ grading_server.output
 CODE_ANALYSIS_REPORT.md
 PROMPT_COMPARISON_REPORT.md
 kaggle.json
+config.yaml
 config/config.yaml
+localml_scheduler/configs/*.yaml

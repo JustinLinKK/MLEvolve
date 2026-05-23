@@ -414,57 +414,79 @@ class MetaAgent:
         return "\n".join(code_parts)
 
 
-def create_default_step_agents() -> List[StepAgent]:
+def _hardware_reasoning_enabled(agent_instance) -> bool:
+    cfg = getattr(agent_instance, "cfg", None)
+    experiment = getattr(cfg, "experiment", None)
+    mode = str(getattr(experiment, "mode", "") or "").strip().lower().replace("-", "_")
+    if mode == "baseline":
+        return False
+    acfg = getattr(agent_instance, "acfg", None)
+    return bool(getattr(acfg, "hardware_context_enabled", True))
+
+
+def create_default_step_agents(*, hardware_aware: bool = True) -> List[StepAgent]:
+    data_guidelines = [
+        "Your responsibility: Load data from `./input`, clean, create features (preprocessing, encoding, augmentation), and split dataset into train/validation/test.",
+        "CRITICAL: This step MUST include BOTH data loading AND feature engineering. Do NOT only load the raw data. You must actively create, transform, and enhance features to improve model performance.",
+        "IMPORTANT: Apply feature engineering techniques such as feature scaling, encoding, transformation, and data augmentation methods appropriate for the task. Explore and implement feature engineering strategies that can enhance the model's ability to learn from the data.",
+        "CRITICAL: Do NOT build models, write training code, or perform evaluation. Focus ONLY on data preparation and feature engineering.",
+    ]
+    model_guidelines = [
+        "Your responsibility: Design the model architecture or choose reference pretrained model, loss function, and optimizer based on the task and the features from previous steps.",
+        "CRITICAL: Do NOT write the training loop, data processing, or feature engineering code. Only define the model, criterion, and optimizer objects.",
+        "IMPORTANT: Consider the task's evaluation metric (from the task description's Evaluation section) when designing the model. The model output format should be compatible with the required evaluation metric calculation.",
+        "IMPORTANT: When designing custom model architectures, include appropriate regularization components (e.g., Dropout layers) to prevent overfitting.",
+    ]
+    training_guidelines = [
+        "Your responsibility: Write the training loop that uses the data, features, model, loss function, and optimizer from previous steps. Include validation, metric tracking, save the best model. Then load the best model, calculate validation metric (must match task's Evaluation section), perform test inference, and save `submission.csv` to `./submission/` directory.",
+        "CRITICAL: Assume that all previous code steps have already been executed. You should start directly from the training step. Do NOT redefine or reload the data, features, model, loss function, or optimizer. These components are already defined and available from the previous steps.",
+        "CRITICAL: You MUST use the variables and objects defined in previous steps AS-IS. Do NOT replace, redesign, or substitute them with different approaches. Your ONLY job is to write the training/evaluation code for what was already defined — not to introduce new models or pipelines.",
+        "IMPORTANT: Your code should assume the data preprocessing, feature engineering, and model design steps have been completed. Simply use the existing variables without copying them.",
+        "CRITICAL: Validation metric computation must use the same prediction method as test inference, using training data only as reference, to avoid data leakage and ensure the metric reflects true generalization performance.",
+        "CRITICAL CONSISTENCY REQUIREMENT: Ensure that validation and test inference use IDENTICAL processing logic. Any differences in how validation and test data are handled (such as post-processing, reconstruction, or formatting) can cause large performance gaps between validation and test sets. Maintain consistency across all data processing steps for both validation and test phases.",
+        "CRITICAL: You MUST actively prevent overfitting. Do NOT only focus on validation set metrics, as this can easily cause the model to overfit. You can consider to use standard anti-overfitting techniques as default modeling strategies, including:",
+        "  - Data augmentation (when applicable to the task)",
+        "  - Early stopping (monitor validation metric and stop when it stops improving)",
+        "  - Regularization (weight decay, L1/L2 regularization)",
+        "  - Dropout (if using neural networks)",
+        "  - Other appropriate regularization techniques for the specific model type",
+        "CRITICAL: You MUST implement the exact evaluation metric as specified in the task description's 'Evaluation' section. Read the Evaluation section carefully and implement it precisely according to the exact formula, calculation steps, and aggregation method described.",
+        "CRITICAL: You MUST NOT use dummy, simplified, or approximate metrics. The validation metric must be a REAL and COMPLETE implementation of the task's evaluation metric as described in the Evaluation section, not an approximation, placeholder, or simplified version.",
+        "CRITICAL: If the Evaluation section specifies multiple thresholds, components, or aggregation steps, you MUST implement ALL of them. Do not skip any required calculation steps or use shortcuts.",
+        "CRITICAL: The metric calculation must match the Evaluation section exactly - use the same matching criteria, the same formula, the same thresholds (if any), and the same aggregation method as specified.",
+        "CRITICAL: The final line must be: `print(f'Final Validation Score: {{score}}')`. This is required for the score parser.",
+    ]
+    if hardware_aware:
+        data_guidelines.append(
+            "Hardware-aware data pipeline: when using GPU training, keep input resolution/sequence length configurable, use DataLoader settings compatible with the hardware brief, and prefer pin_memory/non-blocking transfers when tensors move to CUDA."
+        )
+        model_guidelines.append(
+            "Hardware-aware model design: choose model size and precision compatibility using the hardware/profile context; prefer tensor-core-friendly PyTorch paths when the evidence supports AMP/bf16/fp16."
+        )
+        training_guidelines.extend(
+            [
+                "Hardware-aware training: use the hardware/profile context to choose physical batch size, epoch budget, AMP dtype, gradient accumulation, checkpoint cadence, and dataloader settings. If choosing a riskier setting for score reasons, include an explicit fallback path for OOM/timeout such as smaller batch size, accumulation, lower resolution, fewer epochs, or checkpoint resume.",
+                "When feasible, log resolved batch size, selected precision, elapsed time, throughput, and peak CUDA memory so later scheduler graph evidence can learn from this run.",
+            ]
+        )
     return [
         StepAgent(
             name="data_processing_and_feature_engineering",
             introduction="You are a Data Preparation Specialist responsible for data loading, cleaning, and feature engineering.",
             description="Load data from `./input` directory, perform cleaning, feature engineering, and create train/validation/test splits.",
-            guidelines=[
-                "Your responsibility: Load data from `./input`, clean, create features (preprocessing, encoding, augmentation), and split dataset into train/validation/test.",
-                "CRITICAL: This step MUST include BOTH data loading AND feature engineering. Do NOT only load the raw data. You must actively create, transform, and enhance features to improve model performance.",
-                "IMPORTANT: Apply feature engineering techniques such as feature scaling, encoding, transformation, and data augmentation methods appropriate for the task. Explore and implement feature engineering strategies that can enhance the model's ability to learn from the data.",
-                "CRITICAL: Do NOT build models, write training code, or perform evaluation. Focus ONLY on data preparation and feature engineering.",
-                "Hardware-aware data pipeline: when using GPU training, keep input resolution/sequence length configurable, use DataLoader settings compatible with the hardware brief, and prefer pin_memory/non-blocking transfers when tensors move to CUDA.",
-            ],
+            guidelines=data_guidelines,
         ),
         StepAgent(
             name="model_design",
             introduction="You are a Model Architect responsible for designing the model architecture, loss function, and optimizer.",
             description="Design the model architecture (including pretrained models), and define the loss function and optimizer.",
-            guidelines=[
-                "Your responsibility: Design the model architecture or choose reference pretrained model, loss function, and optimizer based on the task and the features from previous steps.",
-                "CRITICAL: Do NOT write the training loop, data processing, or feature engineering code. Only define the model, criterion, and optimizer objects.",
-                "IMPORTANT: Consider the task's evaluation metric (from the task description's Evaluation section) when designing the model. The model output format should be compatible with the required evaluation metric calculation.",
-                "IMPORTANT: When designing custom model architectures, include appropriate regularization components (e.g., Dropout layers) to prevent overfitting.",
-                "Hardware-aware model design: choose model size and precision compatibility using the hardware/profile context; prefer tensor-core-friendly PyTorch paths when the evidence supports AMP/bf16/fp16.",
-            ],
+            guidelines=model_guidelines,
         ),
         StepAgent(
             name="training_evaluation",
             introduction="You are a Training and Evaluation Expert responsible for implementing training, validation, and submission generation.",
             description="Implement the training loop, validation, metric tracking, model saving, and generate submission file.",
-            guidelines=[
-                "Your responsibility: Write the training loop that uses the data, features, model, loss function, and optimizer from previous steps. Include validation, metric tracking, save the best model. Then load the best model, calculate validation metric (must match task's Evaluation section), perform test inference, and save `submission.csv` to `./submission/` directory.",
-                "CRITICAL: Assume that all previous code steps have already been executed. You should start directly from the training step. Do NOT redefine or reload the data, features, model, loss function, or optimizer. These components are already defined and available from the previous steps.",
-                "CRITICAL: You MUST use the variables and objects defined in previous steps AS-IS. Do NOT replace, redesign, or substitute them with different approaches. Your ONLY job is to write the training/evaluation code for what was already defined — not to introduce new models or pipelines.",
-                "IMPORTANT: Your code should assume the data preprocessing, feature engineering, and model design steps have been completed. Simply use the existing variables without copying them.",
-                "CRITICAL: Validation metric computation must use the same prediction method as test inference, using training data only as reference, to avoid data leakage and ensure the metric reflects true generalization performance.",
-                "CRITICAL CONSISTENCY REQUIREMENT: Ensure that validation and test inference use IDENTICAL processing logic. Any differences in how validation and test data are handled (such as post-processing, reconstruction, or formatting) can cause large performance gaps between validation and test sets. Maintain consistency across all data processing steps for both validation and test phases.",
-                "CRITICAL: You MUST actively prevent overfitting. Do NOT only focus on validation set metrics, as this can easily cause the model to overfit. You can consider to use standard anti-overfitting techniques as default modeling strategies, including:",
-                "  - Data augmentation (when applicable to the task)",
-                "  - Early stopping (monitor validation metric and stop when it stops improving)",
-                "  - Regularization (weight decay, L1/L2 regularization)",
-                "  - Dropout (if using neural networks)",
-                "  - Other appropriate regularization techniques for the specific model type",
-                "CRITICAL: You MUST implement the exact evaluation metric as specified in the task description's 'Evaluation' section. Read the Evaluation section carefully and implement it precisely according to the exact formula, calculation steps, and aggregation method described.",
-                "CRITICAL: You MUST NOT use dummy, simplified, or approximate metrics. The validation metric must be a REAL and COMPLETE implementation of the task's evaluation metric as described in the Evaluation section, not an approximation, placeholder, or simplified version.",
-                "CRITICAL: If the Evaluation section specifies multiple thresholds, components, or aggregation steps, you MUST implement ALL of them. Do not skip any required calculation steps or use shortcuts.",
-                "CRITICAL: The metric calculation must match the Evaluation section exactly - use the same matching criteria, the same formula, the same thresholds (if any), and the same aggregation method as specified.",
-                "CRITICAL: The final line must be: `print(f'Final Validation Score: {{score}}')`. This is required for the score parser.",
-                "Hardware-aware training: use the hardware/profile context to choose physical batch size, epoch budget, AMP dtype, gradient accumulation, checkpoint cadence, and dataloader settings. If choosing a riskier setting for score reasons, include an explicit fallback path for OOM/timeout such as smaller batch size, accumulation, lower resolution, fewer epochs, or checkpoint resume.",
-                "When feasible, log resolved batch size, selected precision, elapsed time, throughput, and peak CUDA memory so later scheduler graph evidence can learn from this run.",
-            ],
+            guidelines=training_guidelines,
         ),
     ]
 
@@ -487,7 +509,7 @@ def stepwise_plan_and_code_query(
         hardware_context=context.get("hardware_context", {}) or {},
     )
 
-    step_agents = create_default_step_agents()
+    step_agents = create_default_step_agents(hardware_aware=_hardware_reasoning_enabled(agent_instance))
     meta_agent = MetaAgent()
 
     step_results: List[Dict[str, str]] = []
