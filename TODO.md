@@ -1,16 +1,14 @@
-# TODO (5.8)
+# TODO
 
-## MLEvolve Integration
+## Agent System Plugin
 
 - Feedback to Agent through MCP
 
-- Additional Hardware Optimizaion
+- Try all kinds of agent systems: **MLEvolve**, 
 
 ## Graph DB and Data accumulation on Cluster
 
 - Test on different hardwares
-
-## Hardware specs
 
 ## Pack Size Limit Setting
 
@@ -19,3 +17,5 @@
 - combination(tasks) -> Preheat time -> Stay time in GPU -> When out
 
 - tasks: probe method, others ...
+
+## Model Feature for each GPUs

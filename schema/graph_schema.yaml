@@ -823,7 +823,7 @@ node_types:
         required: false
         indexed: true
         description: >
-          Coarse family such as resnet, convnext, vit, swin, llama, bert,
+          Coarse family such as resnet, convnext, vit, swin, bert,
           unet, gmlp, or custom.
 
       architecture_type:

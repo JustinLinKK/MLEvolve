@@ -1,0 +1,43 @@
+schema_version: api_symbol_chunk_v1
+api_symbol_id: torch.cuda.graph.v2.1-2.11
+title: torch.cuda.graph (PyTorch 2.1-2.11)
+api_symbol: torch.cuda.graph
+signature: (cuda_graph, pool=None, stream=None, capture_error_mode='global')
+parameters_json: '[{"name": "cuda_graph", "default": ""}, {"name": "pool", "default": "None"}, {"name": "stream", "default": "None"}, {"name": "capture_error_mode", "default": "''global''"}]'
+usage_summary: Context manager capturing kernel launches into a CUDA Graph for low-overhead replay
+text: Context manager capturing kernel launches into a CUDA Graph for low-overhead replay
+framework: pytorch
+framework_version: 2.1-2.11
+docs_url: https://docs.pytorch.org/docs/2.11/generated/torch.cuda.graph.html
+covers_versions:
+- '2.1'
+- '2.2'
+- '2.3'
+- '2.4'
+- '2.5'
+- '2.6'
+- '2.7'
+- '2.8'
+- '2.9'
+- '2.10'
+- '2.11'
+deprecated: false
+source_id: pytorch.docs.torch.cuda.graph.2.1-2.11
+source_type: official_doc
+source_title: PyTorch 2.1-2.11 docs - torch.cuda.graph
+source_url: https://docs.pytorch.org/docs/2.11/generated/torch.cuda.graph.html
+source_version: pytorch-2.1-2.11
+technology_keys: []
+hardware_feature_keys:
+- cuda_graphs
+optimization_targets:
+- reduce_launch_overhead
+- improve_throughput
+profile_symptoms:
+- kernel_launch_overhead
+- cpu_bound
+precision_modes: []
+risk_level: medium
+confidence: 0.9
+api_symbols:
+- torch.cuda.graph

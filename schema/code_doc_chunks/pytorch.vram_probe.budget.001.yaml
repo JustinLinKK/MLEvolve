@@ -1,0 +1,51 @@
+schema_version: code_doc_chunk_v1
+chunk_id: pytorch.vram_probe.budget.001
+title: Probe peak VRAM and set per-job budget
+text: |
+  Internal MLEvolve protocol: before launching a job, run one
+  forward+backward step with a small batch and read
+  torch.cuda.max_memory_allocated() (the PyTorch CUDA notes describe
+  memory_allocated() and max_memory_allocated() as the way to monitor
+  memory occupied by tensors). Scale by the batch ratio to project
+  peak VRAM for the target batch. Reserve headroom for allocator
+  fragmentation and cuBLAS workspaces (per the notes, each cuBLAS
+  handle/stream combination allocates a cuBLAS workspace, and
+  fragmentation can prevent borderline workloads from completing
+  without running out of memory). The MLEvolve scheduler uses these
+  probes to choose packing across MPS, CUDA streams, and separate
+  CUDA processes without triggering out-of-memory errors. Internal
+  numeric defaults (e.g. ~14000 MiB cap on 16 GiB GPUs, ~28000 MiB
+  cap on 32 GiB GPUs) are scheduler policy, not from the source page.
+framework: pytorch
+framework_version: 2.x
+technology_keys:
+- vram_probe
+- batch_search
+hardware_keys: []
+hardware_feature_keys: []
+model_keys: []
+model_families:
+- cnn
+- transformer
+workload_types:
+- vision_training
+- transformer_training
+optimization_targets:
+- reduce_vram
+- prevent_oom
+profile_symptoms:
+- vram_pressure
+- oom_risk
+api_symbols:
+- torch.cuda.max_memory_allocated
+- torch.cuda.reset_peak_memory_stats
+precision_modes: []
+risk_level: low
+confidence: 0.85
+deprecated: false
+source_id: localml_scheduler.budget
+source_type: internal_note
+source_title: MLEvolve scheduler VRAM probe protocol
+source_url: https://docs.pytorch.org/docs/stable/notes/cuda.html
+source_version: scheduler-2026-05
+example_code: "import torch\nif not torch.cuda.is_available():\n    raise SystemExit('SKIP: no CUDA')\ntorch.cuda.reset_peak_memory_stats()\nx = torch.randn(1024, 1024, device='cuda')\ny = x @ x.T\npeak_mib = torch.cuda.max_memory_allocated() / 1024 / 1024"

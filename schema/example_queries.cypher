@@ -28,19 +28,21 @@ WHERE m.model_family = $model_family
   AND h.hardware_key = $hardware_key
   AND p.compatible = true
 RETURN p.job_id, p.packing_group_key, p.packing_strategy,
-       p.slowdown_ratio, p.throughput_efficiency, collect(m.model_key) AS members
+       p.slowdown_ratio, p.throughput_efficiency, collect(m.model_key) AS members,
+       p.finished_at
 ORDER BY p.finished_at DESC
 LIMIT 10;
 
 // 4. Convert graph evidence into vector-search keys.
 MATCH (j:Job:SingleJob)-[:SINGLE_TRAINS_MODEL]->(m:Model)
 MATCH (j)-[:JOB_USED_HARDWARE]->(h:Hardware)
-OPTIONAL MATCH (j)-[:JOB_USES_TECHNOLOGY]->(t:Technology)
 WHERE j.job_id = $job_id
+OPTIONAL MATCH (j)-[:JOB_USES_TECHNOLOGY]->(t:Technology)
+WITH h, m, j, collect(t.technology_key) AS rel_tech_keys
 RETURN h.hardware_key AS hardware_key,
        h.technology_keys AS hardware_feature_keys,
        m.model_family AS model_family,
-       collect(t.technology_key) + coalesce(j.technology_keys, []) AS technology_keys,
+       rel_tech_keys + coalesce(j.technology_keys, []) AS technology_keys,
        j.avg_sm_utilization_pct AS avg_sm_utilization_pct,
        j.peak_vram_mb AS peak_vram_mb,
        j.error_message AS error_message;

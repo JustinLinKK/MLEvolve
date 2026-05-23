@@ -1,0 +1,64 @@
+schema_version: code_doc_chunk_v1
+chunk_id: transformer_engine.fp8.inference.001
+title: NVIDIA Transformer Engine fp8 path
+text: |
+  NVIDIA Transformer Engine accelerates Transformer training and
+  inference with FP8 and FP4 precision on Hopper, Ada and Blackwell
+  GPUs. Wrap the forward pass in te.fp8_autocast with a
+  recipe.DelayedScaling recipe (fp8_format=recipe.Format.E4M3 or
+  HYBRID); TE inserts per-tensor amax tracking and applies the scale
+  automatically. The README reports that fp8/mxfp8 training loss
+  curves match bf16 on tested LLMs, so FP8 can be used for both
+  training and inference. Software requirements per README: CUDA 12.1+
+  on Hopper/Ada/Ampere or 12.8+ on Blackwell, plus cuDNN 9.3+. Can be
+  combined with the bundled FlashAttention path.
+framework: pytorch
+framework_version: 2.x
+technology_keys:
+- transformer_engine
+- fp8_quantization
+hardware_keys: []
+hardware_feature_keys:
+- tensor_cores
+- tensor_cores_4gen
+- tensor_cores_5gen
+- fp8_e4m3
+- fp8_e5m2
+model_keys: []
+model_families:
+- transformer
+- gpt
+workload_types:
+- generative_ai
+- transformer_inference
+optimization_targets:
+- reduce_vram
+- improve_throughput
+profile_symptoms:
+- vram_pressure
+- precision_not_optimized
+api_symbols:
+- transformer_engine.pytorch.fp8_autocast
+- transformer_engine.pytorch.Linear
+precision_modes:
+- fp8_e4m3
+- fp8_e5m2
+risk_level: high
+confidence: 0.75
+deprecated: false
+source_id: nvidia.transformer_engine
+source_type: vendor_reference
+source_title: NVIDIA Transformer Engine
+source_url: https://github.com/NVIDIA/TransformerEngine
+source_version: te-1.x
+example_code: 'import torch
+
+  device = ''cuda'' if torch.cuda.is_available() else ''cpu''
+
+  x_e4m3 = torch.empty(8, 8, dtype=torch.float8_e4m3fn, device=device)
+
+  x_e5m2 = torch.empty(8, 8, dtype=torch.float8_e5m2, device=device)
+
+  y = torch.randn(8, 8, device=device).to(torch.float8_e4m3fn)
+
+  back = y.to(torch.float32)'

@@ -1,0 +1,37 @@
+schema_version: api_symbol_chunk_v1
+api_symbol_id: torch.cuda.CUDAGraph.v2.8-2.12
+title: torch.cuda.CUDAGraph (PyTorch 2.8-2.12)
+api_symbol: torch.cuda.CUDAGraph
+signature: (keep_graph=False)
+parameters_json: '[{"name": "keep_graph", "default": "False"}]'
+usage_summary: CUDA Graph object capturable via torch.cuda.graph context, replayable via .replay()
+text: CUDA Graph object capturable via torch.cuda.graph context, replayable via .replay()
+framework: pytorch
+framework_version: 2.8-2.12
+docs_url: https://docs.pytorch.org/docs/2.12/generated/torch.cuda.CUDAGraph.html
+covers_versions:
+- '2.8'
+- '2.9'
+- '2.10'
+- '2.11'
+- '2.12'
+deprecated: false
+source_id: pytorch.docs.torch.cuda.CUDAGraph.2.8-2.12
+source_type: official_doc
+source_title: PyTorch 2.8-2.12 docs - torch.cuda.CUDAGraph
+source_url: https://docs.pytorch.org/docs/2.12/generated/torch.cuda.CUDAGraph.html
+source_version: pytorch-2.8-2.12
+technology_keys: []
+hardware_feature_keys:
+- cuda_graphs
+optimization_targets:
+- reduce_launch_overhead
+- improve_throughput
+profile_symptoms:
+- kernel_launch_overhead
+- cpu_bound
+precision_modes: []
+risk_level: medium
+confidence: 0.9
+api_symbols:
+- torch.cuda.CUDAGraph

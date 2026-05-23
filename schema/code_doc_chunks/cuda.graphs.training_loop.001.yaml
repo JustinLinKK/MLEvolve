@@ -1,0 +1,46 @@
+schema_version: code_doc_chunk_v1
+chunk_id: cuda.graphs.training_loop.001
+title: CUDA Graphs to amortize launch latency
+text: |
+  CUDA Graphs capture a sequence of kernel launches and their
+  dependencies into a single replayable object; the overhead of
+  graph definition and instantiation can then be amortized over many
+  executions. A graph is a snapshot of a workflow including kernels,
+  their parameters, and their dependencies, replayed as rapidly as
+  possible. Best for workloads with many small kernels and fixed
+  launch parameters; structures with variable shapes or per-step
+  control flow cannot be captured directly. See the CUDA C++
+  Programming Guide CUDA Graphs section for the full set of capture
+  restrictions and the API surface.
+framework: pytorch
+framework_version: 2.x
+technology_keys: []
+hardware_keys: []
+hardware_feature_keys:
+- cuda_graphs
+model_keys: []
+model_families:
+- transformer
+- cnn
+workload_types:
+- transformer_training
+- vision_training
+optimization_targets:
+- reduce_launch_overhead
+- improve_throughput
+profile_symptoms:
+- kernel_launch_overhead
+- cpu_bound
+api_symbols:
+- torch.cuda.graph
+- torch.cuda.CUDAGraph
+precision_modes: []
+risk_level: medium
+confidence: 0.85
+deprecated: false
+source_id: nvidia.cuda.graphs.docs
+source_type: vendor_reference
+source_title: CUDA Graphs Programming Guide
+source_url: https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#cuda-graphs
+source_version: cuda-12.x
+example_code: "import torch\nimport torch.nn as nn\nif not torch.cuda.is_available():\n    raise SystemExit('SKIP: no CUDA')\nmodel = nn.Linear(64, 32).cuda()\nstatic_x = torch.randn(8, 64, device='cuda')\nfor _ in range(3):\n    out = model(static_x)\ntorch.cuda.synchronize()\ng = torch.cuda.CUDAGraph()\nwith torch.cuda.graph(g):\n    out = model(static_x)\ng.replay()\ntorch.cuda.synchronize()"

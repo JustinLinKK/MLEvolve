@@ -1,0 +1,71 @@
+schema_version: code_doc_chunk_v1
+chunk_id: nvidia.fp4.blackwell.001
+title: FP4 (E2M1) on Blackwell 5th-gen Tensor Cores
+text: |
+  FP4 (E2M1) is a 4-bit floating-point format with 1 sign bit,
+  2 exponent bits, and 1 mantissa bit, plus a software scaling factor.
+  Fifth-generation NVIDIA Blackwell Tensor Cores accelerate ultra-low
+  precision FP4 formats.
+
+  Two block-scaled FP4 variants are described by NVIDIA:
+
+    MXFP4: block size 32 elements, scale dtype e8m0 (power-of-two scale).
+    NVFP4: block size 16 elements, scale dtype e4m3 with an additional
+           FP32 per-tensor scalar. The smaller block and the higher-
+           precision e4m3 scale factor reduce quantization error
+           relative to MXFP4.
+
+  NVFP4 is used for low-precision inference, including post-training
+  quantization (PTQ) of weights from a higher-precision checkpoint.
+framework: pytorch
+framework_version: 2.x
+technology_keys:
+- fp4_quantization
+- microscaling
+- transformer_engine
+hardware_keys: []
+hardware_feature_keys:
+- fp4
+- tensor_cores_5gen
+- sm_100
+- sm_120
+model_keys: []
+model_families:
+- transformer
+- gpt
+workload_types:
+- transformer_inference
+- generative_ai
+optimization_targets:
+- reduce_vram
+- improve_throughput
+profile_symptoms:
+- vram_pressure
+- precision_not_optimized
+api_symbols:
+- torch.cuda.get_device_capability
+- transformer_engine.pytorch.fp8_autocast
+precision_modes:
+- fp4
+risk_level: high
+confidence: 0.8
+deprecated: false
+source_id: nvidia.nvfp4.inference_blog
+source_type: vendor_reference
+source_title: NVIDIA Technical Blog -- Introducing NVFP4 for Efficient and Accurate Low-Precision Inference
+source_url: https://developer.nvidia.com/blog/introducing-nvfp4-for-efficient-and-accurate-low-precision-inference/
+source_version: "2025"
+example_code: |
+  import torch
+  cc = torch.cuda.get_device_capability()
+  # FP4 tensor cores live on sm_100 (Blackwell DC) and sm_120 (Blackwell GeForce).
+  if cc < (10, 0):
+      raise SystemExit(
+          f'fp4 unsupported on CC {cc[0]}.{cc[1]} '
+          '(requires Blackwell sm_100 or sm_120)'
+      )
+  # Inference-only example. Real call sites use NVIDIA Transformer Engine
+  # or TensorRT-LLM with an MXFP4 recipe. PyTorch native fp4 autocast
+  # does not exist (as of torch 2.12); MXFP4 is reached via te.fp8_autocast
+  # with a Format.MXFP4 recipe in recent transformer_engine releases.
+  print(f'GPU CC={cc[0]}.{cc[1]} supports MXFP4 inference via Transformer Engine')
