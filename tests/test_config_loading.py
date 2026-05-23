@@ -171,3 +171,25 @@ def test_scheduler_config_from_dict_matches_file(tmp_path: Path) -> None:
     path.write_text(yaml.safe_dump(payload), encoding="utf-8")
 
     assert SchedulerConfig.from_dict(payload).cache_socket_name == SchedulerConfig.from_file(path).cache_socket_name
+
+
+def test_scheduler_config_accepts_redis_cache_settings(tmp_path: Path) -> None:
+    settings = SchedulerConfig.from_dict(
+        {
+            "runtime_root": str(tmp_path / "runtime"),
+            "redis_cache": {
+                "enabled": True,
+                "url": "redis://cache:6379/1",
+                "ttl_seconds": 120,
+                "max_entries": 32,
+                "cache_graph_queries": True,
+                "cache_vector_queries": False,
+            },
+        }
+    )
+
+    assert settings.redis_cache.enabled is True
+    assert settings.redis_cache.url == "redis://cache:6379/1"
+    assert settings.redis_cache.ttl_seconds == 120
+    assert settings.redis_cache.max_entries == 32
+    assert settings.to_dict()["redis_cache"]["cache_vector_queries"] is False

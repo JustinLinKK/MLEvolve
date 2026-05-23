@@ -55,6 +55,17 @@ scheduler:
     cache_server_host: 127.0.0.1
     cache_server_port: 8765
     cache_socket_name: cache_server.sock
+    # Optional shared Redis LRU cache for graph and vector query results.
+    redis_cache:
+      enabled: false
+      url: redis://127.0.0.1:6379/0
+      url_env: LOCALML_SCHEDULER_REDIS_URL
+      key_prefix: localml_scheduler
+      ttl_seconds: 300
+      max_entries: 4096
+      socket_timeout_seconds: 0.2
+      cache_graph_queries: true
+      cache_vector_queries: true
     auto_resume_recoverable: false
     # Database 1: local Neo4j graph evidence store.
     graph_db:
@@ -79,9 +90,9 @@ scheduler:
       code_doc_collection_name: code_doc_chunks
       optimization_recipe_collection_name: optimization_recipe_chunks
       api_symbol_collection_name: api_symbol_chunks
-      embedding_model_type: local
-      embedding_model_name: BAAI/bge-base-en-v1.5
-      embedding_dimension: null
+      embedding_model_type: openrouter
+      embedding_model_name: qwen/qwen3-embedding-8b
+      embedding_dimension: 4096
       embedding_api_key: ''
       embedding_api_key_env: OPENROUTER_API_KEY
       embedding_base_url: https://openrouter.ai/api/v1

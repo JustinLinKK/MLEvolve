@@ -1,0 +1,2 @@
+matplotlib>=3.7
+redis==7.4.0
