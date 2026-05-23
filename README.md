@@ -9,6 +9,7 @@ An agentic MLE (Machine Learning Engineering) system that automatically solves K
 ## Documentation
 
 - [MLEvolve Agent Workflow](docs/mlevolve_agent_workflow.md): step-by-step walkthrough of how the search controller, stage agents, executor, and evaluation loop work together during a run.
+- [Hardware-Aware Optimization](docs/mlevolve_hardware_aware_optimization.md): design notes for feeding scheduler profile evidence and code-knowledge retrieval back into MLEvolve stage agents.
 
 ## Timeline
 
@@ -42,6 +43,28 @@ MLEvolve powers the **coding and algorithm optimization** module within the [Int
 **Experience-Driven Memory** — A global memory layer records plan, code, metrics, and success/failure labels for every node. Retrieval combines BM25 + FAISS allowing the planner to reinforce proven strategies and avoid known pitfalls from its own search history. Different agents query memory in different ways to encourage novel approaches.
 
 **Progressive MCGS with Cross-Branch Fusion** — The search graph extends vanilla UCT with piecewise exploration decay, time-aware explore-exploit switching, and automatic stagnation detection. Multiple solution branches evolve in parallel; when progress stalls, the system performs cross-branch fusion — merging insights from top-performing nodes across different branches into new solution candidates — and trajectory-aware evolution that leverages each branch's full improvement history to propose informed next steps.
+
+## Hardware-Aware Agent Integration
+
+This branch extends the original MLEvolve structure with a scheduler-backed hardware and profile feedback loop. In the original flow, stage agents reasoned mainly from task text, data preview, search-tree memory, parent code, execution logs, and optional global memory. The new flow keeps that search architecture intact, but adds a compact hardware/profile context before each major reasoning and code-generation step.
+
+What changed structurally:
+
+- **Scheduler context reaches the agent layer**: `run.py` now attaches the in-process `SchedulerClient` to `AgentSearch`, so stage agents can ask for read-only optimization context without going through a separate MCP process.
+- **Shared hardware prompt layer**: `agents/hardware_context.py` builds a candidate description, calls `get_optimization_context(...)`, compacts the graph/vector response, and formats a `Hardware/Profile Optimization Context` prompt section.
+- **Lightweight generated-code introspection**: `engine/script_introspection.py` extracts batch size, epoch count, model/backbone hints, framework, AMP usage, GPU requirement, model family, and stable script signatures from generated Python. The executor reuses the same signature and batch-probe logic, so prompt-time reasoning and scheduler submission stay aligned.
+- **All stage agents receive profile evidence**: draft, improve, debug, evolution, fusion, aggregation, planner, diff-generation, stepwise generation, merge, and code-review paths now receive the same compact context when the scheduler is enabled.
+- **Training-script generation is more hardware-aware**: the stepwise `training_evaluation` agent is explicitly guided to choose physical batch size, precision, gradient accumulation, dataloader settings, checkpointing, and timeout/OOM fallbacks based on profile evidence.
+- **Code review includes hardware-critical checks**: the reviewer still prioritizes data leakage and correctness, but can now flag concrete high-confidence hardware risks such as fixed oversized batch sizes, missing OOM fallback, or timeout-prone training budgets. It is still forbidden from replacing the model/backbone just for hardware convenience.
+- **Search nodes retain compact evidence**: `SearchNode` now stores compact hardware context, graph evidence, derived diagnosis, vector evidence, scheduler risk flags, confidence, evidence refs, resolved batch size, runtime estimate, peak VRAM, and backend name. This makes hardware-aware decisions visible in journals without persisting raw graph/vector payloads.
+
+The key behavior rule is: hardware recommendations are evidence, not law. Agents should follow high-confidence profile guidance by default, but may override it for leaderboard reasons if they explain the tradeoff and include a fallback such as smaller batch size, AMP, gradient accumulation, reduced resolution, fewer epochs, or checkpointing.
+
+In practice, this improves MLEvolve in three places:
+
+- **Drafting** starts from hardware-compatible defaults instead of blindly proposing memory-heavy first attempts.
+- **Improvement and debugging** can react to OOMs, low SM utilization, timeout risk, precision inefficiency, and dataloader bottlenecks using empirical evidence from previous scheduler runs.
+- **Evolution, fusion, and aggregation** can compare not only validation score, but also runtime, VRAM pressure, packing compatibility, and hardware risk when selecting which ideas to combine.
 
 ## Setup
 
