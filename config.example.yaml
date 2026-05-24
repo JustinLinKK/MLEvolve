@@ -103,6 +103,8 @@ scheduler:
       distance: Cosine
     log_db:
       provider: postgres
+      # Set LOCALML_SCHEDULER_LOG_DSN to a psycopg-compatible DSN, for example:
+      # postgresql://scheduler:password@localhost:5432/scheduler
       dsn_env: LOCALML_SCHEDULER_LOG_DSN
       schema: scheduler_logs
       enabled: false

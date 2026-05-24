@@ -1,0 +1,19 @@
+{
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "version": "1.10.0",
+      "resolved": "ghcr.io/devcontainers/features/docker-outside-of-docker@sha256:c2c2cf829505ead8e4892c88c31b6594ae94a2bbb209e16e1fac456c1a3a624e",
+      "integrity": "sha256:c2c2cf829505ead8e4892c88c31b6594ae94a2bbb209e16e1fac456c1a3a624e"
+    },
+    "ghcr.io/iterative/features/nvtop:1": {
+      "version": "1.0.0",
+      "resolved": "ghcr.io/iterative/features/nvtop@sha256:62c05b2810ffecdc42125f225e9c6e2b2c19850c58cea3418cef5cfe5c41025d",
+      "integrity": "sha256:62c05b2810ffecdc42125f225e9c6e2b2c19850c58cea3418cef5cfe5c41025d"
+    },
+    "ghcr.io/raucha/devcontainer-features/pytorch:1": {
+      "version": "1.0.0",
+      "resolved": "ghcr.io/raucha/devcontainer-features/pytorch@sha256:0a3ae2f729af2259eaf9ddd77d0baf7a5dc640d49099036feba57539052d1194",
+      "integrity": "sha256:0a3ae2f729af2259eaf9ddd77d0baf7a5dc640d49099036feba57539052d1194"
+    }
+  }
+}

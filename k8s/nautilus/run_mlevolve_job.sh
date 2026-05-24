@@ -11,6 +11,9 @@ MEMORY_INDEX="${MEMORY_INDEX:-0}"
 START_CPU_ID="${START_CPU_ID:-0}"
 CPU_NUMBER="${CPU_NUMBER:-21}"
 SCHEDULER_RUNTIME_ROOT="${SCHEDULER_RUNTIME_ROOT:-/runtime/localml_scheduler}"
+ENABLE_GRAPH_DB="${ENABLE_GRAPH_DB:-false}"
+GRAPH_DB_URI="${GRAPH_DB_URI:-bolt://neo4j:7687}"
+QDRANT_URL="${QDRANT_URL:-http://qdrant:6333}"
 if [ -z "${MLEVOLVE_CONFIG:-}" ]; then
     if [ -f "$ROOT/config.yaml" ]; then
         MLEVOLVE_CONFIG="$ROOT/config.yaml"
@@ -73,30 +76,48 @@ if ! wait_for_grading_server "${GRADING_SERVER_WAIT_SECONDS:-30}"; then
     exit 1
 fi
 
+RUN_ARGS=(
+    run.py
+    "exp_id=$EXP_ID"
+    "dataset_dir=$DATASET_DIR"
+    "data_dir=$DATASET_DIR/$EXP_ID/prepared/public"
+    "desc_file=$DATASET_DIR/$EXP_ID/prepared/public/description.md"
+    "exp_name=$EXP_NAME"
+    "start_cpu_id=$START_CPU_ID"
+    "cpu_number=$CPU_NUMBER"
+    "log_dir=$RUNS_ROOT"
+    "workspace_dir=$RUNS_ROOT"
+    "scheduler.enabled=true"
+    "scheduler.settings.runtime_root=$SCHEDULER_RUNTIME_ROOT"
+    "scheduler.settings.gpu_scheduler.backend_priority=[stream,cuda_process,exclusive]"
+    "scheduler.settings.gpu_scheduler.concurrent_backend_allowlist=[stream]"
+    "scheduler.settings.gpu_scheduler.submission_defaults.backend_allowlist=[stream,cuda_process]"
+    "scheduler.settings.gpu_scheduler.mps.enabled=false"
+    "scheduler.settings.gpu_scheduler.stream.enabled=true"
+    "scheduler.settings.hardware_feature_db.url=$QDRANT_URL"
+    "scheduler.runtime_root=$SCHEDULER_RUNTIME_ROOT"
+)
+
+case "$ENABLE_GRAPH_DB" in
+    true|True|TRUE|1|yes|YES)
+        RUN_ARGS+=(
+            "scheduler.settings.graph_db.enabled=true"
+            "scheduler.settings.graph_db.mode=primary"
+            "scheduler.settings.graph_db.uri=$GRAPH_DB_URI"
+        )
+        ;;
+    *)
+        RUN_ARGS+=(
+            "scheduler.settings.graph_db.enabled=false"
+            "scheduler.settings.graph_db.mode=off"
+            "scheduler.settings.graph_db.uri=$GRAPH_DB_URI"
+        )
+        ;;
+esac
+
 CUDA_VISIBLE_DEVICES="$MEMORY_INDEX" \
 timeout --foreground --signal=TERM --kill-after=20s "${TIME_LIMIT_SECS}s" \
-    "$PYTHON_BIN" run.py \
-        exp_id="$EXP_ID" \
-        dataset_dir="$DATASET_DIR" \
-        data_dir="$DATASET_DIR/$EXP_ID/prepared/public" \
-        desc_file="$DATASET_DIR/$EXP_ID/prepared/public/description.md" \
-        exp_name="$EXP_NAME" \
-        start_cpu_id="$START_CPU_ID" \
-        cpu_number="$CPU_NUMBER" \
-        log_dir="$RUNS_ROOT" \
-        workspace_dir="$RUNS_ROOT" \
-        scheduler.enabled=true \
-        scheduler.settings.runtime_root="$SCHEDULER_RUNTIME_ROOT" \
-        scheduler.settings.graph_db.enabled=false \
-        scheduler.settings.graph_db.mode=off \
-        scheduler.settings.graph_db.uri="bolt://neo4j:7687" \
-        scheduler.settings.gpu_scheduler.backend_priority="[stream,cuda_process,exclusive]" \
-        scheduler.settings.gpu_scheduler.concurrent_backend_allowlist="[stream]" \
-        scheduler.settings.gpu_scheduler.submission_defaults.backend_allowlist="[stream,cuda_process]" \
-        scheduler.settings.gpu_scheduler.mps.enabled=false \
-        scheduler.settings.gpu_scheduler.stream.enabled=true \
-        scheduler.settings.hardware_feature_db.url="http://qdrant:6333" \
-        scheduler.runtime_root="$SCHEDULER_RUNTIME_ROOT"
+    "$PYTHON_BIN" "${RUN_ARGS[@]}"
 RUN_EXIT=$?
 
 if [ "$RUN_EXIT" -eq 130 ]; then

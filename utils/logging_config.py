@@ -20,6 +20,12 @@ def setup_logging(cfg: Any) -> logging.Logger:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     logger = logging.getLogger("MLEvolve")
+    logger.setLevel(getattr(logging, cfg.log_level.upper()))
+    logger.propagate = False
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        handler.close()
+
     cfg.log_dir.mkdir(parents=True, exist_ok=True)
 
     file_handler = logging.FileHandler(cfg.log_dir / "MLEvolve.log")

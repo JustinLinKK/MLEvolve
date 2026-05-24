@@ -1,5 +1,6 @@
 import atexit
 import logging
+import os
 import signal
 import sys
 import shutil
@@ -22,6 +23,18 @@ from utils.pipeline_logging import PipelineActionLogger
 import torch
 from localml_scheduler.client import SchedulerClient
 from localml_scheduler.config import SchedulerSettings
+
+
+class SignalShutdown(BaseException):
+    """Controlled shutdown requested by an external process signal."""
+
+    def __init__(self, signum: int):
+        self.signum = signum
+        try:
+            self.signal_name = signal.Signals(signum).name
+        except ValueError:
+            self.signal_name = f"signal {signum}"
+        super().__init__(self.signal_name)
 
 
 def _scheduler_settings_from_cfg(cfg, scheduler_cfg) -> SchedulerSettings:
@@ -72,10 +85,14 @@ def run():
         },
     )
     previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
+    shutdown_exit_code = None
+    shutdown_handled = False
 
     def handle_sigterm(signum, frame):
-        logger.warning("SIGTERM received; stopping run so hardware report can be written.")
-        raise KeyboardInterrupt
+        del frame
+        shutdown = SignalShutdown(signum)
+        logger.warning("%s received; stopping run so hardware report can be written.", shutdown.signal_name)
+        raise shutdown
 
     signal.signal(signal.SIGTERM, handle_sigterm)
 
@@ -148,6 +165,12 @@ def run():
             status.update("[green]Generating code...")
             return res
 
+        def exec_many_callback(items):
+            status.update("[magenta]Executing scheduler round...")
+            res = interpreter.run_many(items)
+            status.update("[green]Generating code...")
+            return res
+
         def step_task(node=None):
             if node:
                 logger.info(f"[step_task] Processing node: {node.id}")
@@ -176,6 +199,12 @@ def run():
                 try:
                     logger.info(f"🔨 Generating draft {draft_idx + 1}/{min(initial_draft_count, total_steps)} (code only)")
                     cur_node = step_task_generate_only()
+                    if cur_node is None:
+                        logger.warning(f"⚠️  Draft {draft_idx + 1} generation produced no runnable node")
+                        if not agent.has_selectable_work():
+                            logger.warning("No selectable work remains during initial draft generation; stopping draft phase early.")
+                            break
+                        continue
                     pending_draft_nodes.append(cur_node)
                     logger.info(f"✅ Draft {draft_idx + 1} code generated: node.id={cur_node.id}, added to virtual_root.children")
 
@@ -184,7 +213,72 @@ def run():
 
             logger.info(f"✅ Phase 1 complete: {len(pending_draft_nodes)} draft codes generated")
 
-        if pending_draft_nodes or completed < total_steps:
+        if scheduler_client is not None and (pending_draft_nodes or completed < total_steps):
+            logger.info("🚀 Phase 2: Round-level scheduler execution")
+            logger.info("   - Pending draft executions: %s", len(pending_draft_nodes))
+            logger.info("   - Remaining steps: %s", total_steps - completed)
+
+            pending_round_nodes = list(pending_draft_nodes)
+            try:
+                while completed < total_steps:
+                    available_capacity = max(0, max_workers - len(pending_round_nodes))
+                    remaining_budget = max(0, total_steps - completed - len(pending_round_nodes))
+                    generation_target = min(available_capacity, remaining_budget)
+                    for _ in range(generation_target):
+                        if not agent.has_selectable_work():
+                            logger.warning("No selectable work available for scheduler round generation.")
+                            break
+                        try:
+                            node = agent.step(exec_callback=exec_callback, node=None, execute_immediately=False)
+                        except Exception as exc:
+                            logger.exception("Exception while generating scheduler round node: %s", exc)
+                            node = None
+                        if node is None:
+                            if not agent.has_selectable_work():
+                                logger.warning("No selectable work remains after empty scheduler round generation.")
+                                break
+                            continue
+                        pending_round_nodes.append(node)
+                        logger.info("📦 Added node %s to scheduler round", node.id)
+
+                    if not pending_round_nodes:
+                        if agent.has_selectable_work():
+                            continue
+                        logger.warning(
+                            "No pending round nodes and no selectable work is available; stopping early at %s/%s completed steps.",
+                            completed,
+                            total_steps,
+                        )
+                        break
+
+                    batch_size = min(max_workers, len(pending_round_nodes), max(1, total_steps - completed))
+                    round_nodes = pending_round_nodes[:batch_size]
+                    pending_round_nodes = pending_round_nodes[batch_size:]
+                    logger.info(
+                        "📤 Submitting scheduler round with %s node(s): %s",
+                        len(round_nodes),
+                        ", ".join(str(node.id) for node in round_nodes),
+                    )
+                    executed_nodes = agent.execute_deferred_nodes(round_nodes, exec_many_callback)
+                    logger.info("✅ Scheduler round finished with %s executed node(s)", len(executed_nodes))
+
+                    save_run(cfg, journal)
+                    completed = len(journal) - 1
+                    if completed >= total_steps:
+                        logger.info(journal_to_string_tree(journal))
+                        break
+                    logger.info("📊 Progress: %s/%s steps completed, %s generated nodes pending", completed, total_steps, len(pending_round_nodes))
+            except SignalShutdown as exc:
+                shutdown_exit_code = 128 + exc.signum
+                shutdown_handled = True
+                logger.info("%s received, terminating subprocesses and shutting down...", exc.signal_name)
+                interpreter.terminate_all_subprocesses()
+                raise
+            except KeyboardInterrupt:
+                logger.info("KeyboardInterrupt received, terminating subprocesses and shutting down...")
+                interpreter.terminate_all_subprocesses()
+                raise
+        elif pending_draft_nodes or completed < total_steps:
             logger.info(f"🚀 Phase 2: Pipelined parallel execution")
             logger.info(f"   - Pending draft executions: {len(pending_draft_nodes)}")
             logger.info(f"   - Remaining steps: {total_steps - completed}")
@@ -212,10 +306,25 @@ def run():
                 initial_step_tasks = min(max_workers, total_steps - completed) - len(pending_draft_nodes)
                 if initial_step_tasks > 0:
                     for _ in range(initial_step_tasks):
+                        if not agent.has_selectable_work():
+                            logger.warning("No selectable work available to fill the thread pool.")
+                            break
                         futures.add(executor.submit(step_task))
                         logger.info(f"📤 Submitted initial step_task to fill thread pool")
 
                 while completed < total_steps:
+                    if not futures:
+                        if agent.has_selectable_work():
+                            futures.add(executor.submit(step_task))
+                            logger.info("📤 Submitted root step_task after worker pool drained")
+                        else:
+                            logger.warning(
+                                "No futures remain and no selectable work is available; stopping early at %s/%s completed steps.",
+                                completed,
+                                total_steps,
+                            )
+                            break
+
                     done, _ = wait(futures, return_when=FIRST_COMPLETED, timeout=1.0)
 
                     if not done:
@@ -240,9 +349,23 @@ def run():
                                 logger.info(journal_to_string_tree(journal))
 
                         if completed + len(futures) < total_steps:
+                            if not agent.has_selectable_work():
+                                logger.warning(
+                                    "No selectable work available after task completion; not submitting a replacement task."
+                                )
+                                logger.info(f"📊 Progress: {completed}/{total_steps} steps completed, {len(futures)} tasks running")
+                                continue
                             futures.add(executor.submit(step_task, cur_node))
                             logger.info(f"📤 Submitted next task based on node {cur_node.id if cur_node else 'None'}")
                         logger.info(f"📊 Progress: {completed}/{total_steps} steps completed, {len(futures)} tasks running")
+            except SignalShutdown as exc:
+                interrupted = True
+                shutdown_exit_code = 128 + exc.signum
+                shutdown_handled = True
+                logger.info("%s received, terminating subprocesses and shutting down...", exc.signal_name)
+                interpreter.terminate_all_subprocesses()
+                executor.shutdown(wait=False, cancel_futures=True) if sys.version_info >= (3, 9) else executor.shutdown(wait=False)
+                raise
             except KeyboardInterrupt:
                 interrupted = True
                 logger.info("KeyboardInterrupt received, terminating subprocesses and shutting down...")
@@ -256,6 +379,12 @@ def run():
             logger.info(f"✅ All steps completed in Phase 1 (total_steps={total_steps} <= initial_draft_count={initial_draft_count})")
 
         interpreter.cleanup_session(-1)
+    except SignalShutdown as exc:
+        if shutdown_exit_code is None:
+            shutdown_exit_code = 128 + exc.signum
+        if not shutdown_handled and "interpreter" in locals():
+            logger.info("%s received, terminating subprocesses and shutting down...", exc.signal_name)
+            interpreter.terminate_all_subprocesses()
     finally:
         if "journal" in locals():
             try:
@@ -279,6 +408,9 @@ def run():
             scheduler_service.stop()
         hardware_monitor.stop()
         pipeline_logger.close()
+    if shutdown_exit_code is not None:
+        logging.shutdown()
+        os._exit(shutdown_exit_code)
 
 
 if __name__ == "__main__":    

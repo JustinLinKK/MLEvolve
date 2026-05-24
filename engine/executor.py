@@ -73,6 +73,28 @@ class ExecutionResult(DataClassJsonMixin):
     exc_stack: list[tuple] | None = None
 
 
+@dataclass
+class _PreparedSchedulerJob:
+    node_id: str
+    process_id: int
+    runfile_path: Path
+    result_path: Path
+    job: Any
+    runner_kwargs: dict[str, Any]
+    job_metadata: dict[str, Any]
+    scheduler_mode: str | None
+    detected_batch_size: int | None
+    proposed_epochs: int | None
+    model_key: str | None
+    framework: str | None
+    uses_amp: bool | None
+    requires_gpu: bool | None
+    script_signature: str
+    start_time: float
+    job_id: str | None = None
+    last_probe_event_id: int = 0
+
+
 
 class Interpreter:
     def __init__(
@@ -376,6 +398,472 @@ class Interpreter:
         if self.scheduler_client is not None:
             return self._run_scheduler_job(code=code, id=id, working_dir=working_dir)
         return self._run_subprocess(code=code, id=id, working_dir=working_dir)
+
+    def run_many(
+        self,
+        items: list[tuple[str, Any]] | list[dict[str, Any]],
+        *,
+        working_dir: str | None = None,
+    ) -> dict[str, ExecutionResult]:
+        """Execute a round of node codes, submitting scheduler jobs as one visible packet."""
+        if not items:
+            return {}
+        normalized_items: list[tuple[str, Any]] = []
+        for item in items:
+            if isinstance(item, dict):
+                normalized_items.append((str(item.get("code") or ""), item.get("id") or item.get("node_id")))
+            else:
+                code, node_id = item
+                normalized_items.append((code, node_id))
+
+        if self.scheduler_client is None:
+            return {
+                str(node_id): self.run(code=code, id=node_id, working_dir=working_dir)
+                for code, node_id in normalized_items
+            }
+
+        if len(normalized_items) > self.max_parallel_run:
+            raise ValueError(
+                f"Scheduler round has {len(normalized_items)} jobs but interpreter capacity is {self.max_parallel_run}"
+            )
+
+        logger.info("REPL is submitting %s code candidates to localml_scheduler as one round", len(normalized_items))
+        prepared: list[_PreparedSchedulerJob] = []
+        results: dict[str, ExecutionResult] = {}
+        try:
+            self._ensure_scheduler_service_available()
+            for code, node_id in normalized_items:
+                prepared.append(self._prepare_scheduler_round_job(code=code, id=node_id, working_dir=working_dir))
+
+            candidates = [dict(prepared_job.job_metadata) for prepared_job in prepared]
+            packet_context: dict[str, Any] = {}
+            if hasattr(self.scheduler_client, "plan_job_packet"):
+                try:
+                    packet_context = self.scheduler_client.plan_job_packet(candidates=candidates)
+                except Exception as exc:
+                    logger.debug("Skipping scheduler packet planning before submission: %s", exc)
+                    packet_context = {}
+
+            jobs = [prepared_job.job for prepared_job in prepared]
+            if hasattr(self.scheduler_client, "submit_many"):
+                submitted_jobs = self.scheduler_client.submit_many(jobs)
+            else:
+                submitted_jobs = [self.scheduler_client.submit(job) for job in jobs]
+
+            for prepared_job, submitted in zip(prepared, submitted_jobs):
+                prepared_job.job_id = submitted.job_id
+                with self._scheduler_jobs_lock:
+                    self._scheduler_job_ids.add(submitted.job_id)
+                self._pipeline_upsert_job(
+                    submitted.job_id,
+                    node_id=prepared_job.node_id,
+                    scheduler_mode=prepared_job.scheduler_mode,
+                    placement_mode="scheduler",
+                    placement_backend=None,
+                    status=getattr(submitted.status, "value", str(submitted.status)),
+                    submitted_at=getattr(submitted, "submitted_at", None),
+                    detected_batch_size=prepared_job.detected_batch_size,
+                    resolved_batch_size=None,
+                    proposed_epochs=prepared_job.proposed_epochs,
+                    model_key=prepared_job.model_key,
+                    framework=prepared_job.framework,
+                    uses_amp=prepared_job.uses_amp,
+                    requires_gpu=prepared_job.requires_gpu,
+                    script_signature=prepared_job.script_signature,
+                    payload={
+                        "job": submitted.to_dict() if hasattr(submitted, "to_dict") else {},
+                        "round_packet": packet_context,
+                    },
+                )
+                self._pipeline_emit(
+                    "scheduler_submission_created",
+                    node_id=prepared_job.node_id,
+                    job_id=submitted.job_id,
+                    stage="execution",
+                    payload=prepared_job.job_metadata,
+                )
+
+            self._pipeline_emit(
+                "scheduler_round_submitted",
+                stage="execution",
+                payload={
+                    "packet_id": packet_context.get("packet_id"),
+                    "job_ids": [job.job_id for job in submitted_jobs],
+                    "node_ids": [prepared_job.node_id for prepared_job in prepared],
+                    "job_count": len(submitted_jobs),
+                    "packet_context": packet_context,
+                },
+            )
+            logger.info(
+                "Submitted scheduler round with %s job(s): %s",
+                len(submitted_jobs),
+                ", ".join(job.job_id for job in submitted_jobs),
+            )
+
+            wait_timeout = getattr(self.scheduler_cfg, "wait_timeout_seconds", None)
+            if wait_timeout is None:
+                wait_timeout = self.timeout * max(1, len(prepared)) + 60
+            poll_interval = max(0.1, float(getattr(self.scheduler_cfg, "wait_poll_interval_seconds", 1.0)))
+            deadline = time.time() + float(wait_timeout)
+            pending = {prepared_job.job_id: prepared_job for prepared_job in prepared if prepared_job.job_id}
+            final_jobs: dict[str, Any] = {}
+            while pending and time.time() < deadline:
+                for job_id, prepared_job in list(pending.items()):
+                    final_job = self.scheduler_client.inspect(job_id)
+                    prepared_job.last_probe_event_id = self._log_scheduler_probe_updates(job_id, prepared_job.last_probe_event_id)
+                    if final_job is not None and final_job.status.is_terminal:
+                        final_jobs[job_id] = final_job
+                        pending.pop(job_id, None)
+                if pending:
+                    time.sleep(poll_interval)
+
+            for job_id, prepared_job in list(pending.items()):
+                try:
+                    self.scheduler_client.cancel(job_id)
+                except Exception:
+                    pass
+                exec_time = time.time() - prepared_job.start_time
+                self._pipeline_upsert_job(
+                    job_id,
+                    node_id=prepared_job.node_id,
+                    status="timeout",
+                    finished_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    duration_seconds=exec_time,
+                    detected_batch_size=prepared_job.detected_batch_size,
+                    proposed_epochs=prepared_job.proposed_epochs,
+                    model_key=prepared_job.model_key,
+                    framework=prepared_job.framework,
+                    uses_amp=prepared_job.uses_amp,
+                    requires_gpu=prepared_job.requires_gpu,
+                    script_signature=prepared_job.script_signature,
+                    payload={"reason": "scheduler wait timeout", "wait_timeout_seconds": wait_timeout},
+                )
+                results[prepared_job.node_id] = ExecutionResult(
+                    term_out=[
+                        f"Execution time: TimeoutError: Scheduler job {job_id} exceeded wait limit of {humanize.naturaldelta(wait_timeout)}"
+                    ],
+                    exec_time=exec_time,
+                    exc_type="TimeoutError",
+                    exc_info={"message": "scheduler wait timeout", "job_id": job_id},
+                    exc_stack=[],
+                )
+
+            for prepared_job in prepared:
+                if prepared_job.node_id in results:
+                    continue
+                job_id = prepared_job.job_id
+                final_job = final_jobs.get(job_id) if job_id else None
+                if job_id is not None:
+                    prepared_job.last_probe_event_id = self._log_scheduler_probe_updates(job_id, prepared_job.last_probe_event_id)
+                results[prepared_job.node_id] = self._scheduler_execution_result_from_final(prepared_job, final_job)
+
+            return results
+        except Exception as e:
+            logger.error("Error in scheduler round execution: %s", e)
+            error_trace = traceback.format_exc()
+            logger.error(error_trace)
+            for prepared_job in prepared:
+                results.setdefault(
+                    prepared_job.node_id,
+                    ExecutionResult(
+                        term_out=[f"Scheduler round execution error: {str(e)}", error_trace],
+                        exec_time=time.time() - prepared_job.start_time,
+                        exc_type="RuntimeError",
+                        exc_info={"error": str(e)},
+                        exc_stack=[],
+                    ),
+                )
+            return results
+        finally:
+            for prepared_job in prepared:
+                if prepared_job.job_id is not None:
+                    with self._scheduler_jobs_lock:
+                        self._scheduler_job_ids.discard(prepared_job.job_id)
+                try:
+                    if prepared_job.runfile_path.exists():
+                        os.remove(prepared_job.runfile_path)
+                except Exception as exc:
+                    logger.warning("Failed to remove scheduler round runfile after execution: %s", exc)
+                with self.lock:
+                    self.status_map[prepared_job.process_id] = 0
+                    self.current_parallel_run = max(0, self.current_parallel_run - 1)
+
+    def _prepare_scheduler_round_job(self, code: str, id, working_dir: str | None = None) -> _PreparedSchedulerJob:
+        from localml_scheduler.adapters.mlevolve import build_mlevolve_job
+        from localml_scheduler.domain import BatchProbeSpec, PreloadSource, ResourceRequirements, RuntimeProbeSpec
+
+        process_id = None
+        start_time = time.time()
+        with self.lock:
+            self.current_parallel_run += 1
+            for idx in range(self.max_parallel_run):
+                if self.status_map[idx] == 0:
+                    self.status_map[idx] = 1
+                    process_id = idx
+                    logger.info("Assigned scheduler round submission slot: %s", process_id)
+                    break
+            if process_id is None:
+                self.current_parallel_run -= 1
+                raise ValueError("reach max process parallel number")
+
+        cpu_number_per_session = max(1, int(self.cpu_number / self.max_parallel_run))
+        avail_cpus = self._available_cpus()
+        start = process_id * cpu_number_per_session
+        cpu_set = set(avail_cpus[start:start + cpu_number_per_session]) or set(avail_cpus)
+        pre_code = ""
+        if hasattr(os, "sched_setaffinity"):
+            pre_code = "import os\nos.sched_setaffinity(0, {cpu_set})\n".format(cpu_set=cpu_set)
+
+        node_id = str(id)
+        code = self.isolate_submission_path(code=code, _id=id)
+        code = self.isolate_model_path(code=code, _id=id)
+        code = pre_code + code
+
+        run_wd = Path(working_dir).resolve() if working_dir is not None else self.working_dir
+        run_wd.mkdir(parents=True, exist_ok=True)
+        runfile_path = run_wd / self.agent_file_name[process_id]
+        runfile_path.write_text(code, encoding="utf-8")
+        script_metadata = _introspect_training_script(code)
+        script_signature = script_metadata.get("script_signature") or _normalized_mlevolve_script_signature(code)
+        detected_batch_size = script_metadata.get("proposed_batch_size") or _detect_initial_batch_size(code)
+        proposed_epochs = script_metadata.get("proposed_epochs")
+        model_key = script_metadata.get("model_key")
+        framework = script_metadata.get("framework")
+        uses_amp = script_metadata.get("uses_amp")
+        requires_gpu = script_metadata.get("requires_gpu")
+        self._pipeline_emit(
+            "job_script_created",
+            node_id=node_id,
+            stage="execution",
+            payload={
+                "runfile_path": str(runfile_path),
+                "submission_slot": process_id,
+                "script_signature": script_signature,
+                "detected_batch_size": detected_batch_size,
+                "proposed_epochs": proposed_epochs,
+                "model_key": model_key,
+                "framework": framework,
+                "uses_amp": uses_amp,
+                "requires_gpu": requires_gpu,
+            },
+        )
+
+        result_dir = run_wd / "working" / "scheduler_results"
+        result_path = result_dir / f"result_{id}_{process_id}_{uuid.uuid4().hex}.json"
+        scheduler_settings = self.scheduler_client.settings
+        submission_defaults = scheduler_settings.gpu_scheduler.submission_defaults
+        packing_eligible, packing_backend_allowlist = self._normalized_raw_packing_defaults(submission_defaults)
+        runner_kwargs = {
+            "script_path": str(runfile_path),
+            "working_dir": str(run_wd),
+            "result_path": str(result_path),
+            "timeout": self.timeout,
+            "probe_timeout_seconds": int(submission_defaults.batch_probe_probe_timeout_seconds),
+            "probe_poll_interval_seconds": float(submission_defaults.batch_probe_poll_interval_seconds),
+        }
+        batch_probe_enabled = bool(submission_defaults.batch_probe_enabled) and _code_supports_batch_probe(code)
+        if detected_batch_size is not None:
+            probe_max_multiplier = max(1, int(submission_defaults.batch_probe_max_multiplier))
+            runner_kwargs["batch_size"] = detected_batch_size
+            runner_kwargs["probe_max_batch_size"] = max(detected_batch_size, detected_batch_size * probe_max_multiplier)
+        task_id = str(getattr(self.cfg, "exp_id", "mlevolve"))
+        batch_probe = BatchProbeSpec(
+            enabled=batch_probe_enabled,
+            probe_target="localml_scheduler.adapters.mlevolve_runner:probe_mlevolve_script_job" if batch_probe_enabled else None,
+            batch_param_name="batch_size",
+            model_key=submission_defaults.batch_probe_model_key or f"mlevolve-task:{task_id}",
+            search_mode=submission_defaults.batch_probe_search_mode,
+            shape_hints={
+                "task_id": task_id,
+                "script_signature": _normalized_mlevolve_script_signature(code),
+            },
+        )
+        runtime_probe = RuntimeProbeSpec(
+            enabled=bool(getattr(submission_defaults, "runtime_probe_enabled", False)),
+            probe_target=getattr(submission_defaults, "runtime_probe_target", None),
+            model_key=getattr(submission_defaults, "runtime_probe_model_key", None) or f"mlevolve-task:{task_id}",
+            strategy=getattr(submission_defaults, "runtime_probe_strategy", "epoch_1"),
+        )
+        resource_requirements = ResourceRequirements(
+            requires_gpu=bool(submission_defaults.requires_gpu),
+            estimated_vram_mb=submission_defaults.estimated_vram_mb,
+            estimated_ram_mb=submission_defaults.estimated_ram_mb,
+        )
+        preload_source_payload = _build_scheduler_preload_source(self.scheduler_cfg)
+        experiment_mode = str(getattr(getattr(self.cfg, "experiment", None), "mode", "hardware_aware"))
+        job_metadata = {
+            "mlevolve_node_id": node_id,
+            "node_id": node_id,
+            "submission_slot": process_id,
+            "experiment_mode": experiment_mode,
+            "detected_batch_size": detected_batch_size,
+            "proposed_batch_size": detected_batch_size,
+            "proposed_epochs": proposed_epochs,
+            "model_key": model_key,
+            "framework": framework,
+            "uses_amp": uses_amp,
+            "requires_gpu": requires_gpu,
+            "script_signature": script_signature,
+            "scheduler_mode": getattr(scheduler_settings.gpu_scheduler, "mode", None),
+            "batch_probe_enabled": batch_probe_enabled,
+            "runtime_probe_enabled": bool(getattr(submission_defaults, "runtime_probe_enabled", False)),
+            "packing_eligible": packing_eligible,
+            "packing_backend_allowlist": packing_backend_allowlist,
+        }
+        job = build_mlevolve_job(
+            workflow_id=str(getattr(self.cfg, "exp_name", "mlevolve")),
+            baseline_model_id=f"mlevolve-script-{id}",
+            baseline_model_path=str(runfile_path),
+            runner_target="localml_scheduler.adapters.mlevolve_runner:run_mlevolve_script_job",
+            runner_kwargs=runner_kwargs,
+            task_type="mlevolve_script",
+            loader_target="localml_scheduler.adapters.mlevolve_runner:load_raw_file",
+            batch_probe=batch_probe,
+            runtime_probe=runtime_probe,
+            resource_requirements=resource_requirements,
+            packing_family=submission_defaults.packing_family,
+            packing_eligible=packing_eligible,
+            packing_max_slowdown_ratio=submission_defaults.packing_max_slowdown_ratio,
+            packing_backend_allowlist=packing_backend_allowlist,
+            preload_source=PreloadSource.from_dict(preload_source_payload),
+            metadata=job_metadata,
+        )
+        return _PreparedSchedulerJob(
+            node_id=node_id,
+            process_id=process_id,
+            runfile_path=runfile_path,
+            result_path=result_path,
+            job=job,
+            runner_kwargs=runner_kwargs,
+            job_metadata=job_metadata,
+            scheduler_mode=getattr(scheduler_settings.gpu_scheduler, "mode", None),
+            detected_batch_size=detected_batch_size,
+            proposed_epochs=proposed_epochs,
+            model_key=model_key,
+            framework=framework,
+            uses_amp=uses_amp,
+            requires_gpu=requires_gpu,
+            script_signature=script_signature,
+            start_time=start_time,
+        )
+
+    def _scheduler_execution_result_from_final(
+        self,
+        prepared_job: _PreparedSchedulerJob,
+        final_job: Any | None,
+    ) -> ExecutionResult:
+        job_id = prepared_job.job_id
+        final_payload = final_job.to_dict() if final_job is not None and hasattr(final_job, "to_dict") else {}
+        final_metadata = final_payload.get("metadata") or {}
+        resolved_batch_size = (
+            final_metadata.get("resolved_batch_size")
+            or final_metadata.get("batch_size")
+            or prepared_job.runner_kwargs.get("batch_size")
+        )
+        placement_backend = final_metadata.get("placement_backend") or final_metadata.get("backend_name")
+        self._pipeline_upsert_job(
+            job_id or f"unknown-{prepared_job.node_id}",
+            node_id=prepared_job.node_id,
+            scheduler_mode=prepared_job.scheduler_mode,
+            placement_mode="scheduler",
+            placement_backend=placement_backend,
+            status=final_payload.get("status") or (getattr(final_job.status, "value", str(final_job.status)) if final_job is not None else None),
+            submitted_at=final_payload.get("submitted_at"),
+            started_at=final_payload.get("started_at"),
+            finished_at=final_payload.get("finished_at"),
+            duration_seconds=time.time() - prepared_job.start_time,
+            detected_batch_size=prepared_job.detected_batch_size,
+            resolved_batch_size=resolved_batch_size,
+            proposed_epochs=prepared_job.proposed_epochs,
+            model_key=prepared_job.model_key,
+            framework=prepared_job.framework,
+            uses_amp=prepared_job.uses_amp,
+            requires_gpu=prepared_job.requires_gpu,
+            script_signature=prepared_job.script_signature,
+            payload=final_payload,
+        )
+        self._pipeline_emit(
+            "job_finished",
+            node_id=prepared_job.node_id,
+            job_id=job_id,
+            stage="execution",
+            payload={
+                "status": final_payload.get("status"),
+                "duration_seconds": time.time() - prepared_job.start_time,
+                "placement_backend": placement_backend,
+                "resolved_batch_size": resolved_batch_size,
+            },
+        )
+        if prepared_job.result_path.exists():
+            payload = json.loads(prepared_job.result_path.read_text(encoding="utf-8"))
+            exec_time = float(payload.get("exec_time", time.time() - prepared_job.start_time))
+            if job_id is not None:
+                self._pipeline_upsert_job(
+                    job_id,
+                    node_id=prepared_job.node_id,
+                    status="result_available",
+                    duration_seconds=exec_time,
+                    payload={"execution_result": payload},
+                )
+                self._record_scheduler_tuning_outcome(
+                    job_id=job_id,
+                    resolved_batch_size=resolved_batch_size,
+                    proposed_epochs=prepared_job.proposed_epochs,
+                    execution_payload=payload,
+                    final_payload=final_payload,
+                )
+            return ExecutionResult(
+                term_out=payload.get("term_out", [""]),
+                exec_time=exec_time,
+                exc_type=payload.get("exc_type"),
+                exc_info=payload.get("exc_info") or {},
+                exc_stack=payload.get("exc_stack") or [],
+            )
+
+        reason = final_job.status_reason if final_job is not None else "scheduler job finished without result"
+        return ExecutionResult(
+            term_out=[f"Scheduler job {job_id} finished without an execution result: {reason}\n"],
+            exec_time=time.time() - prepared_job.start_time,
+            exc_type="RuntimeError",
+            exc_info={"message": reason, "job_id": job_id},
+            exc_stack=[],
+        )
+
+    def _record_scheduler_tuning_outcome(
+        self,
+        *,
+        job_id: str,
+        resolved_batch_size: Any,
+        proposed_epochs: Any,
+        execution_payload: dict[str, Any],
+        final_payload: dict[str, Any],
+    ) -> None:
+        if self.scheduler_client is None or not hasattr(self.scheduler_client, "record_tuning_outcome"):
+            return
+        try:
+            chosen_batch_size = int(resolved_batch_size) if resolved_batch_size is not None else None
+        except (TypeError, ValueError):
+            chosen_batch_size = None
+        try:
+            chosen_epochs = int(proposed_epochs) if proposed_epochs is not None else None
+        except (TypeError, ValueError):
+            chosen_epochs = None
+        try:
+            self.scheduler_client.record_tuning_outcome(
+                job_id=job_id,
+                chosen_batch_size=chosen_batch_size,
+                chosen_epochs=chosen_epochs,
+                recommendation_source="scheduler_round",
+                outcome_metrics={
+                    "exec_time": execution_payload.get("exec_time"),
+                    "exc_type": execution_payload.get("exc_type"),
+                    "status": final_payload.get("status"),
+                    "resolved_batch_size": chosen_batch_size,
+                },
+                notes="recorded from MLEvolve scheduler round execution",
+            )
+        except Exception as exc:
+            logger.debug("Skipping scheduler tuning outcome record for %s: %s", job_id, exc)
 
     def _run_scheduler_job(self, code: str, id, working_dir: str | None = None) -> ExecutionResult:
         """Submit generated code as a localml_scheduler job and wait for its result."""

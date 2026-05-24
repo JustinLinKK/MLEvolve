@@ -248,8 +248,7 @@ Use the comparison helper:
 ```bash
 bash compare_hardware_awareness.sh denoising-dirty-documents \
   --dataset-root /mle-bench/data \
-  --steps 5 \
-  --timeout-seconds 3600
+  --steps 5
 ```
 
 It prepares the Kaggle/MLE-bench competition, starts validation, and runs:
@@ -258,6 +257,8 @@ It prepares the Kaggle/MLE-bench competition, starts validation, and runs:
 experiment.mode=baseline
 experiment.mode=hardware_aware
 ```
+
+By default, the helper does not impose a whole-mode wall-clock timeout. If you need a hard cap for a cluster job, pass `--timeout-seconds N` explicitly or set `MLEVOLVE_TIMEOUT_SECONDS=N` when using `bootstrap.sh`.
 
 By default it also generates matplotlib comparison artifacts under:
 

@@ -10,13 +10,14 @@ from engine.conditions import should_trigger_branch_fusion
 logger = logging.getLogger("MLEvolve")
 
 
-def _log_selected(agent, node: SearchNode, method: str, payload: dict | None = None) -> SearchNode:
+def _log_selected(agent, node: SearchNode | None, method: str, payload: dict | None = None) -> SearchNode | None:
     try:
         from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
 
         details = {"method": method, **(payload or {})}
         log_pipeline_event(agent, "tree_node_selected", node=node, payload=details)
-        record_pipeline_node_action(agent, node, "tree_node_selected", payload=details)
+        if node is not None:
+            record_pipeline_node_action(agent, node, "tree_node_selected", payload=details)
     except Exception:
         pass
     return node
@@ -49,20 +50,25 @@ def _compute_exploration_constant(agent):
     )
 
 
-def select(agent, node: SearchNode):
+def select(agent, node: SearchNode) -> SearchNode | None:
     """UCT selection: recurse from node, return node to expand (root lock for drafts)."""
-    def _best_child(n: SearchNode) -> SearchNode:
-        C = _compute_exploration_constant(agent)
+    def _best_child(n: SearchNode) -> SearchNode | None:
         if agent.is_root(n):
             filtered_children = [child for child in n.children if not child.lock]
-            selected_node = n
-            if len(filtered_children) > 0:
-                selected_node = max(filtered_children,
-                                    key=lambda child: child.uct_value(exploration_constant=C))
+            if not filtered_children:
+                logger.debug("[select] root %s has no unlocked children", n.id)
+                return None
+            C = _compute_exploration_constant(agent)
+            selected_node = max(filtered_children,
+                                key=lambda child: child.uct_value(exploration_constant=C))
             if selected_node.stage in ["draft", "fusion_draft"]:
                 selected_node.lock = True
             return selected_node
         else:
+            if not n.children:
+                logger.debug("[select] node %s has no children to descend into", n.id)
+                return None
+            C = _compute_exploration_constant(agent)
             return max(n.children, key=lambda child: child.uct_value(exploration_constant=C))
 
     while node and not node.is_terminal:
@@ -75,12 +81,45 @@ def select(agent, node: SearchNode):
                 logger.info(f"[select] → node {node.id} (method=expand)")
                 return node
         else:
-            if agent.is_root(node) and should_trigger_branch_fusion(agent) and random.random() < agent.acfg.branch_fusion_trigger_prob:
-                logger.info(f"Root node {node.id} is fully expanded for regular drafts, aggregation conditions met (including probability), returning root")
-                return node
+            if agent.is_root(node) and should_trigger_branch_fusion(agent):
+                has_unlocked_children = any(not child.lock for child in node.children)
+                if not has_unlocked_children or random.random() < agent.acfg.branch_fusion_trigger_prob:
+                    logger.info(f"Root node {node.id} is fully expanded for regular drafts, aggregation conditions met, returning root")
+                    return node
             node = _best_child(node)
+            if node is None:
+                logger.debug("[select] no selectable work after reaching child limit")
+                return None
+    if node is None:
+        logger.debug("[select] no selectable work")
+        return None
     logger.info(f"[select] → node {node.id} (method=uct)")
     return node
+
+
+def _has_selectable_descendant(agent, node: SearchNode) -> bool:
+    if node.lock or node.is_terminal:
+        return False
+
+    if not node.reached_child_limit(scfg=agent.scfg):
+        if node.is_buggy and node.is_debug_success is True:
+            return any(_has_selectable_descendant(agent, child) for child in node.children)
+        if node.continue_improve and node.children:
+            return any(_has_selectable_descendant(agent, child) for child in node.children)
+        return True
+
+    if agent.is_root(node) and should_trigger_branch_fusion(agent):
+        return True
+
+    return any(_has_selectable_descendant(agent, child) for child in node.children)
+
+
+def has_selectable_work(agent) -> bool:
+    """Return whether a future call to select can find work without locking nodes."""
+    root = getattr(agent, "virtual_root", None)
+    if root is None:
+        return False
+    return _has_selectable_descendant(agent, root)
 
 
 def get_exploration_weight(time_elapsed: float, total_time: float,
@@ -154,7 +193,7 @@ def get_top_k_nodes_global(agent, k: int, max_from_same_branch: int) -> List[dic
     return selected
 
 
-def select_from_top_k_weighted(agent, top_k_nodes: List[dict]) -> SearchNode:
+def select_from_top_k_weighted(agent, top_k_nodes: List[dict]) -> SearchNode | None:
     """Weighted random choice from top-k nodes (weight = 1/rank)."""
     if not top_k_nodes:
         return select(agent, agent.virtual_root)
@@ -170,7 +209,7 @@ def select_from_top_k_weighted(agent, top_k_nodes: List[dict]) -> SearchNode:
     return selected['node']
 
 
-def select_with_soft_switch(agent) -> SearchNode:
+def select_with_soft_switch(agent) -> SearchNode | None:
     """Soft switch: exploration (UCT) vs exploitation (Top-K) by time progress."""
     if agent.search_start_time is None:
         logger.info("📊 Search not started yet, using standard UCT")
@@ -256,6 +295,19 @@ def select_with_soft_switch(agent) -> SearchNode:
             selected_node = select_from_top_k_weighted(agent, top_k_nodes)
             logger.info(f"Selected fully expanded node {selected_node.id}, applying UCT from it")
             uct_node = select(agent, selected_node)
+            if uct_node is None:
+                return _log_selected(
+                    agent,
+                    None,
+                    "topk_then_uct_no_work",
+                    {
+                        "exploration_weight": exploration_weight,
+                        "time_progress": time_progress,
+                        "top_k": k,
+                        "phase": phase,
+                        "selected_topk_node_id": selected_node.id,
+                    },
+                )
             uct_node._topk_triggered = True
             return _log_selected(
                 agent,

@@ -10,7 +10,9 @@ from engine.search_node import SearchNode
 from agents.coder import plan_and_code_query, stepwise_plan_and_code_query
 from agents.triggers import register_node
 from agents.hardware_context import (
+    apply_hardware_design_brief_to_node,
     apply_hardware_context_to_node,
+    get_hardware_design_brief,
     get_hardware_context_for_stage,
     hardware_context_instructions,
 )
@@ -26,7 +28,7 @@ from agents.planner import build_chat_prompt_for_model
 logger = logging.getLogger("MLEvolve")
 
 
-def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
+def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
     """Generate initial draft. If init_solution_path is provided and readable, use file content directly."""
     if init_solution_path:
         try:
@@ -37,7 +39,9 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
         else:
             plan = "User-provided init solution."
             hardware_ctx = get_hardware_context_for_stage(agent, "draft", code=code)
-            agent.virtual_root.add_expected_child_count()
+            if not agent.virtual_root.add_expected_child_count(agent.scfg):
+                logger.info("Draft limit reached before init solution could reserve a child slot.")
+                return None
             new_node = SearchNode(
                 plan=plan,
                 code=code,
@@ -73,8 +77,11 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
         "Memory": agent.virtual_root.fetch_child_memory(),
         "Instructions": {},
     }
+    hardware_design_brief = get_hardware_design_brief(agent)
     hardware_ctx = get_hardware_context_for_stage(agent, "draft")
-    hardware_section = hardware_ctx.prompt_section
+    hardware_section = "\n".join(
+        section for section in (hardware_design_brief.prompt_section, hardware_ctx.prompt_section) if section.strip()
+    )
     prompt["Instructions"] |= prompt_resp_fmt()
     prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
 
@@ -145,7 +152,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
 
             • **Option C**: Train from scratch / non-DL methods (only when pretraining provides no advantage).
 
-            **CRITICAL: When using any recommended pretrained model (Option A), you MUST copy the Code template EXACTLY as provided — including model variant names, file paths, and checkpoint filenames. Only the listed weights are available locally; other variants will fail to load.**
+            **CRITICAL: When using any recommended pretrained model (Option A), you MUST copy the Code template EXACTLY as provided — including model variant names, file paths, and checkpoint filenames. Only the listed weights are available locally; other variants will fail to load. Do NOT invent Kaggle/input paths, dummy checkpoints, or placeholder model files. If a local path is not explicitly shown in the template, choose Option B or C instead.**
 
             **Key Techniques**:
             1. **Feature Extractor Pattern**: If dataset is small or domain mismatch exists → Freeze backbone + train only final layers (or feed to XGBoost/SVM).
@@ -176,7 +183,9 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
     prompt_complete = build_chat_prompt_for_model(
         agent.acfg.code.model, introduction, user_prompt, assistant_prefix
     )
-    agent.virtual_root.add_expected_child_count()
+    if not agent.virtual_root.add_expected_child_count(agent.scfg):
+        logger.info("Draft limit reached before draft generation could reserve a child slot.")
+        return None
 
     if agent.use_stepwise_generation:
         plan, code = stepwise_plan_and_code_query(
@@ -188,7 +197,10 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
                 "memory": prompt.get("Memory", ""),
                 "hardware_prompt_section": hardware_section,
                 "hardware_candidate": hardware_ctx.candidate,
-                "hardware_context": hardware_ctx.compact_context,
+                "hardware_context": {
+                    "design_brief": hardware_design_brief.compact_context,
+                    "execution_context": hardware_ctx.compact_context,
+                },
             },
         )
     else:
@@ -196,6 +208,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode:
     new_node = SearchNode(plan=plan, code=code, parent=agent.virtual_root, stage="draft",
                         local_best_node=agent.virtual_root)
     apply_hardware_context_to_node(new_node, hardware_ctx)
+    apply_hardware_design_brief_to_node(new_node, hardware_design_brief)
     register_node(agent, new_node, prompt_complete, new_branch=True)
 
     logger.info(f"[draft] → node {new_node.id} (branch={new_node.branch_id})")

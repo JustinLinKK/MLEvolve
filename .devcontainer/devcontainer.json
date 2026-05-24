@@ -7,10 +7,15 @@
 		"dockerfile": "Dockerfile"
 	},
 	"features": {
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+			"dockerDashComposeVersion": "v2"
+		},
 		"ghcr.io/iterative/features/nvtop:1": {},
 		"ghcr.io/raucha/devcontainer-features/pytorch:1": {}
 	},
-	"runArgs": ["--gpus=all", "--shm-size=32g"]
+	"runArgs": ["--gpus=all", "--shm-size=32g"],
+	"remoteUser": "vscode",
+	"updateRemoteUserUID": false
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},

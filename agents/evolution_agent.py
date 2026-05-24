@@ -45,7 +45,7 @@ def _get_branch_trajectory_for_evolution(parent_node: SearchNode) -> str:
     return f"Your Past Evolution trajectory:\n{trajectory}"
 
 
-def run(agent, parent_node: SearchNode) -> SearchNode:
+def run(agent, parent_node: SearchNode) -> SearchNode | None:
     branch_trajectory = _get_branch_trajectory_for_evolution(parent_node)
 
     if "Insufficient evolution history" in branch_trajectory or "No evolution history" in branch_trajectory or "No branch trajectory" in branch_trajectory:
@@ -211,7 +211,12 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nThe current solution uses the following code:\n{prompt['Previous solution']['Code']}\nIts output was:\n{output}\nBuilding on this and my evolution trajectory, I'll develop an improved approach."
     prompt_complete = build_chat_prompt_for_model(agent.acfg.code.model, introduction, user_prompt, assistant_prefix)
 
-    parent_node.add_expected_child_count()
+    from_topk = getattr(parent_node, '_topk_triggered', False)
+    if not parent_node.add_expected_child_count(agent.scfg, for_topk=from_topk):
+        logger.info(f"Evolution child limit reached for node {parent_node.id}, skipping generation.")
+        if hasattr(parent_node, '_topk_triggered'):
+            parent_node._topk_triggered = False
+        return None
 
     if agent.acfg.use_diff_mode:
         try:
@@ -222,8 +227,6 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
             plan, code = plan_and_code_query(agent, prompt_complete)
     else:
         plan, code = plan_and_code_query(agent, prompt_complete)
-
-    from_topk = getattr(parent_node, '_topk_triggered', False)
 
     new_node = SearchNode(plan=plan, code=code, parent=parent_node, stage="evolution",
                         local_best_node=parent_node.local_best_node, from_topk=from_topk)

@@ -1,2 +1,40 @@
+# Core runtime
+backoff>=2.2.1
+black>=26.3.1
+coolname>=2.2.0
+dataclasses-json>=0.6.7
+funcy>=2.0
+genson>=1.3.0
+humanize>=4.15.0
 matplotlib>=3.7
+numpy>=1.26
+omegaconf>=2.3.0
+pandas>=2.2
+pyyaml>=6.0
+requests>=2.32
+rich>=13.8.0
+scikit-learn>=1.5
+shutup>=0.2.0
+typer>=0.25.1
+
+# LLM and embedding clients
+google-genai>=2.6.0
+openai>=2.38.0
+sentence-transformers>=5.5.1
+
+# Scheduler, graph, vector, and memory backends
+faiss-cpu>=1.14.2
+mcp>=1.27.1
+neo4j>=6.2.0
+psycopg[binary]>=3.2.0
+qdrant-client>=1.12,<1.14
+rank-bm25>=0.2.2
 redis==7.4.0
+
+# Validation and benchmark tooling
+flask>=3.0
+timm>=1.0.22
+tf-keras>=2.20.0
+torch>=2.1
+torchvision>=0.16
+git+https://github.com/openai/mle-bench.git@507f92e1138bb6e40dac5c6ee7a6758e6424bf97#egg=mlebench

@@ -27,6 +27,7 @@ logger = logging.getLogger("MLEvolve")
 
 
 ExecCallbackType = Callable[[str, bool], ExecutionResult]
+ExecManyCallbackType = Callable[[list[tuple[str, str]]], dict[str, ExecutionResult]]
 
 class AgentSearch:
     def __init__(
@@ -131,6 +132,27 @@ class AgentSearch:
         except Exception as exc:
             logger.debug("Skipping hardware/profile context refresh for node %s: %s", node.id, exc)
 
+    def has_selectable_work(self) -> bool:
+        return node_selection.has_selectable_work(self)
+
+    def _discard_unfinished_node(self, node: SearchNode) -> None:
+        """Remove a generated node that failed before execution/journal append."""
+        parent = node.parent
+        if parent is not None:
+            parent.children.discard(node)
+        if node.branch_id is not None:
+            branch_nodes = self.branch_all_nodes.get(node.branch_id)
+            if branch_nodes and node in branch_nodes:
+                branch_nodes.remove(node)
+                if not branch_nodes:
+                    self.branch_all_nodes.pop(node.branch_id, None)
+            successful_nodes = self.branch_successful_nodes.get(node.branch_id)
+            if successful_nodes and node in successful_nodes:
+                successful_nodes.remove(node)
+                if not successful_nodes:
+                    self.branch_successful_nodes.pop(node.branch_id, None)
+        node.lock = False
+
     def _serialize_prompt(self, prompt_complete) -> str | None:
         """Serialize prompt (str or dict) to string for saving in node."""
         if prompt_complete is None:
@@ -181,8 +203,11 @@ class AgentSearch:
                             result_node = None
                     else:
                         result_node = draft_agent.run(self, init_solution_path=init_solution_path)
-                        result_node.lock = True
-                        logger.info(f"[_run_single_step] Draft node {result_node.id} is locked.")
+                        if result_node:
+                            result_node.lock = True
+                            logger.info(f"[_run_single_step] Draft node {result_node.id} is locked.")
+                        else:
+                            logger.info("Draft generation skipped because no child slot was available.")
                 elif parent_node.is_buggy or parent_node.is_valid is False:
                     result_node = debug_agent.run(self, parent_node)
 
@@ -259,6 +284,8 @@ class AgentSearch:
                         parent_node.is_debug_success = True
 
                     _root = evaluation.check_improvement(self, result_node, parent_node)
+                    if result_node.stage in ["draft", "fusion_draft"]:
+                        result_node.lock = False
                     with self.journal_lock:
                         if self.best_node and result_node.metric.maximize and self.best_node.metric.maximize != result_node.metric.maximize:
                             logger.warning(
@@ -271,6 +298,8 @@ class AgentSearch:
             except Exception as e:
                 logger.warning(f"Step failed for parent {parent_node.id}, rolling back expected child count and propagating zero reward.")
                 evaluation.backpropagate(node=parent_node, value=0, add_to_tree=False)
+                if result_node is not None and result_node not in self.journal.nodes:
+                    self._discard_unfinished_node(result_node)
                 parent_node.sub_expected_child_count()
                 raise e
 
@@ -281,17 +310,24 @@ class AgentSearch:
 
     def step(
         self,
-        node: SearchNode,
-        exec_callback: ExecCallbackType,
+        node: SearchNode | None = None,
+        exec_callback: ExecCallbackType | None = None,
         execute_immediately: bool = True,
         init_solution_path: Optional[str] = None,
-    ) -> SearchNode:
+    ) -> SearchNode | None:
+        if exec_callback is None:
+            raise ValueError("exec_callback is required")
+
         if not self.journal.nodes or self.data_preview is None:
             self.update_data_preview()
             self.search_start_time = time.time()
 
         if not node or node.stage == "root":
             node = node_selection.select_with_soft_switch(self)
+            if node is None:
+                logger.info("[step] no selectable work available")
+                self.current_step = len(self.journal)
+                return None
 
         _root, result_node = self._run_single_step(
             node,
@@ -316,10 +352,11 @@ class AgentSearch:
         best_val = self.best_node.metric.value if (self.best_node and self.best_node.metric) else None
         logger.info(f"[stats] step={self.current_step}, nodes={total_nodes}, branches={n_branches}, best={best_val}")
 
-        if _root or result_node is None:
+        if result_node is None:
+            return None
+        if _root:
             return self.virtual_root
-        else:
-            return result_node
+        return result_node
 
     def execute_deferred_node(self, node: SearchNode, exec_callback: ExecCallbackType) -> SearchNode:
         """Execute a node that was generated and reviewed but not yet run (pending_execution=True)."""
@@ -358,6 +395,8 @@ class AgentSearch:
                 parent_node.is_debug_success = True
 
             _root = evaluation.check_improvement(self, node, parent_node)
+            if node.stage in ["draft", "fusion_draft"]:
+                node.lock = False
 
             with self.journal_lock:
                 if self.best_node and node.metric.maximize and self.best_node.metric.maximize != node.metric.maximize:
@@ -375,5 +414,97 @@ class AgentSearch:
         except Exception as e:
             logger.exception(f"Exception during deferred node execution: {e}")
             evaluation.backpropagate(node=parent_node, value=0, add_to_tree=False)
+            if node not in self.journal.nodes:
+                self._discard_unfinished_node(node)
             parent_node.sub_expected_child_count()
             raise e
+
+    def execute_deferred_nodes(
+        self,
+        nodes: list[SearchNode],
+        exec_many_callback: ExecManyCallbackType,
+    ) -> list[SearchNode]:
+        """Execute a scheduler round of deferred nodes and append successful parses to the journal."""
+        runnable_nodes = [node for node in nodes if getattr(node, "pending_execution", False)]
+        if not runnable_nodes:
+            return []
+
+        try:
+            from agents.hardware_context import optimize_training_parameters_for_round
+
+            decisions = optimize_training_parameters_for_round(self, runnable_nodes)
+            if decisions:
+                from utils.pipeline_logging import log_pipeline_event
+
+                log_pipeline_event(
+                    self,
+                    "hardware_round_review",
+                    payload={
+                        "node_ids": [str(node.id) for node in runnable_nodes],
+                        "decisions": decisions,
+                    },
+                )
+        except Exception as exc:
+            logger.debug("Skipping hardware-aware pre-submit round review: %s", exc)
+
+        from utils.pipeline_logging import record_pipeline_node_action
+
+        for node in runnable_nodes:
+            record_pipeline_node_action(self, node, "execution_started")
+
+        results = exec_many_callback([(node.code, str(node.id)) for node in runnable_nodes])
+        executed_nodes: list[SearchNode] = []
+
+        for node in runnable_nodes:
+            parent_node = node.parent
+            try:
+                exe_res = results.get(str(node.id))
+                if exe_res is None:
+                    exe_res = ExecutionResult(
+                        term_out=["Scheduler round did not return a result for this node."],
+                        exec_time=0.0,
+                        exc_type="RuntimeError",
+                        exc_info={"message": "missing scheduler round result"},
+                        exc_stack=[],
+                    )
+                node = result_parse_agent.run(self, node=node, exec_result=exe_res)
+                if self.pipeline_logger is not None and node.metric is not None:
+                    self.pipeline_logger.update_job_packet_for_node(
+                        str(node.id),
+                        metric=node.metric.value,
+                        duration_seconds=node.exec_time,
+                        status="parsed_buggy" if node.is_buggy else "parsed_valid",
+                    )
+
+                execution.validate_executed_node(self, node)
+                logger.info("Node %s round execution completed: metric=%s, is_buggy=%s", node.id, node.metric.value, node.is_buggy)
+
+                node.finish_time = time.strftime("%Y-%m-%dT%H:%M:%S")
+                record_pipeline_node_action(self, node, "execution_finished")
+
+                if parent_node and parent_node.is_buggy and node.is_buggy is False:
+                    parent_node.is_debug_success = True
+
+                evaluation.check_improvement(self, node, parent_node)
+                if node.stage in ["draft", "fusion_draft"]:
+                    node.lock = False
+
+                with self.journal_lock:
+                    if self.best_node and node.metric.maximize and self.best_node.metric.maximize != node.metric.maximize:
+                        logger.warning("New node's metric is inconsistent with metrics in the journal")
+                        raise ValueError("New node's metric is inconsistent with metrics in the journal")
+                    self.journal.append(node)
+                    logger.info("Node %s added to journal", node.id)
+
+                node.pending_execution = False
+                solution_manager.update_best_solution(self, node)
+                executed_nodes.append(node)
+            except Exception as exc:
+                logger.exception("Exception during scheduler round node execution for %s: %s", node.id, exc)
+                if parent_node is not None:
+                    evaluation.backpropagate(node=parent_node, value=0, add_to_tree=False)
+                    parent_node.sub_expected_child_count()
+                if node not in self.journal.nodes:
+                    self._discard_unfinished_node(node)
+        self.current_step = len(self.journal)
+        return executed_nodes

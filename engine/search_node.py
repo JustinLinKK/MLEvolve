@@ -59,7 +59,7 @@ class SearchNode(DataClassJsonMixin):
     continue_improve: bool = field(default=False, kw_only=True)
     improve_failure_depth: int = field(default=0, kw_only=True)
     lock: bool = field(default=False, kw_only=True)
-    child_count_lock: bool = threading.Lock()
+    child_count_lock: Any = field(default_factory=threading.Lock, repr=False, compare=False)
     expected_child_count: int = field(default=0, kw_only=True)
     finish_time: str = field(default=None, kw_only=True)
     created_time: str = field(default=None, kw_only=True)
@@ -86,6 +86,7 @@ class SearchNode(DataClassJsonMixin):
     estimated_runtime_seconds: Optional[float] = field(default=None, kw_only=True)
     peak_vram_mb: Optional[float] = field(default=None, kw_only=True)
     backend_name: Optional[str] = field(default=None, kw_only=True)
+    hardware_decision: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         if self.parent is not None:
@@ -112,7 +113,11 @@ class SearchNode(DataClassJsonMixin):
 
     @property
     def term_out(self) -> str:
-        return trim_long_string("".join(self._term_out))
+        if self._term_out is None:
+            return ""
+        if isinstance(self._term_out, str):
+            return trim_long_string(self._term_out)
+        return trim_long_string("".join(str(part) for part in self._term_out))
 
     @property
     def is_leaf(self) -> bool:
@@ -165,12 +170,12 @@ class SearchNode(DataClassJsonMixin):
     def reached_child_limit(self, scfg: SearchConfig, for_topk: bool = False) -> bool:
         """Whether this node has reached its child limit (draft/improve/debug). for_topk uses higher limit."""
         with self.child_count_lock:
-            if self.step == 0:
+            if self.stage == "root" or self.step == 0:
                 regular_draft_count = sum(1 for child in self.children if child.stage == "draft")
                 # expected_child_count includes in-flight children; estimate in-flight drafts
                 in_flight = max(0, self.expected_child_count - len(self.children))
                 regular_expected = regular_draft_count + in_flight
-                logger.info(f"[reached_child_limit] node {self.id} regular_draft_count={regular_draft_count}, in_flight={in_flight}, limit={scfg.num_drafts}")
+                logger.debug(f"[reached_child_limit] node {self.id} regular_draft_count={regular_draft_count}, in_flight={in_flight}, limit={scfg.num_drafts}")
                 return regular_expected >= scfg.num_drafts
             else:
                 if self.is_buggy:
@@ -353,16 +358,48 @@ class SearchNode(DataClassJsonMixin):
             summary.append(summary_part)
         return "\n-------------------------------\n".join(summary)
     
-    def add_expected_child_count(self):
+    def add_expected_child_count(self, scfg: SearchConfig | None = None, for_topk: bool = False) -> bool:
         with self.child_count_lock:
+            if scfg is not None:
+                if self.stage == "root" or self.step == 0:
+                    regular_draft_count = sum(1 for child in self.children if child.stage == "draft")
+                    in_flight = max(0, self.expected_child_count - len(self.children))
+                    if regular_draft_count + in_flight >= scfg.num_drafts:
+                        logger.debug(
+                            "child slot unavailable for %s: regular_draft_count=%s, in_flight=%s, limit=%s",
+                            self.id,
+                            regular_draft_count,
+                            in_flight,
+                            scfg.num_drafts,
+                        )
+                        return False
+                elif self.is_buggy:
+                    if self.has_no_bug_child() or self.expected_child_count >= scfg.num_bugs:
+                        logger.debug("child slot unavailable for buggy node %s", self.id)
+                        return False
+                elif for_topk:
+                    topk_max_improves = getattr(scfg, 'topk_max_improves', 10)
+                    if self.expected_child_count >= topk_max_improves:
+                        logger.debug("top-k child slot unavailable for node %s", self.id)
+                        return False
+                else:
+                    regular_expected = sum(
+                        1 for child in self.children
+                        if not getattr(child, 'from_topk', False)
+                    )
+                    regular_expected += (self.expected_child_count - len(self.children))
+                    if regular_expected >= scfg.num_improves:
+                        logger.debug("child slot unavailable for node %s", self.id)
+                        return False
             self.expected_child_count += 1
-            logger.info(f"current {self.id} expected_child_count is {self.expected_child_count}.")
+            logger.debug(f"current {self.id} expected_child_count is {self.expected_child_count}.")
+            return True
             
             
     def sub_expected_child_count(self):
         with self.child_count_lock:
-            self.expected_child_count -= 1
-            logger.info(f"current {self.id} expected_child_count is {self.expected_child_count}.")
+            self.expected_child_count = max(len(self.children), self.expected_child_count - 1)
+            logger.debug(f"current {self.id} expected_child_count is {self.expected_child_count}.")
 
     def __getstate__(self):
         state = self.__dict__.copy()

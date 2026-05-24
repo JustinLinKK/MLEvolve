@@ -61,7 +61,7 @@ def _format_debug_memory_guidance(agent, similar_fixes: List[Tuple]) -> str:
     return "\n".join(guidance_parts)
 
 
-def run(agent, parent_node: SearchNode) -> SearchNode:
+def run(agent, parent_node: SearchNode) -> SearchNode | None:
     debugging_standards = (
         "🔧 Debug SYSTEMATICALLY: Read error → Identify root cause → Apply minimal, targeted fix.\n\n"
         "**Do**: Fix root cause, preserve solution intent, maintain code quality.\n"
@@ -160,7 +160,9 @@ def run(agent, parent_node: SearchNode) -> SearchNode:
         assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nThe code that needs fixing:\n{prompt['Previous (buggy) implementation']}\nThe error/issue encountered:\n{prompt['Execution output']}\nAnalyzing the root cause: {parent_node.analysis}\nI'll now fix this issue."
         return build_chat_prompt_for_model(agent.acfg.code.model, current_introduction, user_prompt, assistant_prefix)
 
-    parent_node.add_expected_child_count()
+    if not parent_node.add_expected_child_count(agent.scfg):
+        logger.info(f"Debug child limit reached for node {parent_node.id}, skipping generation.")
+        return None
 
     plan, code = None, None
     prompt_complete = None

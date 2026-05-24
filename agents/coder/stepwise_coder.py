@@ -460,8 +460,12 @@ def create_default_step_agents(*, hardware_aware: bool = True) -> List[StepAgent
         data_guidelines.append(
             "Hardware-aware data pipeline: when using GPU training, keep input resolution/sequence length configurable, use DataLoader settings compatible with the hardware brief, and prefer pin_memory/non-blocking transfers when tensors move to CUDA."
         )
-        model_guidelines.append(
-            "Hardware-aware model design: choose model size and precision compatibility using the hardware/profile context; prefer tensor-core-friendly PyTorch paths when the evidence supports AMP/bf16/fp16."
+        model_guidelines.extend(
+            [
+                "Hardware-aware model design: use the Hardware-Aware Model Design Brief to compare model families before choosing an architecture. Optimize for the task metric first, while treating lower training time and higher GPU utilization as persistent objectives.",
+                "Prefer architectures and layers that can use documented hardware fast paths from the brief, such as tensor-core-friendly dimensions, AMP/bf16/fp16, transformer engine, torch.compile, or efficient convolution kernels, only when the evidence applies to this task and installed environment.",
+                "Do not invent pretrained checkpoint paths, Kaggle input directories, torch hub directories, or dummy model weights to satisfy hardware advice. If a model source is not explicitly available, choose an available baseline-compatible model family.",
+            ]
         )
         training_guidelines.extend(
             [

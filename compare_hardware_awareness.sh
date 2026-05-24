@@ -5,8 +5,7 @@
 # Example:
 #   bash compare_hardware_awareness.sh denoising-dirty-documents \
 #     --dataset-root /mle-bench/data \
-#     --steps 5 \
-#     --timeout-seconds 3600
+#     --steps 5
 
 set -Eeuo pipefail
 

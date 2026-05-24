@@ -30,9 +30,15 @@ def collect_models_for_task(
     return matched
 
 
-def _build_guidance_text(task_name: str, tasks: Dict, models: Dict) -> str:
+def _model_is_available(model: Dict[str, str], torch_hub_dir: str) -> bool:
+    template = model.get("code_template", "")
+    return "{TORCH_HUB_DIR}" not in template or bool(torch_hub_dir)
+
+
+def _build_guidance_text(task_name: str, tasks: Dict, models: Dict, torch_hub_dir: str = "") -> str:
     """Build guidance text from task name and knowledge."""
     model_list = collect_models_for_task(task_name, tasks, models)
+    model_list = [m for m in model_list if _model_is_available(m, torch_hub_dir)]
     if not model_list:
         return "None model"
     lines = []
@@ -61,8 +67,8 @@ def build_guidance_description(cfg: Any) -> str:
 
     tasks = _load_json(cfg.coldstart.task_json_path)
     models = _load_json(cfg.coldstart.model_json_path)
-    text = _build_guidance_text(cfg.exp_id, tasks, models)
     torch_hub_dir = getattr(cfg, "torch_hub_dir", "") or ""
+    text = _build_guidance_text(cfg.exp_id, tasks, models, torch_hub_dir=torch_hub_dir)
     if torch_hub_dir:
         text = text.replace("{TORCH_HUB_DIR}", torch_hub_dir.rstrip("/"))
     return text

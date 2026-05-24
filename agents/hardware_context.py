@@ -12,10 +12,16 @@ from engine.script_introspection import introspect_training_script
 logger = logging.getLogger("MLEvolve")
 
 HARDWARE_CONTEXT_HEADING = "# Hardware/Profile Optimization Context"
+HARDWARE_DESIGN_HEADING = "# Hardware-Aware Model Design Brief"
 EVIDENCE_NOT_LAW_RULE = (
     "Treat recommendations as empirical evidence, not hard rules. Follow high-confidence hardware/profile "
     "guidance by default; if a scoring reason requires deviating, state why and include a fallback such as "
     "smaller physical batch size, gradient accumulation, AMP, reduced resolution, fewer epochs, or checkpointing."
+)
+CONSTRAINT_PRECEDENCE_RULE = (
+    "Hardware advice never overrides task, dataset, submission, package, model-source, or filesystem constraints. "
+    "Do not invent Kaggle input paths, local checkpoints, torch hub directories, or placeholder weights; use only "
+    "paths and model sources that are explicitly available in the prompt/config."
 )
 
 
@@ -37,9 +43,61 @@ def hardware_context_instructions(context: HardwarePromptContext | None = None) 
     return {
         "Hardware/Profile reasoning rule": [
             EVIDENCE_NOT_LAW_RULE,
+            CONSTRAINT_PRECEDENCE_RULE,
             "Prefer scheduler-compatible code with configurable batch size, precision, dataloader workers, checkpoints, and runtime logging when using GPU training.",
         ]
     }
+
+
+def get_hardware_design_brief(agent: Any) -> HardwarePromptContext:
+    """Build the architecture-selection hardware brief used before draft code is written."""
+    if not _hardware_context_enabled(agent):
+        return HardwarePromptContext()
+    scheduler_client = getattr(agent, "scheduler_client", None)
+    if scheduler_client is None:
+        return HardwarePromptContext()
+
+    try:
+        workload_type = infer_workload_type(getattr(agent, "task_desc", ""), getattr(agent, "data_preview", ""))
+        candidate = build_hardware_candidate(
+            agent,
+            "model_design",
+            extra_candidate={
+                "workload_type": workload_type,
+                "task_type": workload_type,
+                "design_stage": "model_family_selection",
+                "candidate_families": _default_model_families_for_workload(workload_type),
+            },
+        )
+    except Exception as exc:
+        logger.debug("Hardware model-design candidate construction failed: %s", exc)
+        return HardwarePromptContext()
+
+    try:
+        limit = _safe_int(getattr(agent.acfg, "hardware_context_limit", 8), default=8)
+        if hasattr(scheduler_client, "get_model_design_hardware_context"):
+            raw_context = scheduler_client.get_model_design_hardware_context(
+                workload_type=candidate.get("workload_type"),
+                task_type=candidate.get("task_type"),
+                candidate_families=list(candidate.get("candidate_families") or []),
+                hardware_key="current",
+                limit=limit,
+            )
+        else:
+            raw_context = scheduler_client.get_optimization_context(candidate=candidate, limit=limit)
+    except Exception as exc:
+        logger.debug("Hardware model-design context lookup failed: %s", exc)
+        return HardwarePromptContext(candidate=candidate)
+
+    compact = compact_model_design_context(raw_context)
+    max_chars = _safe_int(getattr(agent.acfg, "hardware_context_max_prompt_chars", 3500), default=3500)
+    prompt_section = format_hardware_design_brief(compact, max_chars=max_chars)
+    return HardwarePromptContext(
+        candidate=candidate,
+        raw_context=raw_context,
+        compact_context=compact,
+        prompt_section=prompt_section,
+    )
 
 
 def get_hardware_context_for_stage(
@@ -58,13 +116,17 @@ def get_hardware_context_for_stage(
     if scheduler_client is None:
         return HardwarePromptContext()
 
-    candidate = build_hardware_candidate(
-        agent,
-        stage,
-        parent_node=parent_node,
-        code=code,
-        extra_candidate=extra_candidate,
-    )
+    try:
+        candidate = build_hardware_candidate(
+            agent,
+            stage,
+            parent_node=parent_node,
+            code=code,
+            extra_candidate=extra_candidate,
+        )
+    except Exception as exc:
+        logger.debug("Hardware/profile candidate construction failed for stage %s: %s", stage, exc)
+        return HardwarePromptContext()
     if not candidate:
         return HardwarePromptContext(candidate=candidate)
 
@@ -114,6 +176,103 @@ def apply_hardware_context_to_node(node: Any, context: HardwarePromptContext | N
     node.backend_name = _backend_name(compact)
 
 
+def apply_hardware_design_brief_to_node(node: Any, context: HardwarePromptContext | None) -> None:
+    if context is None or not context.compact_context:
+        return
+    compact = context.compact_context
+    node.hardware_decision = {
+        "stage": "model_design",
+        "rationale": "Hardware-aware model design brief was provided before draft generation.",
+        "chosen_params": {},
+        "original_params": {},
+        "model_options": compact.get("model_options") or [],
+        "recommendations": compact.get("recommendations") or [],
+        "evidence_refs": list(compact.get("evidence_refs") or []),
+        "confidence": float(compact.get("confidence") or 0.0),
+        "fallback_reason": None if compact.get("model_options") else "no model-family hardware evidence found",
+    }
+
+
+def optimize_training_parameters_for_round(agent: Any, nodes: list[Any]) -> list[dict[str, Any]]:
+    """Use scheduler evidence to safely tune generated training parameters before a round submission."""
+    if not nodes or not _hardware_context_enabled(agent):
+        return []
+    scheduler_client = getattr(agent, "scheduler_client", None)
+    if scheduler_client is None:
+        return []
+
+    candidates: list[dict[str, Any]] = []
+    for node in nodes:
+        try:
+            candidates.append(
+                build_hardware_candidate(
+                    agent,
+                    "pre_submit_training_review",
+                    parent_node=getattr(node, "parent", None),
+                    code=getattr(node, "code", "") or "",
+                    extra_candidate={"node_id": str(getattr(node, "id", ""))},
+                )
+            )
+        except Exception as exc:
+            logger.debug("Skipping hardware training review candidate for node %s: %s", getattr(node, "id", ""), exc)
+            candidates.append({})
+
+    packet_context: dict[str, Any] = {}
+    if hasattr(scheduler_client, "plan_job_packet"):
+        try:
+            limit = _safe_int(getattr(agent.acfg, "hardware_context_limit", 8), default=8)
+            packet_context = scheduler_client.plan_job_packet(candidates=candidates, limit=limit)
+        except Exception as exc:
+            logger.debug("Hardware packet planning failed; falling back to per-node context: %s", exc)
+            packet_context = {}
+
+    packet_jobs = list(packet_context.get("jobs") or [])
+    decisions: list[dict[str, Any]] = []
+    for idx, node in enumerate(nodes):
+        candidate = candidates[idx] if idx < len(candidates) else {}
+        raw_context = None
+        if idx < len(packet_jobs):
+            raw_context = packet_jobs[idx].get("optimization_context")
+        if raw_context is None:
+            try:
+                limit = _safe_int(getattr(agent.acfg, "hardware_context_limit", 8), default=8)
+                raw_context = scheduler_client.get_optimization_context(candidate=candidate, limit=limit)
+            except Exception as exc:
+                logger.debug("Hardware training review lookup failed for node %s: %s", getattr(node, "id", ""), exc)
+                raw_context = {}
+
+        compact = compact_optimization_context(raw_context)
+        original_code = getattr(node, "code", "") or ""
+        original_params = {
+            "batch_size": candidate.get("proposed_batch_size"),
+            "epochs": candidate.get("proposed_epochs"),
+        }
+        chosen_params = {
+            "batch_size": _recommended_batch_size(compact),
+            "epochs": _recommended_epochs(compact),
+        }
+        updated_code, applied = _rewrite_training_params(original_code, chosen_params)
+        if applied:
+            node.code = updated_code
+        decision = {
+            "stage": "training_parameter_review",
+            "rationale": "Reviewed graph/probe/packing evidence before scheduler round submission.",
+            "original_params": {key: value for key, value in original_params.items() if value is not None},
+            "chosen_params": {key: value for key, value in chosen_params.items() if value is not None},
+            "applied_params": applied,
+            "evidence_refs": list(compact.get("evidence_refs") or packet_context.get("evidence_refs") or []),
+            "confidence": float(compact.get("confidence") or packet_context.get("confidence") or 0.0),
+            "fallback_reason": None if applied else "no safe literal training-parameter assignment found or no stronger evidence available",
+            "packet_id": packet_context.get("packet_id"),
+        }
+        previous_decision = getattr(node, "hardware_decision", None)
+        if previous_decision:
+            decision["previous_decision"] = previous_decision
+        node.hardware_decision = decision
+        decisions.append(decision)
+    return decisions
+
+
 def build_hardware_candidate(
     agent: Any,
     stage: str,
@@ -143,7 +302,7 @@ def build_hardware_candidate(
             candidate["proposed_batch_size"] = parent_node.resolved_batch_size
         if getattr(parent_node, "estimated_runtime_seconds", None) is not None:
             candidate["notes"] = f"parent_estimated_runtime_seconds={parent_node.estimated_runtime_seconds}"
-        hints = _execution_resource_hints(getattr(parent_node, "term_out", "") or "")
+        hints = _execution_resource_hints(_safe_node_term_out(parent_node))
         for key, value in hints.items():
             candidate.setdefault(key, value)
 
@@ -183,6 +342,98 @@ def compact_optimization_context(raw_context: dict[str, Any] | None) -> dict[str
         "confidence": round(float(raw_context.get("confidence") or 0.0), 3),
     }
     return compact
+
+
+def compact_model_design_context(raw_context: dict[str, Any] | None) -> dict[str, Any]:
+    raw_context = raw_context or {}
+    model_options = []
+    for item in list(raw_context.get("model_options") or raw_context.get("ranked_options") or [])[:6]:
+        option = _pick(
+            dict(item),
+            (
+                "model_family",
+                "model_key",
+                "summary",
+                "rationale",
+                "hardware_features",
+                "expected_benefits",
+                "risks",
+                "score",
+                "confidence",
+            ),
+        )
+        if option:
+            model_options.append(option)
+    compact = {
+        "hardware_context": _compact_hardware_context(raw_context.get("hardware_context") or {}),
+        "workload_type": raw_context.get("workload_type"),
+        "model_options": model_options,
+        "recommendations": _clean_string_list(raw_context.get("recommendations") or [], limit=8),
+        "risk_flags": _clean_string_list(raw_context.get("risk_flags") or [], limit=8),
+        "evidence_refs": _clean_string_list(raw_context.get("evidence_refs") or [], limit=16),
+        "confidence": round(float(raw_context.get("confidence") or 0.0), 3),
+    }
+    if not compact["model_options"] and raw_context.get("recommendations"):
+        compact["model_options"] = [
+            {
+                "model_family": "baseline_compatible",
+                "rationale": "No ranked architecture evidence was available; keep baseline-style architecture choice and apply only safe training optimizations.",
+                "confidence": compact["confidence"],
+            }
+        ]
+    return {key: value for key, value in compact.items() if value not in (None, {}, [], "")}
+
+
+def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 3500) -> str:
+    if not compact:
+        return ""
+    lines = [HARDWARE_DESIGN_HEADING]
+    hardware = compact.get("hardware_context") or {}
+    if hardware:
+        lines.append(f"- Hardware: {hardware.get('summary') or 'current hardware'}")
+        limits = hardware.get("scheduler_limits") or {}
+        if limits:
+            limit_bits = _format_kv(limits, ("safe_vram_budget_mb", "max_packed_jobs_per_gpu", "mode"))
+            if limit_bits:
+                lines.append(f"- Scheduler limits: {limit_bits}")
+    workload = compact.get("workload_type")
+    if workload:
+        lines.append(f"- Workload: {workload}")
+    options = list(compact.get("model_options") or [])
+    if options:
+        lines.append("- Candidate model-family options:")
+        for option in options[:5]:
+            family = option.get("model_family") or option.get("model_key") or "candidate"
+            rationale = option.get("rationale") or option.get("summary") or ""
+            benefits = option.get("expected_benefits") or option.get("hardware_features") or []
+            risk = option.get("risks") or []
+            details = _format_kv(option, ("score", "confidence"))
+            suffix = f" ({details})" if details else ""
+            benefit_text = f"; benefits={benefits}" if benefits else ""
+            risk_text = f"; risks={risk}" if risk else ""
+            lines.append(f"  - {family}{suffix}: {_short(rationale, 180)}{benefit_text}{risk_text}")
+    recommendations = compact.get("recommendations") or []
+    if recommendations:
+        lines.append("- Design recommendations:")
+        lines.extend(f"  - {item}" for item in recommendations)
+    risks = compact.get("risk_flags") or []
+    if risks:
+        lines.append("- Design risk flags:")
+        lines.extend(f"  - {item}" for item in risks)
+    refs = compact.get("evidence_refs") or []
+    if refs:
+        lines.append(f"- Evidence refs: {', '.join(refs[:8])}")
+    lines.append(f"- Confidence: {compact.get('confidence', 0.0)}")
+    lines.append(
+        "- Decision rule: Choose the architecture that best satisfies the task metric while using hardware features "
+        "to reduce training time and improve GPU utilization. If hardware evidence is weak, keep a conservative "
+        "baseline-compatible architecture."
+    )
+    lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
+    text = "\n".join(lines).strip()
+    if len(text) > max_chars:
+        text = text[: max(0, max_chars - 48)].rstrip() + "\n... [hardware design brief truncated]"
+    return text + "\n"
 
 
 def format_hardware_prompt_section(compact: dict[str, Any], *, max_chars: int = 3500) -> str:
@@ -230,6 +481,7 @@ def format_hardware_prompt_section(compact: dict[str, Any], *, max_chars: int = 
         lines.append(f"- Evidence refs: {', '.join(refs[:8])}")
     lines.append(f"- Confidence: {compact.get('confidence', 0.0)}")
     lines.append(f"- Rule: {EVIDENCE_NOT_LAW_RULE}")
+    lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
 
     text = "\n".join(lines).strip()
     if len(text) > max_chars:
@@ -258,6 +510,16 @@ def _hardware_context_enabled(agent: Any) -> bool:
         return False
     acfg = getattr(agent, "acfg", None)
     return bool(getattr(acfg, "hardware_context_enabled", True))
+
+
+def _safe_node_term_out(node: Any | None) -> str:
+    if node is None:
+        return ""
+    try:
+        return str(getattr(node, "term_out", "") or "")
+    except Exception as exc:
+        logger.debug("Skipping parent execution output in hardware context: %s", exc)
+        return ""
 
 
 def _scheduler_submission_defaults(scheduler_client: Any | None) -> Any | None:
@@ -403,6 +665,66 @@ def _recommended_batch_size(compact: dict[str, Any]) -> int | None:
         if match:
             return _safe_int(match.group(1), default=None)
     return None
+
+
+def _recommended_epochs(compact: dict[str, Any]) -> int | None:
+    graph = compact.get("graph_evidence") or {}
+    legacy = graph.get("legacy_job_design_context") or {}
+    epoch_recommendation = legacy.get("epoch_recommendation") or {}
+    value = _safe_int(epoch_recommendation.get("recommended_epochs"), default=None)
+    if value is not None:
+        return value
+    for rec in compact.get("recommendations") or []:
+        match = re.search(r"(?:epoch budget|epochs?)\s+(\d+)", str(rec), re.IGNORECASE)
+        if match:
+            return _safe_int(match.group(1), default=None)
+    return None
+
+
+def _rewrite_training_params(code: str, chosen_params: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    updated = code
+    applied: dict[str, Any] = {}
+    batch_size = _safe_int(chosen_params.get("batch_size"), default=None)
+    if batch_size is not None and batch_size > 0:
+        updated, changed = _replace_simple_int_assignment(
+            updated,
+            ("BATCH_SIZE", "batch_size", "train_batch_size"),
+            batch_size,
+        )
+        if changed:
+            applied["batch_size"] = batch_size
+    epochs = _safe_int(chosen_params.get("epochs"), default=None)
+    if epochs is not None and epochs > 0:
+        updated, changed = _replace_simple_int_assignment(
+            updated,
+            ("EPOCHS", "epochs", "num_epochs", "N_EPOCHS"),
+            epochs,
+        )
+        if changed:
+            applied["epochs"] = epochs
+    return updated, applied
+
+
+def _replace_simple_int_assignment(code: str, names: tuple[str, ...], value: int) -> tuple[str, bool]:
+    for name in names:
+        pattern = re.compile(rf"(?m)^(\s*{re.escape(name)}\s*=\s*)(\d+)(\s*(?:#.*)?$)")
+        new_code, count = pattern.subn(rf"\g<1>{int(value)}\g<3>", code, count=1)
+        if count:
+            return new_code, True
+    return code, False
+
+
+def _default_model_families_for_workload(workload_type: str | None) -> list[str]:
+    workload = str(workload_type or "").lower()
+    if "vision" in workload:
+        return ["convnet", "efficientnet", "convnext", "vision_transformer", "hybrid_cnn_transformer"]
+    if "transformer" in workload or "text" in workload or "nlp" in workload:
+        return ["transformer", "small_transformer", "lora_transformer", "sequence_cnn"]
+    if "audio" in workload:
+        return ["cnn", "conformer", "spectrogram_transformer"]
+    if "tabular" in workload:
+        return ["lightgbm", "xgboost", "tabular_mlp", "tab_transformer"]
+    return ["baseline_compatible", "cnn", "transformer", "tree_ensemble"]
 
 
 def _runtime_seconds(compact: dict[str, Any]) -> float | None:

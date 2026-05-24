@@ -1,17 +1,17 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: mlevolve-full-run
+  name: mlevolve-knowledge-ingest
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 86400
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: mlevolve-full-run
+        app.kubernetes.io/name: mlevolve-knowledge-ingest
     spec:
       restartPolicy: Never
-      terminationGracePeriodSeconds: 90
+      terminationGracePeriodSeconds: 60
       initContainers:
         - name: repo-sync
           image: alpine/git:2.47.2
@@ -43,7 +43,7 @@ spec:
             capabilities:
               drop: ["ALL"]
       containers:
-        - name: mlevolve
+        - name: ingest
           image: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
           workingDir: /workspace/repo
           command:
@@ -51,29 +51,40 @@ spec:
             - -lc
             - |
               set -euo pipefail
-              python -m pip install --no-cache-dir \
-                -r requirements_base.txt \
-                qdrant-client neo4j typer pyyaml omegaconf coolname rich shutup flask requests openai google-genai kaggle mlebench
-              bash k8s/nautilus/run_mlevolve_job.sh
+              python -m pip install --no-cache-dir -r requirements_base.txt qdrant-client typer pyyaml
+              python - <<'PY'
+              import urllib.request
+              urllib.request.urlopen("http://qdrant:6333/collections", timeout=5).read()
+              PY
+              python - <<'PY'
+              import os
+              from pathlib import Path
+              import yaml
+
+              source = Path(os.environ.get("MLEVOLVE_CONFIG", "/workspace/repo/config.example.yaml"))
+              cfg = yaml.safe_load(source.read_text(encoding="utf-8")) or {}
+              scheduler = cfg.setdefault("scheduler", {})
+              settings = scheduler.setdefault("settings", {})
+              graph_db = settings.setdefault("graph_db", {})
+              graph_db["enabled"] = False
+              graph_db["mode"] = "off"
+              hardware_feature_db = settings.setdefault("hardware_feature_db", {})
+              hardware_feature_db["url"] = os.environ.get("QDRANT_URL", "http://qdrant:6333")
+              # Keep secrets in Kubernetes Secret env vars rather than writing them
+              # into the generated temporary config.
+              hardware_feature_db["embedding_api_key"] = ""
+              out = Path("/tmp/mlevolve-ingest-config.yaml")
+              out.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+              PY
+              python -m localml_scheduler.cli knowledge ingest-schema \
+                --config /tmp/mlevolve-ingest-config.yaml \
+                --schema-root schema \
+                --recreate
           env:
-            - name: REPO_ROOT
-              value: /workspace/repo
             - name: PYTHONUNBUFFERED
               value: "1"
-            - name: DATASET_DIR
-              value: /datasets/mle-bench-data
-            - name: EXP_ID
-              value: histopathologic-cancer-detection
-            - name: RUNS_ROOT
-              value: /results/runs
-            - name: SCHEDULER_RUNTIME_ROOT
-              value: /runtime/localml_scheduler
             - name: MLEVOLVE_CONFIG
               value: /workspace/repo/config.example.yaml
-            - name: ENABLE_GRAPH_DB
-              value: "true"
-            - name: GRAPH_DB_URI
-              value: bolt://neo4j:7687
             - name: QDRANT_URL
               value: http://qdrant:6333
           envFrom:
@@ -83,24 +94,15 @@ spec:
           volumeMounts:
             - name: workspace
               mountPath: /workspace
-            - name: runtime
-              mountPath: /runtime
-            - name: datasets
-              mountPath: /datasets
-              readOnly: true
-            - name: results
-              mountPath: /results
           resources:
             requests:
-              cpu: "12"
-              memory: "64Gi"
-              ephemeral-storage: "60Gi"
-              nvidia.com/gpu: "1"
+              cpu: "2"
+              memory: "8Gi"
+              ephemeral-storage: "12Gi"
             limits:
-              cpu: "16"
-              memory: "72Gi"
-              ephemeral-storage: "72Gi"
-              nvidia.com/gpu: "1"
+              cpu: "4"
+              memory: "12Gi"
+              ephemeral-storage: "20Gi"
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -111,12 +113,3 @@ spec:
         - name: workspace
           emptyDir:
             sizeLimit: 8Gi
-        - name: runtime
-          emptyDir:
-            sizeLimit: 64Gi
-        - name: datasets
-          persistentVolumeClaim:
-            claimName: mlevolve-datasets
-        - name: results
-          persistentVolumeClaim:
-            claimName: mlevolve-results

@@ -325,28 +325,29 @@ def _fuse_with_multiple_references(
     return fused_node
 
 
-def run(agent, parent_node: SearchNode) -> SearchNode:
+def run(agent, parent_node: SearchNode) -> SearchNode | None:
     candidates = _get_fusion_candidates(agent, parent_node)
 
     if not candidates:
         logger.info(f"No fusion candidates found for node {parent_node.id}, falling back to normal improve")
         return run_improve(agent, parent_node)
 
+    from_topk = getattr(parent_node, '_topk_triggered', False)
+    if not parent_node.add_expected_child_count(agent.scfg, for_topk=from_topk):
+        logger.info(f"Fusion child limit reached for node {parent_node.id}, skipping generation.")
+        if hasattr(parent_node, '_topk_triggered'):
+            parent_node._topk_triggered = False
+        return None
+
     if len(candidates) == 1:
-        fused_node = fuse_two_nodes(agent, parent_node, candidates[0])
-        parent_node.add_expected_child_count()
-        return fused_node
+        return fuse_two_nodes(agent, parent_node, candidates[0])
 
     elif len(candidates) <= 5:
-        fused_node = _fuse_with_multiple_references(agent, parent_node, candidates)
-        parent_node.add_expected_child_count()
-        return fused_node
+        return _fuse_with_multiple_references(agent, parent_node, candidates)
 
     else:
         top_5_candidates = candidates[:5]
-        fused_node = _fuse_with_multiple_references(agent, parent_node, top_5_candidates)
-        parent_node.add_expected_child_count()
-        return fused_node
+        return _fuse_with_multiple_references(agent, parent_node, top_5_candidates)
 
 
 # ============ Diff fusion pipeline ============

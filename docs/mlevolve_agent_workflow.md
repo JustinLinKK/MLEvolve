@@ -28,7 +28,7 @@ At startup, MLEvolve:
 4. Starts structured logging.
 5. Starts the hardware monitor so resource usage can be reported even if the run is interrupted.
 
-If `SIGTERM` arrives, MLEvolve converts it into a controlled shutdown so logs and hardware reports are still written.
+If `SIGTERM` arrives, MLEvolve performs a controlled shutdown so logs and hardware reports are still written, then exits with the conventional signal exit code.
 
 ### 2. Load the task and optional cold-start guidance
 
