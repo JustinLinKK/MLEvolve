@@ -333,6 +333,7 @@ def _read_hardware_samples(path: Path | None) -> list[dict[str, float | None]]:
                     "gpu_util_percent": _parse_float(row.get("gpu_util_percent")),
                     "gpu_memory_util_percent": _parse_float(row.get("gpu_memory_util_percent")),
                     "gpu_power_draw_w": _parse_float(row.get("gpu_power_draw_w")),
+                    "sample_count": _parse_float(row.get("sample_count")) or 1.0,
                 }
             )
     return rows

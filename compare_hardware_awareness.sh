@@ -3,7 +3,7 @@
 # once in baseline mode and once in hardware-aware mode.
 #
 # Example:
-#   bash compare_hardware_awareness.sh denoising-dirty-documents \
+#   bash compare_hardware_awareness.sh dogs-vs-cats-redux-kernels-edition \
 #     --dataset-root /mle-bench/data \
 #     --steps 5
 
@@ -20,7 +20,7 @@ The script follows the README boot flow:
   3. run it again in hardware_aware mode.
 
 Required:
-  <competition-id>            Kaggle/MLE-bench competition slug, e.g. denoising-dirty-documents.
+  <competition-id>            Kaggle/MLE-bench competition slug, e.g. dogs-vs-cats-redux-kernels-edition.
 
 Options:
   --dataset-root PATH         MLE-bench dataset root. Defaults to ./data/mle-bench.
@@ -39,7 +39,8 @@ Options:
   --keep-raw                  Keep raw MLE-bench download files after prepare.
   --verify-checksums          Let mlebench verify checksums. Default skips verification.
   --hardware-first            Run hardware_aware before baseline.
-  --keep-scheduler-baseline   Leave scheduler.enabled unchanged for baseline.
+  --disable-scheduler-baseline
+                              Disable scheduler execution for baseline. By default both modes use scheduler rounds.
   --no-validation-server      Do not start engine.validation.format_server.
   --plot-output-dir PATH      Graph output directory. Defaults to <run-root>/comparison_plots.
   --skip-plots, --no-plots    Do not generate comparison graph images after both runs.
@@ -70,7 +71,7 @@ SKIP_PREPARE=0
 KEEP_RAW=0
 VERIFY_CHECKSUMS=0
 HARDWARE_FIRST=0
-KEEP_SCHEDULER_BASELINE=0
+DISABLE_SCHEDULER_BASELINE=0
 START_VALIDATION_SERVER=1
 GENERATE_PLOTS=1
 PLOT_OUTPUT_DIR=""
@@ -153,7 +154,12 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --keep-scheduler-baseline)
-      KEEP_SCHEDULER_BASELINE=1
+      # Backward-compatible no-op: baseline now keeps the scheduler by default.
+      DISABLE_SCHEDULER_BASELINE=0
+      shift
+      ;;
+    --disable-scheduler-baseline)
+      DISABLE_SCHEDULER_BASELINE=1
       shift
       ;;
     --no-validation-server)
@@ -363,7 +369,7 @@ run_mode() {
     "scheduler.runtime_root=$scheduler_runtime"
   )
 
-  if [[ "$mode" == "baseline" && "$KEEP_SCHEDULER_BASELINE" -eq 0 ]]; then
+  if [[ "$mode" == "baseline" && "$DISABLE_SCHEDULER_BASELINE" -eq 1 ]]; then
     cmd+=("scheduler.enabled=false")
   fi
 

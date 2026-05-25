@@ -181,7 +181,13 @@ def run():
         max_workers = interpreter.max_parallel_run
         total_steps = cfg.agent.steps
         initial_draft_count = cfg.agent.initial_drafts
-        logger.info(f"🚀 ThreadPool max_workers set to: {max_workers} (matching interpreter capacity)")
+        scheduler_enabled = scheduler_client is not None
+        if scheduler_enabled:
+            logger.info(
+                "🚀 Scheduler execution enabled; MLEvolve will submit whole runnable rounds and let the scheduler choose parallelism."
+            )
+        else:
+            logger.info(f"🚀 ThreadPool max_workers set to: {max_workers} (local subprocess capacity)")
         logger.info(f"🎯 Initial draft count: {initial_draft_count} (will be executed sequentially for diversity)")
 
         lock = threading.Lock()
@@ -221,10 +227,9 @@ def run():
             pending_round_nodes = list(pending_draft_nodes)
             try:
                 while completed < total_steps:
-                    available_capacity = max(0, max_workers - len(pending_round_nodes))
                     remaining_budget = max(0, total_steps - completed - len(pending_round_nodes))
-                    generation_target = min(available_capacity, remaining_budget)
-                    for _ in range(generation_target):
+                    empty_generation_attempts = 0
+                    while remaining_budget > 0:
                         if not agent.has_selectable_work():
                             logger.warning("No selectable work available for scheduler round generation.")
                             break
@@ -237,8 +242,14 @@ def run():
                             if not agent.has_selectable_work():
                                 logger.warning("No selectable work remains after empty scheduler round generation.")
                                 break
+                            empty_generation_attempts += 1
+                            if empty_generation_attempts >= 3:
+                                logger.warning("Scheduler round generation produced no node repeatedly; submitting available round work.")
+                                break
                             continue
+                        empty_generation_attempts = 0
                         pending_round_nodes.append(node)
+                        remaining_budget -= 1
                         logger.info("📦 Added node %s to scheduler round", node.id)
 
                     if not pending_round_nodes:
@@ -251,9 +262,8 @@ def run():
                         )
                         break
 
-                    batch_size = min(max_workers, len(pending_round_nodes), max(1, total_steps - completed))
-                    round_nodes = pending_round_nodes[:batch_size]
-                    pending_round_nodes = pending_round_nodes[batch_size:]
+                    round_nodes = pending_round_nodes[: max(0, total_steps - completed)]
+                    pending_round_nodes = pending_round_nodes[len(round_nodes):]
                     logger.info(
                         "📤 Submitting scheduler round with %s node(s): %s",
                         len(round_nodes),

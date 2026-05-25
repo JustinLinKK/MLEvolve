@@ -120,7 +120,7 @@ class AgentConfig:
     hardware_context_max_prompt_chars: int = 3500
 @dataclass
 class ExecConfig:
-    timeout: int
+    timeout: int | None
     agent_file_name: str
 
 
@@ -158,6 +158,9 @@ class MonitorConfig:
     gpu_idle_util_threshold: float = 10
     gpu_idle_memory_threshold_mb: float = 1024
     cpu_idle_util_threshold: float = 20
+    adaptive_compression: bool = True
+    max_csv_rows: int = 1000
+    compress_to_rows: int = 500
 
 
 @dataclass

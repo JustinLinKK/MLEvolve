@@ -6,7 +6,6 @@ PYTHON_BIN="${PYTHON_BIN:-python}"
 EXP_ID="${EXP_ID:?Set EXP_ID to the competition task id}"
 DATASET_DIR="${DATASET_DIR:-/datasets/mle-bench-data}"
 SERVER_ID="${SERVER_ID:-111}"
-TIME_LIMIT_SECS="${TIME_LIMIT_SECS:-43200}"
 MEMORY_INDEX="${MEMORY_INDEX:-0}"
 START_CPU_ID="${START_CPU_ID:-0}"
 CPU_NUMBER="${CPU_NUMBER:-21}"
@@ -116,16 +115,13 @@ case "$ENABLE_GRAPH_DB" in
 esac
 
 CUDA_VISIBLE_DEVICES="$MEMORY_INDEX" \
-timeout --foreground --signal=TERM --kill-after=20s "${TIME_LIMIT_SECS}s" \
-    "$PYTHON_BIN" "${RUN_ARGS[@]}"
+"$PYTHON_BIN" "${RUN_ARGS[@]}"
 RUN_EXIT=$?
 
 if [ "$RUN_EXIT" -eq 130 ]; then
     exit 130
 fi
-if [ "$RUN_EXIT" -eq 124 ]; then
-    echo "Timed out after ${TIME_LIMIT_SECS}s"
-elif [ "$RUN_EXIT" -ne 0 ]; then
+if [ "$RUN_EXIT" -ne 0 ]; then
     echo "Run failed with exit code: $RUN_EXIT"
 fi
 

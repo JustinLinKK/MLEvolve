@@ -24,10 +24,13 @@ monitor:
   gpu_idle_util_threshold: 10
   gpu_idle_memory_threshold_mb: 1024
   cpu_idle_util_threshold: 20
+  adaptive_compression: true
+  max_csv_rows: 1000
+  compress_to_rows: 500
 torch_hub_dir: ''
 pretrain_model_dir: ''
 exec:
-  timeout: 32400
+  timeout: null
   agent_file_name: runfile.py
 scheduler:
   enabled: true
@@ -125,14 +128,12 @@ scheduler:
       - mps
       - stream
       batch_probe_enabled: true
-      batch_probe_target_memory_fraction: 0.97
       batch_probe_min_batch_size: 1
       batch_probe_max_search_rounds: 12
       batch_probe_max_batch_size: null
       batch_probe_search_mode: binary
       auto_pack:
         target_metric: vram
-        target_vram_fraction: 0.97
         target_sm_fraction: 0.9
         runtime_skew_guardrail_ratio: 2.0
       profiling:
@@ -141,8 +142,7 @@ scheduler:
         pair_probe_steps: 60
         reuse_profile_if_confidence_ge: 0.8
       memory:
-        safe_vram_budget_gib: 28.0
-        hard_stop_memory_fraction: 0.9
+        vram_budget_fraction: 0.95
       thresholds:
         pack_prefer_sm_active_lt: 0.5
         pack_reject_sm_active_ge: 0.8
@@ -154,7 +154,6 @@ scheduler:
         pair_recheck_every_steps: 20
       parallel_optimizer:
         batch_search_mode: binary
-        target_vram_fraction: 0.97
         max_probe_jobs: 3
         binary_range_up: 32
         binary_range_down: 1

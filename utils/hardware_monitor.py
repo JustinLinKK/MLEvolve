@@ -41,6 +41,9 @@ CSV_FIELDS = [
     "gpu_power_limit_w",
     "gpu_temperature_c",
     "sample_error",
+    "sample_count",
+    "window_start",
+    "window_end",
 ]
 
 
@@ -105,18 +108,24 @@ class HardwareMonitor:
         self.cpu_idle_util_threshold = float(
             getattr(monitor_cfg, "cpu_idle_util_threshold", 20)
         )
+        self.adaptive_compression = bool(
+            getattr(monitor_cfg, "adaptive_compression", True)
+        )
+        self.max_csv_rows = max(1, int(getattr(monitor_cfg, "max_csv_rows", 1000)))
+        self.compress_to_rows = max(1, int(getattr(monitor_cfg, "compress_to_rows", 500)))
+        if self.compress_to_rows >= self.max_csv_rows:
+            self.compress_to_rows = max(1, self.max_csv_rows // 2)
         self.log_dir = Path(cfg.log_dir)
         self.samples_path = self.log_dir / "hardware_samples.csv"
         self.report_path = self.log_dir / "hardware_report.md"
         self.logger = log or logger
 
         self._samples: list[HardwareSample] = []
+        self._csv_rows: list[dict[str, str]] = []
         self._warnings: list[str] = []
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
-        self._csv_file = None
-        self._csv_writer: csv.DictWriter | None = None
         self._start_monotonic = 0.0
         self._end_monotonic = 0.0
         self._start_wall = ""
@@ -133,10 +142,7 @@ class HardwareMonitor:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self._start_monotonic = time.monotonic()
         self._start_wall = _utc_now()
-        self._csv_file = self.samples_path.open("w", newline="")
-        self._csv_writer = csv.DictWriter(self._csv_file, fieldnames=CSV_FIELDS)
-        self._csv_writer.writeheader()
-        self._csv_file.flush()
+        self._write_csv_rows_locked()
 
         psutil.cpu_percent(interval=None, percpu=True)
         self._collect_and_record_sample()
@@ -170,13 +176,17 @@ class HardwareMonitor:
             self.logger.warning("Final hardware sample failed: %s", exc)
 
         try:
+            with self._lock:
+                if self.adaptive_compression and len(self._csv_rows) > self.max_csv_rows:
+                    self._csv_rows = _compress_csv_rows(
+                        self._csv_rows,
+                        target_rows=self.max_csv_rows,
+                    )
+                self._write_csv_rows_locked()
             self._write_report()
             self.logger.info("Hardware report written to %s", self.report_path)
         finally:
-            if self._csv_file is not None:
-                self._csv_file.close()
-                self._csv_file = None
-                self._csv_writer = None
+            pass
 
     def _run_loop(self) -> None:
         while not self._stop_event.wait(self.interval_seconds):
@@ -272,12 +282,10 @@ class HardwareMonitor:
         return samples
 
     def _write_sample_rows(self, sample: HardwareSample) -> None:
-        if self._csv_writer is None or self._csv_file is None:
-            return
-
+        rows: list[dict[str, str]] = []
         gpu_samples = sample.gpu_samples or [None]
         for gpu in gpu_samples:
-            row = {
+            row: dict[str, str] = {
                 "timestamp": sample.timestamp,
                 "elapsed_seconds": f"{sample.elapsed_seconds:.3f}",
                 "cpu_percent_avg": f"{sample.cpu_avg:.2f}",
@@ -300,6 +308,9 @@ class HardwareMonitor:
                 "gpu_power_limit_w": "",
                 "gpu_temperature_c": "",
                 "sample_error": sample.sample_error,
+                "sample_count": "1",
+                "window_start": sample.timestamp,
+                "window_end": sample.timestamp,
             }
             if gpu is not None:
                 row.update(
@@ -316,8 +327,23 @@ class HardwareMonitor:
                         "gpu_temperature_c": _format_optional(gpu.temperature_c),
                     }
                 )
-            self._csv_writer.writerow(row)
-        self._csv_file.flush()
+            rows.append(row)
+        self._csv_rows.extend(rows)
+        if self.adaptive_compression and len(self._csv_rows) > self.max_csv_rows:
+            self._csv_rows = _compress_csv_rows(
+                self._csv_rows,
+                target_rows=self.compress_to_rows,
+            )
+        self._write_csv_rows_locked()
+
+    def _write_csv_rows_locked(self) -> None:
+        self.samples_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.samples_path.with_suffix(self.samples_path.suffix + ".tmp")
+        with tmp_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(self._csv_rows)
+        tmp_path.replace(self.samples_path)
 
     def _write_report(self) -> None:
         with self._lock:
@@ -346,7 +372,8 @@ class HardwareMonitor:
             f"- Samples: {sample_count}",
             f"- CUDA_VISIBLE_DEVICES: `{self._cuda_visible_devices}`",
             f"- GPU discovery: {self._gpu_discovery_status}",
-            f"- Raw samples: `{self.samples_path.name}`",
+            f"- Analysis samples: `{self.samples_path.name}`",
+            f"- CSV row cap: {self.max_csv_rows if self.adaptive_compression else 'disabled'}",
             "",
             "## CPU and Memory",
             "",
@@ -478,6 +505,135 @@ def _group_gpu_samples(samples: list[HardwareSample]) -> dict[str, list[GpuSampl
         for gpu in sample.gpu_samples:
             grouped.setdefault(gpu.index, []).append(gpu)
     return grouped
+
+
+def _compress_csv_rows(rows: list[dict[str, str]], *, target_rows: int) -> list[dict[str, str]]:
+    if len(rows) <= target_rows:
+        return rows
+    target_rows = max(1, target_rows)
+    recent_count = min(len(rows) // 2, max(1, target_rows // 2))
+    old_rows = rows[:-recent_count]
+    recent_rows = rows[-recent_count:]
+    compressed_target = max(1, target_rows - len(recent_rows))
+
+    grouped: dict[str, list[dict[str, str]]] = {}
+    for row in old_rows:
+        grouped.setdefault(str(row.get("gpu_index") or "cpu"), []).append(row)
+
+    compressed: list[dict[str, str]] = []
+    total_old = max(1, len(old_rows))
+    remaining_budget = compressed_target
+    groups = list(grouped.values())
+    for index, group in enumerate(groups):
+        if index == len(groups) - 1:
+            budget = max(1, remaining_budget)
+        else:
+            budget = max(1, round(compressed_target * (len(group) / total_old)))
+            budget = min(budget, max(1, remaining_budget - (len(groups) - index - 1)))
+        remaining_budget -= budget
+        compressed.extend(_bucket_rows(group, budget))
+
+    compressed.sort(key=lambda row: _parse_optional_float(row.get("elapsed_seconds", "")) or 0.0)
+    return (compressed + recent_rows)[-target_rows:]
+
+
+def _bucket_rows(rows: list[dict[str, str]], bucket_count: int) -> list[dict[str, str]]:
+    if not rows:
+        return []
+    if len(rows) <= bucket_count:
+        return rows
+    bucket_count = max(1, bucket_count)
+    result: list[dict[str, str]] = []
+    for bucket_index in range(bucket_count):
+        start = round(bucket_index * len(rows) / bucket_count)
+        end = round((bucket_index + 1) * len(rows) / bucket_count)
+        bucket = rows[start:end] or [rows[min(start, len(rows) - 1)]]
+        result.append(_average_csv_bucket(bucket))
+    return result
+
+
+def _average_csv_bucket(bucket: list[dict[str, str]]) -> dict[str, str]:
+    first = bucket[0]
+    last = bucket[-1]
+    weights = [_row_weight(row) for row in bucket]
+    total_weight = sum(weights) or 1.0
+
+    def weighted(key: str) -> str:
+        values: list[tuple[float, float]] = []
+        for row, weight in zip(bucket, weights):
+            value = _parse_optional_float(str(row.get(key, "")))
+            if value is not None:
+                values.append((value, weight))
+        if not values:
+            return ""
+        return f"{sum(value * weight for value, weight in values) / sum(weight for _, weight in values):.3f}"
+
+    def max_value(key: str) -> str:
+        values = [
+            value
+            for row in bucket
+            if (value := _parse_optional_float(str(row.get(key, "")))) is not None
+        ]
+        return "" if not values else f"{max(values):.3f}"
+
+    row = dict(first)
+    for key in (
+        "elapsed_seconds",
+        "cpu_percent_avg",
+        "cpu_percent_p95",
+        "ram_used_mb",
+        "ram_total_mb",
+        "ram_percent",
+        "gpu_memory_used_mb",
+        "gpu_memory_total_mb",
+        "gpu_memory_percent",
+        "gpu_util_percent",
+        "gpu_memory_util_percent",
+        "gpu_power_draw_w",
+        "gpu_power_limit_w",
+        "gpu_temperature_c",
+    ):
+        row[key] = weighted(key)
+    row["cpu_percent_max"] = max_value("cpu_percent_max")
+    row["cpu_percent_per_core"] = _average_core_series(bucket, weights)
+    row["sample_count"] = str(int(total_weight))
+    row["window_start"] = first.get("window_start") or first.get("timestamp", "")
+    row["window_end"] = last.get("window_end") or last.get("timestamp", "")
+    row["timestamp"] = row["window_end"]
+    errors = sorted({str(item.get("sample_error") or "") for item in bucket if item.get("sample_error")})
+    row["sample_error"] = "; ".join(errors)
+    return row
+
+
+def _row_weight(row: dict[str, str]) -> float:
+    value = _parse_optional_float(str(row.get("sample_count", "")))
+    return max(1.0, value or 1.0)
+
+
+def _average_core_series(rows: list[dict[str, str]], weights: list[float]) -> str:
+    parsed: list[tuple[list[float], float]] = []
+    width = 0
+    for row, weight in zip(rows, weights):
+        values = [
+            value
+            for item in str(row.get("cpu_percent_per_core") or "").split(";")
+            if (value := _parse_optional_float(item)) is not None
+        ]
+        if values:
+            parsed.append((values, weight))
+            width = max(width, len(values))
+    if not parsed or width <= 0:
+        return ""
+    averaged: list[str] = []
+    for index in range(width):
+        total = 0.0
+        total_weight = 0.0
+        for values, weight in parsed:
+            if index < len(values):
+                total += values[index] * weight
+                total_weight += weight
+        averaged.append(f"{(total / total_weight) if total_weight else 0.0:.1f}")
+    return ";".join(averaged)
 
 
 def _utc_now() -> str:

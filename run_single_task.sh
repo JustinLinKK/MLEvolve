@@ -51,14 +51,8 @@ fi
 MEMORY_INDEX=0
 start_cpu=0
 CPUS_PER_TASK=21
-TIME_LIMIT_SECS=43200           # 12 hours
 
 export MEMORY_INDEX
-format_time() {
-  local t=$1
-  echo "$((t/3600))hrs $(((t%3600)/60))mins $((t%60))secs"
-}
-export TIME_LIMIT=$(format_time $TIME_LIMIT_SECS)
 export STEP_LIMIT=500
 
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
@@ -73,7 +67,7 @@ CLOSEST_EXP_NAME="${TIMESTAMP}_${EXP_ID}"
 
 
 # ── Run the main agent loop ──
-CUDA_VISIBLE_DEVICES=$MEMORY_INDEX timeout --foreground --signal=TERM --kill-after=10s "${TIME_LIMIT_SECS}s" python run.py \
+CUDA_VISIBLE_DEVICES=$MEMORY_INDEX python run.py \
   exp_id="${EXP_ID}" \
   dataset_dir="${dataset_dir}" \
   data_dir="${dataset_dir}/${EXP_ID}/prepared/public" \
@@ -85,9 +79,7 @@ CUDA_VISIBLE_DEVICES=$MEMORY_INDEX timeout --foreground --signal=TERM --kill-aft
 
 RUN_EXIT=$?
 
-if [ $RUN_EXIT -eq 124 ]; then
-  echo "Timed out after $TIME_LIMIT"
-elif [ $RUN_EXIT -eq 130 ]; then
+if [ $RUN_EXIT -eq 130 ]; then
   echo "Interrupted."
   exit 130
 elif [ $RUN_EXIT -ne 0 ]; then

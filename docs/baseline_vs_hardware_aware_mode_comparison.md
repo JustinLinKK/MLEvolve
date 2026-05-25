@@ -11,7 +11,7 @@ This report compares MLEvolve's `baseline` and `hardware_aware` experiment modes
 | Training prompt additions | No hardware-specific additions | Adds hardware-aware data/model/training guidance |
 | Scheduler evidence in prompts | Not injected | Injects graph evidence, vector/code evidence, recommendations, risk flags, and confidence |
 | Agent behavior goal | Solve task from task text, data preview, memory, and execution feedback | Solve task while considering hardware limits, runtime risk, OOM risk, precision, batch sizing, and profile evidence |
-| Scheduler execution | Can still be enabled if config leaves `scheduler.enabled=true` | Typically enabled |
+| Scheduler execution | Enabled when config leaves `scheduler.enabled=true`; comparison helper keeps it enabled by default | Typically enabled |
 | Best for | Clean comparison with original MLEvolve behavior | Hardware-constrained runs, GPU-sensitive training, profiling-informed optimization |
 
 ## Where The Mode Is Selected
@@ -176,8 +176,8 @@ This is separate from `experiment.mode`.
 Important distinction:
 
 - `baseline` mode disables hardware prompt/context injection.
-- It does not inherently disable the scheduler execution bridge if the config still has `scheduler.enabled=true`.
-- Our comparison script disables `scheduler.enabled` for baseline by default to make the contrast cleaner, but the underlying repo mode switch only disables prompt-time hardware awareness.
+- It does not disable the scheduler execution bridge if the config still has `scheduler.enabled=true`.
+- The comparison script keeps scheduler execution enabled for baseline by default so both modes use the same round-level execution flow; use `--disable-scheduler-baseline` only for legacy subprocess-only comparisons.
 
 Source: `run.py`.
 
@@ -246,10 +246,12 @@ The expected result is not simply "smaller model" or "safer code." The intended 
 Use the comparison helper:
 
 ```bash
-bash compare_hardware_awareness.sh denoising-dirty-documents \
+bash compare_hardware_awareness.sh dogs-vs-cats-redux-kernels-edition \
   --dataset-root /mle-bench/data \
   --steps 5
 ```
+
+For quick hardware-aware debugging, `dogs-vs-cats-redux-kernels-edition` is the preferred small image task. It is much lighter than `histopathologic-cancer-detection` while still exercising GPU training. Use `plant-pathology-2020-fgvc7` as the next-small backup, and keep `histopathologic-cancer-detection` for heavier acceptance runs.
 
 It prepares the Kaggle/MLE-bench competition, starts validation, and runs:
 
@@ -268,10 +270,10 @@ By default it also generates matplotlib comparison artifacts under:
 
 Those artifacts include `comparison_metrics.png`, `utilization_timeseries.png`, `comparison_summary.json`, and `comparison_summary.md`.
 
-The baseline run disables `scheduler.enabled` by default in that script to make the comparison more direct. Use this flag if you want baseline prompts without hardware context but still want scheduler-managed execution:
+The baseline run keeps `scheduler.enabled` unchanged by default so baseline prompts run without hardware context while still using scheduler-managed round execution. Use this flag only if you intentionally want the old subprocess-only baseline:
 
 ```bash
---keep-scheduler-baseline
+--disable-scheduler-baseline
 ```
 
 ## What To Inspect In Outputs

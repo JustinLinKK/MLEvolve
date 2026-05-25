@@ -43,6 +43,24 @@ _BATCH_PROBE_EVENT_TYPES = {
 }
 
 
+def _finite_timeout_seconds(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    if seconds <= 0:
+        return None
+    return seconds
+
+
+def _format_time_limit(seconds: float | None) -> str:
+    if seconds is None:
+        return "no time limit"
+    return f"time limit is {humanize.naturaldelta(seconds)}"
+
+
 def _build_scheduler_preload_source(scheduler_cfg: Any) -> dict[str, str] | None:
     if scheduler_cfg is None:
         return None
@@ -100,7 +118,7 @@ class Interpreter:
     def __init__(
         self,
         working_dir: Path | str,
-        timeout: int = 3600,
+        timeout: int | float | None = None,
         agent_file_name: str = "runfile.py",
         max_parallel_run: int = 3,
         cfg=None,
@@ -121,7 +139,7 @@ class Interpreter:
         assert self.working_dir.exists(), f"Working directory {self.working_dir} does not exist"
         self.cfg = cfg
         self.pipeline_logger = pipeline_logger
-        self.timeout = timeout
+        self.timeout = _finite_timeout_seconds(timeout)
         self.max_parallel_run = (
             cfg.agent.search.parallel_search_num if (cfg and getattr(cfg.agent.search, "parallel_search_num", None)) else max_parallel_run
         )
@@ -130,7 +148,8 @@ class Interpreter:
         self.status_map = [0] * self.max_parallel_run
         self.start_cpu_id = int(cfg.start_cpu_id) if cfg else 0
         self.cpu_number = int(cfg.cpu_number) if cfg else 1
-        if self.cpu_number < self.max_parallel_run:
+        scheduler_enabled = bool(getattr(getattr(cfg, "scheduler", None), "enabled", False)) if cfg else False
+        if not scheduler_enabled and self.cpu_number < self.max_parallel_run:
             raise ValueError(
                 "The maximum level of parallelism exceeds the number of allocated CPU cores; "
                 "ensure that each process has at least one CPU core."
@@ -422,18 +441,20 @@ class Interpreter:
                 for code, node_id in normalized_items
             }
 
-        if len(normalized_items) > self.max_parallel_run:
-            raise ValueError(
-                f"Scheduler round has {len(normalized_items)} jobs but interpreter capacity is {self.max_parallel_run}"
-            )
-
         logger.info("REPL is submitting %s code candidates to localml_scheduler as one round", len(normalized_items))
         prepared: list[_PreparedSchedulerJob] = []
         results: dict[str, ExecutionResult] = {}
         try:
             self._ensure_scheduler_service_available()
-            for code, node_id in normalized_items:
-                prepared.append(self._prepare_scheduler_round_job(code=code, id=node_id, working_dir=working_dir))
+            for process_id, (code, node_id) in enumerate(normalized_items):
+                prepared.append(
+                    self._prepare_scheduler_round_job(
+                        code=code,
+                        id=node_id,
+                        working_dir=working_dir,
+                        process_id=process_id,
+                    )
+                )
 
             candidates = [dict(prepared_job.job_metadata) for prepared_job in prepared]
             packet_context: dict[str, Any] = {}
@@ -500,14 +521,12 @@ class Interpreter:
                 ", ".join(job.job_id for job in submitted_jobs),
             )
 
-            wait_timeout = getattr(self.scheduler_cfg, "wait_timeout_seconds", None)
-            if wait_timeout is None:
-                wait_timeout = self.timeout * max(1, len(prepared)) + 60
+            wait_timeout = _finite_timeout_seconds(getattr(self.scheduler_cfg, "wait_timeout_seconds", None))
             poll_interval = max(0.1, float(getattr(self.scheduler_cfg, "wait_poll_interval_seconds", 1.0)))
-            deadline = time.time() + float(wait_timeout)
+            deadline = time.time() + wait_timeout if wait_timeout is not None else None
             pending = {prepared_job.job_id: prepared_job for prepared_job in prepared if prepared_job.job_id}
             final_jobs: dict[str, Any] = {}
-            while pending and time.time() < deadline:
+            while pending and (deadline is None or time.time() < deadline):
                 for job_id, prepared_job in list(pending.items()):
                     final_job = self.scheduler_client.inspect(job_id)
                     prepared_job.last_probe_event_id = self._log_scheduler_probe_updates(job_id, prepared_job.last_probe_event_id)
@@ -540,7 +559,7 @@ class Interpreter:
                 )
                 results[prepared_job.node_id] = ExecutionResult(
                     term_out=[
-                        f"Execution time: TimeoutError: Scheduler job {job_id} exceeded wait limit of {humanize.naturaldelta(wait_timeout)}"
+                        f"Execution time: TimeoutError: Scheduler job {job_id} exceeded wait limit of {humanize.naturaldelta(wait_timeout or 0)}"
                     ],
                     exec_time=exec_time,
                     exc_type="TimeoutError",
@@ -584,44 +603,29 @@ class Interpreter:
                         os.remove(prepared_job.runfile_path)
                 except Exception as exc:
                     logger.warning("Failed to remove scheduler round runfile after execution: %s", exc)
-                with self.lock:
-                    self.status_map[prepared_job.process_id] = 0
-                    self.current_parallel_run = max(0, self.current_parallel_run - 1)
 
-    def _prepare_scheduler_round_job(self, code: str, id, working_dir: str | None = None) -> _PreparedSchedulerJob:
+    def _prepare_scheduler_round_job(
+        self,
+        code: str,
+        id,
+        working_dir: str | None = None,
+        *,
+        process_id: int,
+    ) -> _PreparedSchedulerJob:
         from localml_scheduler.adapters.mlevolve import build_mlevolve_job
         from localml_scheduler.domain import BatchProbeSpec, PreloadSource, ResourceRequirements, RuntimeProbeSpec
 
-        process_id = None
         start_time = time.time()
-        with self.lock:
-            self.current_parallel_run += 1
-            for idx in range(self.max_parallel_run):
-                if self.status_map[idx] == 0:
-                    self.status_map[idx] = 1
-                    process_id = idx
-                    logger.info("Assigned scheduler round submission slot: %s", process_id)
-                    break
-            if process_id is None:
-                self.current_parallel_run -= 1
-                raise ValueError("reach max process parallel number")
-
-        cpu_number_per_session = max(1, int(self.cpu_number / self.max_parallel_run))
-        avail_cpus = self._available_cpus()
-        start = process_id * cpu_number_per_session
-        cpu_set = set(avail_cpus[start:start + cpu_number_per_session]) or set(avail_cpus)
-        pre_code = ""
-        if hasattr(os, "sched_setaffinity"):
-            pre_code = "import os\nos.sched_setaffinity(0, {cpu_set})\n".format(cpu_set=cpu_set)
+        logger.info("Prepared scheduler round submission slot: %s", process_id)
 
         node_id = str(id)
         code = self.isolate_submission_path(code=code, _id=id)
         code = self.isolate_model_path(code=code, _id=id)
-        code = pre_code + code
 
         run_wd = Path(working_dir).resolve() if working_dir is not None else self.working_dir
         run_wd.mkdir(parents=True, exist_ok=True)
-        runfile_path = run_wd / self.agent_file_name[process_id]
+        safe_node_id = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in node_id)[:80]
+        runfile_path = run_wd / f"runfile_{process_id}_{safe_node_id}_{uuid.uuid4().hex}.py"
         runfile_path.write_text(code, encoding="utf-8")
         script_metadata = _introspect_training_script(code)
         script_signature = script_metadata.get("script_signature") or _normalized_mlevolve_script_signature(code)
@@ -657,10 +661,11 @@ class Interpreter:
             "script_path": str(runfile_path),
             "working_dir": str(run_wd),
             "result_path": str(result_path),
-            "timeout": self.timeout,
             "probe_timeout_seconds": int(submission_defaults.batch_probe_probe_timeout_seconds),
             "probe_poll_interval_seconds": float(submission_defaults.batch_probe_poll_interval_seconds),
         }
+        if self.timeout is not None:
+            runner_kwargs["timeout"] = self.timeout
         batch_probe_enabled = bool(submission_defaults.batch_probe_enabled) and _code_supports_batch_probe(code)
         if detected_batch_size is not None:
             probe_max_multiplier = max(1, int(submission_defaults.batch_probe_max_multiplier))
@@ -946,10 +951,11 @@ class Interpreter:
                 "script_path": str(runfile_path),
                 "working_dir": str(run_wd),
                 "result_path": str(result_path),
-                "timeout": self.timeout,
                 "probe_timeout_seconds": int(submission_defaults.batch_probe_probe_timeout_seconds),
                 "probe_poll_interval_seconds": float(submission_defaults.batch_probe_poll_interval_seconds),
             }
+            if self.timeout is not None:
+                runner_kwargs["timeout"] = self.timeout
             batch_probe_enabled = bool(submission_defaults.batch_probe_enabled) and _code_supports_batch_probe(code)
             detected_batch_size = detected_batch_size or _detect_initial_batch_size(code)
             if detected_batch_size is not None:
@@ -1050,20 +1056,18 @@ class Interpreter:
                 self._scheduler_job_ids.add(job_id)
             logger.info(f"Submitted scheduler job {job_id} for node {id}")
 
-            wait_timeout = getattr(scheduler_cfg, "wait_timeout_seconds", None)
-            if wait_timeout is None:
-                wait_timeout = self.timeout * max(1, self.max_parallel_run) + 60
+            wait_timeout = _finite_timeout_seconds(getattr(scheduler_cfg, "wait_timeout_seconds", None))
             poll_interval = max(0.1, float(getattr(scheduler_cfg, "wait_poll_interval_seconds", 1.0)))
-            deadline = time.time() + float(wait_timeout)
+            deadline = time.time() + wait_timeout if wait_timeout is not None else None
             final_job = None
             last_probe_event_id = 0
-            while time.time() < deadline:
+            while deadline is None or time.time() < deadline:
                 final_job = self.scheduler_client.inspect(job_id)
                 last_probe_event_id = self._log_scheduler_probe_updates(job_id, last_probe_event_id)
                 if final_job is not None and final_job.status.is_terminal:
                     break
                 time.sleep(poll_interval)
-            else:
+            if final_job is None or not final_job.status.is_terminal:
                 self.scheduler_client.cancel(job_id)
                 exec_time = time.time() - start_time
                 self._pipeline_upsert_job(
@@ -1083,7 +1087,7 @@ class Interpreter:
                 )
                 return ExecutionResult(
                     term_out=[
-                        f"Execution time: TimeoutError: Scheduler job {job_id} exceeded wait limit of {humanize.naturaldelta(wait_timeout)}"
+                        f"Execution time: TimeoutError: Scheduler job {job_id} exceeded wait limit of {humanize.naturaldelta(wait_timeout or 0)}"
                     ],
                     exec_time=exec_time,
                     exc_type="TimeoutError",
@@ -1356,13 +1360,17 @@ class Interpreter:
             if output and output[-1] and not output[-1].endswith("\n"):
                 output.append("\n")
 
-            if exc_type == "TimeoutError":
+            if exc_type == "TimeoutError" and self.timeout is not None:
                 output.append(
-                    f"Execution time: TimeoutError: Execution exceeded the time limit of {humanize.naturaldelta(self.timeout)}"
+                    f"Execution time: TimeoutError: Execution exceeded the time limit of {humanize.naturaldelta(self.timeout or 0)}"
+                )
+            elif exc_type == "TimeoutError":
+                output.append(
+                    f"Execution time: TimeoutError raised after {humanize.naturaldelta(exec_time)} seconds (no time limit)."
                 )
             else:
                 output.append(
-                    f"Execution time: {humanize.naturaldelta(exec_time)} seconds (time limit is {humanize.naturaldelta(self.timeout)})."
+                    f"Execution time: {humanize.naturaldelta(exec_time)} seconds ({_format_time_limit(self.timeout)})."
                 )
             
             return ExecutionResult(output, exec_time, exc_type, exc_info, exc_stack)
