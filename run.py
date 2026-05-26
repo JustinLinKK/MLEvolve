@@ -220,74 +220,123 @@ def run():
             logger.info(f"✅ Phase 1 complete: {len(pending_draft_nodes)} draft codes generated")
 
         if scheduler_client is not None and (pending_draft_nodes or completed < total_steps):
-            logger.info("🚀 Phase 2: Round-level scheduler execution")
+            logger.info("🚀 Phase 2: Streaming scheduler execution")
             logger.info("   - Pending draft executions: %s", len(pending_draft_nodes))
             logger.info("   - Remaining steps: %s", total_steps - completed)
 
-            pending_round_nodes = list(pending_draft_nodes)
-            try:
-                while completed < total_steps:
-                    remaining_budget = max(0, total_steps - completed - len(pending_round_nodes))
-                    empty_generation_attempts = 0
-                    while remaining_budget > 0:
-                        if not agent.has_selectable_work():
-                            logger.warning("No selectable work available for scheduler round generation.")
-                            break
-                        try:
-                            node = agent.step(exec_callback=exec_callback, node=None, execute_immediately=False)
-                        except Exception as exc:
-                            logger.exception("Exception while generating scheduler round node: %s", exc)
-                            node = None
-                        if node is None:
-                            if not agent.has_selectable_work():
-                                logger.warning("No selectable work remains after empty scheduler round generation.")
-                                break
-                            empty_generation_attempts += 1
-                            if empty_generation_attempts >= 3:
-                                logger.warning("Scheduler round generation produced no node repeatedly; submitting available round work.")
-                                break
-                            continue
-                        empty_generation_attempts = 0
-                        pending_round_nodes.append(node)
-                        remaining_budget -= 1
-                        logger.info("📦 Added node %s to scheduler round", node.id)
+            candidate_window = int(getattr(scheduler_settings.gpu_scheduler, "candidate_window_size", 2))
+            scheduler_stream_workers = min(
+                max(1, total_steps),
+                max(2, max_workers, min(4, max(1, candidate_window))),
+            )
+            executor = ThreadPoolExecutor(max_workers=scheduler_stream_workers)
+            pending_scheduler_nodes = list(pending_draft_nodes)
+            interrupted = False
+            futures = set()
 
-                    if not pending_round_nodes:
-                        if agent.has_selectable_work():
-                            continue
-                        logger.warning(
-                            "No pending round nodes and no selectable work is available; stopping early at %s/%s completed steps.",
+            def execute_scheduler_node(node):
+                try:
+                    executed_node = agent.execute_deferred_node(node, exec_callback)
+                    logger.info(
+                        "✅ Scheduler node %s executed: metric=%s",
+                        executed_node.id,
+                        executed_node.metric.value if executed_node.metric else "N/A",
+                    )
+                    return executed_node
+                except Exception as e:
+                    logger.exception("❌ Exception during scheduler node %s execution: %s", node.id, e)
+                    return None
+
+            def submit_scheduler_node(node):
+                futures.add(executor.submit(execute_scheduler_node, node))
+                logger.info("📤 Submitted scheduler node %s immediately", node.id)
+
+            def fill_scheduler_window(parent_hint=None):
+                empty_generation_attempts = 0
+                next_parent = parent_hint
+                while len(futures) < scheduler_stream_workers and (pending_scheduler_nodes or completed + len(futures) < total_steps):
+                    if pending_scheduler_nodes:
+                        submit_scheduler_node(pending_scheduler_nodes.pop(0))
+                        continue
+                    if not agent.has_selectable_work():
+                        logger.warning("No selectable work available to fill scheduler stream window.")
+                        break
+                    try:
+                        node = agent.step(exec_callback=exec_callback, node=next_parent, execute_immediately=False)
+                    except Exception as exc:
+                        logger.exception("Exception while generating streaming scheduler node: %s", exc)
+                        node = None
+                    next_parent = None
+                    if node is None:
+                        if not agent.has_selectable_work():
+                            logger.warning("No selectable work remains after empty streaming scheduler generation.")
+                            break
+                        empty_generation_attempts += 1
+                        if empty_generation_attempts >= 3:
+                            logger.warning("Streaming scheduler generation produced no node repeatedly; waiting for running work.")
+                            break
+                        continue
+                    empty_generation_attempts = 0
+                    submit_scheduler_node(node)
+
+            try:
+                fill_scheduler_window()
+                while completed < total_steps:
+                    if not futures:
+                        fill_scheduler_window()
+                    if not futures:
+                        if not agent.has_selectable_work():
+                            logger.warning(
+                                "No scheduler futures remain and no selectable work is available; stopping early at %s/%s completed steps.",
+                                completed,
+                                total_steps,
+                            )
+                            break
+                        continue
+
+                    done, _ = wait(futures, return_when=FIRST_COMPLETED, timeout=1.0)
+                    if not done:
+                        continue
+
+                    for fut in done:
+                        futures.remove(fut)
+                        try:
+                            cur_node = fut.result()
+                        except Exception as e:
+                            logger.exception("❌ Exception during scheduler streaming task: %s", e)
+                            cur_node = None
+
+                        with lock:
+                            save_run(cfg, journal)
+                            completed = len(journal) - 1
+                            if completed >= total_steps:
+                                logger.info(journal_to_string_tree(journal))
+                                break
+
+                        fill_scheduler_window(cur_node)
+                        logger.info(
+                            "📊 Progress: %s/%s steps completed, %s scheduler tasks running",
                             completed,
                             total_steps,
+                            len(futures),
                         )
-                        break
-
-                    round_nodes = pending_round_nodes[: max(0, total_steps - completed)]
-                    pending_round_nodes = pending_round_nodes[len(round_nodes):]
-                    logger.info(
-                        "📤 Submitting scheduler round with %s node(s): %s",
-                        len(round_nodes),
-                        ", ".join(str(node.id) for node in round_nodes),
-                    )
-                    executed_nodes = agent.execute_deferred_nodes(round_nodes, exec_many_callback)
-                    logger.info("✅ Scheduler round finished with %s executed node(s)", len(executed_nodes))
-
-                    save_run(cfg, journal)
-                    completed = len(journal) - 1
-                    if completed >= total_steps:
-                        logger.info(journal_to_string_tree(journal))
-                        break
-                    logger.info("📊 Progress: %s/%s steps completed, %s generated nodes pending", completed, total_steps, len(pending_round_nodes))
             except SignalShutdown as exc:
+                interrupted = True
                 shutdown_exit_code = 128 + exc.signum
                 shutdown_handled = True
                 logger.info("%s received, terminating subprocesses and shutting down...", exc.signal_name)
                 interpreter.terminate_all_subprocesses()
+                executor.shutdown(wait=False, cancel_futures=True) if sys.version_info >= (3, 9) else executor.shutdown(wait=False)
                 raise
             except KeyboardInterrupt:
+                interrupted = True
                 logger.info("KeyboardInterrupt received, terminating subprocesses and shutting down...")
                 interpreter.terminate_all_subprocesses()
+                executor.shutdown(wait=False, cancel_futures=True) if sys.version_info >= (3, 9) else executor.shutdown(wait=False)
                 raise
+            finally:
+                if not interrupted:
+                    executor.shutdown(wait=True)
         elif pending_draft_nodes or completed < total_steps:
             logger.info(f"🚀 Phase 2: Pipelined parallel execution")
             logger.info(f"   - Pending draft executions: {len(pending_draft_nodes)}")

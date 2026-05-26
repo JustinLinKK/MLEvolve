@@ -30,9 +30,10 @@ ROOT_CONFIG_EXAMPLE_PATH = REPO_ROOT / "config.example.yaml"
 LEGACY_CONFIG_PATH = Path(__file__).parent / "config.yaml"
 CONFIG_ENV_VAR = "MLEVOLVE_CONFIG"
 
+EXPERIMENT_MODE_ORIGIN = "origin"
 EXPERIMENT_MODE_BASELINE = "baseline"
 EXPERIMENT_MODE_HARDWARE_AWARE = "hardware_aware"
-_EXPERIMENT_MODES = {EXPERIMENT_MODE_BASELINE, EXPERIMENT_MODE_HARDWARE_AWARE}
+_EXPERIMENT_MODES = {EXPERIMENT_MODE_ORIGIN, EXPERIMENT_MODE_BASELINE, EXPERIMENT_MODE_HARDWARE_AWARE}
 
 
 def normalize_experiment_mode(value: str | None) -> str:
@@ -304,8 +305,10 @@ def prep_cfg(cfg: Config):
     cfg_schema: Config = OmegaConf.structured(Config)
     cfg = OmegaConf.merge(cfg_schema, cfg)
     cfg.experiment.mode = normalize_experiment_mode(cfg.experiment.mode)
-    if cfg.experiment.mode == EXPERIMENT_MODE_BASELINE:
+    if cfg.experiment.mode in {EXPERIMENT_MODE_ORIGIN, EXPERIMENT_MODE_BASELINE}:
         cfg.agent.hardware_context_enabled = False
+    if cfg.experiment.mode == EXPERIMENT_MODE_ORIGIN:
+        cfg.scheduler.enabled = False
 
     return cast(Config, cfg)
 

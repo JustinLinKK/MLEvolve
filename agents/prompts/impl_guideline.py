@@ -8,7 +8,11 @@ import humanize
 def get_impl_guideline_from_agent(agent):
     """Build implementation guideline from agent config."""
     tot_time_remaining = agent.acfg.time_limit - (time.time() - agent.start_time)
-    exec_timeout = int(min(agent.cfg.exec.timeout, tot_time_remaining))
+    configured_timeout = getattr(getattr(agent.cfg, "exec", None), "timeout", None)
+    if configured_timeout is None:
+        exec_timeout = int(max(0, tot_time_remaining))
+    else:
+        exec_timeout = int(max(0, min(float(configured_timeout), tot_time_remaining)))
     return get_impl_guideline(
         tot_time_remaining=tot_time_remaining,
         steps_remaining=agent.acfg.steps - agent.current_step,

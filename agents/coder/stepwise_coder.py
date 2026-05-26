@@ -418,7 +418,7 @@ def _hardware_reasoning_enabled(agent_instance) -> bool:
     cfg = getattr(agent_instance, "cfg", None)
     experiment = getattr(cfg, "experiment", None)
     mode = str(getattr(experiment, "mode", "") or "").strip().lower().replace("-", "_")
-    if mode == "baseline":
+    if mode in {"origin", "baseline"}:
         return False
     acfg = getattr(agent_instance, "acfg", None)
     return bool(getattr(acfg, "hardware_context_enabled", True))
@@ -469,7 +469,10 @@ def create_default_step_agents(*, hardware_aware: bool = True) -> List[StepAgent
         )
         training_guidelines.extend(
             [
-                "Hardware-aware training: use the hardware/profile context to choose physical batch size, epoch budget, AMP dtype, gradient accumulation, checkpoint cadence, and dataloader settings. If choosing a riskier setting for score reasons, include an explicit fallback path for OOM/timeout such as smaller batch size, accumulation, lower resolution, fewer epochs, or checkpoint resume.",
+                "Hardware-aware training: optimize runtime at fixed modeling intent. Do NOT increase epochs, folds, model size, input resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization unless the user explicitly asks for score improvement.",
+                "Allowed hardware optimizations: physical batch size, gradient accumulation while preserving effective batch size, AMP/TF32/bf16, dataloader workers, pin_memory, persistent_workers, channels_last, safe torch.compile, checkpointing, and runtime logging.",
+                "Scheduler-aware training: adapt to the scheduler backend config in the Hardware/Profile Optimization Context. Do not hardcode CUDA process, CUDA stream, MPS, or backend selection in the script; keep code backend-compatible and configurable.",
+                "Hardware-aware training: use the hardware/profile context to choose physical batch size, AMP dtype, gradient accumulation, checkpoint cadence, and dataloader settings. If choosing a riskier setting for score reasons, include an explicit fallback path for OOM/timeout such as smaller batch size, accumulation, lower resolution, fewer epochs, or checkpoint resume.",
                 "When feasible, log resolved batch size, selected precision, elapsed time, throughput, and peak CUDA memory so later scheduler graph evidence can learn from this run.",
             ]
         )

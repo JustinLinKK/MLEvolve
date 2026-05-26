@@ -1,36 +1,38 @@
-# Baseline vs Hardware-Aware Mode Comparison
+# Origin vs Baseline vs Hardware-Aware Mode Comparison
 
-This report compares MLEvolve's `baseline` and `hardware_aware` experiment modes based on the current implementation. The main difference is not a separate static system prompt. Instead, hardware-aware behavior is assembled at runtime from configuration, scheduler attachment, hardware/profile context retrieval, and prompt sections injected into stage agents.
+This report compares MLEvolve's `origin`, `baseline`, and `hardware_aware` experiment modes based on the current implementation. The main differences are scheduler execution and hardware-aware prompt/context injection.
 
 ## Executive Summary
 
-| Area | `baseline` mode | `hardware_aware` mode |
-| --- | --- | --- |
-| Experiment switch | `experiment.mode=baseline` | `experiment.mode=hardware_aware` |
-| Hardware prompt context | Disabled | Enabled when scheduler client is attached |
-| Training prompt additions | No hardware-specific additions | Adds hardware-aware data/model/training guidance |
-| Scheduler evidence in prompts | Not injected | Injects graph evidence, vector/code evidence, recommendations, risk flags, and confidence |
-| Agent behavior goal | Solve task from task text, data preview, memory, and execution feedback | Solve task while considering hardware limits, runtime risk, OOM risk, precision, batch sizing, and profile evidence |
-| Scheduler execution | Enabled when config leaves `scheduler.enabled=true`; comparison helper keeps it enabled by default | Typically enabled |
-| Best for | Clean comparison with original MLEvolve behavior | Hardware-constrained runs, GPU-sensitive training, profiling-informed optimization |
+| Area | `origin` mode | `baseline` mode | `hardware_aware` mode |
+| --- | --- | --- | --- |
+| Experiment switch | `experiment.mode=origin` | `experiment.mode=baseline` | `experiment.mode=hardware_aware` |
+| Hardware prompt context | Disabled | Disabled | Enabled when scheduler client is attached |
+| Training prompt additions | No hardware-specific additions | No hardware-specific additions | Adds hardware-aware data/model/training guidance |
+| Scheduler evidence in prompts | Not injected | Not injected | Injects graph evidence, vector/code evidence, recommendations, risk flags, and confidence |
+| Scheduler execution | Disabled | Enabled when config leaves `scheduler.enabled=true`; comparison helper keeps it enabled by default | Typically enabled |
+| Best for | Original MLEvolve behavior without scheduler or hardware awareness | Scheduler-only comparison without hardware-aware prompts | Hardware-constrained runs, GPU-sensitive training, profiling-informed optimization |
 
 ## Where The Mode Is Selected
 
 The mode is selected through config or CLI overrides:
 
 ```bash
+python run.py experiment.mode=origin
 python run.py experiment.mode=baseline
 python run.py experiment.mode=hardware_aware
 ```
 
 The config schema defines `agent.hardware_context_enabled` with a default of `true` in `config/__init__.py`.
 
-When `experiment.mode=baseline`, config preparation forcibly disables hardware context:
+When `experiment.mode=origin` or `experiment.mode=baseline`, config preparation forcibly disables hardware context. `origin` also forces scheduler execution off:
 
 ```python
 cfg.experiment.mode = normalize_experiment_mode(cfg.experiment.mode)
-if cfg.experiment.mode == EXPERIMENT_MODE_BASELINE:
+if cfg.experiment.mode in {EXPERIMENT_MODE_ORIGIN, EXPERIMENT_MODE_BASELINE}:
     cfg.agent.hardware_context_enabled = False
+if cfg.experiment.mode == EXPERIMENT_MODE_ORIGIN:
+    cfg.scheduler.enabled = False
 ```
 
 Source: `config/__init__.py`.
@@ -57,7 +59,7 @@ It creates three step agents:
 | `model_design` | Define model architecture, loss, optimizer |
 | `training_evaluation` | Implement training loop, validation metric, best model saving, test inference, submission generation |
 
-The `training_evaluation` base prompt exists in both modes. In hardware-aware mode, additional hardware-specific guidance is appended.
+The `training_evaluation` base prompt exists in all modes. In hardware-aware mode, additional hardware-specific guidance is appended.
 
 ## Baseline Training Prompt Behavior
 
@@ -177,7 +179,7 @@ Important distinction:
 
 - `baseline` mode disables hardware prompt/context injection.
 - It does not disable the scheduler execution bridge if the config still has `scheduler.enabled=true`.
-- The comparison script keeps scheduler execution enabled for baseline by default so both modes use the same round-level execution flow; use `--disable-scheduler-baseline` only for legacy subprocess-only comparisons.
+- The comparison script keeps scheduler execution enabled for baseline by default, while origin disables it; use `--disable-scheduler-baseline` only for legacy subprocess-only baseline comparisons.
 
 Source: `run.py`.
 
@@ -256,6 +258,7 @@ For quick hardware-aware debugging, `dogs-vs-cats-redux-kernels-edition` is the 
 It prepares the Kaggle/MLE-bench competition, starts validation, and runs:
 
 ```bash
+experiment.mode=origin
 experiment.mode=baseline
 experiment.mode=hardware_aware
 ```
@@ -270,7 +273,7 @@ By default it also generates matplotlib comparison artifacts under:
 
 Those artifacts include `comparison_metrics.png`, `utilization_timeseries.png`, `comparison_summary.json`, and `comparison_summary.md`.
 
-The baseline run keeps `scheduler.enabled` unchanged by default so baseline prompts run without hardware context while still using scheduler-managed round execution. Use this flag only if you intentionally want the old subprocess-only baseline:
+The origin run forces `scheduler.enabled=false`, so it represents original MLEvolve behavior without scheduler-managed round execution or hardware-aware context. The baseline run keeps `scheduler.enabled` unchanged by default so baseline prompts run without hardware context while still using scheduler-managed round execution. Use this flag only if you intentionally want the scheduler disabled for baseline too:
 
 ```bash
 --disable-scheduler-baseline
@@ -278,7 +281,7 @@ The baseline run keeps `scheduler.enabled` unchanged by default so baseline prom
 
 ## What To Inspect In Outputs
 
-After both runs, compare:
+After all three runs, compare:
 
 | Artifact | What to look for |
 | --- | --- |
@@ -293,12 +296,13 @@ After both runs, compare:
 
 ## Summary
 
-The two modes share the same core search engine and base coding prompts. The difference is that `hardware_aware` mode adds both static hardware-aware guidance and dynamic scheduler-derived context to the prompts. Baseline mode suppresses those prompt additions, giving a cleaner task/data/memory/execution-feedback run.
+The three modes share the same core search engine and base coding prompts. The difference is how much hardware-aware infrastructure is active:
 
 The most important implementation distinction is:
 
 ```text
-baseline = no hardware prompt/context
+origin = no scheduler and no hardware prompt/context
+baseline = scheduler execution but no hardware prompt/context
 hardware_aware = hardware prompt/context plus scheduler evidence when available
 ```
 

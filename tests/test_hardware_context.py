@@ -5,15 +5,17 @@ from types import SimpleNamespace
 from agents.hardware_context import (
     CONSTRAINT_PRECEDENCE_RULE,
     EVIDENCE_NOT_LAW_RULE,
+    HARDWARE_BUDGET_GUARDRAIL_RULE,
     apply_hardware_context_to_node,
     compact_optimization_context,
     format_hardware_design_brief,
     format_hardware_prompt_section,
     get_hardware_design_brief,
     get_hardware_context_for_stage,
+    hardware_context_instructions,
     optimize_training_parameters_for_round,
 )
-from agents.coder.stepwise_coder import create_default_step_agents
+from agents.coder.stepwise_coder import _hardware_reasoning_enabled, create_default_step_agents
 from engine.script_introspection import introspect_training_script, normalized_mlevolve_script_signature
 from engine.search_node import Journal, SearchNode
 from utils.serialize import dumps_json, loads_json
@@ -23,10 +25,14 @@ def test_script_introspection_extracts_training_hints() -> None:
     code = """
 import torch
 import timm
-MODEL_NAME = "vit_base_patch16_224"
-BATCH_SIZE = 32
-EPOCHS = 4
-model = timm.create_model(MODEL_NAME)
+	MODEL_NAME = "vit_base_patch16_224"
+	BATCH_SIZE = 32
+	EPOCHS = 4
+	IMG_SIZE = 224
+	N_FOLDS = 5
+	ENSEMBLE_SIZE = 2
+	TTA_STEPS = 3
+	model = timm.create_model(MODEL_NAME)
 with torch.amp.autocast("cuda", dtype=torch.bfloat16):
     pass
 """
@@ -35,6 +41,10 @@ with torch.amp.autocast("cuda", dtype=torch.bfloat16):
 
     assert candidate["proposed_batch_size"] == 32
     assert candidate["proposed_epochs"] == 4
+    assert candidate["input_resolution"] == 224
+    assert candidate["fold_count"] == 5
+    assert candidate["ensemble_count"] == 2
+    assert candidate["tta_count"] == 3
     assert candidate["model_key"] == "vit_base_patch16_224"
     assert candidate["model_family"] == "transformer"
     assert candidate["framework"] == "pytorch"
@@ -54,6 +64,13 @@ def test_compact_context_formats_prompt_without_raw_bloat() -> None:
                 "gpu_name": "RTX Test",
                 "total_vram_mb": 49152,
                 "summary_text": "RTX Test with 49152 MiB VRAM",
+            },
+            "backend_capabilities": {
+                "mode": "auto",
+                "effective_mode": "parallel_auto_pack",
+                "backend_priority": ["stream_mps", "stream", "cuda_process", "exclusive"],
+                "enabled_backends": ["exclusive", "stream_mps", "stream", "cuda_process"],
+                "concurrent_backend_allowlist": ["stream_mps", "stream"],
             },
             "scheduler_limits": {"safe_vram_budget_mb": 30720, "max_packed_jobs_per_gpu": 2},
         },
@@ -99,10 +116,13 @@ def test_compact_context_formats_prompt_without_raw_bloat() -> None:
     assert "# Hardware/Profile Optimization Context" in prompt
     assert "RTX Test" in prompt
     assert "Use graph-recommended physical batch size 16" in prompt
+    assert "Scheduler backend config" in prompt
+    assert "stream_mps" in prompt
     assert "precision_not_optimized" in prompt
     assert "Use BF16 autocast" in prompt
     assert EVIDENCE_NOT_LAW_RULE in prompt
     assert CONSTRAINT_PRECEDENCE_RULE in prompt
+    assert HARDWARE_BUDGET_GUARDRAIL_RULE in prompt
     assert "raw_context" not in prompt
 
 
@@ -132,6 +152,7 @@ def test_hardware_design_brief_ranks_model_options_without_overriding_constraint
     assert "vision_transformer" in prompt
     assert "tensor-core-friendly" in prompt
     assert CONSTRAINT_PRECEDENCE_RULE in prompt
+    assert HARDWARE_BUDGET_GUARDRAIL_RULE in prompt
 
 
 def test_scheduler_lookup_is_non_fatal_and_uses_get_optimization_context() -> None:
@@ -140,10 +161,13 @@ def test_scheduler_lookup_is_non_fatal_and_uses_get_optimization_context() -> No
             self.calls = []
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
+                    mode="auto",
+                    backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
+                    concurrent_backend_allowlist=["stream_mps", "stream"],
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
-                        backend_allowlist=["cuda_process"],
+                        backend_allowlist=[],
                         batch_probe_model_key=None,
                     )
                 )
@@ -171,6 +195,9 @@ def test_scheduler_lookup_is_non_fatal_and_uses_get_optimization_context() -> No
     candidate, limit = agent.scheduler_client.calls[0]
     assert candidate["stage"] == "draft"
     assert candidate["task_type"] == "vision_training"
+    assert candidate["scheduler_mode"] == "auto"
+    assert candidate["scheduler_effective_mode"] == "parallel_auto_pack"
+    assert candidate["backend_preference"] == "stream_mps"
     assert limit == 3
     assert context.prompt_section
 
@@ -185,10 +212,13 @@ def test_hardware_design_brief_uses_scheduler_model_design_context() -> None:
             self.calls = []
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
+                    mode="auto",
+                    backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
+                    concurrent_backend_allowlist=["stream_mps", "stream"],
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
-                        backend_allowlist=["cuda_process"],
+                        backend_allowlist=[],
                         batch_probe_model_key=None,
                     )
                 )
@@ -239,10 +269,13 @@ def test_training_parameter_round_review_rewrites_safe_literals_and_records_deci
         def __init__(self) -> None:
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
+                    mode="auto",
+                    backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
+                    concurrent_backend_allowlist=["stream_mps", "stream"],
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
-                        backend_allowlist=["cuda_process"],
+                        backend_allowlist=[],
                         batch_probe_model_key=None,
                     )
                 )
@@ -294,16 +327,90 @@ def test_training_parameter_round_review_rewrites_safe_literals_and_records_deci
     assert node.hardware_decision["evidence_refs"] == ["graph:batch"]
 
 
+def test_training_parameter_round_review_does_not_increase_epochs() -> None:
+    class FakeScheduler:
+        def __init__(self) -> None:
+            self.settings = SimpleNamespace(
+                gpu_scheduler=SimpleNamespace(
+                    mode="auto",
+                    backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
+                    concurrent_backend_allowlist=["stream_mps", "stream"],
+                    submission_defaults=SimpleNamespace(
+                        requires_gpu=True,
+                        packing_family="mlevolve_script",
+                        backend_allowlist=[],
+                        batch_probe_model_key=None,
+                    )
+                )
+            )
+
+        def plan_job_packet(self, *, candidates, limit):
+            return {
+                "packet_id": "packet-test",
+                "jobs": [
+                    {
+                        "optimization_context": {
+                            "hardware_context": {"found": True},
+                            "recommendations": ["Use epoch budget 10 based on historical profile."],
+                            "evidence_refs": ["graph:epochs"],
+                            "confidence": 0.9,
+                        }
+                    }
+                ],
+                "confidence": 0.9,
+            }
+
+        def get_optimization_context(self, *, candidate, limit):
+            raise AssertionError("packet context should be used")
+
+    root = SearchNode(code="", plan="root", stage="root")
+    node = SearchNode(code="BATCH_SIZE = 8\nEPOCHS = 2\n", plan="draft", parent=root, stage="draft")
+    agent = SimpleNamespace(
+        scheduler_client=FakeScheduler(),
+        acfg=SimpleNamespace(
+            hardware_context_enabled=True,
+            hardware_context_limit=3,
+            hardware_context_max_prompt_chars=1000,
+        ),
+        cfg=SimpleNamespace(exp_id="task-a"),
+        task_desc="image classification",
+        data_preview="train_images",
+    )
+
+    decisions = optimize_training_parameters_for_round(agent, [node])
+
+    assert decisions
+    assert "EPOCHS = 2" in node.code
+    assert "epochs" not in node.hardware_decision["applied_params"]
+
+
+def test_hardware_prompt_text_forbids_budget_increases() -> None:
+    instructions = hardware_context_instructions()
+    text = "\n".join(item for values in instructions.values() for item in values)
+    agents = create_default_step_agents(hardware_aware=True)
+    all_guidelines = "\n".join(guideline for step_agent in agents for guideline in step_agent.guidelines)
+
+    assert "Do not increase epochs" in text
+    assert "current scheduler backend config" in text
+    assert "model size" in text
+    assert "Do NOT increase epochs" in all_guidelines
+    assert "Allowed hardware optimizations" in all_guidelines
+    assert "Scheduler-aware training" in all_guidelines
+
+
 def test_hardware_context_handles_unexecuted_root_parent() -> None:
     class FakeScheduler:
         def __init__(self) -> None:
             self.calls = []
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
+                    mode="auto",
+                    backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
+                    concurrent_backend_allowlist=["stream_mps", "stream"],
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
-                        backend_allowlist=["cuda_process"],
+                        backend_allowlist=[],
                         batch_probe_model_key=None,
                     )
                 )
@@ -359,6 +466,31 @@ def test_baseline_mode_disables_hardware_context_and_static_guidance() -> None:
 
     context = get_hardware_context_for_stage(agent, "draft")
     agents = create_default_step_agents(hardware_aware=False)
+    all_guidelines = "\n".join(guideline for step_agent in agents for guideline in step_agent.guidelines)
+
+    assert context.prompt_section == ""
+    assert "Hardware-aware" not in all_guidelines
+
+
+def test_origin_mode_disables_hardware_context_and_static_guidance() -> None:
+    class FakeScheduler:
+        def get_optimization_context(self, *, candidate, limit):
+            raise AssertionError("origin mode should not query scheduler hardware context")
+
+    agent = SimpleNamespace(
+        scheduler_client=FakeScheduler(),
+        acfg=SimpleNamespace(
+            hardware_context_enabled=True,
+            hardware_context_limit=3,
+            hardware_context_max_prompt_chars=1000,
+        ),
+        cfg=SimpleNamespace(experiment=SimpleNamespace(mode="origin"), exp_id="task-a"),
+        task_desc="image classification",
+        data_preview="train.csv and train_images",
+    )
+
+    context = get_hardware_context_for_stage(agent, "draft")
+    agents = create_default_step_agents(hardware_aware=_hardware_reasoning_enabled(agent))
     all_guidelines = "\n".join(guideline for step_agent in agents for guideline in step_agent.guidelines)
 
     assert context.prompt_section == ""

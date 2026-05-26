@@ -104,6 +104,10 @@ class _PreparedSchedulerJob:
     detected_batch_size: int | None
     proposed_epochs: int | None
     model_key: str | None
+    input_resolution: int | str | None
+    fold_count: int | None
+    ensemble_count: int | None
+    tta_count: int | None
     framework: str | None
     uses_amp: bool | None
     requires_gpu: bool | None
@@ -162,6 +166,7 @@ class Interpreter:
         self._scheduler_service = None
         self._scheduler_job_ids: set[str] = set()
         self._scheduler_jobs_lock = threading.Lock()
+        self._scheduler_submission_counter = 0
 
     def _format_scheduler_probe_event(self, event: dict[str, Any]) -> str | None:
         event_type = str(event.get("event_type", ""))
@@ -290,16 +295,7 @@ class Interpreter:
     def _normalized_raw_packing_defaults(self, submission_defaults: Any) -> tuple[bool, list[str]]:
         packing_eligible = bool(getattr(submission_defaults, "packing_eligible", False))
         configured_allowlist = getattr(submission_defaults, "backend_allowlist", None)
-        if not configured_allowlist:
-            configured_allowlist = ["mps", "cuda_process"]
-        supported_backends = {"mps", "cuda_process"}
-        normalized_allowlist = [str(name) for name in configured_allowlist if str(name) in supported_backends]
-        if packing_eligible and not normalized_allowlist:
-            logger.warning(
-                "Raw MLEvolve script jobs do not support the configured packed backends %r; disabling packing for this submission.",
-                list(configured_allowlist),
-            )
-            return False, []
+        normalized_allowlist = [str(name) for name in list(configured_allowlist or []) if str(name).strip()]
         return packing_eligible, normalized_allowlist
 
     def _stop_managed_scheduler_service(self) -> None:
@@ -487,6 +483,10 @@ class Interpreter:
                     resolved_batch_size=None,
                     proposed_epochs=prepared_job.proposed_epochs,
                     model_key=prepared_job.model_key,
+                    input_resolution=prepared_job.input_resolution,
+                    fold_count=prepared_job.fold_count,
+                    ensemble_count=prepared_job.ensemble_count,
+                    tta_count=prepared_job.tta_count,
                     framework=prepared_job.framework,
                     uses_amp=prepared_job.uses_amp,
                     requires_gpu=prepared_job.requires_gpu,
@@ -551,6 +551,10 @@ class Interpreter:
                     detected_batch_size=prepared_job.detected_batch_size,
                     proposed_epochs=prepared_job.proposed_epochs,
                     model_key=prepared_job.model_key,
+                    input_resolution=prepared_job.input_resolution,
+                    fold_count=prepared_job.fold_count,
+                    ensemble_count=prepared_job.ensemble_count,
+                    tta_count=prepared_job.tta_count,
                     framework=prepared_job.framework,
                     uses_amp=prepared_job.uses_amp,
                     requires_gpu=prepared_job.requires_gpu,
@@ -632,6 +636,10 @@ class Interpreter:
         detected_batch_size = script_metadata.get("proposed_batch_size") or _detect_initial_batch_size(code)
         proposed_epochs = script_metadata.get("proposed_epochs")
         model_key = script_metadata.get("model_key")
+        input_resolution = script_metadata.get("input_resolution")
+        fold_count = script_metadata.get("fold_count")
+        ensemble_count = script_metadata.get("ensemble_count")
+        tta_count = script_metadata.get("tta_count")
         framework = script_metadata.get("framework")
         uses_amp = script_metadata.get("uses_amp")
         requires_gpu = script_metadata.get("requires_gpu")
@@ -646,6 +654,10 @@ class Interpreter:
                 "detected_batch_size": detected_batch_size,
                 "proposed_epochs": proposed_epochs,
                 "model_key": model_key,
+                "input_resolution": input_resolution,
+                "fold_count": fold_count,
+                "ensemble_count": ensemble_count,
+                "tta_count": tta_count,
                 "framework": framework,
                 "uses_amp": uses_amp,
                 "requires_gpu": requires_gpu,
@@ -705,6 +717,10 @@ class Interpreter:
             "proposed_batch_size": detected_batch_size,
             "proposed_epochs": proposed_epochs,
             "model_key": model_key,
+            "input_resolution": input_resolution,
+            "fold_count": fold_count,
+            "ensemble_count": ensemble_count,
+            "tta_count": tta_count,
             "framework": framework,
             "uses_amp": uses_amp,
             "requires_gpu": requires_gpu,
@@ -745,6 +761,10 @@ class Interpreter:
             detected_batch_size=detected_batch_size,
             proposed_epochs=proposed_epochs,
             model_key=model_key,
+            input_resolution=input_resolution,
+            fold_count=fold_count,
+            ensemble_count=ensemble_count,
+            tta_count=tta_count,
             framework=framework,
             uses_amp=uses_amp,
             requires_gpu=requires_gpu,
@@ -781,6 +801,10 @@ class Interpreter:
             resolved_batch_size=resolved_batch_size,
             proposed_epochs=prepared_job.proposed_epochs,
             model_key=prepared_job.model_key,
+            input_resolution=prepared_job.input_resolution,
+            fold_count=prepared_job.fold_count,
+            ensemble_count=prepared_job.ensemble_count,
+            tta_count=prepared_job.tta_count,
             framework=prepared_job.framework,
             uses_amp=prepared_job.uses_amp,
             requires_gpu=prepared_job.requires_gpu,
@@ -887,20 +911,15 @@ class Interpreter:
         try:
             self._ensure_scheduler_service_available()
             with self.lock:
+                process_id = self._scheduler_submission_counter
+                self._scheduler_submission_counter += 1
                 self.current_parallel_run += 1
-                for idx in range(self.max_parallel_run):
-                    if self.status_map[idx] == 0:
-                        self.status_map[idx] = 1
-                        process_id = idx
-                        logger.info(f"Assigned scheduler submission slot: {process_id}")
-                        break
-                    elif idx == self.max_parallel_run - 1:
-                        logger.info("reach max process parallel number")
-                        raise ValueError("reach max process parallel number")
+                logger.info(f"Assigned scheduler submission slot: {process_id}")
 
             cpu_number_per_session = max(1, int(self.cpu_number / self.max_parallel_run))
             avail_cpus = self._available_cpus()
-            start = process_id * cpu_number_per_session
+            slot_index = int(process_id) % max(1, self.max_parallel_run)
+            start = slot_index * cpu_number_per_session
             cpu_set = set(avail_cpus[start:start + cpu_number_per_session])
             if not cpu_set:
                 cpu_set = set(avail_cpus)
@@ -914,13 +933,18 @@ class Interpreter:
 
             run_wd = Path(working_dir).resolve() if working_dir is not None else self.working_dir
             run_wd.mkdir(parents=True, exist_ok=True)
-            runfile_path = run_wd / self.agent_file_name[process_id]
+            safe_node_id = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(id))[:80]
+            runfile_path = run_wd / f"runfile_scheduler_{process_id}_{safe_node_id}_{uuid.uuid4().hex}.py"
             runfile_path.write_text(code, encoding="utf-8")
             script_metadata = _introspect_training_script(code)
             script_signature = script_metadata.get("script_signature") or _normalized_mlevolve_script_signature(code)
             detected_batch_size = script_metadata.get("proposed_batch_size")
             proposed_epochs = script_metadata.get("proposed_epochs")
             model_key = script_metadata.get("model_key")
+            input_resolution = script_metadata.get("input_resolution")
+            fold_count = script_metadata.get("fold_count")
+            ensemble_count = script_metadata.get("ensemble_count")
+            tta_count = script_metadata.get("tta_count")
             framework = script_metadata.get("framework")
             uses_amp = script_metadata.get("uses_amp")
             requires_gpu = script_metadata.get("requires_gpu")
@@ -935,6 +959,10 @@ class Interpreter:
                     "detected_batch_size": detected_batch_size,
                     "proposed_epochs": proposed_epochs,
                     "model_key": model_key,
+                    "input_resolution": input_resolution,
+                    "fold_count": fold_count,
+                    "ensemble_count": ensemble_count,
+                    "tta_count": tta_count,
                     "framework": framework,
                     "uses_amp": uses_amp,
                     "requires_gpu": requires_gpu,
@@ -997,6 +1025,10 @@ class Interpreter:
                 "detected_batch_size": detected_batch_size,
                 "proposed_epochs": proposed_epochs,
                 "model_key": model_key,
+                "input_resolution": input_resolution,
+                "fold_count": fold_count,
+                "ensemble_count": ensemble_count,
+                "tta_count": tta_count,
                 "framework": framework,
                 "uses_amp": uses_amp,
                 "requires_gpu": requires_gpu,
@@ -1039,6 +1071,10 @@ class Interpreter:
                 resolved_batch_size=None,
                 proposed_epochs=proposed_epochs,
                 model_key=model_key,
+                input_resolution=input_resolution,
+                fold_count=fold_count,
+                ensemble_count=ensemble_count,
+                tta_count=tta_count,
                 framework=framework,
                 uses_amp=uses_amp,
                 requires_gpu=requires_gpu,
@@ -1079,6 +1115,10 @@ class Interpreter:
                     detected_batch_size=detected_batch_size,
                     proposed_epochs=proposed_epochs,
                     model_key=model_key,
+                    input_resolution=input_resolution,
+                    fold_count=fold_count,
+                    ensemble_count=ensemble_count,
+                    tta_count=tta_count,
                     framework=framework,
                     uses_amp=uses_amp,
                     requires_gpu=requires_gpu,
@@ -1119,6 +1159,10 @@ class Interpreter:
                 resolved_batch_size=resolved_batch_size,
                 proposed_epochs=proposed_epochs,
                 model_key=model_key,
+                input_resolution=input_resolution,
+                fold_count=fold_count,
+                ensemble_count=ensemble_count,
+                tta_count=tta_count,
                 framework=framework,
                 uses_amp=uses_amp,
                 requires_gpu=requires_gpu,
@@ -1194,7 +1238,6 @@ class Interpreter:
                 logger.warning(f"Failed to remove scheduler runfile after execution: {e}")
             with self.lock:
                 if process_id is not None:
-                    self.status_map[process_id] = 0
                     self.current_parallel_run -= 1
 
     def _run_subprocess(self, code: str, id, working_dir: str | None = None):

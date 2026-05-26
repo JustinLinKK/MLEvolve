@@ -10,6 +10,8 @@ from typing import Any
 import json
 import time
 
+from engine.script_introspection import introspect_training_script
+
 
 def build_comparison_metrics(
     cfg: Any,
@@ -41,6 +43,7 @@ def build_comparison_metrics(
     scheduler_job_times = [_job_duration_seconds(job) for job in scheduler_jobs]
     scheduler_job_times = [value for value in scheduler_job_times if value is not None]
     job_times = scheduler_job_times or node_exec_times
+    best_training_intent = _training_intent(best_node)
 
     batch_probe_hit_count = sum(1 for event in scheduler_events if event.get("event_type") == "batch_probe_cache_hit")
     batch_probe_trial_count = sum(1 for event in scheduler_events if event.get("event_type") == "batch_probe_trial")
@@ -66,9 +69,21 @@ def build_comparison_metrics(
         "time_to_best_seconds": _time_to_best(best_node, started_at) if best_node else None,
         "nodes_to_best": getattr(best_node, "step", None) if best_node else None,
         "jobs_per_hour": (len(nodes) / (total_wall_time / 3600.0)) if total_wall_time > 0 else None,
+        "queue_wait_seconds": _queue_wait_seconds(scheduler_jobs),
+        "probe_time_seconds": _probe_time_seconds(scheduler_events),
+        "execution_time_seconds": sum(job_times),
+        "placement_backend": _dominant_placement_value(scheduler_jobs, scheduler_events, "backend"),
+        "placement_mode": _dominant_placement_value(scheduler_jobs, scheduler_events, "mode"),
         "packed_dispatch_count": _packed_dispatch_count(scheduler_jobs, scheduler_events),
         "batch_probe_hit_count": batch_probe_hit_count,
         "batch_probe_trial_count": batch_probe_trial_count,
+        "concurrent_gpu_active_seconds": _concurrent_gpu_active_seconds(scheduler_jobs),
+        "model_key": best_training_intent.get("model_key"),
+        "proposed_epochs": best_training_intent.get("proposed_epochs"),
+        "input_resolution": best_training_intent.get("input_resolution"),
+        "fold_count": best_training_intent.get("fold_count"),
+        "ensemble_count": best_training_intent.get("ensemble_count"),
+        "tta_count": best_training_intent.get("tta_count"),
         "timeout_failures": timeout_failures,
         "oom_failures": oom_failures,
         "peak_vram_mb": max(vram_values) if vram_values else None,
@@ -138,6 +153,65 @@ def _job_duration_seconds(job: dict[str, Any]) -> float | None:
     if not started or not finished:
         return None
     return max(0.0, (finished - started).total_seconds())
+
+
+def _timestamp_seconds(value: Any) -> float | None:
+    parsed = _parse_time(value)
+    if parsed is None:
+        return None
+    return parsed.timestamp()
+
+
+def _queue_wait_seconds(jobs: list[dict[str, Any]]) -> float:
+    total = 0.0
+    for job in jobs:
+        submitted = _parse_time(job.get("submitted_at") or (job.get("status_timestamps") or {}).get("pending"))
+        started = _parse_time(job.get("started_at") or (job.get("status_timestamps") or {}).get("running"))
+        if submitted and started:
+            total += max(0.0, (started - submitted).total_seconds())
+    return total
+
+
+def _probe_time_seconds(events: list[dict[str, Any]]) -> float:
+    started_by_job: dict[str, datetime] = {}
+    total = 0.0
+    for event in events:
+        event_type = str(event.get("event_type") or "")
+        job_id = str(event.get("job_id") or "")
+        created_at = _parse_time(event.get("created_at"))
+        if not job_id or created_at is None:
+            continue
+        if event_type == "batch_probe_started":
+            started_by_job[job_id] = created_at
+        elif event_type in {"batch_probe_selected", "batch_probe_failed"} and job_id in started_by_job:
+            total += max(0.0, (created_at - started_by_job.pop(job_id)).total_seconds())
+    return total
+
+
+def _concurrent_gpu_active_seconds(jobs: list[dict[str, Any]]) -> float:
+    points: list[tuple[float, int]] = []
+    for job in jobs:
+        started = _timestamp_seconds(job.get("started_at") or (job.get("status_timestamps") or {}).get("running"))
+        finished = _timestamp_seconds(job.get("finished_at"))
+        metadata = job.get("metadata") or {}
+        if started is None or finished is None:
+            continue
+        if not (metadata.get("placement_backend") or metadata.get("backend_name")):
+            continue
+        if finished <= started:
+            continue
+        points.append((started, 1))
+        points.append((finished, -1))
+    points.sort(key=lambda item: item[0])
+    active = 0
+    previous: float | None = None
+    total = 0.0
+    for timestamp, delta in points:
+        if previous is not None and active >= 2:
+            total += max(0.0, timestamp - previous)
+        active += delta
+        previous = timestamp
+    return total
 
 
 def _count_failures(nodes: list[Any], jobs: list[dict[str, Any]], *needles: str) -> int:
@@ -216,20 +290,78 @@ def _backend_distribution(jobs: list[dict[str, Any]], events: list[dict[str, Any
     return distribution
 
 
+def _dominant_placement_value(jobs: list[dict[str, Any]], events: list[dict[str, Any]], field: str) -> str | None:
+    counter: Counter = Counter()
+    metadata_key = "placement_backend" if field == "backend" else "placement_mode"
+    event_keys = ("backend_name", "placement_backend") if field == "backend" else ("placement_mode", "mode")
+    for job in jobs:
+        metadata = job.get("metadata") or {}
+        value = metadata.get(metadata_key)
+        if value:
+            counter[str(value)] += 1
+    for event in events:
+        if event.get("event_type") not in {"job_dispatched", "packed_pair_dispatched", "packed_group_dispatched", "scheduler_placement"}:
+            continue
+        payload = event.get("payload") or {}
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except json.JSONDecodeError:
+                payload = {}
+        value = next((payload.get(key) for key in event_keys if payload.get(key)), None)
+        if value:
+            counter[str(value)] += 1
+    if not counter:
+        return None
+    return counter.most_common(1)[0][0]
+
+
 def _packed_dispatch_count(jobs: list[dict[str, Any]], events: list[dict[str, Any]]) -> int:
+    packed_events = sum(
+        1
+        for event in events
+        if event.get("event_type")
+        in {"packed_dispatch", "job_packed", "scheduler_packed_dispatch", "packed_pair_dispatched", "packed_group_dispatched"}
+    )
+    if packed_events:
+        return packed_events
     packed = 0
     for job in jobs:
         packing = job.get("packing") or {}
         metadata = job.get("metadata") or {}
         if packing.get("eligible") and (metadata.get("packed") or metadata.get("placement_backend") in {"mps", "stream", "cuda_process"}):
             packed += 1
-    packed += sum(1 for event in events if event.get("event_type") in {"packed_dispatch", "job_packed", "scheduler_packed_dispatch"})
     return packed
 
 
 def _time_to_best(best_node: Any, started_at: float) -> float | None:
-    ctime = getattr(best_node, "ctime", None)
+    completion_time = _node_completion_timestamp(best_node)
     try:
-        return max(0.0, float(ctime) - float(started_at))
+        return max(0.0, float(completion_time) - float(started_at))
     except (TypeError, ValueError):
         return None
+
+
+def _node_completion_timestamp(node: Any) -> float | None:
+    finish_time = getattr(node, "finish_time", None)
+    parsed = _parse_time(finish_time)
+    if parsed is not None:
+        return parsed.timestamp()
+    ctime = getattr(node, "ctime", None)
+    exec_time = getattr(node, "exec_time", None)
+    try:
+        base = float(ctime)
+        if exec_time is not None:
+            return base + max(0.0, float(exec_time))
+        return base
+    except (TypeError, ValueError):
+        return None
+
+
+def _training_intent(node: Any | None) -> dict[str, Any]:
+    if node is None:
+        return {}
+    try:
+        return introspect_training_script(getattr(node, "code", "") or "")
+    except Exception:
+        return {}

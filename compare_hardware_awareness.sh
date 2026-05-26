@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Prepare one Kaggle/MLE-bench competition, then run MLEvolve twice:
-# once in baseline mode and once in hardware-aware mode.
+# Prepare one Kaggle/MLE-bench competition, then run MLEvolve three ways:
+# origin, baseline, and hardware-aware mode.
 #
 # Example:
 #   bash compare_hardware_awareness.sh dogs-vs-cats-redux-kernels-edition \
@@ -16,8 +16,9 @@ Usage:
 
 The script follows the README boot flow:
   1. prepare an MLE-bench competition dataset with Kaggle credentials;
-  2. run the same prepared competition through MLEvolve in baseline mode;
-  3. run it again in hardware_aware mode.
+  2. run the same prepared competition through original MLEvolve mode;
+  3. run it again in baseline mode;
+  4. run it again in hardware_aware mode.
 
 Required:
   <competition-id>            Kaggle/MLE-bench competition slug, e.g. dogs-vs-cats-redux-kernels-edition.
@@ -30,7 +31,7 @@ Options:
   --server-id N               Validation server id. Port is 5005 + N. Defaults to 111.
   --steps N                   Agent steps for each mode. Defaults to 1.
   --initial-drafts N          Initial drafts for each mode. Defaults to 0.
-  --seed N                    Shared seed for both modes. Defaults to 42.
+  --seed N                    Shared seed for all modes. Defaults to 42.
   --timeout-seconds N         Per-mode timeout. 0 disables timeout. Defaults to 0.
   --memory-index N            CUDA_VISIBLE_DEVICES value. Defaults to 0.
   --start-cpu-id N            start_cpu_id override. Defaults to 0.
@@ -38,16 +39,21 @@ Options:
   --skip-prepare              Reuse an existing prepared dataset.
   --keep-raw                  Keep raw MLE-bench download files after prepare.
   --verify-checksums          Let mlebench verify checksums. Default skips verification.
-  --hardware-first            Run hardware_aware before baseline.
+  --hardware-first            Run hardware_aware, then baseline, then origin.
   --disable-scheduler-baseline
-                              Disable scheduler execution for baseline. By default both modes use scheduler rounds.
+                              Disable scheduler execution for baseline. By default baseline and hardware_aware use scheduler rounds.
   --no-validation-server      Do not start engine.validation.format_server.
   --plot-output-dir PATH      Graph output directory. Defaults to <run-root>/comparison_plots.
-  --skip-plots, --no-plots    Do not generate comparison graph images after both runs.
+  --skip-plots, --no-plots    Do not generate comparison graph images after all runs.
   --dry-run                   Print commands without preparing or running.
   -h, --help                  Show this help.
 
-Extra overrides after -- are appended to both run.py invocations exactly as provided.
+Modes:
+  origin                      Original MLEvolve behavior: no scheduler and no hardware-aware context.
+  baseline                    No hardware-aware context; scheduler remains enabled by default.
+  hardware_aware              Scheduler plus hardware-aware context.
+
+Extra overrides after -- are appended to every run.py invocation exactly as provided.
 EOF
 }
 
@@ -369,6 +375,9 @@ run_mode() {
     "scheduler.runtime_root=$scheduler_runtime"
   )
 
+  if [[ "$mode" == "origin" ]]; then
+    cmd+=("scheduler.enabled=false")
+  fi
   if [[ "$mode" == "baseline" && "$DISABLE_SCHEDULER_BASELINE" -eq 1 ]]; then
     cmd+=("scheduler.enabled=false")
   fi
@@ -469,9 +478,9 @@ fi
 
 start_validation_server
 
-MODE_ORDER=("baseline" "hardware_aware")
+MODE_ORDER=("origin" "baseline" "hardware_aware")
 if [[ "$HARDWARE_FIRST" -eq 1 ]]; then
-  MODE_ORDER=("hardware_aware" "baseline")
+  MODE_ORDER=("hardware_aware" "baseline" "origin")
 fi
 
 OVERALL_EXIT=0
@@ -486,7 +495,7 @@ generate_plots
 {
   echo
   echo "results:"
-  for mode in baseline hardware_aware; do
+  for mode in origin baseline hardware_aware; do
     if [[ -f "$RUN_ROOT/$mode/exit_code.txt" ]]; then
       echo "  $mode: $(cat "$RUN_ROOT/$mode/exit_code.txt")"
     else

@@ -147,6 +147,19 @@ def test_env_and_cli_overrides_still_win(monkeypatch, tmp_path: Path) -> None:
     assert cfg.agent.steps == 7
 
 
+def test_origin_mode_disables_hardware_context_and_scheduler(monkeypatch, tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    _write_config(path, marker="root")
+    monkeypatch.setenv("MLEVOLVE_EXPERIMENT_MODE", "origin")
+    monkeypatch.setattr(sys, "argv", ["prog"])
+
+    cfg = mle_config.prep_cfg(mle_config._load_cfg(path, use_cli_args=True))
+
+    assert cfg.experiment.mode == "origin"
+    assert cfg.agent.hardware_context_enabled is False
+    assert cfg.scheduler.enabled is False
+
+
 def test_scheduler_settings_prefer_nested_config(tmp_path: Path) -> None:
     cfg = SimpleNamespace(workspace_dir=tmp_path / "workspace")
     scheduler_cfg = SimpleNamespace(

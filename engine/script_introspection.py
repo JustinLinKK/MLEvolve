@@ -25,6 +25,43 @@ EPOCH_PARAM_NAMES = (
     "max_epochs",
 )
 
+RESOLUTION_PARAM_NAMES = (
+    "IMG_SIZE",
+    "IMAGE_SIZE",
+    "INPUT_SIZE",
+    "RESOLUTION",
+    "img_size",
+    "image_size",
+    "input_size",
+    "resize_size",
+)
+
+FOLD_PARAM_NAMES = (
+    "N_FOLDS",
+    "NUM_FOLDS",
+    "K_FOLDS",
+    "n_folds",
+    "num_folds",
+    "fold_count",
+)
+
+ENSEMBLE_PARAM_NAMES = (
+    "ENSEMBLE_SIZE",
+    "NUM_MODELS",
+    "N_MODELS",
+    "ensemble_count",
+    "num_models",
+)
+
+TTA_PARAM_NAMES = (
+    "TTA_STEPS",
+    "TTA_COUNT",
+    "N_TTA",
+    "tta_steps",
+    "tta_count",
+    "num_tta",
+)
+
 MODEL_PARAM_NAMES = (
     "MODEL_NAME",
     "model_name",
@@ -42,6 +79,22 @@ _BATCH_PARAM_PATTERN = re.compile(
 _EPOCH_PARAM_PATTERN = re.compile(
     rf"\b(?:{'|'.join(re.escape(name) for name in EPOCH_PARAM_NAMES)})\b\s*=\s*(\d+)"
 )
+_RESOLUTION_TUPLE_PATTERN = re.compile(
+    rf"\b(?:{'|'.join(re.escape(name) for name in RESOLUTION_PARAM_NAMES)})\b\s*=\s*\(?\s*(\d+)\s*,\s*(\d+)"
+)
+_RESOLUTION_SINGLE_PATTERN = re.compile(
+    rf"\b(?:{'|'.join(re.escape(name) for name in RESOLUTION_PARAM_NAMES)})\b\s*=\s*(\d+)"
+)
+_FOLD_PARAM_PATTERN = re.compile(
+    rf"\b(?:{'|'.join(re.escape(name) for name in FOLD_PARAM_NAMES)})\b\s*=\s*(\d+)"
+)
+_ENSEMBLE_PARAM_PATTERN = re.compile(
+    rf"\b(?:{'|'.join(re.escape(name) for name in ENSEMBLE_PARAM_NAMES)})\b\s*=\s*(\d+)"
+)
+_TTA_PARAM_PATTERN = re.compile(
+    rf"\b(?:{'|'.join(re.escape(name) for name in TTA_PARAM_NAMES)})\b\s*=\s*(\d+)"
+)
+_TTA_BOOL_PATTERN = re.compile(r"\b(?:USE_TTA|use_tta|tta)\b\s*=\s*True\b")
 _MODEL_PARAM_PATTERN = re.compile(
     rf"\b(?:{'|'.join(re.escape(name) for name in MODEL_PARAM_NAMES)})\b\s*=\s*['\"]([^'\"]+)['\"]"
 )
@@ -77,6 +130,43 @@ def detect_epoch_count(code: str) -> int | None:
     if not match:
         return None
     return _safe_int(match.group(1))
+
+
+def detect_input_resolution(code: str) -> int | str | None:
+    code = code or ""
+    tuple_match = _RESOLUTION_TUPLE_PATTERN.search(code)
+    if tuple_match:
+        height = _safe_int(tuple_match.group(1))
+        width = _safe_int(tuple_match.group(2))
+        if height is not None and width is not None:
+            return height if height == width else f"{height}x{width}"
+    single_match = _RESOLUTION_SINGLE_PATTERN.search(code)
+    if not single_match:
+        return None
+    return _safe_int(single_match.group(1))
+
+
+def detect_fold_count(code: str) -> int | None:
+    match = _FOLD_PARAM_PATTERN.search(code or "")
+    if not match:
+        return None
+    return _safe_int(match.group(1))
+
+
+def detect_ensemble_count(code: str) -> int | None:
+    match = _ENSEMBLE_PARAM_PATTERN.search(code or "")
+    if not match:
+        return None
+    return _safe_int(match.group(1))
+
+
+def detect_tta_count(code: str) -> int | None:
+    match = _TTA_PARAM_PATTERN.search(code or "")
+    if match:
+        return _safe_int(match.group(1))
+    if _TTA_BOOL_PATTERN.search(code or ""):
+        return 1
+    return None
 
 
 def detect_model_key(code: str) -> str | None:
@@ -160,6 +250,10 @@ def introspect_training_script(code: str) -> dict[str, Any]:
         "model_family": infer_model_family(model_key, code),
         "proposed_batch_size": detect_initial_batch_size(code),
         "proposed_epochs": detect_epoch_count(code),
+        "input_resolution": detect_input_resolution(code),
+        "fold_count": detect_fold_count(code),
+        "ensemble_count": detect_ensemble_count(code),
+        "tta_count": detect_tta_count(code),
         "requires_gpu": detect_requires_gpu(code),
         "script_signature": normalized_mlevolve_script_signature(code) if code.strip() else None,
         "uses_amp": detect_uses_amp(code),

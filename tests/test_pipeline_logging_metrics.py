@@ -81,6 +81,6 @@ def test_comparison_metrics_generation_and_compare(tmp_path: Path) -> None:
     assert metrics["mode"] == "hardware_aware"
     assert metrics["node_count"] == 1
     assert metrics["best_metric"] == 0.8
-    assert metrics["time_to_best_seconds"] == 5
+    assert metrics["time_to_best_seconds"] == 12
     assert comparison["metrics"]["best_metric"]["delta"] == 0.30000000000000004
     assert "| `best_metric` |" in markdown

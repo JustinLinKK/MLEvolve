@@ -23,6 +23,11 @@ CONSTRAINT_PRECEDENCE_RULE = (
     "Do not invent Kaggle input paths, local checkpoints, torch hub directories, or placeholder weights; use only "
     "paths and model sources that are explicitly available in the prompt/config."
 )
+HARDWARE_BUDGET_GUARDRAIL_RULE = (
+    "For hardware/runtime optimization, preserve the parent solution's modeling budget unless the user explicitly "
+    "asks to improve score. Do not increase epochs, folds, model size, input resolution, ensemble count, TTA, "
+    "dataset size, or validation workload as a hardware-only optimization."
+)
 
 
 @dataclass
@@ -44,6 +49,8 @@ def hardware_context_instructions(context: HardwarePromptContext | None = None) 
         "Hardware/Profile reasoning rule": [
             EVIDENCE_NOT_LAW_RULE,
             CONSTRAINT_PRECEDENCE_RULE,
+            HARDWARE_BUDGET_GUARDRAIL_RULE,
+            "Use the current scheduler backend config from the hardware context as the execution contract; do not hardcode CUDA process, CUDA stream, MPS, or any other backend in generated code.",
             "Prefer scheduler-compatible code with configurable batch size, precision, dataloader workers, checkpoints, and runtime logging when using GPU training.",
         ]
     }
@@ -247,9 +254,13 @@ def optimize_training_parameters_for_round(agent: Any, nodes: list[Any]) -> list
             "batch_size": candidate.get("proposed_batch_size"),
             "epochs": candidate.get("proposed_epochs"),
         }
+        recommended_epochs = _recommended_epochs(compact)
+        original_epochs = _safe_int(candidate.get("proposed_epochs"), default=None)
+        if recommended_epochs is not None and (original_epochs is None or recommended_epochs > original_epochs):
+            recommended_epochs = None
         chosen_params = {
             "batch_size": _recommended_batch_size(compact),
-            "epochs": _recommended_epochs(compact),
+            "epochs": recommended_epochs,
         }
         updated_code, applied = _rewrite_training_params(original_code, chosen_params)
         if applied:
@@ -315,6 +326,18 @@ def build_hardware_candidate(
             candidate.setdefault("backend_preference", backend_allowlist[0])
         if not candidate.get("model_key") and getattr(scheduler_defaults, "batch_probe_model_key", None):
             candidate["model_key"] = getattr(scheduler_defaults, "batch_probe_model_key")
+    scheduler_backend_config = _scheduler_backend_config(getattr(agent, "scheduler_client", None))
+    if scheduler_backend_config:
+        candidate.setdefault("scheduler_mode", scheduler_backend_config.get("mode"))
+        candidate.setdefault("scheduler_effective_mode", scheduler_backend_config.get("effective_mode"))
+        if not candidate.get("backend_preference"):
+            backend_priority = [
+                backend_name
+                for backend_name in list(scheduler_backend_config.get("backend_priority") or [])
+                if backend_name != "exclusive"
+            ]
+            if backend_priority:
+                candidate["backend_preference"] = backend_priority[0]
 
     if not candidate.get("model_key"):
         exp_id = getattr(getattr(agent, "cfg", None), "exp_id", None) or "mlevolve"
@@ -391,9 +414,27 @@ def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 35
     hardware = compact.get("hardware_context") or {}
     if hardware:
         lines.append(f"- Hardware: {hardware.get('summary') or 'current hardware'}")
+        backend = hardware.get("backend_capabilities") or {}
+        if backend:
+            backend_bits = _format_kv(
+                backend,
+                (
+                    "mode",
+                    "effective_mode",
+                    "backend_priority",
+                    "enabled_backends",
+                    "concurrent_groups_enabled",
+                    "concurrent_backend_allowlist",
+                ),
+            )
+            if backend_bits:
+                lines.append(f"- Scheduler backend config: {backend_bits}")
         limits = hardware.get("scheduler_limits") or {}
         if limits:
-            limit_bits = _format_kv(limits, ("safe_vram_budget_mb", "max_packed_jobs_per_gpu", "mode"))
+            limit_bits = _format_kv(
+                limits,
+                ("safe_vram_budget_mb", "max_packed_jobs_per_gpu", "mode", "effective_mode", "backend_priority"),
+            )
             if limit_bits:
                 lines.append(f"- Scheduler limits: {limit_bits}")
     workload = compact.get("workload_type")
@@ -430,6 +471,7 @@ def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 35
         "baseline-compatible architecture."
     )
     lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
+    lines.append(f"- Budget guardrail: {HARDWARE_BUDGET_GUARDRAIL_RULE}")
     text = "\n".join(lines).strip()
     if len(text) > max_chars:
         text = text[: max(0, max_chars - 48)].rstrip() + "\n... [hardware design brief truncated]"
@@ -444,9 +486,27 @@ def format_hardware_prompt_section(compact: dict[str, Any], *, max_chars: int = 
     hardware = compact.get("hardware_context") or {}
     if hardware:
         lines.append(f"- Hardware: {hardware.get('summary') or 'current hardware'}")
+        backend = hardware.get("backend_capabilities") or {}
+        if backend:
+            backend_bits = _format_kv(
+                backend,
+                (
+                    "mode",
+                    "effective_mode",
+                    "backend_priority",
+                    "enabled_backends",
+                    "concurrent_groups_enabled",
+                    "concurrent_backend_allowlist",
+                ),
+            )
+            if backend_bits:
+                lines.append(f"- Scheduler backend config: {backend_bits}")
         limits = hardware.get("scheduler_limits") or {}
         if limits:
-            limit_bits = _format_kv(limits, ("safe_vram_budget_mb", "max_packed_jobs_per_gpu", "mode"))
+            limit_bits = _format_kv(
+                limits,
+                ("safe_vram_budget_mb", "max_packed_jobs_per_gpu", "mode", "effective_mode", "backend_priority"),
+            )
             if limit_bits:
                 lines.append(f"- Scheduler limits: {limit_bits}")
 
@@ -482,6 +542,7 @@ def format_hardware_prompt_section(compact: dict[str, Any], *, max_chars: int = 
     lines.append(f"- Confidence: {compact.get('confidence', 0.0)}")
     lines.append(f"- Rule: {EVIDENCE_NOT_LAW_RULE}")
     lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
+    lines.append(f"- Budget guardrail: {HARDWARE_BUDGET_GUARDRAIL_RULE}")
 
     text = "\n".join(lines).strip()
     if len(text) > max_chars:
@@ -506,7 +567,7 @@ def _hardware_context_enabled(agent: Any) -> bool:
     cfg = getattr(agent, "cfg", None)
     experiment = getattr(cfg, "experiment", None)
     mode = str(getattr(experiment, "mode", "") or "").strip().lower().replace("-", "_")
-    if mode == "baseline":
+    if mode in {"origin", "baseline"}:
         return False
     acfg = getattr(agent, "acfg", None)
     return bool(getattr(acfg, "hardware_context_enabled", True))
@@ -530,6 +591,28 @@ def _scheduler_submission_defaults(scheduler_client: Any | None) -> Any | None:
     return getattr(gpu_scheduler, "submission_defaults", None)
 
 
+def _scheduler_backend_config(scheduler_client: Any | None) -> dict[str, Any]:
+    if scheduler_client is None:
+        return {}
+    settings = getattr(scheduler_client, "settings", None)
+    gpu_scheduler = getattr(settings, "gpu_scheduler", None)
+    if gpu_scheduler is None:
+        return {}
+    mode = getattr(gpu_scheduler, "mode", None)
+    try:
+        from localml_scheduler.config import effective_scheduler_mode
+
+        effective_mode = effective_scheduler_mode(mode)
+    except Exception:
+        effective_mode = mode
+    return {
+        "mode": mode,
+        "effective_mode": effective_mode,
+        "backend_priority": list(getattr(gpu_scheduler, "backend_priority", []) or []),
+        "concurrent_backend_allowlist": list(getattr(gpu_scheduler, "concurrent_backend_allowlist", []) or []),
+    }
+
+
 def _compact_hardware_context(context: dict[str, Any]) -> dict[str, Any]:
     hardware = dict(context.get("hardware") or {})
     toolkit = dict(context.get("toolkit") or {})
@@ -544,8 +627,25 @@ def _compact_hardware_context(context: dict[str, Any]) -> dict[str, Any]:
             ("hardware_key", "gpu_name", "total_vram_mb", "compute_capability", "toolkit_name", "toolkit_version", "torch_version"),
         ),
         "toolkit": _pick(toolkit, ("toolkit_name", "toolkit_version", "torch_version")),
-        "backend_capabilities": _pick(backend, ("mode", "backend_priority", "mps_available", "cuda_process_available", "stream_available")),
-        "scheduler_limits": _pick(limits, ("safe_vram_budget_mb", "max_packed_jobs_per_gpu", "mode")),
+        "backend_capabilities": _pick(
+            backend,
+            (
+                "mode",
+                "effective_mode",
+                "backend_priority",
+                "enabled_backends",
+                "stream_mps_available",
+                "stream_available",
+                "mps_available",
+                "cuda_process_available",
+                "concurrent_groups_enabled",
+                "concurrent_backend_allowlist",
+            ),
+        ),
+        "scheduler_limits": _pick(
+            limits,
+            ("safe_vram_budget_mb", "max_packed_jobs_per_gpu", "mode", "effective_mode", "backend_priority", "concurrent_backend_allowlist"),
+        ),
     }
     return {key: value for key, value in compact.items() if value not in (None, {}, [], "")}
 

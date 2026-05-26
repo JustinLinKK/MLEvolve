@@ -1,4 +1,4 @@
-"""Plot baseline vs hardware-aware MLEvolve comparison metrics."""
+"""Plot origin vs baseline vs hardware-aware MLEvolve comparison metrics."""
 
 from __future__ import annotations
 
@@ -24,15 +24,21 @@ except ImportError as exc:  # pragma: no cover - exercised by runtime environmen
     ) from exc
 
 
-DEFAULT_MODES = ("baseline", "hardware_aware")
+DEFAULT_MODES = ("origin", "baseline", "hardware_aware")
 
 SUMMARY_METRICS = [
     ("total_wall_time_seconds", "Total wall time (s)"),
     ("total_job_execution_time_seconds", "Job exec total (s)"),
     ("median_job_execution_time_seconds", "Median job time (s)"),
     ("time_to_best_seconds", "Time to best (s)"),
+    ("queue_wait_seconds", "Queue wait (s)"),
+    ("probe_time_seconds", "Probe/calibration time (s)"),
+    ("execution_time_seconds", "Execution time (s)"),
+    ("concurrent_gpu_active_seconds", "Concurrent GPU-active time (s)"),
     ("jobs_per_hour", "Jobs per hour"),
     ("best_metric", "Best metric"),
+    ("packed_dispatch_count", "Packed dispatches"),
+    ("batch_probe_trial_count", "Probe trials"),
     ("node_count", "Nodes"),
     ("valid_count", "Valid nodes"),
     ("buggy_count", "Buggy nodes"),
@@ -47,6 +53,12 @@ SUMMARY_METRICS = [
     ("avg_gpu_memory_percent", "Avg GPU memory (%)"),
     ("max_gpu_memory_percent", "Max GPU memory (%)"),
     ("peak_gpu_memory_used_mb", "Peak GPU memory (MB)"),
+    ("model_key", "Best model key"),
+    ("proposed_epochs", "Best proposed epochs"),
+    ("input_resolution", "Best input resolution"),
+    ("fold_count", "Best fold count"),
+    ("ensemble_count", "Best ensemble count"),
+    ("tta_count", "Best TTA count"),
 ]
 
 BAR_GROUPS = [
@@ -150,6 +162,7 @@ def load_mode_artifacts(run_root: Path, mode: str) -> ModeArtifacts:
 
 def write_summary(artifacts: list[ModeArtifacts], output_dir: Path) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    by_mode = {artifact.mode: artifact.combined_metrics for artifact in artifacts}
     payload = {
         "modes": {
             artifact.mode: {
@@ -163,7 +176,17 @@ def write_summary(artifacts: list[ModeArtifacts], output_dir: Path) -> tuple[Pat
             }
             for artifact in artifacts
         },
-        "delta_definition": "hardware_aware - baseline",
+        "delta_definition": {
+            "baseline_minus_origin": "baseline - origin",
+            "hardware_aware_minus_baseline": "hardware_aware - baseline",
+        },
+        "deltas": {
+            "baseline_minus_origin": _metric_deltas(by_mode.get("origin", {}), by_mode.get("baseline", {})),
+            "hardware_aware_minus_baseline": _metric_deltas(
+                by_mode.get("baseline", {}),
+                by_mode.get("hardware_aware", {}),
+            ),
+        },
     }
     json_path = output_dir / "comparison_summary.json"
     json_path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
@@ -218,7 +241,7 @@ def plot_metric_dashboard(artifacts: list[ModeArtifacts], output_path: Path) -> 
         ax.margins(y=0.18)
         ax.legend(loc="best")
 
-    fig.suptitle("Baseline vs Hardware-aware MLEvolve Metrics", fontsize=16)
+    fig.suptitle("Origin vs Baseline vs Hardware-aware MLEvolve Metrics", fontsize=16)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=160)
@@ -395,22 +418,39 @@ def _summarize_hardware_series(series: list[dict[str, float | None]]) -> dict[st
 
 def _summary_markdown(artifacts: list[ModeArtifacts]) -> str:
     by_mode = {artifact.mode: artifact.combined_metrics for artifact in artifacts}
+    origin = by_mode.get("origin", {})
     baseline = by_mode.get("baseline", {})
     hardware = by_mode.get("hardware_aware", {})
     lines = [
         "# Hardware Awareness Comparison Summary",
         "",
-        "Delta is `hardware_aware - baseline`.",
+        "Deltas are `baseline - origin` and `hardware_aware - baseline`.",
         "",
-        "| Metric | Baseline | Hardware-aware | Delta |",
-        "| --- | ---: | ---: | ---: |",
+        "| Metric | Origin | Baseline | Hardware-aware | Baseline - Origin | Hardware-aware - Baseline |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
     ]
     for key, label in SUMMARY_METRICS:
+        first = origin.get(key)
         left = baseline.get(key)
         right = hardware.get(key)
-        if left is None and right is None:
+        if first is None and left is None and right is None:
             continue
-        lines.append(f"| {label} | {_format_value(left)} | {_format_value(right)} | {_format_value(_delta(left, right))} |")
+        lines.append(
+            "| {label} | {origin} | {baseline} | {hardware} | {baseline_delta} | {hardware_delta} |".format(
+                label=label,
+                origin=_format_value(first),
+                baseline=_format_value(left),
+                hardware=_format_value(right),
+                baseline_delta=_format_value(_delta(first, left)),
+                hardware_delta=_format_value(_delta(left, right)),
+            )
+        )
+
+    warnings = _runtime_equivalence_warnings(artifacts)
+    if warnings:
+        lines.extend(["", "## Runtime-Equivalence Warnings", ""])
+        for warning in warnings:
+            lines.append(f"- {warning}")
 
     lines.extend(["", "## Artifacts", "", "| Mode | Metrics | Hardware samples |", "| --- | --- | --- |"])
     for artifact in artifacts:
@@ -431,6 +471,27 @@ def _mode_colors(artifacts: list[ModeArtifacts]) -> dict[str, str]:
 
 def _display_mode(mode: str) -> str:
     return "Hardware-aware" if mode == "hardware_aware" else mode.replace("_", " ").title()
+
+
+def _runtime_equivalence_warnings(artifacts: list[ModeArtifacts]) -> list[str]:
+    by_mode = {artifact.mode: artifact.combined_metrics for artifact in artifacts}
+    modes = [mode for mode in DEFAULT_MODES if mode in by_mode]
+    fields = [
+        ("model_key", "model key"),
+        ("proposed_epochs", "epoch budget"),
+        ("input_resolution", "input resolution"),
+        ("fold_count", "fold count"),
+        ("ensemble_count", "ensemble count"),
+        ("tta_count", "TTA count"),
+    ]
+    warnings: list[str] = []
+    for key, label in fields:
+        values = {mode: by_mode[mode].get(key) for mode in modes if by_mode[mode].get(key) is not None}
+        normalized = {mode: str(value) for mode, value in values.items()}
+        if len(set(normalized.values())) > 1:
+            detail = ", ".join(f"{_display_mode(mode)}={value}" for mode, value in normalized.items())
+            warnings.append(f"Runs are not runtime-equivalent for {label}: {detail}.")
+    return warnings
 
 
 def _apply_style() -> None:
@@ -505,6 +566,15 @@ def _delta(left: Any, right: Any) -> float | None:
     return right_number - left_number
 
 
+def _metric_deltas(left: dict[str, Any], right: dict[str, Any]) -> dict[str, float]:
+    deltas: dict[str, float] = {}
+    for key, _label in SUMMARY_METRICS:
+        value = _delta(left.get(key), right.get(key))
+        if value is not None:
+            deltas[key] = value
+    return deltas
+
+
 def _format_value(value: Any) -> str:
     number = _numeric_value(value)
     if number is not None:
@@ -526,7 +596,7 @@ def _short_number(value: float) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate matplotlib graphs for baseline vs hardware-aware MLEvolve runs."
+        description="Generate matplotlib graphs for origin vs baseline vs hardware-aware MLEvolve runs."
     )
     parser.add_argument("--run-root", type=Path, required=True, help="Root produced by compare_hardware_awareness.sh.")
     parser.add_argument(
@@ -539,7 +609,7 @@ def parse_args() -> argparse.Namespace:
         "--modes",
         nargs="+",
         default=list(DEFAULT_MODES),
-        help="Mode subdirectories to compare. Defaults to baseline hardware_aware.",
+        help="Mode subdirectories to compare. Defaults to origin baseline hardware_aware.",
     )
     return parser.parse_args()
 
