@@ -142,8 +142,20 @@ node_types:
         type: number
         required: false
         description: >
-          Peak FP8 Tensor Core throughput (TFLOPS). Optional. Empty on devices
-          without an FP8 path.
+          Peak FP8 Tensor Core throughput (TFLOPS), dense. Optional. Empty on
+          devices without an FP8 path.
+      fp4_tflops:
+        type: number
+        required: false
+        description: >
+          Peak FP4 Tensor Core throughput (TFLOPS), dense. Optional. Empty on
+          devices without an FP4 path (only Blackwell sm_100/sm_120).
+      tflops_note:
+        type: string
+        required: false
+        description: >
+          Clarifies the throughput figures, e.g. accumulate type and whether the
+          number is dense (sparse is ~2x with the Sparsity Feature).
       workload_types:
         type: list[string]
         required: false

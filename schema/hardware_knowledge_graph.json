@@ -2185,12 +2185,28 @@
           "DataLoader pin_memory=True",
           "cap peak VRAM at 31744 MiB per job",
           "flash-attn v3 for attention",
-          "fp8 via transformer_engine (inference only)"
+          "fp8/MXFP8 via transformer_engine (training and inference on Blackwell sm_120)",
+          "fused AdamW optimizer (fused=True): fuse optim step into one CUDA kernel",
+          "foreach multi-tensor optimizer for fewer kernel launches",
+          "channels_last (NHWC) memory format for CNN",
+          "non_blocking=True H2D copies overlapped with compute",
+          "torch.compile(mode='reduce-overhead') for CUDA-graph integration",
+          "set_float32_matmul_precision('high') to route FP32 matmul through TF32",
+          "sequence/sample packing to remove pad-token waste (transformer training)",
+          "NVFP4 training via Transformer Engine (16-elem blocks, E4M3 scale); matches BF16 convergence when final layers kept in BF16 [https://developer.nvidia.com/blog/using-nvfp4-low-precision-model-training-for-higher-throughput-without-losing-accuracy/]",
+          "MXFP8 training via Transformer Engine matches BF16 loss curves on Blackwell [https://developer.nvidia.com/blog/floating-point-8-an-introduction-to-efficient-lower-precision-ai-training/]"
         ],
         "avoid_patterns": [
           "no FP64 matmul or weights",
           "no NVLink or P2P (PCIe only)"
-        ]
+        ],
+        "memory_bandwidth_GBps": 1792,
+        "l2_cache_MB": 96,
+        "bf16_tflops": 209.5,
+        "fp8_tflops": 838,
+        "fp4_tflops": 1676,
+        "tflops_note": "dense TFLOPS; bf16/fp8 FP32-accum basis; ~2x with Sparsity. Source: NVIDIA RTX Blackwell whitepaper Table 3",
+        "source_url": "https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf"
       }
     },
     {
