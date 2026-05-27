@@ -4,8 +4,7 @@
 #
 # Example:
 #   bash compare_hardware_awareness.sh dogs-vs-cats-redux-kernels-edition \
-#     --dataset-root /mle-bench/data \
-#     --steps 5
+#     --dataset-root /mle-bench/data
 
 set -Eeuo pipefail
 
@@ -29,13 +28,13 @@ Options:
   --config PATH               MLEvolve config. Defaults to config.yaml, then config.example.yaml.
   --run-root PATH             Comparison output root. Defaults to runs/hardware_awareness_compare_<competition>_<timestamp>.
   --server-id N               Validation server id. Port is 5005 + N. Defaults to 111.
-  --steps N                   Agent steps for each mode. Defaults to 1.
-  --initial-drafts N          Initial drafts for each mode. Defaults to 0.
-  --seed N                    Shared seed for all modes. Defaults to 42.
+  --steps N                   Optional agent.steps override. Omit to use each mode's config default.
+  --initial-drafts N          Optional agent.initial_drafts override. Omit to use each mode's config default.
+  --seed N                    Optional shared agent.seed override. Omit to use each mode's config default.
   --timeout-seconds N         Per-mode timeout. 0 disables timeout. Defaults to 0.
   --memory-index N            CUDA_VISIBLE_DEVICES value. Defaults to 0.
-  --start-cpu-id N            start_cpu_id override. Defaults to 0.
-  --cpu-number N              cpu_number override. Defaults to 21.
+  --start-cpu-id N            Optional start_cpu_id override. Omit to use each mode's config default.
+  --cpu-number N              Optional cpu_number override. Omit to use each mode's config default.
   --skip-prepare              Reuse an existing prepared dataset.
   --keep-raw                  Keep raw MLE-bench download files after prepare.
   --verify-checksums          Let mlebench verify checksums. Default skips verification.
@@ -66,13 +65,13 @@ KAGGLE_JSON=""
 CONFIG_PATH=""
 RUN_ROOT=""
 SERVER_ID=111
-STEPS=1
-INITIAL_DRAFTS=0
-SEED=42
+STEPS=""
+INITIAL_DRAFTS=""
+SEED=""
 TIMEOUT_SECONDS=0
 MEMORY_INDEX=0
-START_CPU_ID=0
-CPU_NUMBER=21
+START_CPU_ID=""
+CPU_NUMBER=""
 SKIP_PREPARE=0
 KEEP_RAW=0
 VERIFY_CHECKSUMS=0
@@ -211,6 +210,10 @@ DATASET_ROOT="$(realpath -m "$DATASET_ROOT")"
 PUBLIC_DIR="$DATASET_ROOT/$COMPETITION_ID/prepared/public"
 DESCRIPTION_FILE="$PUBLIC_DIR/description.md"
 
+dataset_is_prepared() {
+  [[ -d "$PUBLIC_DIR" && -f "$DESCRIPTION_FILE" ]]
+}
+
 if [[ -z "$CONFIG_PATH" ]]; then
   if [[ -f "$ROOT/config.yaml" ]]; then
     CONFIG_PATH="$ROOT/config.yaml"
@@ -243,7 +246,7 @@ if [[ -n "$KAGGLE_JSON" ]]; then
   fi
   chmod 600 "$KAGGLE_JSON" 2>/dev/null || true
   export KAGGLE_CONFIG_DIR="$(dirname "$KAGGLE_JSON")"
-elif [[ "$SKIP_PREPARE" -eq 0 ]]; then
+elif [[ "$SKIP_PREPARE" -eq 0 ]] && ! dataset_is_prepared; then
   echo "No kaggle.json found. Pass --kaggle-json PATH or set up ~/.kaggle/kaggle.json." >&2
   exit 2
 fi
@@ -266,6 +269,12 @@ quote_cmd() {
 }
 
 prepare_dataset() {
+  if dataset_is_prepared; then
+    echo "==> Prepared dataset already exists; skipping mlebench prepare"
+    echo "    public_dir: $PUBLIC_DIR"
+    return 0
+  fi
+
   if [[ "$SKIP_PREPARE" -eq 1 ]]; then
     echo "==> Skipping dataset prepare; expecting $PUBLIC_DIR"
     return 0
@@ -367,16 +376,26 @@ run_mode() {
     "log_dir=$mode_root/runs"
     "workspace_dir=$mode_root/runs"
     "experiment.mode=$mode"
-    "agent.steps=$STEPS"
-    "agent.initial_drafts=$INITIAL_DRAFTS"
-    "agent.seed=$SEED"
-    "start_cpu_id=$START_CPU_ID"
-    "cpu_number=$CPU_NUMBER"
-    "scheduler.runtime_root=$scheduler_runtime"
   )
 
-  if [[ "$mode" == "origin" ]]; then
-    cmd+=("scheduler.enabled=false")
+  if [[ -n "$STEPS" ]]; then
+    cmd+=("agent.steps=$STEPS")
+  fi
+  if [[ -n "$INITIAL_DRAFTS" ]]; then
+    cmd+=("agent.initial_drafts=$INITIAL_DRAFTS")
+  fi
+  if [[ -n "$SEED" ]]; then
+    cmd+=("agent.seed=$SEED")
+  fi
+  if [[ -n "$START_CPU_ID" ]]; then
+    cmd+=("start_cpu_id=$START_CPU_ID")
+  fi
+  if [[ -n "$CPU_NUMBER" ]]; then
+    cmd+=("cpu_number=$CPU_NUMBER")
+  fi
+
+  if [[ "$mode" != "origin" ]]; then
+    cmd+=("scheduler.runtime_root=$scheduler_runtime")
   fi
   if [[ "$mode" == "baseline" && "$DISABLE_SCHEDULER_BASELINE" -eq 1 ]]; then
     cmd+=("scheduler.enabled=false")
@@ -452,9 +471,11 @@ MANIFEST="$RUN_ROOT/manifest.txt"
   echo "description_file: $DESCRIPTION_FILE"
   echo "kaggle_config_dir: ${KAGGLE_CONFIG_DIR:-}"
   echo "config: $CONFIG_PATH"
-  echo "steps: $STEPS"
-  echo "initial_drafts: $INITIAL_DRAFTS"
-  echo "seed: $SEED"
+  echo "steps: ${STEPS:-<config default>}"
+  echo "initial_drafts: ${INITIAL_DRAFTS:-<config default>}"
+  echo "seed: ${SEED:-<config default>}"
+  echo "start_cpu_id: ${START_CPU_ID:-<config default>}"
+  echo "cpu_number: ${CPU_NUMBER:-<config default>}"
   echo "timeout_seconds: $TIMEOUT_SECONDS"
   echo "validation_server_port: $GRADING_SERVER_PORT"
   echo "extra_overrides: ${EXTRA_OVERRIDES[*]:-}"

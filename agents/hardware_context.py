@@ -598,19 +598,56 @@ def _scheduler_backend_config(scheduler_client: Any | None) -> dict[str, Any]:
     gpu_scheduler = getattr(settings, "gpu_scheduler", None)
     if gpu_scheduler is None:
         return {}
+    probe_payload = _latest_auto_backend_probe_payload(scheduler_client)
     mode = getattr(gpu_scheduler, "mode", None)
+    if probe_payload:
+        mode = probe_payload.get("configured_mode", mode)
     try:
         from localml_scheduler.config import effective_scheduler_mode
 
-        effective_mode = effective_scheduler_mode(mode)
+        effective_mode = probe_payload.get("effective_scheduler_mode") if probe_payload else effective_scheduler_mode(mode)
     except Exception:
         effective_mode = mode
     return {
         "mode": mode,
         "effective_mode": effective_mode,
-        "backend_priority": list(getattr(gpu_scheduler, "backend_priority", []) or []),
-        "concurrent_backend_allowlist": list(getattr(gpu_scheduler, "concurrent_backend_allowlist", []) or []),
+        "backend_priority": _probe_payload_list_or_setting(probe_payload, "backend_priority", gpu_scheduler),
+        "concurrent_backend_allowlist": _probe_payload_list_or_setting(
+            probe_payload,
+            "concurrent_backend_allowlist",
+            gpu_scheduler,
+        ),
     }
+
+
+def _probe_payload_list_or_setting(probe_payload: dict[str, Any], key: str, settings: Any) -> list[Any]:
+    if probe_payload and key in probe_payload:
+        return list(probe_payload.get(key) or [])
+    return list(getattr(settings, key, []) or [])
+
+
+def _latest_auto_backend_probe_payload(scheduler_client: Any | None) -> dict[str, Any]:
+    if scheduler_client is None:
+        return {}
+    events: list[dict[str, Any]] = []
+    list_events = getattr(scheduler_client, "list_events", None)
+    if callable(list_events):
+        try:
+            events = list(list_events(event_type="scheduler_auto_backend_probe"))
+        except Exception:
+            events = []
+    if not events:
+        store = getattr(scheduler_client, "store", None)
+        store_list_events = getattr(store, "list_events", None)
+        if callable(store_list_events):
+            try:
+                events = list(store_list_events(event_type="scheduler_auto_backend_probe"))
+            except Exception:
+                events = []
+    if not events:
+        return {}
+    payload = events[-1].get("payload") or {}
+    return dict(payload) if isinstance(payload, dict) else {}
 
 
 def _compact_hardware_context(context: dict[str, Any]) -> dict[str, Any]:

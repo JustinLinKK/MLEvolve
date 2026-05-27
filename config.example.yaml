@@ -1,0 +1,272 @@
+# MLEvolve unified configuration template.
+# Copy this file to config.yaml for local machine settings and API keys.
+# config.yaml is ignored by git; keep this example sanitized.
+
+data_dir: null
+dataset_dir: ''
+desc_file: null
+goal: null
+eval: null
+exp_name: null
+exp_id: ''
+log_dir: ./runs
+log_level: INFO
+workspace_dir: ./runs
+preprocess_data: true
+copy_data: false
+experiment:
+  mode: hardware_aware
+start_cpu_id: 0
+cpu_number: 21
+monitor:
+  enabled: true
+  interval_seconds: 5
+  gpu_idle_util_threshold: 10
+  gpu_idle_memory_threshold_mb: 1024
+  cpu_idle_util_threshold: 20
+  adaptive_compression: true
+  max_csv_rows: 1000
+  compress_to_rows: 500
+torch_hub_dir: ''
+pretrain_model_dir: ''
+exec:
+  timeout: null
+  agent_file_name: runfile.py
+scheduler:
+  enabled: true
+  runtime_root: null
+  start_service: true
+  wait_poll_interval_seconds: 1
+  wait_timeout_seconds: null
+  preload_source_model_id: null
+  preload_source_model_path: null
+  preload_source_loader_target: null
+  settings:
+    runtime_root: ./localml_scheduler/runtime
+    scheduler_poll_interval_seconds: 0.2
+    command_poll_limit: 100
+    aging_interval_seconds: 120
+    aging_priority_increment: 1
+    enable_priority_aging: true
+    preempt_check_interval_seconds: 0.2
+    baseline_cache:
+      warm_queue_policy: budget_only
+      warm_queue_top_k: 0
+      entry_capacity: 0
+      max_ram_percent: 0
+      memory_budget_bytes: 0
+    cache_server_host: 127.0.0.1
+    cache_server_port: 8765
+    cache_socket_name: cache_server.sock
+    # Optional shared Redis LRU cache for graph and vector query results.
+    redis_cache:
+      enabled: false
+      url: redis://127.0.0.1:6379/0
+      url_env: LOCALML_SCHEDULER_REDIS_URL
+      key_prefix: localml_scheduler
+      ttl_seconds: 300
+      max_entries: 4096
+      socket_timeout_seconds: 0.2
+      cache_graph_queries: true
+      cache_vector_queries: true
+    auto_resume_recoverable: false
+    # Database 1: local Neo4j graph evidence store.
+    graph_db:
+      enabled: true
+      mode: primary
+      provider: neo4j
+      uri: bolt://127.0.0.1:7687
+      username: neo4j
+      password_env: LOCALML_SCHEDULER_NEO4J_PASSWORD
+      database: neo4j
+      bootstrap_constraints: true
+      auto_import_legacy_sqlite: true
+      legacy_sqlite_path: null
+      allow_legacy_fallback: true
+    # Database 2: local Qdrant vector/code-knowledge store.
+    hardware_feature_db:
+      enabled: true
+      provider: qdrant
+      url: http://127.0.0.1:6333
+      api_key_env: LOCALML_SCHEDULER_QDRANT_API_KEY
+      collection_name: hardware_feature_knowledge
+      code_doc_collection_name: code_doc_chunks
+      optimization_recipe_collection_name: optimization_recipe_chunks
+      api_symbol_collection_name: api_symbol_chunks
+      embedding_model_type: openrouter
+      embedding_model_name: qwen/qwen3-embedding-8b
+      embedding_dimension: 4096
+      embedding_api_key: ''
+      embedding_api_key_env: OPENROUTER_API_KEY
+      embedding_base_url: https://openrouter.ai/api/v1
+      embedding_batch_size: 32
+      embedding_max_retries: 4
+      embedding_retry_delay_seconds: 1.0
+      embedding_device: cpu
+      distance: Cosine
+    log_db:
+      provider: postgres
+      # Set LOCALML_SCHEDULER_LOG_DSN to a psycopg-compatible DSN, for example:
+      # postgresql://scheduler:password@localhost:5432/scheduler
+      dsn_env: LOCALML_SCHEDULER_LOG_DSN
+      schema: scheduler_logs
+      enabled: false
+    gpu_scheduler:
+      enabled: true
+      mode: auto
+      backend_priority:
+      - stream_mps
+      - stream
+      - cuda_process
+      - mps
+      - exclusive
+      max_packed_jobs_per_gpu: 2
+      allow_three_way_packing: false
+      candidate_window_size: 8
+      fallback_cooldown_seconds: 900
+      concurrent_groups_enabled: false
+      concurrent_backend_allowlist:
+      - stream_mps
+      - stream
+      idle_coalescing_window_seconds: 2.0
+      batch_probe_enabled: true
+      batch_probe_min_batch_size: 1
+      batch_probe_max_search_rounds: 12
+      batch_probe_max_batch_size: null
+      batch_probe_search_mode: binary
+      auto_pack:
+        target_metric: vram
+        target_sm_fraction: 0.9
+        runtime_skew_guardrail_ratio: 2.0
+      profiling:
+        warmup_steps: 30
+        solo_probe_steps: 80
+        pair_probe_steps: 60
+        reuse_profile_if_confidence_ge: 0.8
+      memory:
+        vram_budget_fraction: 0.95
+      thresholds:
+        pack_prefer_sm_active_lt: 0.5
+        pack_reject_sm_active_ge: 0.8
+        pack_reject_max_slowdown: 1.3
+        latency_sensitive_max_slowdown: 1.15
+        min_aggregate_gain: 1.1
+      telemetry:
+        device_poll_ms: 500
+        pair_recheck_every_steps: 20
+      parallel_optimizer:
+        batch_search_mode: binary
+        max_probe_jobs: 3
+        binary_range_up: 32
+        binary_range_down: 1
+        power_of_two_range_up: 5
+        power_of_two_range_down: 1
+      submission_defaults:
+        requires_gpu: true
+        estimated_vram_mb: null
+        estimated_ram_mb: null
+        packing_eligible: true
+        packing_family: mlevolve_script
+        packing_max_slowdown_ratio: null
+        backend_allowlist: []
+        batch_probe_enabled: true
+        batch_probe_model_key: null
+        batch_probe_probe_timeout_seconds: 45
+        batch_probe_poll_interval_seconds: 0.5
+        batch_probe_max_multiplier: 32
+        batch_probe_search_mode: binary
+        runtime_probe_enabled: true
+        runtime_probe_target: null
+        runtime_probe_model_key: null
+        runtime_probe_strategy: epoch_1
+      mps:
+        enabled: false
+        compute_mode: EXCLUSIVE_PROCESS
+        default_primary_active_thread_pct: 60
+        default_secondary_active_thread_pct: 40
+        default_omp_num_threads: 6
+        default_mkl_num_threads: 6
+        pipe_directory: /tmp/nvidia-mps
+        log_directory: /tmp/nvidia-mps-log
+      cuda_process:
+        enabled: true
+        default_omp_num_threads: 6
+        default_mkl_num_threads: 6
+      stream:
+        enabled: false
+        host_poll_interval_seconds: 0.1
+        host_join_timeout_seconds: 3.0
+agent:
+  steps: 500
+  time_limit: 172800
+  initial_drafts: 3
+  seed: 42
+  data_preview: true
+  code:
+    model: openai/gpt-5-nano
+    temp: 1
+    provider: openrouter
+    base_url: https://openrouter.ai/api/v1
+    api_key: ''
+  feedback:
+    model: openai/gpt-5-nano
+    temp: 1
+    provider: openrouter
+    base_url: https://openrouter.ai/api/v1
+    api_key: ''
+  check_data_leakage: true
+  use_diff_mode: true
+  hardware_context_enabled: true
+  hardware_context_limit: 8
+  hardware_context_max_prompt_chars: 3500
+  fusion_vs_evolution_prob: 0.3
+  branch_fusion_trigger_prob: 1.0
+  max_fusion_drafts: 2
+  use_global_memory: true
+  memory_similarity_threshold: 0.7
+  memory_embedding_device: cuda
+  memory_embedding_model_path: BAAI/bge-base-en-v1.5
+  search:
+    parallel_search_num: 2
+    num_gpus: 1
+    num_drafts: 5
+    num_bugs: 1
+    num_improves: 3
+    topk_max_improves: 10
+    max_debug_depth: 20
+    back_debug_depth: 3
+    debug_prob: 1
+    metric_improvement_threshold: 0.0001
+    max_improve_failure: 3
+    branch_stagnation_threshold: 3
+    topk_stagnation_threshold: 6
+    stagnation_window: 4
+    top_candidates_size: 20
+    explore_switch_start: 0.5
+    explore_switch_end: 0.7
+    min_exploration_weight: 0.2
+    topk_early_k: 5
+    topk_early_max_per_branch: 3
+    topk_late_k: 3
+    topk_late_max_per_branch: 2
+    force_backprop_late_threshold: 0.8
+    force_backprop_late_prob: 0.5
+    force_backprop_mid_threshold: 0.4
+    force_backprop_mid_modulo: 3
+    recent_best_window: 4
+    fusion_min_time_hours: 6
+    fusion_max_time_hours: 10
+    fusion_min_successful_nodes: 2
+    fusion_min_branches: 2
+  decay:
+    exploration_constant: 1.414
+    lower_bound: 0.5
+    alpha: 0.01
+    phase_ratios:
+    - 0.3
+    - 0.7
+coldstart:
+  use_coldstart: true
+  task_json_path: engine/coldstart/competition_tag_classified.json
+  model_json_path: engine/coldstart/models_guidance_classified.json
+  description: ''

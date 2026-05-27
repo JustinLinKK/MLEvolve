@@ -623,6 +623,7 @@ class Interpreter:
         logger.info("Prepared scheduler round submission slot: %s", process_id)
 
         node_id = str(id)
+        signature_code = code
         code = self.isolate_submission_path(code=code, _id=id)
         code = self.isolate_model_path(code=code, _id=id)
 
@@ -631,9 +632,9 @@ class Interpreter:
         safe_node_id = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in node_id)[:80]
         runfile_path = run_wd / f"runfile_{process_id}_{safe_node_id}_{uuid.uuid4().hex}.py"
         runfile_path.write_text(code, encoding="utf-8")
-        script_metadata = _introspect_training_script(code)
-        script_signature = script_metadata.get("script_signature") or _normalized_mlevolve_script_signature(code)
-        detected_batch_size = script_metadata.get("proposed_batch_size") or _detect_initial_batch_size(code)
+        script_metadata = _introspect_training_script(signature_code)
+        script_signature = script_metadata.get("script_signature") or _normalized_mlevolve_script_signature(signature_code)
+        detected_batch_size = script_metadata.get("proposed_batch_size") or _detect_initial_batch_size(signature_code)
         proposed_epochs = script_metadata.get("proposed_epochs")
         model_key = script_metadata.get("model_key")
         input_resolution = script_metadata.get("input_resolution")
@@ -692,7 +693,7 @@ class Interpreter:
             search_mode=submission_defaults.batch_probe_search_mode,
             shape_hints={
                 "task_id": task_id,
-                "script_signature": _normalized_mlevolve_script_signature(code),
+                "script_signature": script_signature,
             },
         )
         runtime_probe = RuntimeProbeSpec(
@@ -743,6 +744,7 @@ class Interpreter:
             runtime_probe=runtime_probe,
             resource_requirements=resource_requirements,
             packing_family=submission_defaults.packing_family,
+            packing_signature=script_signature,
             packing_eligible=packing_eligible,
             packing_max_slowdown_ratio=submission_defaults.packing_max_slowdown_ratio,
             packing_backend_allowlist=packing_backend_allowlist,
@@ -927,6 +929,7 @@ class Interpreter:
             if hasattr(os, "sched_setaffinity"):
                 pre_code = "import os\nos.sched_setaffinity(0, {cpu_set})\n".format(cpu_set=cpu_set)
 
+            signature_code = code
             code = self.isolate_submission_path(code=code, _id=id)
             code = self.isolate_model_path(code=code, _id=id)
             code = pre_code + code
@@ -936,8 +939,8 @@ class Interpreter:
             safe_node_id = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(id))[:80]
             runfile_path = run_wd / f"runfile_scheduler_{process_id}_{safe_node_id}_{uuid.uuid4().hex}.py"
             runfile_path.write_text(code, encoding="utf-8")
-            script_metadata = _introspect_training_script(code)
-            script_signature = script_metadata.get("script_signature") or _normalized_mlevolve_script_signature(code)
+            script_metadata = _introspect_training_script(signature_code)
+            script_signature = script_metadata.get("script_signature") or _normalized_mlevolve_script_signature(signature_code)
             detected_batch_size = script_metadata.get("proposed_batch_size")
             proposed_epochs = script_metadata.get("proposed_epochs")
             model_key = script_metadata.get("model_key")
@@ -985,7 +988,7 @@ class Interpreter:
             if self.timeout is not None:
                 runner_kwargs["timeout"] = self.timeout
             batch_probe_enabled = bool(submission_defaults.batch_probe_enabled) and _code_supports_batch_probe(code)
-            detected_batch_size = detected_batch_size or _detect_initial_batch_size(code)
+            detected_batch_size = detected_batch_size or _detect_initial_batch_size(signature_code)
             if detected_batch_size is not None:
                 probe_max_multiplier = max(1, int(submission_defaults.batch_probe_max_multiplier))
                 runner_kwargs["batch_size"] = detected_batch_size
@@ -1002,7 +1005,7 @@ class Interpreter:
                 search_mode=submission_defaults.batch_probe_search_mode,
                 shape_hints={
                     "task_id": task_id,
-                    "script_signature": _normalized_mlevolve_script_signature(code),
+                    "script_signature": script_signature,
                 },
             )
             runtime_probe = RuntimeProbeSpec(
@@ -1051,6 +1054,7 @@ class Interpreter:
                 runtime_probe=runtime_probe,
                 resource_requirements=resource_requirements,
                 packing_family=submission_defaults.packing_family,
+                packing_signature=script_signature,
                 packing_eligible=packing_eligible,
                 packing_max_slowdown_ratio=submission_defaults.packing_max_slowdown_ratio,
                 packing_backend_allowlist=packing_backend_allowlist,

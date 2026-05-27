@@ -220,123 +220,105 @@ def run():
             logger.info(f"✅ Phase 1 complete: {len(pending_draft_nodes)} draft codes generated")
 
         if scheduler_client is not None and (pending_draft_nodes or completed < total_steps):
-            logger.info("🚀 Phase 2: Streaming scheduler execution")
+            logger.info("🚀 Phase 2: Batched scheduler execution")
             logger.info("   - Pending draft executions: %s", len(pending_draft_nodes))
             logger.info("   - Remaining steps: %s", total_steps - completed)
 
             candidate_window = int(getattr(scheduler_settings.gpu_scheduler, "candidate_window_size", 2))
-            scheduler_stream_workers = min(
+            scheduler_batch_size = min(
                 max(1, total_steps),
-                max(2, max_workers, min(4, max(1, candidate_window))),
+                max(2 if total_steps > 1 else 1, min(4, max(1, candidate_window))),
             )
-            executor = ThreadPoolExecutor(max_workers=scheduler_stream_workers)
             pending_scheduler_nodes = list(pending_draft_nodes)
-            interrupted = False
-            futures = set()
 
-            def execute_scheduler_node(node):
-                try:
-                    executed_node = agent.execute_deferred_node(node, exec_callback)
-                    logger.info(
-                        "✅ Scheduler node %s executed: metric=%s",
-                        executed_node.id,
-                        executed_node.metric.value if executed_node.metric else "N/A",
-                    )
-                    return executed_node
-                except Exception as e:
-                    logger.exception("❌ Exception during scheduler node %s execution: %s", node.id, e)
-                    return None
-
-            def submit_scheduler_node(node):
-                futures.add(executor.submit(execute_scheduler_node, node))
-                logger.info("📤 Submitted scheduler node %s immediately", node.id)
-
-            def fill_scheduler_window(parent_hint=None):
+            def collect_scheduler_batch(parent_hint=None):
+                batch = []
                 empty_generation_attempts = 0
                 next_parent = parent_hint
-                while len(futures) < scheduler_stream_workers and (pending_scheduler_nodes or completed + len(futures) < total_steps):
+                while len(batch) < scheduler_batch_size and (pending_scheduler_nodes or completed + len(batch) < total_steps):
                     if pending_scheduler_nodes:
-                        submit_scheduler_node(pending_scheduler_nodes.pop(0))
+                        batch.append(pending_scheduler_nodes.pop(0))
                         continue
                     if not agent.has_selectable_work():
-                        logger.warning("No selectable work available to fill scheduler stream window.")
+                        logger.warning("No selectable work available to fill scheduler batch.")
                         break
                     try:
                         node = agent.step(exec_callback=exec_callback, node=next_parent, execute_immediately=False)
                     except Exception as exc:
-                        logger.exception("Exception while generating streaming scheduler node: %s", exc)
+                        logger.exception("Exception while generating scheduler batch node: %s", exc)
                         node = None
                     next_parent = None
                     if node is None:
                         if not agent.has_selectable_work():
-                            logger.warning("No selectable work remains after empty streaming scheduler generation.")
+                            logger.warning("No selectable work remains after empty scheduler batch generation.")
                             break
                         empty_generation_attempts += 1
                         if empty_generation_attempts >= 3:
-                            logger.warning("Streaming scheduler generation produced no node repeatedly; waiting for running work.")
+                            logger.warning("Scheduler batch generation produced no node repeatedly; executing available work.")
                             break
                         continue
                     empty_generation_attempts = 0
-                    submit_scheduler_node(node)
+                    batch.append(node)
+                return batch
 
             try:
-                fill_scheduler_window()
+                parent_hint = None
+                empty_execution_attempts = 0
                 while completed < total_steps:
-                    if not futures:
-                        fill_scheduler_window()
-                    if not futures:
+                    batch_nodes = collect_scheduler_batch(parent_hint)
+                    if not batch_nodes:
                         if not agent.has_selectable_work():
                             logger.warning(
-                                "No scheduler futures remain and no selectable work is available; stopping early at %s/%s completed steps.",
+                                "No scheduler batch work remains and no selectable work is available; stopping early at %s/%s completed steps.",
                                 completed,
                                 total_steps,
                             )
                             break
                         continue
 
-                    done, _ = wait(futures, return_when=FIRST_COMPLETED, timeout=1.0)
-                    if not done:
-                        continue
+                    logger.info(
+                        "📤 Submitting scheduler batch with %s node(s): %s",
+                        len(batch_nodes),
+                        ", ".join(str(node.id) for node in batch_nodes),
+                    )
+                    previous_completed = completed
+                    executed_nodes = agent.execute_deferred_nodes(batch_nodes, exec_many_callback)
+                    parent_hint = executed_nodes[-1] if executed_nodes else None
 
-                    for fut in done:
-                        futures.remove(fut)
-                        try:
-                            cur_node = fut.result()
-                        except Exception as e:
-                            logger.exception("❌ Exception during scheduler streaming task: %s", e)
-                            cur_node = None
+                    with lock:
+                        save_run(cfg, journal)
+                        completed = len(journal) - 1
+                        if completed >= total_steps:
+                            logger.info(journal_to_string_tree(journal))
+                            break
 
-                        with lock:
-                            save_run(cfg, journal)
-                            completed = len(journal) - 1
-                            if completed >= total_steps:
-                                logger.info(journal_to_string_tree(journal))
-                                break
+                    if completed == previous_completed and not executed_nodes:
+                        empty_execution_attempts += 1
+                        if empty_execution_attempts >= 3:
+                            logger.warning(
+                                "Scheduler batches completed without adding journal nodes repeatedly; stopping at %s/%s completed steps.",
+                                completed,
+                                total_steps,
+                            )
+                            break
+                    else:
+                        empty_execution_attempts = 0
 
-                        fill_scheduler_window(cur_node)
-                        logger.info(
-                            "📊 Progress: %s/%s steps completed, %s scheduler tasks running",
-                            completed,
-                            total_steps,
-                            len(futures),
-                        )
+                    logger.info(
+                        "📊 Progress: %s/%s steps completed after scheduler batch",
+                        completed,
+                        total_steps,
+                    )
             except SignalShutdown as exc:
-                interrupted = True
                 shutdown_exit_code = 128 + exc.signum
                 shutdown_handled = True
                 logger.info("%s received, terminating subprocesses and shutting down...", exc.signal_name)
                 interpreter.terminate_all_subprocesses()
-                executor.shutdown(wait=False, cancel_futures=True) if sys.version_info >= (3, 9) else executor.shutdown(wait=False)
                 raise
             except KeyboardInterrupt:
-                interrupted = True
                 logger.info("KeyboardInterrupt received, terminating subprocesses and shutting down...")
                 interpreter.terminate_all_subprocesses()
-                executor.shutdown(wait=False, cancel_futures=True) if sys.version_info >= (3, 9) else executor.shutdown(wait=False)
                 raise
-            finally:
-                if not interrupted:
-                    executor.shutdown(wait=True)
         elif pending_draft_nodes or completed < total_steps:
             logger.info(f"🚀 Phase 2: Pipelined parallel execution")
             logger.info(f"   - Pending draft executions: {len(pending_draft_nodes)}")

@@ -6,7 +6,9 @@ from agents.hardware_context import (
     CONSTRAINT_PRECEDENCE_RULE,
     EVIDENCE_NOT_LAW_RULE,
     HARDWARE_BUDGET_GUARDRAIL_RULE,
+    _scheduler_backend_config,
     apply_hardware_context_to_node,
+    build_hardware_candidate,
     compact_optimization_context,
     format_hardware_design_brief,
     format_hardware_prompt_section,
@@ -204,6 +206,82 @@ def test_scheduler_lookup_is_non_fatal_and_uses_get_optimization_context() -> No
     agent.scheduler_client.get_optimization_context = lambda **_: (_ for _ in ()).throw(RuntimeError("down"))
     failed = get_hardware_context_for_stage(agent, "draft")
     assert failed.prompt_section == ""
+
+
+def test_hardware_candidate_prefers_boot_resolved_auto_backend_probe() -> None:
+    class FakeScheduler:
+        def __init__(self) -> None:
+            self.settings = SimpleNamespace(
+                gpu_scheduler=SimpleNamespace(
+                    mode="auto",
+                    backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
+                    concurrent_backend_allowlist=["stream_mps", "stream"],
+                    submission_defaults=SimpleNamespace(
+                        requires_gpu=True,
+                        packing_family="mlevolve_script",
+                        backend_allowlist=[],
+                        batch_probe_model_key=None,
+                    ),
+                )
+            )
+
+        def list_events(self, *, event_type=None, job_id=None):
+            assert event_type == "scheduler_auto_backend_probe"
+            return [
+                {
+                    "payload": {
+                        "configured_mode": "auto",
+                        "effective_scheduler_mode": "parallel_auto_pack",
+                        "backend_priority": ["cuda_process", "exclusive"],
+                        "concurrent_backend_allowlist": [],
+                    }
+                }
+            ]
+
+    agent = SimpleNamespace(
+        scheduler_client=FakeScheduler(),
+        acfg=SimpleNamespace(hardware_context_enabled=True),
+        cfg=SimpleNamespace(exp_id="task-a"),
+        task_desc="image classification",
+        data_preview="train_images",
+    )
+
+    candidate = build_hardware_candidate(agent, "draft")
+
+    assert candidate["scheduler_mode"] == "auto"
+    assert candidate["scheduler_effective_mode"] == "parallel_auto_pack"
+    assert candidate["backend_preference"] == "cuda_process"
+
+
+def test_scheduler_backend_config_preserves_empty_auto_probe_lists() -> None:
+    class FakeScheduler:
+        def __init__(self) -> None:
+            self.settings = SimpleNamespace(
+                gpu_scheduler=SimpleNamespace(
+                    mode="auto",
+                    backend_priority=["stream", "cuda_process", "exclusive"],
+                    concurrent_backend_allowlist=["stream"],
+                )
+            )
+
+        def list_events(self, *, event_type=None, job_id=None):
+            del job_id
+            assert event_type == "scheduler_auto_backend_probe"
+            return [
+                {
+                    "payload": {
+                        "configured_mode": "auto",
+                        "effective_scheduler_mode": "parallel_auto_pack",
+                        "backend_priority": [],
+                        "concurrent_backend_allowlist": [],
+                    }
+                }
+            ]
+
+    backend_config = _scheduler_backend_config(FakeScheduler())
+
+    assert backend_config["backend_priority"] == []
+    assert backend_config["concurrent_backend_allowlist"] == []
 
 
 def test_hardware_design_brief_uses_scheduler_model_design_context() -> None:
