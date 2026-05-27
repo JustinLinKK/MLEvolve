@@ -1,0 +1,6484 @@
+{
+  "version": "1.0.0",
+  "gitCommitHash": "6e185f0cb143a2a1042cce4f0497e24f7a3be699",
+  "generatedAt": "2026-05-26T21:57:56.292Z",
+  "files": {
+    "__init__.py": {
+      "filePath": "__init__.py",
+      "contentHash": "1bbebce8a2910b811c0e881a738f594c526ca0cd81583a9a37ef0935b1964267",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Solution",
+          "methods": [],
+          "properties": [
+            "code",
+            "valid_metric"
+          ],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "Experiment",
+          "methods": [
+            "__init__",
+            "run"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 48
+        }
+      ],
+      "imports": [
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass"
+          ]
+        }
+      ],
+      "exports": [
+        "Solution",
+        "Experiment"
+      ],
+      "totalLines": 63,
+      "hasStructuralAnalysis": true
+    },
+    ".devcontainer/devcontainer-lock.json": {
+      "filePath": ".devcontainer/devcontainer-lock.json",
+      "contentHash": "56471db4cede44ae3c5fcf59619e08168d9831366ec4c26b7e07445b90a9ad6f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 20,
+      "hasStructuralAnalysis": true
+    },
+    ".devcontainer/devcontainer.json": {
+      "filePath": ".devcontainer/devcontainer.json",
+      "contentHash": "316a90efd45b99f21a1661386e88e3615e28fae46c3122a248e8683c79a02d7d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 35,
+      "hasStructuralAnalysis": true
+    },
+    ".devcontainer/Dockerfile": {
+      "filePath": ".devcontainer/Dockerfile",
+      "contentHash": "d59295fa44d448091d51b46560a95701e88b65366ded1470319f4ac57a86bb1d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 12,
+      "hasStructuralAnalysis": true
+    },
+    ".devcontainer/noop.txt": {
+      "filePath": ".devcontainer/noop.txt",
+      "contentHash": "f5c2fba57c3e35ab63240389d1c3cbf38479a4be06c1c71367b931c345d599fc",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 3,
+      "hasStructuralAnalysis": false
+    },
+    ".github/dependabot.yml": {
+      "filePath": ".github/dependabot.yml",
+      "contentHash": "20284d1c7b5612329006dc308c4e17888df902f0d255d59adf98b742bda2ea3f",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 13,
+      "hasStructuralAnalysis": true
+    },
+    ".understand-anything/.understandignore": {
+      "filePath": ".understand-anything/.understandignore",
+      "contentHash": "08ccee33a4c03d2b294903cc293de1dad34560832f0b5738d8b92ae690d65444",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 23,
+      "hasStructuralAnalysis": false
+    },
+    "agents/aggregation_agent.py": {
+      "filePath": "agents/aggregation_agent.py",
+      "contentHash": "1780108bcf29a7508c02d1d60f6219aa8daaf2f0f4ac1deadb5b9b138b4a6670",
+      "functions": [
+        {
+          "name": "_collect_branch_representatives",
+          "params": [
+            "agent"
+          ],
+          "returnType": "List[SearchNode]",
+          "exported": true,
+          "lineCount": 35
+        },
+        {
+          "name": "run",
+          "params": [
+            "agent",
+            "mode",
+            "parent_node"
+          ],
+          "returnType": "Optional[SearchNode]",
+          "exported": true,
+          "lineCount": 139
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "List",
+            "Optional"
+          ]
+        },
+        {
+          "source": "llm",
+          "specifiers": [
+            "compile_prompt_to_md"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "SearchNode"
+          ]
+        },
+        {
+          "source": "agents.hardware_context",
+          "specifiers": [
+            "apply_hardware_context_to_node",
+            "get_hardware_context_for_stage",
+            "hardware_context_instructions"
+          ]
+        },
+        {
+          "source": "agents.prompts",
+          "specifiers": [
+            "prompt_resp_fmt",
+            "get_impl_guideline_from_agent"
+          ]
+        },
+        {
+          "source": "agents.planner",
+          "specifiers": [
+            "build_chat_prompt_for_model"
+          ]
+        },
+        {
+          "source": "agents.coder",
+          "specifiers": [
+            "plan_and_code_query"
+          ]
+        },
+        {
+          "source": "engine.conditions",
+          "specifiers": [
+            "should_trigger_branch_fusion"
+          ]
+        },
+        {
+          "source": "agents.triggers",
+          "specifiers": [
+            "register_node"
+          ]
+        }
+      ],
+      "exports": [
+        "_collect_branch_representatives",
+        "run"
+      ],
+      "totalLines": 197,
+      "hasStructuralAnalysis": true
+    },
+    "agents/code_review_agent.py": {
+      "filePath": "agents/code_review_agent.py",
+      "contentHash": "42cdac2f78b735b6c6a1b7348a04d00ed559255a46cd912e67fb3f310e878845",
+      "functions": [
+        {
+          "name": "run",
+          "params": [
+            "agent",
+            "node"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 130
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "cast"
+          ]
+        },
+        {
+          "source": "llm",
+          "specifiers": [
+            "FunctionSpec",
+            "query"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "SearchNode"
+          ]
+        },
+        {
+          "source": "agents.hardware_context",
+          "specifiers": [
+            "get_hardware_context_for_stage",
+            "hardware_context_instructions"
+          ]
+        },
+        {
+          "source": "agents.prompts.validation_template_prompts",
+          "specifiers": [
+            "get_code_review_prompt"
+          ]
+        },
+        {
+          "source": "agents.prompts",
+          "specifiers": [
+            "get_internet_clarification"
+          ]
+        },
+        {
+          "source": "agents.coder.diff_coder",
+          "specifiers": [
+            "SearchReplacePatcher"
+          ]
+        }
+      ],
+      "exports": [
+        "run"
+      ],
+      "totalLines": 197,
+      "hasStructuralAnalysis": true
+    },
+    "agents/coder/__init__.py": {
+      "filePath": "agents/coder/__init__.py",
+      "contentHash": "1ad75ea78e583e407e6f72f9db9039f40455d94e27279dd33cdc9e4796394dd4",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": ".base_coder",
+          "specifiers": [
+            "plan_and_code_query",
+            "RESPONSE_FORMAT"
+          ]
+        },
+        {
+          "source": ".stepwise_coder",
+          "specifiers": [
+            "stepwise_plan_and_code_query"
+          ]
+        },
+        {
+          "source": ".diff_coder",
+          "specifiers": [
+            "SearchReplacePatcher",
+            "DIFF_SYS_FORMAT",
+            "build_base_diff_instructions",
+            "build_diff_format_suffix",
+            "apply_diff_with_retry",
+            "format_planning_result_for_plan",
+            "diff_generate_and_apply"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 20,
+      "hasStructuralAnalysis": true
+    },
+    "agents/coder/base_coder.py": {
+      "filePath": "agents/coder/base_coder.py",
+      "contentHash": "41880517ca73d748f5e479ef4596baeb1bdfff66dc7e90e5b141c29a8929cc61",
+      "functions": [
+        {
+          "name": "plan_and_code_query",
+          "params": [
+            "agent_instance",
+            "prompt",
+            "retries"
+          ],
+          "returnType": "Tuple[str, str]",
+          "exported": true,
+          "lineCount": 23
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Tuple"
+          ]
+        },
+        {
+          "source": "llm",
+          "specifiers": [
+            "generate"
+          ]
+        },
+        {
+          "source": "utils.response",
+          "specifiers": [
+            "extract_code",
+            "extract_text_up_to_code"
+          ]
+        }
+      ],
+      "exports": [
+        "plan_and_code_query"
+      ],
+      "totalLines": 53,
+      "hasStructuralAnalysis": true
+    },
+    "agents/coder/diff_coder/__init__.py": {
+      "filePath": "agents/coder/diff_coder/__init__.py",
+      "contentHash": "88af116cff816776eb38f25b2b38df03522657042dc0bed8f066c812d5687627",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": ".patcher",
+          "specifiers": [
+            "SearchReplacePatcher"
+          ]
+        },
+        {
+          "source": ".prompts",
+          "specifiers": [
+            "DIFF_SYS_FORMAT",
+            "build_base_diff_instructions",
+            "build_diff_format_suffix"
+          ]
+        },
+        {
+          "source": ".apply",
+          "specifiers": [
+            "apply_diff_with_retry",
+            "format_planning_result_for_plan"
+          ]
+        },
+        {
+          "source": ".diff_generate",
+          "specifiers": [
+            "diff_generate_and_apply"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 21,
+      "hasStructuralAnalysis": true
+    },
+    "agents/coder/diff_coder/apply.py": {
+      "filePath": "agents/coder/diff_coder/apply.py",
+      "contentHash": "4941cbf9bfc39739e9f72cb744882f8a94e49acce3c57d12b177fdccf24bee9d",
+      "functions": [
+        {
+          "name": "apply_diff_with_retry",
+          "params": [
+            "diff_response",
+            "original_code",
+            "max_retries",
+            "regenerate_fn"
+          ],
+          "returnType": "Tuple[Optional[str], int, str]",
+          "exported": true,
+          "lineCount": 107
+        },
+        {
+          "name": "format_planning_result_for_plan",
+          "params": [
+            "planning_result"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "Any",
+            "Tuple",
+            "Optional"
+          ]
+        },
+        {
+          "source": ".patcher",
+          "specifiers": [
+            "SearchReplacePatcher"
+          ]
+        }
+      ],
+      "exports": [
+        "apply_diff_with_retry",
+        "format_planning_result_for_plan"
+      ],
+      "totalLines": 133,
+      "hasStructuralAnalysis": true
+    },
+    "agents/coder/diff_coder/diff_generate.py": {
+      "filePath": "agents/coder/diff_coder/diff_generate.py",
+      "contentHash": "af5ab2d9c75b13f38adc98d35318161d3fea4be9c4144ea81865704bed82d895",
+      "functions": [
+        {
+          "name": "diff_generate_and_apply",
+          "params": [
+            "agent_instance",
+            "planning_result",
+            "parent_code",
+            "data_preview",
+            "execution_output",
+            "introduction",
+            "extra_context",
+            "extra_user_sections",
+            "learning_guidance",
+            "max_diff_retries"
+          ],
+          "returnType": "Tuple[str, str]",
+          "exported": true,
+          "lineCount": 75
+        },
+        {
+          "name": "_format_plan_text",
+          "params": [
+            "planning_result"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "_build_assistant_text",
+          "params": [
+            "data_preview",
+            "code",
+            "execution_output",
+            "extra_context"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "_build_diff_model_prompt",
+          "params": [
+            "model_name",
+            "introduction",
+            "user_prompt",
+            "assistant_text"
+          ],
+          "returnType": "Union[str, Dict[str, str]]",
+          "exported": true,
+          "lineCount": 13
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "Any",
+            "Tuple",
+            "Union"
+          ]
+        },
+        {
+          "source": "llm",
+          "specifiers": [
+            "generate"
+          ]
+        },
+        {
+          "source": ".prompts",
+          "specifiers": [
+            "build_base_diff_instructions",
+            "build_diff_format_suffix",
+            "DIFF_SYS_FORMAT"
+          ]
+        },
+        {
+          "source": ".apply",
+          "specifiers": [
+            "apply_diff_with_retry",
+            "format_planning_result_for_plan"
+          ]
+        }
+      ],
+      "exports": [
+        "diff_generate_and_apply",
+        "_format_plan_text",
+        "_build_assistant_text",
+        "_build_diff_model_prompt"
+      ],
+      "totalLines": 170,
+      "hasStructuralAnalysis": true
+    },
+    "agents/coder/diff_coder/patcher.py": {
+      "filePath": "agents/coder/diff_coder/patcher.py",
+      "contentHash": "ff012f4a90b60309155b5c01f68fd094fdb1d0d5c18e05252288b47fc84c990c",
+      "functions": [],
+      "classes": [
+        {
+          "name": "SearchReplacePatcher",
+          "methods": [
+            "_strip_trailing_whitespace",
+            "_find_indented_match",
+            "_apply_indentation_to_replace",
+            "_find_best_match_with_diff",
+            "apply_patch"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 146
+        }
+      ],
+      "imports": [
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "difflib",
+          "specifiers": [
+            "difflib"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "List",
+            "Tuple",
+            "Optional"
+          ]
+        }
+      ],
+      "exports": [
+        "SearchReplacePatcher"
+      ],
+      "totalLines": 160,
+      "hasStructuralAnalysis": true
+    },
+    "agents/coder/diff_coder/prompts.py": {
+      "filePath": "agents/coder/diff_coder/prompts.py",
+      "contentHash": "cf690e478d030468fc72ae38f01e778b4b8d7a127f0a007bd29575dc8dfa14c0",
+      "functions": [
+        {
+          "name": "build_base_diff_instructions",
+          "params": [
+            "learning_guidance"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 36
+        },
+        {
+          "name": "build_diff_format_suffix",
+          "params": [],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 13
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [
+        "build_base_diff_instructions",
+        "build_diff_format_suffix"
+      ],
+      "totalLines": 103,
+      "hasStructuralAnalysis": true
+    },
+    "agents/coder/stepwise_coder.py": {
+      "filePath": "agents/coder/stepwise_coder.py",
+      "contentHash": "c8a214c3e7e0e8dbc462ee7ff95476e67f55d8d549746e5e8b04f3b36cce344a",
+      "functions": [
+        {
+          "name": "_hardware_reasoning_enabled",
+          "params": [
+            "agent_instance"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "create_default_step_agents",
+          "params": [
+            "hardware_aware"
+          ],
+          "returnType": "List[StepAgent]",
+          "exported": true,
+          "lineCount": 72
+        },
+        {
+          "name": "stepwise_plan_and_code_query",
+          "params": [
+            "agent_instance",
+            "prompt_base",
+            "data_preview",
+            "context"
+          ],
+          "returnType": "Tuple[str, str]",
+          "exported": true,
+          "lineCount": 53
+        }
+      ],
+      "classes": [
+        {
+          "name": "StepwiseContext",
+          "methods": [],
+          "properties": [
+            "stage",
+            "memory",
+            "previous_code",
+            "execution_output",
+            "hardware_brief",
+            "hardware_candidate",
+            "hardware_context"
+          ],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "StepAgent",
+          "methods": [
+            "generate",
+            "_build_prompt"
+          ],
+          "properties": [
+            "name",
+            "introduction",
+            "description",
+            "guidelines"
+          ],
+          "exported": true,
+          "lineCount": 225
+        },
+        {
+          "name": "MetaAgent",
+          "methods": [
+            "merge",
+            "_build_merge_prompt",
+            "_simple_concat"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 144
+        }
+      ],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass",
+            "field"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "List",
+            "Tuple",
+            "Dict",
+            "Any"
+          ]
+        },
+        {
+          "source": "llm",
+          "specifiers": [
+            "generate",
+            "compile_prompt_to_md"
+          ]
+        },
+        {
+          "source": "utils.response",
+          "specifiers": [
+            "extract_code",
+            "extract_text_up_to_code",
+            "wrap_code"
+          ]
+        },
+        {
+          "source": "agents.planner.base_planner",
+          "specifiers": [
+            "PLANNING_ALLOWED_MODULES",
+            "PLANNING_JSON_FORMAT",
+            "PLANNING_JSON_SCHEMA",
+            "parse_planning_response"
+          ]
+        }
+      ],
+      "exports": [
+        "StepwiseContext",
+        "StepAgent",
+        "MetaAgent",
+        "_hardware_reasoning_enabled",
+        "create_default_step_agents",
+        "stepwise_plan_and_code_query"
+      ],
+      "totalLines": 554,
+      "hasStructuralAnalysis": true
+    },
+    "agents/data_leakage_agent.py": {
+      "filePath": "agents/data_leakage_agent.py",
+      "contentHash": "9140007ef9c22539c08dd376d8bc1a0ee695871920543d22253590adc51f6eab",
+      "functions": [
+        {
+          "name": "run",
+          "params": [
+            "agent",
+            "node"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 59
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "cast"
+          ]
+        },
+        {
+          "source": "llm",
+          "specifiers": [
+            "FunctionSpec",
+            "query"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "SearchNode"
+          ]
+        },
+        {
+          "source": "utils.response",
+          "specifiers": [
+            "wrap_code"
+          ]
+        }
+      ],
+      "exports": [
+        "run"
+      ],
+      "totalLines": 118,
+      "hasStructuralAnalysis": true
+    },
+    "agents/debug_agent.py": {
+      "filePath": "agents/debug_agent.py",
+      "contentHash": "eca723ffdaf6dc7898bc57278572c52133a1e465d51384acc6db778f1112c686",
+      "functions": [
+        {
+          "name": "_format_debug_memory_guidance",
+          "params": [
+            "agent",
+            "similar_fixes"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 36
+        },
+        {
+          "name": "run",
+          "params": [
+            "agent",
+            "parent_node"
+          ],
+          "returnType": "SearchNode | None",
+          "exported": true,
+          "lineCount": 252
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "List",
+            "Tuple"
+          ]
+        },
+        {
+          "source": "llm",
+          "specifiers": [
+            "compile_prompt_to_md",
+            "generate"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "SearchNode"
+          ]
+        },
+        {
+          "source": "agents.hardware_context",
+          "specifiers": [
+            "apply_hardware_context_to_node",
+            "get_hardware_context_for_stage",
+            "hardware_context_instructions"
+          ]
+        },
+        {
+          "source": "agents.coder",
+          "specifiers": [
+            "plan_and_code_query"
+          ]
+        },
+        {
+          "source": "utils.response",
+          "specifiers": [
+            "extract_plan_from_diff_response",
+            "wrap_code"
+          ]
+        },
+        {
+          "source": "agents.prompts",
+          "specifiers": [
+            "ROBUSTNESS_GENERALIZATION_STRATEGY",
+            "get_internet_clarification",
+            "get_impl_guideline_from_agent"
+          ]
+        },
+        {
+          "source": "agents.coder.diff_coder",
+          "specifiers": [
+            "SearchReplacePatcher",
+            "DIFF_SYS_FORMAT"
+          ]
+        },
+        {
+          "source": "agents.planner",
+          "specifiers": [
+            "build_chat_prompt_for_model"
+          ]
+        },
+        {
+          "source": "agents.triggers",
+          "specifiers": [
+            "register_node"
+          ]
+        }
+      ],
+      "exports": [
+        "_format_debug_memory_guidance",
+        "run"
+      ],
+      "totalLines": 316,
+      "hasStructuralAnalysis": true
+    },
+    "agents/draft_agent.py": {
+      "filePath": "agents/draft_agent.py",
+      "contentHash": "436d71543f43226c763aa2fb6ecb31da510453651746815a3af9b03d9fab543e",
+      "functions": [
+        {
+          "name": "run",
+          "params": [
+            "agent",
+            "init_solution_path"
+          ],
+          "returnType": "SearchNode | None",
+          "exported": true,
+          "lineCount": 185
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Optional"
+          ]
+        },
+        {
+          "source": "llm",
+          "specifiers": [
+            "compile_prompt_to_md"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "SearchNode"
+          ]
+        },
+        {
+          "source": "agents.coder",
+          "specifiers": [
+            "plan_and_code_query",
+            "stepwise_plan_and_code_query"
+          ]
+        },
+        {
+          "source": "agents.triggers",
+          "specifiers": [
+            "register_node"
+          ]
+        },
+        {
+          "source": "agents.hardware_context",
+          "specifiers": [
+            "apply_hardware_design_brief_to_node",
+            "apply_hardware_context_to_node",
+            "get_hardware_design_brief",
+            "get_hardware_context_for_stage",
+            "hardware_context_instructions"
+          ]
+        },
+        {
+          "source": "agents.prompts",
+          "specifiers": [
+            "ROBUSTNESS_GENERALIZATION_STRATEGY",
+            "prompt_leakage_prevention",
+            "prompt_resp_fmt",
+            "get_prompt_environment",
+            "get_impl_guideline_from_agent"
+          ]
+        },
+        {
+          "source": "agents.planner",
+          "specifiers": [
+            "build_chat_prompt_for_model"
+          ]
+        }
+      ],
+      "exports": [
+        "run"
+      ],
+      "totalLines": 216,
+      "hasStructuralAnalysis": true
+    },
+    "agents/evolution_agent.py": {
+      "filePath": "agents/evolution_agent.py",
+      "contentHash": "270b7912a3565a2ae9690e0af7e9f67d2f545b15733a3436753e1405df2069dd",
+      "functions": [
+        {
+          "name": "_get_branch_trajectory_for_evolution",
+          "params": [
+            "parent_node"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "run",
+          "params": [
+            "agent",
+            "parent_node"
+          ],
+          "returnType": "SearchNode | None",
+          "exported": true,
+          "lineCount": 193
+        },
+        {
+          "name": "_build_evolution_suffix_extra",
+          "params": [
+            "context"
+          ],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "_diff_evolution",
+          "params": [
+            "agent",
+            "prompt_base",
+            "data_preview",
+            "parent_node"
+          ],
+          "exported": true,
+          "lineCount": 50
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "llm",
+          "specifiers": [
+            "compile_prompt_to_md"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "SearchNode"
+          ]
+        },
+        {
+          "source": "utils.response",
+          "specifiers": [
+            "wrap_code"
+          ]
+        },
+        {
+          "source": "agents.hardware_context",
+          "specifiers": [
+            "apply_hardware_context_to_node",
+            "get_hardware_context_for_stage",
+            "hardware_context_instructions"
+          ]
+        },
+        {
+          "source": "agents.triggers",
+          "specifiers": [
+            "get_patience_counter"
+          ]
+        },
+        {
+          "source": "agents.prompts",
+          "specifiers": [
+            "ROBUSTNESS_GENERALIZATION_STRATEGY",
+            "prompt_resp_fmt",
+            "get_impl_guideline_from_agent"
+          ]
+        },
+        {
+          "source": "agents.improve_agent",
+          "specifiers": [
+            "run_improve"
+          ]
+        },
+        {
+          "source": "agents.planner",
+          "specifiers": [
+            "run_planner",
+            "build_planner_task",
+            "build_planner_suffix",
+            "build_chat_prompt_for_model"
+          ]
+        },
+        {
+          "source": "agents.coder",
+          "specifiers": [
+            "plan_and_code_query"
+          ]
+        },
+        {
+          "source": "agents.coder.diff_coder",
+          "specifiers": [
+            "diff_generate_and_apply"
+          ]
+        },
+        {
+          "source": "agents.triggers",
+          "specifiers": [
+            "register_node"
+          ]
+        }
+      ],
+      "exports": [
+        "_get_branch_trajectory_for_evolution",
+        "run",
+        "_build_evolution_suffix_extra",
+        "_diff_evolution"
+      ],
+      "totalLines": 325,
+      "hasStructuralAnalysis": true
+    },
+    "agents/fusion_agent.py": {
+      "filePath": "agents/fusion_agent.py",
+      "contentHash": "61a3cc62effa5951533b2f69755c8e5adbd065317ae10dc7db8a9eb2bd450ab5",
+      "functions": [
+        {
+          "name": "_get_fusion_candidates",
+          "params": [
+            "agent",
+            "parent_node"
+          ],
+          "returnType": "List[SearchNode]",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "fuse_two_nodes",
+          "params": [
+            "agent",
+            "source_node",
+            "target_node"
+          ],
+          "returnType": "SearchNode",
+          "exported": true,
+          "lineCount": 137
+        },
+        {
+          "name": "_fuse_with_multiple_references",
+          "params": [
+            "agent",
+            "parent_node",
+            "reference_nodes"
+          ],
+          "returnType": "SearchNode",
+          "exported": true,
+          "lineCount": 146
+        },
+        {
+          "name": "run",
+          "params": [
+            "agent",
+            "parent_node"
+          ],
+          "returnType": "SearchNode | None",
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "_build_fusion_planner_suffix",
+          "params": [
+            "prompt_base",
+            "data_preview",
+            "context"
+          ],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "_build_multi_fusion_planner_suffix",
+          "params": [
+            "prompt_base",
+            "data_preview",
+            "context"
+          ],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "_diff_fusion",
+          "params": [
+            "agent",
+            "prompt_base",
+            "data_preview",
+            "source_node"
+          ],
+          "exported": true,
+          "lineCount": 50
+        },
+        {
+          "name": "_diff_multi_fusion",
+          "params": [
+            "agent",
+            "prompt_base",
+            "data_preview",
+            "parent_node"
+          ],
+          "exported": true,
+          "lineCount": 50
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "List"
+          ]
+        },
+        {
+          "source": "llm",
+          "specifiers": [
+            "compile_prompt_to_md"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "SearchNode"
+          ]
+        },
+        {
+          "source": "utils.response",
+          "specifiers": [
+            "wrap_code"
+          ]
+        },
+        {
+          "source": "agents.hardware_context",
+          "specifiers": [
+            "apply_hardware_context_to_node",
+            "get_hardware_context_for_stage",
+            "hardware_context_instructions"
+          ]
+        },
+        {
+          "source": "agents.prompts",
+          "specifiers": [
+            "prompt_resp_fmt",
+            "get_impl_guideline_from_agent"
+          ]
+        },
+        {
+          "source": "agents.improve_agent",
+          "specifiers": [
+            "run_improve"
+          ]
+        },
+        {
+          "source": "agents.planner",
+          "specifiers": [
+            "run_planner",
+            "build_planner_task",
+            "build_chat_prompt_for_model"
+          ]
+        },
+        {
+          "source": "agents.coder",
+          "specifiers": [
+            "plan_and_code_query"
+          ]
+        },
+        {
+          "source": "agents.coder.diff_coder",
+          "specifiers": [
+            "diff_generate_and_apply"
+          ]
+        },
+        {
+          "source": "engine",
+          "specifiers": [
+            "solution_manager"
+          ]
+        },
+        {
+          "source": "agents.triggers",
+          "specifiers": [
+            "register_node"
+          ]
+        }
+      ],
+      "exports": [
+        "_get_fusion_candidates",
+        "fuse_two_nodes",
+        "_fuse_with_multiple_references",
+        "run",
+        "_build_fusion_planner_suffix",
+        "_build_multi_fusion_planner_suffix",
+        "_diff_fusion",
+        "_diff_multi_fusion"
+      ],
+      "totalLines": 523,
+      "hasStructuralAnalysis": true
+    },
+    "agents/hardware_context.py": {
+      "filePath": "agents/hardware_context.py",
+      "contentHash": "9be3a796621f2aab1d390f386810c3952ede6d1f98412a0dd119893d8501acce",
+      "functions": [
+        {
+          "name": "hardware_context_instructions",
+          "params": [
+            "context"
+          ],
+          "returnType": "dict[str, list[str]]",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "get_hardware_design_brief",
+          "params": [
+            "agent"
+          ],
+          "returnType": "HardwarePromptContext",
+          "exported": true,
+          "lineCount": 49
+        },
+        {
+          "name": "get_hardware_context_for_stage",
+          "params": [
+            "agent",
+            "stage",
+            "parent_node",
+            "code",
+            "extra_candidate"
+          ],
+          "returnType": "HardwarePromptContext",
+          "exported": true,
+          "lineCount": 46
+        },
+        {
+          "name": "refresh_node_hardware_context",
+          "params": [
+            "agent",
+            "node"
+          ],
+          "returnType": "HardwarePromptContext",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "apply_hardware_context_to_node",
+          "params": [
+            "node",
+            "context"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "apply_hardware_design_brief_to_node",
+          "params": [
+            "node",
+            "context"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "optimize_training_parameters_for_round",
+          "params": [
+            "agent",
+            "nodes"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 82
+        },
+        {
+          "name": "build_hardware_candidate",
+          "params": [
+            "agent",
+            "stage",
+            "parent_node",
+            "code",
+            "extra_candidate"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 66
+        },
+        {
+          "name": "compact_optimization_context",
+          "params": [
+            "raw_context"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "compact_model_design_context",
+          "params": [
+            "raw_context"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 38
+        },
+        {
+          "name": "format_hardware_design_brief",
+          "params": [
+            "compact",
+            "max_chars"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 69
+        },
+        {
+          "name": "format_hardware_prompt_section",
+          "params": [
+            "compact",
+            "max_chars"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 70
+        },
+        {
+          "name": "infer_workload_type",
+          "params": [
+            "task_desc",
+            "data_preview"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_hardware_context_enabled",
+          "params": [
+            "agent"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_safe_node_term_out",
+          "params": [
+            "node"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_scheduler_submission_defaults",
+          "params": [
+            "scheduler_client"
+          ],
+          "returnType": "Any | None",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_scheduler_backend_config",
+          "params": [
+            "scheduler_client"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 20
+        },
+        {
+          "name": "_compact_hardware_context",
+          "params": [
+            "context"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 35
+        },
+        {
+          "name": "_compact_graph_evidence",
+          "params": [
+            "graph"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_compact_profile",
+          "params": [
+            "item"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "_compact_diagnosis",
+          "params": [
+            "diagnosis"
+          ],
+          "returnType": "dict[str, list[str]]",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_compact_vector_evidence",
+          "params": [
+            "vector"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_compact_code_knowledge",
+          "params": [
+            "item"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 19
+        },
+        {
+          "name": "_format_evidence_group",
+          "params": [
+            "label",
+            "groups"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "_execution_resource_hints",
+          "params": [
+            "term_out"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_recommended_batch_size",
+          "params": [
+            "compact"
+          ],
+          "returnType": "int | None",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_recommended_epochs",
+          "params": [
+            "compact"
+          ],
+          "returnType": "int | None",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "_rewrite_training_params",
+          "params": [
+            "code",
+            "chosen_params"
+          ],
+          "returnType": "tuple[str, dict[str, Any]]",
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "_replace_simple_int_assignment",
+          "params": [
+            "code",
+            "names",
+            "value"
+          ],
+          "returnType": "tuple[str, bool]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_default_model_families_for_workload",
+          "params": [
+            "workload_type"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_runtime_seconds",
+          "params": [
+            "compact"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_peak_vram_mb",
+          "params": [
+            "compact"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_backend_name",
+          "params": [
+            "compact"
+          ],
+          "returnType": "str | None",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_all_graph_profiles",
+          "params": [
+            "compact"
+          ],
+          "returnType": "list[dict[str, Any]]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_pick",
+          "params": [
+            "payload",
+            "keys"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_format_kv",
+          "params": [
+            "payload",
+            "keys"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_clean_string_list",
+          "params": [
+            "values",
+            "limit"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_short",
+          "params": [
+            "value",
+            "limit"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_safe_int",
+          "params": [
+            "value",
+            "default"
+          ],
+          "returnType": "int | None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_safe_float",
+          "params": [
+            "value"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 5
+        }
+      ],
+      "classes": [
+        {
+          "name": "HardwarePromptContext",
+          "methods": [
+            "found"
+          ],
+          "properties": [
+            "candidate",
+            "raw_context",
+            "compact_context",
+            "prompt_section"
+          ],
+          "exported": true,
+          "lineCount": 9
+        }
+      ],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass",
+            "field"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "engine.script_introspection",
+          "specifiers": [
+            "introspect_training_script"
+          ]
+        }
+      ],
+      "exports": [
+        "HardwarePromptContext",
+        "hardware_context_instructions",
+        "get_hardware_design_brief",
+        "get_hardware_context_for_stage",
+        "refresh_node_hardware_context",
+        "apply_hardware_context_to_node",
+        "apply_hardware_design_brief_to_node",
+        "optimize_training_parameters_for_round",
+        "build_hardware_candidate",
+        "compact_optimization_context",
+        "compact_model_design_context",
+        "format_hardware_design_brief",
+        "format_hardware_prompt_section",
+        "infer_workload_type",
+        "_hardware_context_enabled",
+        "_safe_node_term_out",
+        "_scheduler_submission_defaults",
+        "_scheduler_backend_config",
+        "_compact_hardware_context",
+        "_compact_graph_evidence",
+        "_compact_profile",
+        "_compact_diagnosis",
+        "_compact_vector_evidence",
+        "_compact_code_knowledge",
+        "_format_evidence_group",
+        "_execution_resource_hints",
+        "_recommended_batch_size",
+        "_recommended_epochs",
+        "_rewrite_training_params",
+        "_replace_simple_int_assignment",
+        "_default_model_families_for_workload",
+        "_runtime_seconds",
+        "_peak_vram_mb",
+        "_backend_name",
+        "_all_graph_profiles",
+        "_pick",
+        "_format_kv",
+        "_clean_string_list",
+        "_short",
+        "_safe_int",
+        "_safe_float"
+      ],
+      "totalLines": 909,
+      "hasStructuralAnalysis": true
+    },
+    "agents/improve_agent.py": {
+      "filePath": "agents/improve_agent.py",
+      "contentHash": "2ce58e433aa98e2bb1b789b71ec7654cd568cf7f2a0d9f64c7c3917a75256f89",
+      "functions": [
+        {
+          "name": "run",
+          "params": [
+            "agent",
+            "parent_node"
+          ],
+          "returnType": "SearchNode | None",
+          "exported": true,
+          "lineCount": 245
+        },
+        {
+          "name": "_diff_improve",
+          "params": [
+            "agent",
+            "prompt_base",
+            "data_preview",
+            "parent_node"
+          ],
+          "exported": true,
+          "lineCount": 51
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "llm",
+          "specifiers": [
+            "compile_prompt_to_md"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "SearchNode"
+          ]
+        },
+        {
+          "source": "utils.response",
+          "specifiers": [
+            "wrap_code"
+          ]
+        },
+        {
+          "source": "agents.hardware_context",
+          "specifiers": [
+            "apply_hardware_context_to_node",
+            "get_hardware_context_for_stage",
+            "hardware_context_instructions"
+          ]
+        },
+        {
+          "source": "agents.triggers",
+          "specifiers": [
+            "get_patience_counter",
+            "register_node"
+          ]
+        },
+        {
+          "source": "agents.prompts",
+          "specifiers": [
+            "ROBUSTNESS_GENERALIZATION_STRATEGY",
+            "prompt_leakage_prevention",
+            "prompt_resp_fmt",
+            "get_internet_clarification",
+            "get_impl_guideline_from_agent"
+          ]
+        },
+        {
+          "source": "agents.planner",
+          "specifiers": [
+            "run_planner",
+            "generate_initial_plan",
+            "refine_plan_to_json",
+            "build_planner_task",
+            "build_planner_suffix",
+            "build_chat_prompt_for_model"
+          ]
+        },
+        {
+          "source": "agents.coder",
+          "specifiers": [
+            "plan_and_code_query"
+          ]
+        },
+        {
+          "source": "agents.coder.diff_coder",
+          "specifiers": [
+            "diff_generate_and_apply"
+          ]
+        }
+      ],
+      "exports": [
+        "run",
+        "_diff_improve"
+      ],
+      "totalLines": 354,
+      "hasStructuralAnalysis": true
+    },
+    "agents/memory/__init__.py": {
+      "filePath": "agents/memory/__init__.py",
+      "contentHash": "beb8ab59a5fd74c8639d45eee2f78eab715ce23e678106164a47e620ff264e7a",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": ".record",
+          "specifiers": [
+            "MemRecord"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 22,
+      "hasStructuralAnalysis": true
+    },
+    "agents/memory/embedding_models.py": {
+      "filePath": "agents/memory/embedding_models.py",
+      "contentHash": "72b26c37f4c6ac06973bac4b6a82faa6b6b767d7765acc58e76c32e8a7ee35c0",
+      "functions": [],
+      "classes": [
+        {
+          "name": "EmbeddingModel",
+          "methods": [
+            "__init__",
+            "encode",
+            "_openrouter_embeddings_batch",
+            "_openrouter_post_json"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 186
+        }
+      ],
+      "imports": [
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "urllib.error",
+          "specifiers": [
+            "urllib.error"
+          ]
+        },
+        {
+          "source": "urllib.request",
+          "specifiers": [
+            "urllib.request"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "List",
+            "Literal",
+            "Optional"
+          ]
+        }
+      ],
+      "exports": [
+        "EmbeddingModel"
+      ],
+      "totalLines": 214,
+      "hasStructuralAnalysis": true
+    },
+    "agents/memory/global_memory.py": {
+      "filePath": "agents/memory/global_memory.py",
+      "contentHash": "0805ba9c38520583d315d8d6f141692e87b4ea2389fec136867eece3dae49dee",
+      "functions": [],
+      "classes": [
+        {
+          "name": "GlobalMemoryLayer",
+          "methods": [
+            "__init__",
+            "save_node",
+            "retrieve_similar_records",
+            "generate_guidance_prompt",
+            "_extract_stage_from_record",
+            "_should_save_node",
+            "_extract_code_summary",
+            "_determine_label",
+            "_update_index",
+            "_extract_text",
+            "_load_memory",
+            "_save_memory"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 342
+        }
+      ],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "Any",
+            "Optional",
+            "List",
+            "Tuple"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime"
+          ]
+        },
+        {
+          "source": ".record",
+          "specifiers": [
+            "MemRecord"
+          ]
+        },
+        {
+          "source": ".retriever",
+          "specifiers": [
+            "HybridRetriever"
+          ]
+        },
+        {
+          "source": ".embedding_models",
+          "specifiers": [
+            "EmbeddingModel"
+          ]
+        }
+      ],
+      "exports": [
+        "GlobalMemoryLayer"
+      ],
+      "totalLines": 363,
+      "hasStructuralAnalysis": true
+    },
+    "agents/memory/record.py": {
+      "filePath": "agents/memory/record.py",
+      "contentHash": "c705bda1e0da5972435bbbb8099bb4fa4b7503568aabe71bd4a310a6f1f6b262",
+      "functions": [],
+      "classes": [
+        {
+          "name": "MemRecord",
+          "methods": [
+            "from_dict",
+            "to_dict"
+          ],
+          "properties": [
+            "record_id",
+            "title",
+            "description",
+            "method",
+            "label",
+            "timestamp"
+          ],
+          "exported": true,
+          "lineCount": 33
+        }
+      ],
+      "imports": [
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "Any",
+            "Optional"
+          ]
+        }
+      ],
+      "exports": [
+        "MemRecord"
+      ],
+      "totalLines": 46,
+      "hasStructuralAnalysis": true
+    },
+    "agents/memory/retriever.py": {
+      "filePath": "agents/memory/retriever.py",
+      "contentHash": "3e88fe6b8330a94121f783da192f4aa1bc6c463c6df8e758358b4a4805ed2bf7",
+      "functions": [],
+      "classes": [
+        {
+          "name": "HybridRetriever",
+          "methods": [
+            "__init__",
+            "build_index",
+            "save_index",
+            "load_index",
+            "add_to_index",
+            "search",
+            "_reciprocal_rank_fusion"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 265
+        }
+      ],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "List",
+            "Tuple",
+            "Optional",
+            "TYPE_CHECKING",
+            "Any"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "faiss",
+          "specifiers": [
+            "faiss"
+          ]
+        },
+        {
+          "source": "rank_bm25",
+          "specifiers": [
+            "BM25Okapi"
+          ]
+        }
+      ],
+      "exports": [
+        "HybridRetriever"
+      ],
+      "totalLines": 284,
+      "hasStructuralAnalysis": true
+    },
+    "agents/planner/__init__.py": {
+      "filePath": "agents/planner/__init__.py",
+      "contentHash": "109272b9b23a168bec0170a6104f13abd6ac2940e3094b240954aa9263151d83",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": ".base_planner",
+          "specifiers": [
+            "run_planner",
+            "parse_planning_response",
+            "build_model_prompt",
+            "build_chat_prompt_for_model",
+            "build_planner_task",
+            "build_planner_suffix",
+            "get_component_descriptions",
+            "PLANNING_ALLOWED_MODULES",
+            "PLANNING_JSON_FORMAT",
+            "PLANNING_JSON_SCHEMA"
+          ]
+        },
+        {
+          "source": ".planner_with_memory",
+          "specifiers": [
+            "generate_initial_plan",
+            "refine_plan_to_json"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 26,
+      "hasStructuralAnalysis": true
+    },
+    "agents/planner/base_planner.py": {
+      "filePath": "agents/planner/base_planner.py",
+      "contentHash": "82b010ac4f4dee172ca01045e7302a0cad59728cb05c529ab7ce0b8bea46c874",
+      "functions": [
+        {
+          "name": "get_component_descriptions",
+          "params": [],
+          "returnType": "Dict[str, str]",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "build_model_prompt",
+          "params": [
+            "model_name",
+            "introduction",
+            "user_prompt",
+            "assistant_suffix"
+          ],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "build_chat_prompt_for_model",
+          "params": [
+            "model_name",
+            "introduction",
+            "user_prompt",
+            "assistant_prefix"
+          ],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "parse_planning_response",
+          "params": [
+            "response"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 47
+        },
+        {
+          "name": "_normalize_planning_result",
+          "params": [
+            "result"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 38
+        },
+        {
+          "name": "_clean_json_control_chars",
+          "params": [
+            "json_text"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "build_planner_task",
+          "params": [
+            "stage_intro",
+            "extra_guidelines"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "build_planner_suffix",
+          "params": [
+            "prompt_base",
+            "data_preview",
+            "context",
+            "extra_text"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "run_planner",
+          "params": [
+            "agent_instance",
+            "prompt_base",
+            "data_preview",
+            "context",
+            "your_task_section",
+            "assistant_suffix",
+            "extra_prompt_sections",
+            "max_retries",
+            "stage_name"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 165
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "Any",
+            "Union"
+          ]
+        },
+        {
+          "source": "llm",
+          "specifiers": [
+            "generate",
+            "compile_prompt_to_md"
+          ]
+        },
+        {
+          "source": "llm.model_profiles",
+          "specifiers": [
+            "thinking_json_incompatible"
+          ]
+        }
+      ],
+      "exports": [
+        "get_component_descriptions",
+        "build_model_prompt",
+        "build_chat_prompt_for_model",
+        "parse_planning_response",
+        "_normalize_planning_result",
+        "_clean_json_control_chars",
+        "build_planner_task",
+        "build_planner_suffix",
+        "run_planner"
+      ],
+      "totalLines": 439,
+      "hasStructuralAnalysis": true
+    },
+    "agents/planner/planner_with_memory.py": {
+      "filePath": "agents/planner/planner_with_memory.py",
+      "contentHash": "ccf3a7adffbaf52e32e23f56ac0b82442de3391d6053d45c1b3b15ee753ed0ff",
+      "functions": [
+        {
+          "name": "generate_initial_plan",
+          "params": [
+            "agent_instance",
+            "prompt_base",
+            "data_preview",
+            "context"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 75
+        },
+        {
+          "name": "refine_plan_to_json",
+          "params": [
+            "agent_instance",
+            "initial_plan_text",
+            "prompt_base",
+            "data_preview",
+            "context"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 152
+        },
+        {
+          "name": "_build_refinement_guidance",
+          "params": [
+            "similar_success_records",
+            "similar_fail_records"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "_build_refine_user_prompt",
+          "params": [
+            "prompt_base",
+            "initial_plan_text",
+            "refinement_guidance",
+            "component_desc_text"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 84
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "Any"
+          ]
+        },
+        {
+          "source": "llm",
+          "specifiers": [
+            "generate",
+            "compile_prompt_to_md"
+          ]
+        },
+        {
+          "source": "llm.model_profiles",
+          "specifiers": [
+            "thinking_json_incompatible"
+          ]
+        },
+        {
+          "source": "utils.response",
+          "specifiers": [
+            "wrap_code"
+          ]
+        },
+        {
+          "source": ".base_planner",
+          "specifiers": [
+            "PLANNING_ALLOWED_MODULES",
+            "PLANNING_JSON_FORMAT",
+            "PLANNING_JSON_SCHEMA",
+            "get_component_descriptions",
+            "build_model_prompt",
+            "parse_planning_response"
+          ]
+        }
+      ],
+      "exports": [
+        "generate_initial_plan",
+        "refine_plan_to_json",
+        "_build_refinement_guidance",
+        "_build_refine_user_prompt"
+      ],
+      "totalLines": 383,
+      "hasStructuralAnalysis": true
+    },
+    "agents/prompts/__init__.py": {
+      "filePath": "agents/prompts/__init__.py",
+      "contentHash": "ed37fdf9e1a744437ab850133eb1e94306249acbc760c59494cfb1cd6eee92c0",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": ".shared",
+          "specifiers": [
+            "ROBUSTNESS_GENERALIZATION_STRATEGY",
+            "prompt_leakage_prevention",
+            "prompt_resp_fmt",
+            "get_internet_clarification"
+          ]
+        },
+        {
+          "source": ".environment",
+          "specifiers": [
+            "get_prompt_environment"
+          ]
+        },
+        {
+          "source": ".impl_guideline",
+          "specifiers": [
+            "get_impl_guideline",
+            "get_impl_guideline_from_agent"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 21,
+      "hasStructuralAnalysis": true
+    },
+    "agents/prompts/environment.py": {
+      "filePath": "agents/prompts/environment.py",
+      "contentHash": "56851532aba083a3a3b0a4e5c9aab4883ef0276029e92b9941b71f3acccc2ce7",
+      "functions": [
+        {
+          "name": "get_prompt_environment",
+          "params": [],
+          "exported": true,
+          "lineCount": 25
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        }
+      ],
+      "exports": [
+        "get_prompt_environment"
+      ],
+      "totalLines": 31,
+      "hasStructuralAnalysis": true
+    },
+    "agents/prompts/impl_guideline.py": {
+      "filePath": "agents/prompts/impl_guideline.py",
+      "contentHash": "ef2bc3ae722c0b7d8592d36b62b893b07397a13391538c8be96c38732b26dc91",
+      "functions": [
+        {
+          "name": "get_impl_guideline_from_agent",
+          "params": [
+            "agent"
+          ],
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "_format_time",
+          "params": [
+            "time_in_sec"
+          ],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "get_impl_guideline",
+          "params": [
+            "tot_time_remaining",
+            "steps_remaining",
+            "exec_timeout",
+            "expose_prediction",
+            "k_fold_validation",
+            "pretrain_model_dir"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 64
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "humanize",
+          "specifiers": [
+            "humanize"
+          ]
+        }
+      ],
+      "exports": [
+        "get_impl_guideline_from_agent",
+        "_format_time",
+        "get_impl_guideline"
+      ],
+      "totalLines": 95,
+      "hasStructuralAnalysis": true
+    },
+    "agents/prompts/shared.py": {
+      "filePath": "agents/prompts/shared.py",
+      "contentHash": "eacc9654498f46faa95b4c71619c2dcccc5f8f0debb95a5f2417eed6255347a0",
+      "functions": [
+        {
+          "name": "prompt_leakage_prevention",
+          "params": [],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "prompt_resp_fmt",
+          "params": [],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "get_internet_clarification",
+          "params": [
+            "pretrain_model_dir"
+          ],
+          "exported": true,
+          "lineCount": 15
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [
+        "prompt_leakage_prevention",
+        "prompt_resp_fmt",
+        "get_internet_clarification"
+      ],
+      "totalLines": 65,
+      "hasStructuralAnalysis": true
+    },
+    "agents/prompts/validation_template_prompts.py": {
+      "filePath": "agents/prompts/validation_template_prompts.py",
+      "contentHash": "ad76b4856c3d60b1f81e334e7aa74123ab89b1589f1c8c8125d795337247156e",
+      "functions": [
+        {
+          "name": "get_code_review_prompt",
+          "params": [
+            "task_desc",
+            "code"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 20
+        },
+        {
+          "name": "get_code_review_guidelines",
+          "params": [],
+          "returnType": "list",
+          "exported": true,
+          "lineCount": 80
+        },
+        {
+          "name": "get_code_review_response_format",
+          "params": [],
+          "returnType": "list",
+          "exported": true,
+          "lineCount": 37
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "Any"
+          ]
+        },
+        {
+          "source": "utils.response",
+          "specifiers": [
+            "wrap_code"
+          ]
+        }
+      ],
+      "exports": [
+        "get_code_review_prompt",
+        "get_code_review_guidelines",
+        "get_code_review_response_format"
+      ],
+      "totalLines": 153,
+      "hasStructuralAnalysis": true
+    },
+    "agents/result_parse_agent.py": {
+      "filePath": "agents/result_parse_agent.py",
+      "contentHash": "dea1ca5e9521f0f7eb3f33393ee7180dde289ba37276e9a32ca1c1c6e94a3ac6",
+      "functions": [
+        {
+          "name": "determine_metric_direction",
+          "params": [
+            "agent"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 101
+        },
+        {
+          "name": "get_review_func_spec",
+          "params": [
+            "use_memory"
+          ],
+          "returnType": "FunctionSpec",
+          "exported": true,
+          "lineCount": 35
+        },
+        {
+          "name": "_build_introduction",
+          "params": [
+            "agent"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 19
+        },
+        {
+          "name": "_check_submission_file",
+          "params": [
+            "agent",
+            "node"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_save_code_summary",
+          "params": [
+            "agent",
+            "node",
+            "response"
+          ],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_determine_buggy",
+          "params": [
+            "node",
+            "response",
+            "has_csv_submission"
+          ],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "_validate_format_with_retry",
+          "params": [
+            "agent",
+            "node"
+          ],
+          "exported": true,
+          "lineCount": 35
+        },
+        {
+          "name": "_validate_format_simple",
+          "params": [
+            "agent",
+            "node"
+          ],
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "_check_content_quality",
+          "params": [
+            "agent",
+            "node",
+            "submission_path"
+          ],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "_mark_content_quality_failure",
+          "params": [
+            "node",
+            "content_error"
+          ],
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "_validate_metric_direction",
+          "params": [
+            "agent",
+            "node",
+            "response"
+          ],
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "_check_data_leakage",
+          "params": [
+            "agent",
+            "node",
+            "response"
+          ],
+          "exported": true,
+          "lineCount": 38
+        },
+        {
+          "name": "_save_to_global_memory",
+          "params": [
+            "agent",
+            "node"
+          ],
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "run",
+          "params": [
+            "agent",
+            "node",
+            "exec_result"
+          ],
+          "returnType": "SearchNode",
+          "exported": true,
+          "lineCount": 93
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "cast"
+          ]
+        },
+        {
+          "source": "llm",
+          "specifiers": [
+            "FunctionSpec",
+            "query"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "SearchNode"
+          ]
+        },
+        {
+          "source": "engine.executor",
+          "specifiers": [
+            "ExecutionResult"
+          ]
+        },
+        {
+          "source": "utils.metric",
+          "specifiers": [
+            "MetricValue",
+            "WorstMetricValue"
+          ]
+        },
+        {
+          "source": "utils.response",
+          "specifiers": [
+            "wrap_code"
+          ]
+        },
+        {
+          "source": "engine.validation",
+          "specifiers": [
+            "call_validate",
+            "_validate_submission_with_retry",
+            "validate_submission_content_quality"
+          ]
+        },
+        {
+          "source": "agents",
+          "specifiers": [
+            "data_leakage_agent"
+          ]
+        },
+        {
+          "source": "agents.triggers",
+          "specifiers": [
+            "should_check_data_leakage"
+          ]
+        }
+      ],
+      "exports": [
+        "determine_metric_direction",
+        "get_review_func_spec",
+        "_build_introduction",
+        "_check_submission_file",
+        "_save_code_summary",
+        "_determine_buggy",
+        "_validate_format_with_retry",
+        "_validate_format_simple",
+        "_check_content_quality",
+        "_mark_content_quality_failure",
+        "_validate_metric_direction",
+        "_check_data_leakage",
+        "_save_to_global_memory",
+        "run"
+      ],
+      "totalLines": 499,
+      "hasStructuralAnalysis": true
+    },
+    "agents/triggers.py": {
+      "filePath": "agents/triggers.py",
+      "contentHash": "2e1ef90957871ec16fc879f8db41ec1f15807559ffd8b2cf3f238f6df0fafe86",
+      "functions": [
+        {
+          "name": "should_check_data_leakage",
+          "params": [
+            "agent",
+            "node"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "get_patience_counter",
+          "params": [
+            "agent",
+            "parent_node"
+          ],
+          "returnType": "tuple",
+          "exported": true,
+          "lineCount": 40
+        },
+        {
+          "name": "register_node",
+          "params": [
+            "agent",
+            "node",
+            "prompt",
+            "parent_node",
+            "new_branch"
+          ],
+          "exported": true,
+          "lineCount": 31
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "SearchNode"
+          ]
+        },
+        {
+          "source": "engine.conditions",
+          "specifiers": [
+            "should_trigger_branch_fusion"
+          ]
+        }
+      ],
+      "exports": [
+        "should_check_data_leakage",
+        "get_patience_counter",
+        "register_node"
+      ],
+      "totalLines": 103,
+      "hasStructuralAnalysis": true
+    },
+    "bootstrap.sh": {
+      "filePath": "bootstrap.sh",
+      "contentHash": "bcbbb72b2410fdca6eee4cefb648cced17d88bc4468a4a49db4bb7e49a566d5b",
+      "functions": [
+        {
+          "name": "read_config_value",
+          "params": [],
+          "exported": false,
+          "lineCount": 24
+        },
+        {
+          "name": "cleanup",
+          "params": [],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "write_runtime_config",
+          "params": [],
+          "exported": false,
+          "lineCount": 30
+        },
+        {
+          "name": "start_local_databases",
+          "params": [],
+          "exported": false,
+          "lineCount": 29
+        },
+        {
+          "name": "qdrant_curl",
+          "params": [],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "wait_for_qdrant",
+          "params": [],
+          "exported": false,
+          "lineCount": 24
+        },
+        {
+          "name": "vector_db_is_empty",
+          "params": [],
+          "exported": false,
+          "lineCount": 65
+        },
+        {
+          "name": "wait_for_neo4j",
+          "params": [],
+          "exported": false,
+          "lineCount": 44
+        },
+        {
+          "name": "ensure_schema_knowledge_dirs",
+          "params": [],
+          "exported": false,
+          "lineCount": 14
+        },
+        {
+          "name": "ingest_schema_knowledge",
+          "params": [],
+          "exported": false,
+          "lineCount": 14
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 379,
+      "hasStructuralAnalysis": true
+    },
+    "CLAUDE.md": {
+      "filePath": "CLAUDE.md",
+      "contentHash": "cf089957c52db8d81fcff7d14abb2aec9011452cdf84b939ae21831576ac630d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 18,
+      "hasStructuralAnalysis": true
+    },
+    "compare_hardware_awareness.sh": {
+      "filePath": "compare_hardware_awareness.sh",
+      "contentHash": "bf36bca8b1318ee737220d3426b214932410fc1a5230dd948e8b5e0c02ed6350",
+      "functions": [
+        {
+          "name": "usage",
+          "params": [],
+          "exported": false,
+          "lineCount": 47
+        },
+        {
+          "name": "quote_cmd",
+          "params": [],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "prepare_dataset",
+          "params": [],
+          "exported": false,
+          "lineCount": 27
+        },
+        {
+          "name": "cleanup",
+          "params": [],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "wait_for_validation_server",
+          "params": [],
+          "exported": false,
+          "lineCount": 16
+        },
+        {
+          "name": "start_validation_server",
+          "params": [],
+          "exported": false,
+          "lineCount": 27
+        },
+        {
+          "name": "run_mode",
+          "params": [],
+          "exported": false,
+          "lineCount": 67
+        },
+        {
+          "name": "generate_plots",
+          "params": [],
+          "exported": false,
+          "lineCount": 25
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 517,
+      "hasStructuralAnalysis": true
+    },
+    "config.example.yaml": {
+      "filePath": "config.example.yaml",
+      "contentHash": "53091c0456d5dc125b8b27271cc37dc58eb6ae8a15d403ef0b9eee4177a987ce",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 273,
+      "hasStructuralAnalysis": true
+    },
+    "config/__init__.py": {
+      "filePath": "config/__init__.py",
+      "contentHash": "c4d2a12cdeb5fb4ad4e448ac50740dec5e396c6ed06bbbd500def31b71c96c3d",
+      "functions": [
+        {
+          "name": "_get_journal_classes",
+          "params": [],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "normalize_experiment_mode",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_get_next_logindex",
+          "params": [
+            "dir"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "resolve_config_path",
+          "params": [
+            "path"
+          ],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "_load_cfg",
+          "params": [
+            "path",
+            "use_cli_args"
+          ],
+          "returnType": "Config",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "load_cfg",
+          "params": [
+            "path"
+          ],
+          "returnType": "Config",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "prep_cfg",
+          "params": [
+            "cfg"
+          ],
+          "exported": true,
+          "lineCount": 46
+        },
+        {
+          "name": "print_cfg",
+          "params": [
+            "cfg"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "load_task_desc",
+          "params": [
+            "cfg"
+          ],
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "prep_agent_workspace",
+          "params": [
+            "cfg"
+          ],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "save_run",
+          "params": [
+            "cfg",
+            "journal"
+          ],
+          "exported": true,
+          "lineCount": 16
+        }
+      ],
+      "classes": [
+        {
+          "name": "StageConfig",
+          "methods": [],
+          "properties": [
+            "model",
+            "temp",
+            "base_url",
+            "api_key",
+            "provider"
+          ],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "DecayConfig",
+          "methods": [],
+          "properties": [
+            "exploration_constant",
+            "lower_bound",
+            "alpha",
+            "phase_ratios"
+          ],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "SearchConfig",
+          "methods": [],
+          "properties": [
+            "max_debug_depth",
+            "debug_prob",
+            "num_drafts",
+            "metric_improvement_threshold",
+            "back_debug_depth",
+            "num_bugs",
+            "num_improves",
+            "topk_max_improves",
+            "max_improve_failure",
+            "parallel_search_num",
+            "branch_stagnation_threshold",
+            "topk_stagnation_threshold",
+            "top_candidates_size",
+            "stagnation_window",
+            "num_gpus",
+            "explore_switch_start",
+            "explore_switch_end",
+            "min_exploration_weight",
+            "topk_early_k",
+            "topk_early_max_per_branch",
+            "topk_late_k",
+            "topk_late_max_per_branch",
+            "force_backprop_late_threshold",
+            "force_backprop_late_prob",
+            "force_backprop_mid_threshold",
+            "force_backprop_mid_modulo",
+            "recent_best_window",
+            "fusion_min_time_hours",
+            "fusion_max_time_hours",
+            "fusion_min_successful_nodes",
+            "fusion_min_branches"
+          ],
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "AgentConfig",
+          "methods": [],
+          "properties": [
+            "steps",
+            "time_limit",
+            "initial_drafts",
+            "seed",
+            "data_preview",
+            "code",
+            "feedback",
+            "check_data_leakage",
+            "fusion_vs_evolution_prob",
+            "branch_fusion_trigger_prob",
+            "max_fusion_drafts",
+            "use_global_memory",
+            "memory_similarity_threshold",
+            "memory_embedding_device",
+            "memory_embedding_model_path",
+            "search",
+            "decay",
+            "use_diff_mode",
+            "hardware_context_enabled",
+            "hardware_context_limit",
+            "hardware_context_max_prompt_chars"
+          ],
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "ExecConfig",
+          "methods": [],
+          "properties": [
+            "timeout",
+            "agent_file_name"
+          ],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "SchedulerBridgeConfig",
+          "methods": [],
+          "properties": [
+            "enabled",
+            "settings_path",
+            "settings",
+            "runtime_root",
+            "start_service",
+            "wait_poll_interval_seconds",
+            "wait_timeout_seconds",
+            "preload_source_model_id",
+            "preload_source_model_path",
+            "preload_source_loader_target"
+          ],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "ExperimentConfig",
+          "methods": [],
+          "properties": [
+            "mode"
+          ],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "ColdstartConfig",
+          "methods": [],
+          "properties": [
+            "use_coldstart",
+            "task_json_path",
+            "model_json_path",
+            "description"
+          ],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "MonitorConfig",
+          "methods": [],
+          "properties": [
+            "enabled",
+            "interval_seconds",
+            "gpu_idle_util_threshold",
+            "gpu_idle_memory_threshold_mb",
+            "cpu_idle_util_threshold",
+            "adaptive_compression",
+            "max_csv_rows",
+            "compress_to_rows"
+          ],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "InitSolutionConfig",
+          "methods": [],
+          "properties": [
+            "use"
+          ],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "Config",
+          "methods": [],
+          "properties": [
+            "data_dir",
+            "dataset_dir",
+            "desc_file",
+            "goal",
+            "eval",
+            "log_dir",
+            "log_level",
+            "workspace_dir",
+            "preprocess_data",
+            "copy_data",
+            "exp_name",
+            "exp_id",
+            "torch_hub_dir",
+            "pretrain_model_dir",
+            "exec",
+            "scheduler",
+            "experiment",
+            "agent",
+            "start_cpu_id",
+            "cpu_number",
+            "coldstart",
+            "monitor",
+            "use_grading_server",
+            "init_solution"
+          ],
+          "exported": true,
+          "lineCount": 33
+        }
+      ],
+      "imports": [
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass",
+            "field"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Hashable",
+            "cast"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime"
+          ]
+        },
+        {
+          "source": "coolname",
+          "specifiers": [
+            "coolname"
+          ]
+        },
+        {
+          "source": "rich",
+          "specifiers": [
+            "rich"
+          ]
+        },
+        {
+          "source": "omegaconf",
+          "specifiers": [
+            "OmegaConf"
+          ]
+        },
+        {
+          "source": "rich.syntax",
+          "specifiers": [
+            "Syntax"
+          ]
+        },
+        {
+          "source": "shutup",
+          "specifiers": [
+            "shutup"
+          ]
+        },
+        {
+          "source": "rich.logging",
+          "specifiers": [
+            "RichHandler"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "utils",
+          "specifiers": [
+            "copytree",
+            "preproc_data",
+            "serialize"
+          ]
+        }
+      ],
+      "exports": [
+        "_get_journal_classes",
+        "normalize_experiment_mode",
+        "StageConfig",
+        "DecayConfig",
+        "SearchConfig",
+        "AgentConfig",
+        "ExecConfig",
+        "SchedulerBridgeConfig",
+        "ExperimentConfig",
+        "ColdstartConfig",
+        "MonitorConfig",
+        "InitSolutionConfig",
+        "Config",
+        "_get_next_logindex",
+        "resolve_config_path",
+        "_load_cfg",
+        "load_cfg",
+        "prep_cfg",
+        "print_cfg",
+        "load_task_desc",
+        "prep_agent_workspace",
+        "save_run"
+      ],
+      "totalLines": 373,
+      "hasStructuralAnalysis": true
+    },
+    "docker_host_databases.sh": {
+      "filePath": "docker_host_databases.sh",
+      "contentHash": "2efcf19ad7cd79026450164b999de3451fc89496dfd6139a34652b68279c0968",
+      "functions": [
+        {
+          "name": "usage",
+          "params": [],
+          "exported": false,
+          "lineCount": 21
+        },
+        {
+          "name": "require_docker",
+          "params": [],
+          "exported": false,
+          "lineCount": 12
+        },
+        {
+          "name": "use_compose",
+          "params": [],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "compose_cmd",
+          "params": [],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "container_exists",
+          "params": [],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "container_running",
+          "params": [],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "start_qdrant",
+          "params": [],
+          "exported": false,
+          "lineCount": 14
+        },
+        {
+          "name": "start_neo4j",
+          "params": [],
+          "exported": false,
+          "lineCount": 16
+        },
+        {
+          "name": "start_compose_stack",
+          "params": [],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "wait_for_qdrant",
+          "params": [],
+          "exported": false,
+          "lineCount": 15
+        },
+        {
+          "name": "neo4j_cypher",
+          "params": [],
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "wait_for_neo4j",
+          "params": [],
+          "exported": false,
+          "lineCount": 14
+        },
+        {
+          "name": "print_status",
+          "params": [],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "print_devcontainer_hint",
+          "params": [],
+          "exported": false,
+          "lineCount": 20
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 246,
+      "hasStructuralAnalysis": true
+    },
+    "docker-compose.local.yml": {
+      "filePath": "docker-compose.local.yml",
+      "contentHash": "6ba80543a0ae55c566243b6d18314c5c8dff1348db43e1f75e15317b4bcfbdf4",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 38,
+      "hasStructuralAnalysis": true
+    },
+    "engine/agent_search.py": {
+      "filePath": "engine/agent_search.py",
+      "contentHash": "bdd6e2996aa737cf153013f54adca8c08b5cd0d1d52b4da862ce7f158c815aee",
+      "functions": [],
+      "classes": [
+        {
+          "name": "AgentSearch",
+          "methods": [
+            "__init__",
+            "attach_scheduler",
+            "refresh_hardware_context",
+            "has_selectable_work",
+            "_discard_unfinished_node",
+            "_serialize_prompt",
+            "update_data_preview",
+            "is_root",
+            "_run_single_step",
+            "step",
+            "execute_deferred_node",
+            "execute_deferred_nodes"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 479
+        }
+      ],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Callable",
+            "List",
+            "Dict",
+            "Optional"
+          ]
+        },
+        {
+          "source": "engine.executor",
+          "specifiers": [
+            "ExecutionResult"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "SearchNode",
+            "Journal"
+          ]
+        },
+        {
+          "source": "utils.data_preview",
+          "specifiers": [
+            "data_preview"
+          ]
+        },
+        {
+          "source": "config",
+          "specifiers": [
+            "Config"
+          ]
+        },
+        {
+          "source": "utils.metric",
+          "specifiers": [
+            "WorstMetricValue"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "agents",
+          "specifiers": [
+            "draft_agent",
+            "improve_agent",
+            "debug_agent",
+            "evolution_agent",
+            "fusion_agent",
+            "aggregation_agent",
+            "code_review_agent",
+            "result_parse_agent"
+          ]
+        },
+        {
+          "source": "engine",
+          "specifiers": [
+            "node_selection",
+            "evaluation",
+            "execution",
+            "solution_manager"
+          ]
+        },
+        {
+          "source": "engine.conditions",
+          "specifiers": [
+            "is_branch_stagnant"
+          ]
+        },
+        {
+          "source": "utils.data_preview",
+          "specifiers": [
+            "clean_task_desc"
+          ]
+        }
+      ],
+      "exports": [
+        "AgentSearch"
+      ],
+      "totalLines": 511,
+      "hasStructuralAnalysis": true
+    },
+    "engine/coldstart/__init__.py": {
+      "filePath": "engine/coldstart/__init__.py",
+      "contentHash": "9d404695bd312209f36999851e96c4c1144845acdea1f1ba8f1453c3cda676a9",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": ".knowledge",
+          "specifiers": [
+            "build_guidance_description",
+            "get_init_solution_paths"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 5,
+      "hasStructuralAnalysis": true
+    },
+    "engine/coldstart/classify_tasks.py": {
+      "filePath": "engine/coldstart/classify_tasks.py",
+      "contentHash": "b15e6a5d3f7ada9d4d41f1f4b639da70c4d2afcb8e8808c844aacdc11742ef99",
+      "functions": [
+        {
+          "name": "load_task_desc",
+          "params": [
+            "task_name"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "classify_task",
+          "params": [
+            "client",
+            "task_name",
+            "desc"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 36
+        },
+        {
+          "name": "_single_call",
+          "params": [
+            "client",
+            "task_name",
+            "desc",
+            "max_retries"
+          ],
+          "returnType": "tuple",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "main",
+          "params": [],
+          "exported": true,
+          "lineCount": 60
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "Counter"
+          ]
+        },
+        {
+          "source": "concurrent.futures",
+          "specifiers": [
+            "ThreadPoolExecutor",
+            "as_completed"
+          ]
+        },
+        {
+          "source": "google",
+          "specifiers": [
+            "genai"
+          ]
+        },
+        {
+          "source": "google.genai",
+          "specifiers": [
+            "types"
+          ]
+        }
+      ],
+      "exports": [
+        "load_task_desc",
+        "classify_task",
+        "_single_call",
+        "main"
+      ],
+      "totalLines": 177,
+      "hasStructuralAnalysis": true
+    },
+    "engine/coldstart/competition_tag_classified.json": {
+      "filePath": "engine/coldstart/competition_tag_classified.json",
+      "contentHash": "02c29dc1c18a2fa29fe5c91dc4a9537d78d65c2ebe3ea8569238830768b430e3",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 77,
+      "hasStructuralAnalysis": true
+    },
+    "engine/coldstart/knowledge.py": {
+      "filePath": "engine/coldstart/knowledge.py",
+      "contentHash": "945dc3bca9672879ec6cd0fb5d1df82345f5f05ec006b14d25a35223872d4d1b",
+      "functions": [
+        {
+          "name": "_load_json",
+          "params": [
+            "path"
+          ],
+          "returnType": "Dict",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "collect_models_for_task",
+          "params": [
+            "task_name",
+            "tasks",
+            "models"
+          ],
+          "returnType": "List[Dict[str, str]]",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "_model_is_available",
+          "params": [
+            "model",
+            "torch_hub_dir"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_build_guidance_text",
+          "params": [
+            "task_name",
+            "tasks",
+            "models",
+            "torch_hub_dir"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "get_init_solution_paths",
+          "params": [
+            "exp_id"
+          ],
+          "returnType": "List[str]",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "build_guidance_description",
+          "params": [
+            "cfg"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 9
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "List",
+            "Any"
+          ]
+        }
+      ],
+      "exports": [
+        "_load_json",
+        "collect_models_for_task",
+        "_model_is_available",
+        "_build_guidance_text",
+        "get_init_solution_paths",
+        "build_guidance_description"
+      ],
+      "totalLines": 75,
+      "hasStructuralAnalysis": true
+    },
+    "engine/coldstart/models_guidance_classified.json": {
+      "filePath": "engine/coldstart/models_guidance_classified.json",
+      "contentHash": "5ecbdc00023227e75840f59104c9f5be58ae9efd403beb3d6c5cff894d49b0ff",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 41,
+      "hasStructuralAnalysis": true
+    },
+    "engine/conditions.py": {
+      "filePath": "engine/conditions.py",
+      "contentHash": "c246c97297a72f2e8bdfc4828c5173829e17f1cf3331a386c2edb8e136fcd63e",
+      "functions": [
+        {
+          "name": "should_trigger_branch_fusion",
+          "params": [
+            "agent"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "is_branch_stagnant",
+          "params": [
+            "agent",
+            "branch_id",
+            "threshold"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 45
+        },
+        {
+          "name": "is_globally_stagnant",
+          "params": [
+            "agent"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 25
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        }
+      ],
+      "exports": [
+        "should_trigger_branch_fusion",
+        "is_branch_stagnant",
+        "is_globally_stagnant"
+      ],
+      "totalLines": 111,
+      "hasStructuralAnalysis": true
+    },
+    "engine/evaluation.py": {
+      "filePath": "engine/evaluation.py",
+      "contentHash": "c10d1daa38340e1f26eb4314f304386aae0d67217ad6ce162341a31def74d7f2",
+      "functions": [
+        {
+          "name": "backpropagate",
+          "params": [
+            "node",
+            "value",
+            "add_to_tree"
+          ],
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "get_node_reward",
+          "params": [
+            "agent",
+            "node"
+          ],
+          "exported": true,
+          "lineCount": 20
+        },
+        {
+          "name": "check_improvement",
+          "params": [
+            "agent",
+            "cur_node",
+            "parent_node"
+          ],
+          "exported": true,
+          "lineCount": 145
+        },
+        {
+          "name": "_log_evaluation",
+          "params": [
+            "agent",
+            "node",
+            "action",
+            "reward",
+            "improvement"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 15
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "SearchNode"
+          ]
+        }
+      ],
+      "exports": [
+        "backpropagate",
+        "get_node_reward",
+        "check_improvement",
+        "_log_evaluation"
+      ],
+      "totalLines": 214,
+      "hasStructuralAnalysis": true
+    },
+    "engine/execution.py": {
+      "filePath": "engine/execution.py",
+      "contentHash": "c0d04368d4ddc851ee24e2ba84be0d9fb746168c8c0c71fa77cfcccedfceb69b",
+      "functions": [
+        {
+          "name": "validate_executed_node",
+          "params": [
+            "agent",
+            "node"
+          ],
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "_log_validation",
+          "params": [
+            "agent",
+            "node",
+            "outcome"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 14
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "SearchNode"
+          ]
+        },
+        {
+          "source": "utils.metric",
+          "specifiers": [
+            "WorstMetricValue"
+          ]
+        }
+      ],
+      "exports": [
+        "validate_executed_node",
+        "_log_validation"
+      ],
+      "totalLines": 66,
+      "hasStructuralAnalysis": true
+    },
+    "engine/executor.py": {
+      "filePath": "engine/executor.py",
+      "contentHash": "d3f52ea73553ae1408ada249cedd74103c570406d95d2f8003704d78a3ed2d31",
+      "functions": [
+        {
+          "name": "_finite_timeout_seconds",
+          "params": [
+            "value"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_format_time_limit",
+          "params": [
+            "seconds"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_build_scheduler_preload_source",
+          "params": [
+            "scheduler_cfg"
+          ],
+          "returnType": "dict[str, str] | None",
+          "exported": true,
+          "lineCount": 15
+        }
+      ],
+      "classes": [
+        {
+          "name": "ExecutionResult",
+          "methods": [],
+          "properties": [
+            "term_out",
+            "exec_time",
+            "exc_type",
+            "exc_info",
+            "exc_stack"
+          ],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_PreparedSchedulerJob",
+          "methods": [],
+          "properties": [
+            "node_id",
+            "process_id",
+            "runfile_path",
+            "result_path",
+            "job",
+            "runner_kwargs",
+            "job_metadata",
+            "scheduler_mode",
+            "detected_batch_size",
+            "proposed_epochs",
+            "model_key",
+            "input_resolution",
+            "fold_count",
+            "ensemble_count",
+            "tta_count",
+            "framework",
+            "uses_amp",
+            "requires_gpu",
+            "script_signature",
+            "start_time",
+            "job_id",
+            "last_probe_event_id"
+          ],
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "Interpreter",
+          "methods": [
+            "__init__",
+            "_format_scheduler_probe_event",
+            "_log_scheduler_probe_updates",
+            "attach_scheduler",
+            "_pipeline_emit",
+            "_pipeline_upsert_job",
+            "_available_cpus",
+            "_scheduler_bridge_start_service_enabled",
+            "_ensure_scheduler_service_available",
+            "_normalized_raw_packing_defaults",
+            "_stop_managed_scheduler_service",
+            "terminate_all_subprocesses",
+            "check_current_status",
+            "isolate_submission_path",
+            "isolate_model_path",
+            "cleanup_session",
+            "run",
+            "run_many",
+            "_prepare_scheduler_round_job",
+            "_scheduler_execution_result_from_final",
+            "_record_scheduler_tuning_outcome",
+            "_run_scheduler_job",
+            "_run_subprocess"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 1341
+        }
+      ],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "signal",
+          "specifiers": [
+            "signal"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "traceback",
+          "specifiers": [
+            "traceback"
+          ]
+        },
+        {
+          "source": "subprocess",
+          "specifiers": [
+            "subprocess"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid"
+          ]
+        },
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "sha1"
+          ]
+        },
+        {
+          "source": "multiprocessing",
+          "specifiers": [
+            "Lock"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "humanize",
+          "specifiers": [
+            "humanize"
+          ]
+        },
+        {
+          "source": "dataclasses_json",
+          "specifiers": [
+            "DataClassJsonMixin"
+          ]
+        },
+        {
+          "source": "engine.script_introspection",
+          "specifiers": [
+            "_code_supports_batch_probe",
+            "_detect_initial_batch_size",
+            "_introspect_training_script",
+            "_normalized_mlevolve_script_signature"
+          ]
+        }
+      ],
+      "exports": [
+        "_finite_timeout_seconds",
+        "_format_time_limit",
+        "_build_scheduler_preload_source",
+        "ExecutionResult",
+        "_PreparedSchedulerJob",
+        "Interpreter"
+      ],
+      "totalLines": 1462,
+      "hasStructuralAnalysis": true
+    },
+    "engine/node_selection.py": {
+      "filePath": "engine/node_selection.py",
+      "contentHash": "971b08739cd4456c2e2e11f84cc79d44b524e4455b63afa15d3412dd5772c4fa",
+      "functions": [
+        {
+          "name": "_log_selected",
+          "params": [
+            "agent",
+            "node",
+            "method",
+            "payload"
+          ],
+          "returnType": "SearchNode | None",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_piecewise_decay",
+          "params": [
+            "t",
+            "initial_C",
+            "T1",
+            "T2",
+            "alpha",
+            "lower_bound"
+          ],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_compute_exploration_constant",
+          "params": [
+            "agent"
+          ],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "select",
+          "params": [
+            "agent",
+            "node"
+          ],
+          "returnType": "SearchNode | None",
+          "exported": true,
+          "lineCount": 45
+        },
+        {
+          "name": "_has_selectable_descendant",
+          "params": [
+            "agent",
+            "node"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "has_selectable_work",
+          "params": [
+            "agent"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "get_exploration_weight",
+          "params": [
+            "time_elapsed",
+            "total_time",
+            "switch_start",
+            "switch_end",
+            "min_weight"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "get_top_k_nodes_global",
+          "params": [
+            "agent",
+            "k",
+            "max_from_same_branch"
+          ],
+          "returnType": "List[dict]",
+          "exported": true,
+          "lineCount": 53
+        },
+        {
+          "name": "select_from_top_k_weighted",
+          "params": [
+            "agent",
+            "top_k_nodes"
+          ],
+          "returnType": "SearchNode | None",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "select_with_soft_switch",
+          "params": [
+            "agent"
+          ],
+          "returnType": "SearchNode | None",
+          "exported": true,
+          "lineCount": 112
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "List"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "SearchNode"
+          ]
+        },
+        {
+          "source": "engine.conditions",
+          "specifiers": [
+            "should_trigger_branch_fusion"
+          ]
+        }
+      ],
+      "exports": [
+        "_log_selected",
+        "_piecewise_decay",
+        "_compute_exploration_constant",
+        "select",
+        "_has_selectable_descendant",
+        "has_selectable_work",
+        "get_exploration_weight",
+        "get_top_k_nodes_global",
+        "select_from_top_k_weighted",
+        "select_with_soft_switch"
+      ],
+      "totalLines": 324,
+      "hasStructuralAnalysis": true
+    },
+    "engine/round_execution.py": {
+      "filePath": "engine/round_execution.py",
+      "contentHash": "ea1d9676cf5c2b94ca33fac5bd02ab5e859120dd6e2dfe380afb437cb9233736",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RoundJobSpec",
+          "methods": [],
+          "properties": [
+            "node_id",
+            "code",
+            "task_id",
+            "candidate",
+            "hardware_context",
+            "scheduler_defaults"
+          ],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "RoundJobResult",
+          "methods": [],
+          "properties": [
+            "node_id",
+            "result",
+            "scheduler_job_id",
+            "scheduler_profile_evidence",
+            "probe_result",
+            "packing_result",
+            "failed"
+          ],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "HardwareDecision",
+          "methods": [
+            "to_dict"
+          ],
+          "properties": [
+            "stage",
+            "rationale",
+            "original_params",
+            "chosen_params",
+            "evidence_refs",
+            "confidence",
+            "fallback_reason"
+          ],
+          "exported": true,
+          "lineCount": 21
+        }
+      ],
+      "imports": [
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass",
+            "field"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "engine.executor",
+          "specifiers": [
+            "ExecutionResult"
+          ]
+        }
+      ],
+      "exports": [
+        "RoundJobSpec",
+        "RoundJobResult",
+        "HardwareDecision"
+      ],
+      "totalLines": 58,
+      "hasStructuralAnalysis": true
+    },
+    "engine/script_introspection.py": {
+      "filePath": "engine/script_introspection.py",
+      "contentHash": "e6b7fd7fb47409f7b2aaa323f77fdd701677b8a9f7d8045c6508e2ec443751ea",
+      "functions": [
+        {
+          "name": "normalized_mlevolve_script_signature",
+          "params": [
+            "code"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "code_supports_batch_probe",
+          "params": [
+            "code"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "detect_initial_batch_size",
+          "params": [
+            "code"
+          ],
+          "returnType": "int | None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "detect_epoch_count",
+          "params": [
+            "code"
+          ],
+          "returnType": "int | None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "detect_input_resolution",
+          "params": [
+            "code"
+          ],
+          "returnType": "int | str | None",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "detect_fold_count",
+          "params": [
+            "code"
+          ],
+          "returnType": "int | None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "detect_ensemble_count",
+          "params": [
+            "code"
+          ],
+          "returnType": "int | None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "detect_tta_count",
+          "params": [
+            "code"
+          ],
+          "returnType": "int | None",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "detect_model_key",
+          "params": [
+            "code"
+          ],
+          "returnType": "str | None",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "detect_framework",
+          "params": [
+            "code"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "detect_uses_amp",
+          "params": [
+            "code"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "detect_requires_gpu",
+          "params": [
+            "code"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "infer_model_family",
+          "params": [
+            "model_key",
+            "code"
+          ],
+          "returnType": "str | None",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "introspect_training_script",
+          "params": [
+            "code"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 19
+        },
+        {
+          "name": "_safe_int",
+          "params": [
+            "value"
+          ],
+          "returnType": "int | None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_clean_model_key",
+          "params": [
+            "value"
+          ],
+          "returnType": "str | None",
+          "exported": true,
+          "lineCount": 5
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "sha1"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        }
+      ],
+      "exports": [
+        "normalized_mlevolve_script_signature",
+        "code_supports_batch_probe",
+        "detect_initial_batch_size",
+        "detect_epoch_count",
+        "detect_input_resolution",
+        "detect_fold_count",
+        "detect_ensemble_count",
+        "detect_tta_count",
+        "detect_model_key",
+        "detect_framework",
+        "detect_uses_amp",
+        "detect_requires_gpu",
+        "infer_model_family",
+        "introspect_training_script",
+        "_safe_int",
+        "_clean_model_key"
+      ],
+      "totalLines": 277,
+      "hasStructuralAnalysis": true
+    },
+    "engine/search_node.py": {
+      "filePath": "engine/search_node.py",
+      "contentHash": "f64b16211e0610344445d10d97673547ec4b0dbe1d44cff07762b154d0db465a",
+      "functions": [
+        {
+          "name": "get_path_to_node",
+          "params": [
+            "journal",
+            "node_id"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "get_longest_path",
+          "params": [
+            "journal"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "filter_on_path",
+          "params": [
+            "journal",
+            "path"
+          ],
+          "returnType": "Journal",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "filter_for_best_path",
+          "params": [
+            "journal",
+            "best_node"
+          ],
+          "returnType": "Journal",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "filter_for_longest_path",
+          "params": [
+            "journal"
+          ],
+          "returnType": "Journal",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "filter_journal",
+          "params": [
+            "journal"
+          ],
+          "returnType": "Journal",
+          "exported": true,
+          "lineCount": 6
+        }
+      ],
+      "classes": [
+        {
+          "name": "SearchNode",
+          "methods": [
+            "__post_init__",
+            "stage_name",
+            "absorb_exec_result",
+            "term_out",
+            "is_leaf",
+            "__eq__",
+            "__hash__",
+            "debug_depth",
+            "update_beta",
+            "p_mean",
+            "uct_value",
+            "reached_child_limit",
+            "update",
+            "has_no_bug_child",
+            "num_children",
+            "fetch_child_memory",
+            "_format_metric_change",
+            "_compute_code_diff",
+            "fetch_parent_memory",
+            "add_expected_child_count",
+            "sub_expected_child_count",
+            "__getstate__",
+            "__setstate__",
+            "generate_node_trajectory",
+            "get_root_to_current_trajectory",
+            "_get_trajectory_raw",
+            "_get_trajectory_full"
+          ],
+          "properties": [
+            "code",
+            "plan",
+            "prompt_input",
+            "step",
+            "id",
+            "ctime",
+            "parent",
+            "children",
+            "_term_out",
+            "exec_time",
+            "exc_type",
+            "exc_info",
+            "exc_stack",
+            "analysis",
+            "metric",
+            "is_buggy",
+            "is_valid",
+            "stage",
+            "visits",
+            "total_reward",
+            "is_terminal",
+            "_uct",
+            "local_best_node",
+            "is_debug_success",
+            "continue_improve",
+            "improve_failure_depth",
+            "lock",
+            "child_count_lock",
+            "expected_child_count",
+            "finish_time",
+            "created_time",
+            "alpha",
+            "beta",
+            "branch_id",
+            "from_topk",
+            "code_summary",
+            "work_dir",
+            "hardware_context",
+            "graph_evidence",
+            "derived_diagnosis",
+            "vector_evidence",
+            "scheduler_risk_flags",
+            "scheduler_confidence",
+            "hardware_evidence_refs",
+            "resolved_batch_size",
+            "estimated_runtime_seconds",
+            "peak_vram_mb",
+            "backend_name",
+            "hardware_decision"
+          ],
+          "exported": true,
+          "lineCount": 449
+        },
+        {
+          "name": "Journal",
+          "methods": [
+            "__getitem__",
+            "__len__",
+            "append",
+            "draft_nodes",
+            "good_nodes",
+            "get_best_node"
+          ],
+          "properties": [
+            "nodes"
+          ],
+          "exported": true,
+          "lineCount": 34
+        }
+      ],
+      "imports": [
+        {
+          "source": "copy",
+          "specifiers": [
+            "copy"
+          ]
+        },
+        {
+          "source": "difflib",
+          "specifiers": [
+            "difflib"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "math",
+          "specifiers": [
+            "math"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid"
+          ]
+        },
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass",
+            "field"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "List",
+            "Literal",
+            "Optional"
+          ]
+        },
+        {
+          "source": "dataclasses_json",
+          "specifiers": [
+            "DataClassJsonMixin"
+          ]
+        },
+        {
+          "source": "engine.executor",
+          "specifiers": [
+            "ExecutionResult"
+          ]
+        },
+        {
+          "source": "config",
+          "specifiers": [
+            "SearchConfig"
+          ]
+        },
+        {
+          "source": "utils.metric",
+          "specifiers": [
+            "MetricValue"
+          ]
+        },
+        {
+          "source": "utils.response",
+          "specifiers": [
+            "trim_long_string"
+          ]
+        }
+      ],
+      "exports": [
+        "SearchNode",
+        "Journal",
+        "get_path_to_node",
+        "get_longest_path",
+        "filter_on_path",
+        "filter_for_best_path",
+        "filter_for_longest_path",
+        "filter_journal"
+      ],
+      "totalLines": 560,
+      "hasStructuralAnalysis": true
+    },
+    "engine/solution_manager.py": {
+      "filePath": "engine/solution_manager.py",
+      "contentHash": "5204113967ad6d5d4d7fa82c79709313e1ce5af5f3bccbb54e7d3384c6d8dc32",
+      "functions": [
+        {
+          "name": "format_stage_display",
+          "params": [
+            "stage"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "write_metric_file",
+          "params": [
+            "filepath",
+            "node",
+            "metric_maximize"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 30
+        },
+        {
+          "name": "save_best_solution",
+          "params": [
+            "agent",
+            "result_node",
+            "submission_file_path"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "update_top_candidates",
+          "params": [
+            "agent",
+            "new_node"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 51
+        },
+        {
+          "name": "save_top_candidates",
+          "params": [
+            "agent"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 50
+        },
+        {
+          "name": "get_branch_top_nodes",
+          "params": [
+            "agent",
+            "branch_id",
+            "top_k"
+          ],
+          "returnType": "List[SearchNode]",
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "update_best_solution",
+          "params": [
+            "agent",
+            "node"
+          ],
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "_log_best_update",
+          "params": [
+            "agent",
+            "node"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 13
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "shutil",
+          "specifiers": [
+            "shutil"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "defaultdict"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "List"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "SearchNode"
+          ]
+        }
+      ],
+      "exports": [
+        "format_stage_display",
+        "write_metric_file",
+        "save_best_solution",
+        "update_top_candidates",
+        "save_top_candidates",
+        "get_branch_top_nodes",
+        "update_best_solution",
+        "_log_best_update"
+      ],
+      "totalLines": 263,
+      "hasStructuralAnalysis": true
+    },
+    "engine/validation/__init__.py": {
+      "filePath": "engine/validation/__init__.py",
+      "contentHash": "65b508e9d6efe89a689a8a593d2050c67e5a8d1ce4c87fcd37f128080145b99c",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "engine.validation.format_client",
+          "specifiers": [
+            "call_validate",
+            "is_server_online"
+          ]
+        },
+        {
+          "source": "engine.validation.quality_check",
+          "specifiers": [
+            "validate_submission_content_quality",
+            "_validate_submission_with_retry",
+            "submission_format_fix_prompt",
+            "try_fix_submission_format",
+            "llm_suggest_submission_columns"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 9,
+      "hasStructuralAnalysis": true
+    },
+    "engine/validation/format_client.py": {
+      "filePath": "engine/validation/format_client.py",
+      "contentHash": "a41cdc5f634f5b0069e0190440c3a9b9a717cf49e4843c25ebc36727cdea9331",
+      "functions": [
+        {
+          "name": "get_server_url_list",
+          "params": [],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "is_server_online",
+          "params": [
+            "max_retries",
+            "timeout"
+          ],
+          "exported": true,
+          "lineCount": 34
+        },
+        {
+          "name": "call_validate",
+          "params": [
+            "exp_id",
+            "submission_path",
+            "timeout",
+            "max_retries"
+          ],
+          "exported": true,
+          "lineCount": 32
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "requests",
+          "specifiers": [
+            "requests"
+          ]
+        }
+      ],
+      "exports": [
+        "get_server_url_list",
+        "is_server_online",
+        "call_validate"
+      ],
+      "totalLines": 89,
+      "hasStructuralAnalysis": true
+    },
+    "engine/validation/format_server.py": {
+      "filePath": "engine/validation/format_server.py",
+      "contentHash": "4c66c28f2c25d58f2e217613b721197a85beb8e8043d6491d6b30823f091d318",
+      "functions": [
+        {
+          "name": "validate",
+          "params": [],
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "health",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "tempfile",
+          "specifiers": [
+            "tempfile"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "flask",
+          "specifiers": [
+            "Flask",
+            "jsonify",
+            "request"
+          ]
+        },
+        {
+          "source": "mlebench.grade",
+          "specifiers": [
+            "validate_submission"
+          ]
+        },
+        {
+          "source": "mlebench.registry",
+          "specifiers": [
+            "registry"
+          ]
+        },
+        {
+          "source": "config",
+          "specifiers": [
+            "load_cfg"
+          ]
+        }
+      ],
+      "exports": [
+        "validate",
+        "health"
+      ],
+      "totalLines": 56,
+      "hasStructuralAnalysis": true
+    },
+    "engine/validation/quality_check.py": {
+      "filePath": "engine/validation/quality_check.py",
+      "contentHash": "b49c32ecc3eb64e06b315c4798f4515917ac68a192e63c257b813ba8b9a685d8",
+      "functions": [
+        {
+          "name": "submission_format_fix_prompt",
+          "params": [
+            "submission_path",
+            "sample_path",
+            "head_rows"
+          ],
+          "returnType": "str | None",
+          "exported": true,
+          "lineCount": 109
+        },
+        {
+          "name": "validate_submission_content_quality",
+          "params": [
+            "submission_path",
+            "sample_path",
+            "constant_threshold"
+          ],
+          "returnType": "tuple[bool, str]",
+          "exported": true,
+          "lineCount": 81
+        },
+        {
+          "name": "_validate_submission_with_retry",
+          "params": [
+            "exp_id",
+            "submission_path",
+            "cfg",
+            "max_attempts",
+            "sample_path"
+          ],
+          "returnType": "tuple[bool, dict]",
+          "exported": true,
+          "lineCount": 44
+        },
+        {
+          "name": "try_fix_submission_format",
+          "params": [
+            "submission_path",
+            "cfg",
+            "sample_path",
+            "head_rows"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 43
+        },
+        {
+          "name": "_extract_json_array",
+          "params": [
+            "text"
+          ],
+          "returnType": "list[str] | None",
+          "exported": true,
+          "lineCount": 44
+        },
+        {
+          "name": "llm_suggest_submission_columns",
+          "params": [
+            "submission_path",
+            "cfg",
+            "sample_path",
+            "head_rows",
+            "temperature",
+            "max_tokens"
+          ],
+          "returnType": "list[str] | None",
+          "exported": true,
+          "lineCount": 36
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "pandas",
+          "specifiers": [
+            "pd"
+          ]
+        },
+        {
+          "source": "llm",
+          "specifiers": [
+            "generate"
+          ]
+        },
+        {
+          "source": "config",
+          "specifiers": [
+            "Config"
+          ]
+        },
+        {
+          "source": "engine.validation.format_client",
+          "specifiers": [
+            "call_validate"
+          ]
+        }
+      ],
+      "exports": [
+        "submission_format_fix_prompt",
+        "validate_submission_content_quality",
+        "_validate_submission_with_retry",
+        "try_fix_submission_format",
+        "_extract_json_array",
+        "llm_suggest_submission_columns"
+      ],
+      "totalLines": 384,
+      "hasStructuralAnalysis": true
+    },
+    "install_dependencies.sh": {
+      "filePath": "install_dependencies.sh",
+      "contentHash": "175cab013bbd19fc00c25e90a3456515dcd71484d603b27c83855ac304250aca",
+      "functions": [
+        {
+          "name": "run_root_cmd",
+          "params": [],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "install_git_lfs",
+          "params": [],
+          "exported": false,
+          "lineCount": 21
+        },
+        {
+          "name": "require_python",
+          "params": [],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "verify_imports",
+          "params": [],
+          "exported": false,
+          "lineCount": 55
+        },
+        {
+          "name": "main",
+          "params": [],
+          "exported": false,
+          "lineCount": 25
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 138,
+      "hasStructuralAnalysis": true
+    },
+    "llm/__init__.py": {
+      "filePath": "llm/__init__.py",
+      "contentHash": "18a5d76906177a28e3ddc88660f9bf2131d25345c33ce146f4b46124c3bb1daa",
+      "functions": [
+        {
+          "name": "_stage_config_for_model",
+          "params": [
+            "cfg",
+            "model"
+          ],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_provider",
+          "params": [
+            "model",
+            "cfg"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "query",
+          "params": [
+            "system_message",
+            "user_message",
+            "model",
+            "temperature",
+            "max_tokens",
+            "func_spec",
+            "cfg",
+            "**model_kwargs"
+          ],
+          "returnType": "OutputType",
+          "exported": true,
+          "lineCount": 68
+        },
+        {
+          "name": "generate",
+          "params": [
+            "prompt",
+            "cfg",
+            "temperature",
+            "max_tokens",
+            "stop_tokens",
+            "json_schema",
+            "max_retries",
+            "retry_delay"
+          ],
+          "exported": true,
+          "lineCount": 33
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": ".",
+          "specifiers": [
+            "_gemini"
+          ]
+        },
+        {
+          "source": ".",
+          "specifiers": [
+            "_openai"
+          ]
+        },
+        {
+          "source": ".gemini",
+          "specifiers": [
+            "FunctionSpec",
+            "OutputType",
+            "PromptType",
+            "compile_prompt_to_md"
+          ]
+        },
+        {
+          "source": "config",
+          "specifiers": [
+            "Config"
+          ]
+        }
+      ],
+      "exports": [
+        "_stage_config_for_model",
+        "_provider",
+        "query",
+        "generate"
+      ],
+      "totalLines": 133,
+      "hasStructuralAnalysis": true
+    },
+    "llm/gemini.py": {
+      "filePath": "llm/gemini.py",
+      "contentHash": "17a9a692b52febac2d16685a70cfe8d0d044a24997660fce46b5d9912504414a",
+      "functions": [
+        {
+          "name": "backoff_create",
+          "params": [
+            "create_fn",
+            "retry_exceptions",
+            "*args",
+            "**kwargs"
+          ],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "compile_prompt_to_md",
+          "params": [
+            "prompt",
+            "_header_depth"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "_setup_gemini_client",
+          "params": [
+            "cfg"
+          ],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_convert_func_spec_to_gemini_tool",
+          "params": [
+            "func_spec"
+          ],
+          "returnType": "types.Tool",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "query",
+          "params": [
+            "system_message",
+            "user_message",
+            "func_spec",
+            "cfg",
+            "**model_kwargs"
+          ],
+          "returnType": "tuple[OutputType, float, int, int, dict]",
+          "exported": true,
+          "lineCount": 78
+        },
+        {
+          "name": "generate",
+          "params": [
+            "prompt",
+            "cfg",
+            "temperature",
+            "max_tokens",
+            "stop_tokens",
+            "json_schema",
+            "max_retries",
+            "retry_delay"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 73
+        }
+      ],
+      "classes": [
+        {
+          "name": "FunctionSpec",
+          "methods": [
+            "__post_init__",
+            "as_openai_tool_dict",
+            "openai_tool_choice_dict"
+          ],
+          "properties": [
+            "name",
+            "json_schema",
+            "description"
+          ],
+          "exported": true,
+          "lineCount": 27
+        }
+      ],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "traceback",
+          "specifiers": [
+            "traceback"
+          ]
+        },
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Callable"
+          ]
+        },
+        {
+          "source": "backoff",
+          "specifiers": [
+            "backoff"
+          ]
+        },
+        {
+          "source": "jsonschema",
+          "specifiers": [
+            "jsonschema"
+          ]
+        },
+        {
+          "source": "dataclasses_json",
+          "specifiers": [
+            "DataClassJsonMixin"
+          ]
+        },
+        {
+          "source": "funcy",
+          "specifiers": [
+            "notnone",
+            "once",
+            "select_values"
+          ]
+        },
+        {
+          "source": "google",
+          "specifiers": [
+            "genai"
+          ]
+        },
+        {
+          "source": "google.genai",
+          "specifiers": [
+            "types"
+          ]
+        },
+        {
+          "source": "config",
+          "specifiers": [
+            "Config"
+          ]
+        }
+      ],
+      "exports": [
+        "backoff_create",
+        "compile_prompt_to_md",
+        "FunctionSpec",
+        "_setup_gemini_client",
+        "_convert_func_spec_to_gemini_tool",
+        "query",
+        "generate"
+      ],
+      "totalLines": 275,
+      "hasStructuralAnalysis": true
+    },
+    "llm/model_profiles.py": {
+      "filePath": "llm/model_profiles.py",
+      "contentHash": "733ab9935dfd10571e2be7db50970d4560b8c833eacb686a2f7da7866c4285f9",
+      "functions": [
+        {
+          "name": "thinking_json_incompatible",
+          "params": [
+            "model_name"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "supports_json_schema",
+          "params": [
+            "model_name"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "get_profile",
+          "params": [
+            "model_name",
+            "use_thinking"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 14
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [
+        "thinking_json_incompatible",
+        "supports_json_schema",
+        "get_profile"
+      ],
+      "totalLines": 87,
+      "hasStructuralAnalysis": true
+    },
+    "llm/openai.py": {
+      "filePath": "llm/openai.py",
+      "contentHash": "e4cc6dd2e797bbbc170494aa68be00aa16c873536cc1ad2ebab8b5a45d460fed",
+      "functions": [
+        {
+          "name": "_strip_markdown_fences",
+          "params": [
+            "args"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "_parse_json_args",
+          "params": [
+            "args"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 39
+        },
+        {
+          "name": "_extract_json_object",
+          "params": [
+            "text"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 36
+        },
+        {
+          "name": "_stage_config_for_model",
+          "params": [
+            "cfg",
+            "model"
+          ],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_is_openrouter_stage",
+          "params": [
+            "stage"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_build_messages",
+          "params": [
+            "system_message",
+            "user_message"
+          ],
+          "returnType": "list[dict[str, str]]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "query",
+          "params": [
+            "system_message",
+            "user_message",
+            "func_spec",
+            "cfg",
+            "**model_kwargs"
+          ],
+          "returnType": "tuple[OutputType, float, int, int, dict]",
+          "exported": true,
+          "lineCount": 94
+        },
+        {
+          "name": "_prompt_to_messages",
+          "params": [
+            "prompt",
+            "model"
+          ],
+          "returnType": "list[dict[str, str]]",
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "generate",
+          "params": [
+            "prompt",
+            "cfg",
+            "temperature",
+            "max_tokens",
+            "stop_tokens",
+            "json_schema",
+            "max_retries",
+            "retry_delay"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 74
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "openai",
+          "specifiers": [
+            "OpenAI"
+          ]
+        },
+        {
+          "source": "config",
+          "specifiers": [
+            "Config"
+          ]
+        },
+        {
+          "source": ".gemini",
+          "specifiers": [
+            "FunctionSpec",
+            "compile_prompt_to_md"
+          ]
+        },
+        {
+          "source": ".model_profiles",
+          "specifiers": [
+            "get_profile",
+            "supports_json_schema",
+            "thinking_json_incompatible"
+          ]
+        }
+      ],
+      "exports": [
+        "_strip_markdown_fences",
+        "_parse_json_args",
+        "_extract_json_object",
+        "_stage_config_for_model",
+        "_is_openrouter_stage",
+        "_build_messages",
+        "query",
+        "_prompt_to_messages",
+        "generate"
+      ],
+      "totalLines": 334,
+      "hasStructuralAnalysis": true
+    },
+    "nautilus.sh": {
+      "filePath": "nautilus.sh",
+      "contentHash": "cd2553f4276301fa94e48acb71eff06e6b66649121de9738932e9c6385357a27",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 15,
+      "hasStructuralAnalysis": true
+    },
+    "README.md": {
+      "filePath": "README.md",
+      "contentHash": "04b6cc6ef6e56179fc2772522e8ac0cb81214baffb0decda6d668cd3760268aa",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 156,
+      "hasStructuralAnalysis": true
+    },
+    "requirements_base.txt": {
+      "filePath": "requirements_base.txt",
+      "contentHash": "36cf74dd7707be46edb939d8e09b1c2ae57073e8f34493b17894209678f5fcd9",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 41,
+      "hasStructuralAnalysis": false
+    },
+    "run_single_task.sh": {
+      "filePath": "run_single_task.sh",
+      "contentHash": "f1bd1862c4090f5abb1f0a8f32aa3117a6dd1d98ea02c35e615c393a31ea6c68",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 94,
+      "hasStructuralAnalysis": true
+    },
+    "run.py": {
+      "filePath": "run.py",
+      "contentHash": "4a11ce73a1ac35bce46d74d578ebb2054825730b766b50f7637ec23bc023f454",
+      "functions": [
+        {
+          "name": "_scheduler_settings_from_cfg",
+          "params": [
+            "cfg",
+            "scheduler_cfg"
+          ],
+          "returnType": "SchedulerSettings",
+          "exported": true,
+          "lineCount": 19
+        },
+        {
+          "name": "run",
+          "params": [],
+          "exported": true,
+          "lineCount": 412
+        }
+      ],
+      "classes": [
+        {
+          "name": "SignalShutdown",
+          "methods": [
+            "__init__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 10
+        }
+      ],
+      "imports": [
+        {
+          "source": "atexit",
+          "specifiers": [
+            "atexit"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "signal",
+          "specifiers": [
+            "signal"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "shutil",
+          "specifiers": [
+            "shutil"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "concurrent.futures",
+          "specifiers": [
+            "ThreadPoolExecutor",
+            "wait",
+            "FIRST_COMPLETED"
+          ]
+        },
+        {
+          "source": "engine.agent_search",
+          "specifiers": [
+            "Agent"
+          ]
+        },
+        {
+          "source": "engine.executor",
+          "specifiers": [
+            "Interpreter"
+          ]
+        },
+        {
+          "source": "engine.search_node",
+          "specifiers": [
+            "Journal"
+          ]
+        },
+        {
+          "source": "omegaconf",
+          "specifiers": [
+            "OmegaConf"
+          ]
+        },
+        {
+          "source": "rich.status",
+          "specifiers": [
+            "Status"
+          ]
+        },
+        {
+          "source": "config",
+          "specifiers": [
+            "load_task_desc",
+            "prep_agent_workspace",
+            "save_run",
+            "load_cfg"
+          ]
+        },
+        {
+          "source": "utils.visualization",
+          "specifiers": [
+            "journal_to_string_tree"
+          ]
+        },
+        {
+          "source": "utils.seed",
+          "specifiers": [
+            "set_global_seed"
+          ]
+        },
+        {
+          "source": "engine.coldstart",
+          "specifiers": [
+            "build_guidance_description"
+          ]
+        },
+        {
+          "source": "utils.logging_config",
+          "specifiers": [
+            "setup_logging"
+          ]
+        },
+        {
+          "source": "utils.hardware_monitor",
+          "specifiers": [
+            "HardwareMonitor"
+          ]
+        },
+        {
+          "source": "utils.experiment_metrics",
+          "specifiers": [
+            "build_comparison_metrics",
+            "write_comparison_metrics"
+          ]
+        },
+        {
+          "source": "utils.pipeline_logging",
+          "specifiers": [
+            "PipelineActionLogger"
+          ]
+        },
+        {
+          "source": "torch",
+          "specifiers": [
+            "torch"
+          ]
+        },
+        {
+          "source": "localml_scheduler.client",
+          "specifiers": [
+            "SchedulerClient"
+          ]
+        },
+        {
+          "source": "localml_scheduler.config",
+          "specifiers": [
+            "SchedulerSettings"
+          ]
+        }
+      ],
+      "exports": [
+        "SignalShutdown",
+        "_scheduler_settings_from_cfg",
+        "run"
+      ],
+      "totalLines": 477,
+      "hasStructuralAnalysis": true
+    },
+    "start.sh": {
+      "filePath": "start.sh",
+      "contentHash": "17d140d01b488fc25d0f6d6fa1b227ff2efa4dcfb729a1c73648ec4fed137010",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 10,
+      "hasStructuralAnalysis": true
+    },
+    "TODO.md": {
+      "filePath": "TODO.md",
+      "contentHash": "ae6a2cfe9a70de1c76e98503b1a653733320ced4f30aeca17e52ea5beda45fd3",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 26,
+      "hasStructuralAnalysis": true
+    }
+  }
+}

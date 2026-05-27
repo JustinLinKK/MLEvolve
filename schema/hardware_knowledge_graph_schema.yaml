@@ -1,0 +1,347 @@
+schema_version: "1.0"
+
+description: >
+  Pure-GraphDB schema for the HARDWARE-FEATURE KNOWLEDGE base. This is the
+  graph re-homing of the former vector-database schemas (A hardware_feature_records,
+  B code_doc_chunks, D api_symbol_chunks; C optimization_recipe_chunks was
+  abandoned and is not migrated). It holds curated, mostly-static knowledge about
+  what a hardware device supports and how each feature is used. API symbols and
+  example code are MERGED onto the Feature node (no separate ApiSymbol node),
+  because not every feature has an API symbol or a code example.
+
+  This database is INDEPENDENT of and must not be confused with
+  schema/graph_schema.yaml, which is the separate, result-oriented evidence graph
+  for actual training/profiling jobs (Job / SingleJob / PackedJob / Model /
+  TrainingConfig / Technology). The two graphs may share string keys (vendor,
+  architecture, feature names) but are stored and queried separately.
+
+modeling_notes:
+  - >
+    Migration source. Hardware <- vector schema A (hardware_feature_records).
+    Feature <- vector schema B (code_doc_chunks) plus the per-feature semantics
+    in feature_docs.yaml. Vector schema D (api_symbol_chunks) is MERGED onto
+    Feature (api_symbols + api_signatures_json), not a separate node. Vector
+    schema C (optimization_recipe_chunks) was abandoned and is not migrated.
+  - >
+    A Hardware "feature" is no longer a bare string tag on the device. Each
+    capability is a first-class Feature node, and the device-specific behavior of
+    that capability lives on the HAS_FEATURE relationship (support level, version
+    gates, per-device sample code, limitations). This replaces the old hybrid
+    design where capability strings sat on the device and detail was fetched from
+    the vector DB by string key.
+  - >
+    Gating is explicit. compute_capabilities stays on Hardware, and
+    min_compute_capability stays on HAS_FEATURE, so an agent can decide whether a
+    feature is usable on a device without an external lookup. Tensor Core
+    generation is modeled with REQUIRES_FEATURE edges (e.g. tensor_cores_5gen
+    REQUIRES_FEATURE tensor_cores) rather than as redundant device tags.
+  - >
+    All free-text fields (description, how_to_use, example_codes, when_to_use)
+    must be sourced from official documentation; keep source_url and
+    last_verified_at on the node/edge that carries the claim.
+  - >
+    Dropped from the prior draft (schema/new_schema.yaml) as non-actionable or
+    redundant: software_stack (constant per vendor, zero signal), name_key
+    (derivable from name), created_at/updated_at duplicate timestamps (one
+    last_verified_at is enough), and bare performance_impact strings (replaced by
+    support_level plus measured recipe evidence).
+
+node_types:
+
+  Hardware:
+    label: Hardware
+    category: device
+    key: hardware_id
+    description: >
+      A hardware device or stable hardware-environment record (one GPU SKU, one
+      accelerator, or a host node). Migrated from vector schema A
+      hardware_feature_records. Capabilities are expressed as HAS_FEATURE edges,
+      not as inline string tags.
+    properties:
+      hardware_id:
+        type: string
+        required: true
+        unique: true
+        description: >
+          Canonical key, mirrors the former record_id, e.g.
+          nvidia.blackwell.geforce_rtx_5090.spec.
+      name:
+        type: string
+        required: true
+        indexed: true
+        examples:
+          - GeForce RTX 5090
+          - NVIDIA A100 80GB
+      description:
+        type: string
+        required: false
+        description: >
+          Short device summary, e.g. "Data-center GPU for large-scale AI
+          training and HPC". Carried from new_schema.yaml Hardware.description.
+      aliases:
+        type: list[string]
+        required: false
+        description: >
+          Alternate names / SKU strings (former accelerator_names), e.g.
+          geforce_rtx_5090, NVIDIA A100-SXM4-80GB.
+      vendor:
+        type: string
+        required: true
+        indexed: true
+        examples: [nvidia, amd, intel]
+      hardware_kind:
+        type: string
+        required: true
+        indexed: true
+        allowed_values: [gpu, cpu, accelerator, host_node, cluster_node, other]
+        description: >
+          Aligned with graph_schema.yaml Hardware.hardware_kind for cross-graph
+          key consistency.
+      architectures:
+        type: list[string]
+        required: true
+        indexed: true
+        examples: [blackwell, hopper, ada_lovelace, ampere]
+      compute_capabilities:
+        type: list[string]
+        required: true
+        indexed: true
+        description: >
+          PRESERVED critical gating field, e.g. ['12.0']. First-class because it
+          gates fp8/bf16/fp4 eligibility.
+      vram_MB:
+        type: integer
+        required: false
+        description: Total device memory in MiB (former vram_MB). Drives batch sizing.
+      vram_type:
+        type: string
+        required: false
+        examples: [gddr7, gddr6, hbm2e, hbm3, hbm3e]
+      memory_bandwidth_GBps:
+        type: number
+        required: false
+        description: >
+          Peak memory bandwidth in GB/s. Optional, enables memory-bound vs
+          compute-bound reasoning. Must be sourced from the vendor spec.
+      sm_count:
+        type: integer
+        required: false
+      l2_cache_MB:
+        type: number
+        required: false
+        description: >
+          L2 cache size in MiB. Optional, informs tiling/fusion benefit.
+          Must be sourced from the vendor spec.
+      bf16_tflops:
+        type: number
+        required: false
+        description: >
+          Peak BF16 Tensor Core throughput (TFLOPS). Optional, enables
+          roofline / compute-bound headroom reasoning.
+      fp8_tflops:
+        type: number
+        required: false
+        description: >
+          Peak FP8 Tensor Core throughput (TFLOPS). Optional. Empty on devices
+          without an FP8 path.
+      workload_types:
+        type: list[string]
+        required: false
+        examples: [vision_training, transformer_training, generative_ai, matmul_heavy]
+      recommended_patterns:
+        type: list[string]
+        required: false
+        description: PRESERVED from schema A. Device-level accuracy-safe speed playbook.
+      avoid_patterns:
+        type: list[string]
+        required: false
+        description: PRESERVED from schema A.
+      source_url:
+        type: string
+        required: false
+        description: Authoritative vendor reference for this device record.
+      last_verified_at:
+        type: date
+        required: false
+
+  Feature:
+    label: Feature
+    category: capability
+    key: feature_id
+    description: >
+      A hardware capability or technique (bf16 autocast, fp8 E4M3/E5M2, TF32,
+      CUDA Graphs, flash-attention, channels_last). First-class node migrated
+      from vector schema B code_doc_chunks plus feature_docs.yaml semantics.
+      Device-independent meaning lives here; device-specific behavior lives on
+      HAS_FEATURE.
+    properties:
+      feature_id:
+        type: string
+        required: true
+        unique: true
+        examples: [bf16, fp8_e4m3, tf32, cuda_graphs, flash_attention]
+      name:
+        type: string
+        required: true
+        indexed: true
+      category:
+        type: string
+        required: false
+        allowed_values:
+          - precision_optimization
+          - memory_optimization
+          - kernel_optimization
+          - data_pipeline
+          - parallelism
+          - attention
+          - other
+      description:
+        type: string
+        required: true
+        description: What the feature is. Sourced from official docs.
+      how_to_use:
+        type: string
+        required: false
+      when_to_use:
+        type: string
+        required: false
+        description: NEW from new_schema. Structured guidance (was prose in B).
+      when_not_to_use:
+        type: string
+        required: false
+        description: NEW from new_schema.
+      example_code:
+        type: string
+        required: false
+        description: >
+          One canonical runnable example for this feature, folded from schema B
+          (code_doc_chunks). When several B chunks are tagged with the feature,
+          the most feature-specific one is chosen (fewest hardware_feature_keys
+          on the source chunk). Example code lives only on B. Not every feature
+          has one.
+      example_code_source:
+        type: string
+        required: false
+        description: chunk_id of the B chunk the example_code was taken from.
+      api_symbols:
+        type: list[string]
+        required: false
+        description: >
+          Merged API surface exercised by this feature, from schema B
+          api_symbols and schema D api_symbol. ApiSymbol is no longer a separate
+          node; the API names are folded onto the Feature. Not every feature
+          has an API symbol (e.g. fp64, pcie5_x16, sm_80).
+      api_signatures_json:
+        type: string
+        required: false
+        description: >
+          Optional JSON map api_symbol -> {signature, parameters_json,
+          covers_versions, docs_url, deprecated}, preserving the former
+          ApiSymbol (schema D) detail without a separate node.
+      frameworks:
+        type: list[string]
+        required: false
+        examples: [pytorch, jax, tensorflow]
+      precision_mode:
+        type: string
+        required: false
+        examples: [bf16, fp16, fp8, fp4, tf32, int8]
+      tensor_core_generation:
+        type: string
+        required: false
+        description: >
+          PRESERVED TC-generation mapping when the feature is a TC dtype, e.g.
+          fp4 -> 5gen, fp8 -> 4gen. Empty for non-TC features.
+      maturity:
+        type: string
+        required: false
+        allowed_values: [experimental, beta, production, deprecated]
+        description: NEW from new_schema.
+      source_url:
+        type: string
+        required: false
+        description: >
+          Official doc for the feature semantics. Project rule requires all
+          free-text to come from official docs.
+      last_verified_at:
+        type: date
+        required: false
+
+relationship_types:
+
+  HAS_FEATURE:
+    from: Hardware
+    to: Feature
+    cardinality: many_to_many
+    description: >
+      A device supports a feature, with device-specific behavior on the edge.
+      This is the core construct migrated from new_schema.yaml. It replaces the
+      old "feature string on Hardware + detail in vector DB" indirection.
+    relationship_properties:
+      support_level:
+        type: string
+        required: true
+        allowed_values: [native, optimized, supported, experimental, limited]
+        description: NEW. Graded support vs the old binary in-list / not.
+      recommended:
+        type: boolean
+        required: false
+        description: NEW. Whether the feature is recommended on THIS device.
+      performance_impact:
+        type: string
+        required: false
+        allowed_values: [high, medium, low, negligible]
+        description: >
+          Carried from new_schema.yaml. Qualitative speed/efficiency impact of
+          the feature on this device. Prefer attaching measured numbers when
+          available; this enum is the coarse fallback.
+      min_compute_capability:
+        type: string
+        required: false
+        description: >
+          PRESERVED gating. Minimum CC for the feature on this device, e.g. fp8
+          needs 8.9, fp4 needs 10.0. Compare against Hardware.compute_capabilities.
+      min_driver_version:
+        type: string
+        required: false
+        description: NEW from new_schema.
+      min_framework_version:
+        type: string
+        required: false
+        description: NEW from new_schema, e.g. "PyTorch 2.1".
+      software_requirements:
+        type: list[string]
+        required: false
+        examples: ["CUDA >= 12.1", "cuDNN >= 9.3"]
+      limitations:
+        type: string
+        required: false
+        description: NEW. Device-specific caveat, e.g. "fp8 training accuracy risk".
+      hardware_specific_how_to_use:
+        type: string
+        required: false
+      hardware_specific_sample_code:
+        type: string
+        required: false
+        description: Code tailored to this device (was a global B example only).
+      verified:
+        type: boolean
+        required: false
+      last_verified_at:
+        type: date
+        required: false
+
+  REQUIRES_FEATURE:
+    from: Feature
+    to: Feature
+    cardinality: many_to_many
+    description: >
+      Ontology dependency / specialization between features. Replaces redundant
+      device tags such as listing both tensor_cores and tensor_cores_5gen on
+      every device. Examples: fp8_e4m3 REQUIRES_FEATURE fp8;
+      tensor_cores_5gen REQUIRES_FEATURE tensor_cores.
+    relationship_properties:
+      relation:
+        type: string
+        required: false
+        allowed_values: [specializes, depends_on]

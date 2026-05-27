@@ -1,3 +1,5 @@
+# Rules
+
 - Tasks in your experiement you designed must always fulfill my GPU RAM
 
 - `./schema/schema-guidance.md` is your guidance of wrting guidance
@@ -11,3 +13,7 @@
 - All `texts` must be from official docs
 
 - Use GPUs on Nautilus to verify the feasibility of code examples if you add new ones
+
+- When visualizing a graph, show all of its nodes.
+
+# 
