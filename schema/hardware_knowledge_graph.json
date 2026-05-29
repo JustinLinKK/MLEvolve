@@ -47,7 +47,7 @@
       "properties": {
         "feature_id": "cuda_graphs",
         "name": "cuda_graphs",
-        "category": "kernel",
+        "category": "kernel_optimization",
         "description": "CUDA Graphs capture a sequence of kernel launches and their\ndependencies into a single replayable object; the overhead of\ngraph definition and instantiation can then be amortized over many\nexecutions. A graph is a snapshot of a workflow including kernels,\ntheir parameters, and their dependencies, replayed as rapidly as\npossible. Best for workloads with many small kernels and fixed\nlaunch parameters; structures with variable shapes or per-step\ncontrol flow cannot be captured directly. See the CUDA C++\nProgramming Guide CUDA Graphs section for the full set of capture\nrestrictions and the API surface.",
         "tensor_core_generation": "",
         "example_code": "import torch\nimport torch.nn as nn\nif not torch.cuda.is_available():\n    raise SystemExit('SKIP: no CUDA')\nmodel = nn.Linear(64, 32).cuda()\nstatic_x = torch.randn(8, 64, device='cuda')\nfor _ in range(3):\n    out = model(static_x)\ntorch.cuda.synchronize()\ng = torch.cuda.CUDAGraph()\nwith torch.cuda.graph(g):\n    out = model(static_x)\ng.replay()\ntorch.cuda.synchronize()",
@@ -2431,6 +2431,156 @@
         "avoid_patterns": [
           "no FP4 (Blackwell-only)"
         ]
+      }
+    },
+    {
+      "label": "Feature",
+      "id": "feat:cut_cross_entropy",
+      "properties": {
+        "feature_id": "cut_cross_entropy",
+        "name": "cut_cross_entropy",
+        "category": "kernel_optimization",
+        "description": "Cut Cross-Entropy: fuses the LM-head projection with the cross-entropy loss so the (B*T x V) logits tensor is never materialized in global memory; chunked online log-sum-exp in SRAM. Same math (exact CE + gradient), >4x peak-memory cut on large-vocab heads, >2x kernel speed.",
+        "tensor_core_generation": "",
+        "example_code": "",
+        "example_code_source": "",
+        "api_symbols": [],
+        "source_url": "https://arxiv.org/abs/2411.09009"
+      }
+    },
+    {
+      "label": "Feature",
+      "id": "feat:muon_optimizer",
+      "properties": {
+        "feature_id": "muon_optimizer",
+        "name": "muon_optimizer",
+        "category": "optimizer",
+        "description": "Muon optimizer: for 2D weight matrices, replaces the momentum-smoothed gradient with its nearest semi-orthogonal matrix via a fixed 5-step Newton-Schulz iteration (no SVD); 1D params stay on AdamW. Matches AdamW final loss using ~52% of training FLOPs.",
+        "tensor_core_generation": "",
+        "example_code": "",
+        "example_code_source": "",
+        "api_symbols": [],
+        "source_url": "https://arxiv.org/abs/2502.16982"
+      }
+    },
+    {
+      "label": "Feature",
+      "id": "feat:soap_optimizer",
+      "properties": {
+        "feature_id": "soap_optimizer",
+        "name": "soap_optimizer",
+        "category": "optimizer",
+        "description": "SOAP optimizer: Shampoo run in the eigenbasis of its own preconditioner, then plain Adam in that rotated space; amortizes eigendecomposition. >40% fewer iterations / >35% wall-clock vs AdamW to same loss in large-batch regime.",
+        "tensor_core_generation": "",
+        "example_code": "",
+        "example_code_source": "",
+        "api_symbols": [],
+        "source_url": "https://arxiv.org/abs/2409.11321"
+      }
+    },
+    {
+      "label": "Feature",
+      "id": "feat:ademamix_optimizer",
+      "properties": {
+        "feature_id": "ademamix_optimizer",
+        "name": "ademamix_optimizer",
+        "category": "optimizer",
+        "description": "AdEMAMix optimizer: augments Adam's fast gradient EMA with a second very-slow EMA (beta3 ~0.9999). A 1.3B model on 101B tokens matches AdamW on 197B (~51% token reduction to same loss). One extra EMA buffer.",
+        "tensor_core_generation": "",
+        "example_code": "",
+        "example_code_source": "",
+        "api_symbols": [],
+        "source_url": "https://arxiv.org/abs/2409.03137"
+      }
+    },
+    {
+      "label": "Feature",
+      "id": "feat:dataset_decomposition",
+      "properties": {
+        "feature_id": "dataset_decomposition",
+        "name": "dataset_decomposition",
+        "category": "data_pipeline",
+        "description": "Dataset Decomposition: decompose corpus into same-length buckets and train a short-to-long variable-sequence-length curriculum with only intra-document attention. Changes data ordering not model/loss; reaches target accuracy up to 6x faster than fixed-length concatenation.",
+        "tensor_core_generation": "",
+        "example_code": "",
+        "example_code_source": "",
+        "api_symbols": [],
+        "source_url": "https://arxiv.org/abs/2405.13226"
+      }
+    },
+    {
+      "label": "Feature",
+      "id": "feat:gram_newton_schulz_symmetric_gemm",
+      "properties": {
+        "feature_id": "gram_newton_schulz_symmetric_gemm",
+        "name": "gram_newton_schulz_symmetric_gemm",
+        "category": "kernel_optimization",
+        "description": "Gram Newton-Schulz symmetric/triangular fused GEMM: the Newton-Schulz step (used by Muon) is a symmetric product; a triangular fused kernel removes the wasted half of multiplies plus a DRAM round-trip cuBLAS incurs. Up to 2x faster NS step. Same math (Gram-matrix restart guards stability).",
+        "tensor_core_generation": "",
+        "example_code": "",
+        "example_code_source": "",
+        "api_symbols": [],
+        "source_url": "https://tridao.me/blog/2026/gram-newton-schulz/"
+      }
+    },
+    {
+      "label": "Feature",
+      "id": "feat:nvimagecodec_gpu_decode",
+      "properties": {
+        "feature_id": "nvimagecodec_gpu_decode",
+        "name": "nvimagecodec_gpu_decode",
+        "category": "data_pipeline",
+        "description": "nvImageCodec GPU image decode: decodes encoded image bytes (nvJPEG/nvJPEG2000/nvTIFF + A100/H100 hardware JPEG decoder) directly into GPU memory, DLPack zero-copy to torch, decode of batch N+1 overlapping compute of batch N. Removes CPU-decode bottleneck for CV/imaging. ~2.18x faster JPEG loading. No-op for text/LLM training.",
+        "tensor_core_generation": "",
+        "example_code": "",
+        "example_code_source": "",
+        "api_symbols": [],
+        "source_url": "https://github.com/NVIDIA/nvImageCodec"
+      }
+    },
+    {
+      "label": "Feature",
+      "id": "feat:async_tensor_parallel",
+      "properties": {
+        "feature_id": "async_tensor_parallel",
+        "name": "async_tensor_parallel",
+        "category": "parallelism",
+        "description": "Asynchronous tensor parallelism (PyTorch SymmetricMemory): overlaps tensor-parallel matmul compute with the all-gather/reduce-scatter communication it depends on, hiding TP comm latency. Multi-GPU only; no effect single-GPU. Same math.",
+        "tensor_core_generation": "",
+        "example_code": "",
+        "example_code_source": "",
+        "api_symbols": [],
+        "source_url": "https://docs.pytorch.org/docs/main/_sources/symmetric_memory.md.txt"
+      }
+    },
+    {
+      "label": "Feature",
+      "id": "feat:fp8_rowwise_scaling",
+      "properties": {
+        "feature_id": "fp8_rowwise_scaling",
+        "name": "fp8_rowwise_scaling",
+        "category": "precision",
+        "description": "FP8 row-wise (per-token) scaling: one fp8 scale factor per row of each operand instead of per-tensor; a single outlier row no longer forces a coarse scale that underflows the rest. Strictly more accuracy-preserving than per-tensor fp8; loss parity with bf16. GEMMs still on fp8 Tensor Cores (~1.11x over bf16 H100). Available via torchao.",
+        "tensor_core_generation": "",
+        "example_code": "",
+        "example_code_source": "",
+        "api_symbols": [],
+        "source_url": "https://docs.pytorch.org/ao/stable/eager_tutorials/pretraining.html"
+      }
+    },
+    {
+      "label": "Feature",
+      "id": "feat:fp8_all_gather_fsdp2",
+      "properties": {
+        "feature_id": "fp8_all_gather_fsdp2",
+        "name": "fp8_all_gather_fsdp2",
+        "category": "parallelism",
+        "description": "FP8 all-gather in FSDP2: shards and all-gathers parameters in fp8 instead of bf16, halving the sharded-parameter communication volume in distributed training. Multi-GPU only. Built on torchao float8 + FSDP2.",
+        "tensor_core_generation": "",
+        "example_code": "",
+        "example_code_source": "",
+        "api_symbols": [],
+        "source_url": "https://pytorch.org/blog/training-using-float8-fsdp2/"
       }
     }
   ],
@@ -9258,6 +9408,132 @@
       "type": "REQUIRES_FEATURE",
       "from": "feat:tensor_cores_5gen",
       "to": "feat:tensor_cores",
+      "properties": {
+        "relation": "specializes"
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.geforce_rtx_5090.spec",
+      "to": "feat:cut_cross_entropy",
+      "properties": {
+        "support_level": "supported",
+        "recommended": true,
+        "verified": false,
+        "limitations": "software technique; example_code + Nautilus run pending before verified=true"
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.geforce_rtx_5090.spec",
+      "to": "feat:muon_optimizer",
+      "properties": {
+        "support_level": "supported",
+        "recommended": true,
+        "verified": false,
+        "limitations": "software technique; example_code + Nautilus run pending before verified=true"
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.geforce_rtx_5090.spec",
+      "to": "feat:soap_optimizer",
+      "properties": {
+        "support_level": "supported",
+        "recommended": true,
+        "verified": false,
+        "limitations": "software technique; example_code + Nautilus run pending before verified=true"
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.geforce_rtx_5090.spec",
+      "to": "feat:ademamix_optimizer",
+      "properties": {
+        "support_level": "supported",
+        "recommended": true,
+        "verified": false,
+        "limitations": "software technique; example_code + Nautilus run pending before verified=true"
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.geforce_rtx_5090.spec",
+      "to": "feat:dataset_decomposition",
+      "properties": {
+        "support_level": "supported",
+        "recommended": true,
+        "verified": false,
+        "limitations": "software technique; example_code + Nautilus run pending before verified=true"
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.geforce_rtx_5090.spec",
+      "to": "feat:gram_newton_schulz_symmetric_gemm",
+      "properties": {
+        "support_level": "experimental",
+        "recommended": true,
+        "verified": false,
+        "limitations": "software technique; example_code + Nautilus run pending before verified=true"
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.geforce_rtx_5090.spec",
+      "to": "feat:nvimagecodec_gpu_decode",
+      "properties": {
+        "support_level": "supported",
+        "recommended": true,
+        "verified": false,
+        "limitations": "software technique; example_code + Nautilus run pending before verified=true"
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.geforce_rtx_5090.spec",
+      "to": "feat:async_tensor_parallel",
+      "properties": {
+        "support_level": "experimental",
+        "recommended": true,
+        "verified": false,
+        "limitations": "software technique; example_code + Nautilus run pending before verified=true"
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.geforce_rtx_5090.spec",
+      "to": "feat:fp8_rowwise_scaling",
+      "properties": {
+        "support_level": "supported",
+        "recommended": true,
+        "verified": false,
+        "limitations": "software technique; example_code + Nautilus run pending before verified=true"
+      }
+    },
+    {
+      "type": "REQUIRES_FEATURE",
+      "from": "feat:fp8_rowwise_scaling",
+      "to": "feat:fp8",
+      "properties": {
+        "relation": "specializes"
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.geforce_rtx_5090.spec",
+      "to": "feat:fp8_all_gather_fsdp2",
+      "properties": {
+        "support_level": "experimental",
+        "recommended": true,
+        "verified": false,
+        "limitations": "software technique; example_code + Nautilus run pending before verified=true"
+      }
+    },
+    {
+      "type": "REQUIRES_FEATURE",
+      "from": "feat:fp8_all_gather_fsdp2",
+      "to": "feat:fp8",
       "properties": {
         "relation": "specializes"
       }
