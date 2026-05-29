@@ -450,7 +450,9 @@
         "name": "GeForce RTX 4060",
         "vendor": "nvidia",
         "aliases": [
-          "geforce_rtx_4060"
+          "geforce_rtx_4060",
+          "rtx_4060",
+          "rtx4060"
         ],
         "architectures": [
           "ada_lovelace"
@@ -469,8 +471,41 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer only for small matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True",
+          "fp8 via transformer_engine only for small matmul-heavy validated transformer recipes"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no dense full-resolution large-image tensor loading",
+          "no throughput plan based on large physical batch",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 272,
+        "l2_cache_MB": 24,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/40-series/rtx-4060-4060ti/"
       }
     },
     {
@@ -500,8 +535,41 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "prefer batch/seq/resolution reduction before activation checkpointing for compute-bound runs",
+          "gradient accumulation instead of high physical batch",
+          "sequence packing for padded transformer batches",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference for bandwidth/memory-sensitive generation",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer for matmul-heavy training",
+          "Muon for 2D hidden weights only",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True",
+          "fp8 via transformer_engine for matmul-heavy validated transformer recipes"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no high physical batch solely because tensors fit",
+          "no dense full-resolution large-image tensor loading",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 288,
+        "l2_cache_MB": 32,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/40-series/rtx-4060-4060ti/"
       }
     },
     {
@@ -531,19 +599,53 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default for larger effective batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer only for matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True",
+          "fp8 via transformer_engine only for small validated transformer recipes"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no dense full-resolution large-image tensor loading",
+          "no optimizer-state-heavy training without budget",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 288,
+        "l2_cache_MB": 32,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/40-series/rtx-4060-4060ti/"
       }
     },
     {
       "label": "Hardware",
-      "id": "hw:nvidia.ada_lovelace.geforce_rtx_4070.spec",
+      "id": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6x.spec",
       "properties": {
-        "hardware_id": "nvidia.ada_lovelace.geforce_rtx_4070.spec",
+        "hardware_id": "nvidia.ada_lovelace.geforce_rtx_4070_gddr6x.spec",
         "name": "GeForce RTX 4070",
         "vendor": "nvidia",
         "aliases": [
-          "geforce_rtx_4070"
+          "geforce_rtx_4070",
+          "rtx_4070"
         ],
         "architectures": [
           "ada_lovelace"
@@ -562,8 +664,117 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for memory-bound training",
+          "gradient accumulation default for larger effective batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference before increasing batch/context",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer",
+          "Muon for 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "optimizer-state budget before AdamW/Muon split",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "fp8 via transformer_engine for validated transformer recipes [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/index.html]"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no dense full-resolution large-image tensor loading",
+          "no optimizer choice ignoring state memory",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 504,
+        "l2_cache_MB": 36,
+        "fp8_tflops": 116.6,
+        "fp16_tflops": 58.3,
+        "bf16_tflops": 58.3,
+        "tflops_note":"dense TFLOPS; fp16/fp8/bf16 FP32-accum basis; ~2x with Sparsity. Source: NVIDIA RTX Blackwell whitepaper Table 6",
+        "source_url": "https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf"
+      }
+    },
+    {
+      "label": "Hardware",
+      "id": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6.spec",
+      "properties": {
+        "hardware_id": "nvidia.ada_lovelace.geforce_rtx_4070_gddr6.spec",
+        "name": "GeForce RTX 4070",
+        "vendor": "nvidia",
+        "aliases": [
+          "geforce_rtx_4070",
+          "rtx_4070",
+          "rtx4070"
+        ],
+        "architectures": [
+          "ada_lovelace"
+        ],
+        "compute_capabilities": [
+          "8.9"
+        ],
+        "vram_MB": 12288,
+        "vram_type": "gddr6",
+        "sm_count": 46,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "generative_ai",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
+        ],
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for memory-bound training",
+          "gradient accumulation default for larger effective batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference before increasing batch/context",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer",
+          "Muon for 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "optimizer-state budget before AdamW/Muon split",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "fp8 via transformer_engine for validated transformer recipes [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/index.html]"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no dense full-resolution large-image tensor loading",
+          "no optimizer choice ignoring state memory",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 480,
+        "l2_cache_MB": 36,
+        "fp8_tflops": 116.6,
+        "fp16_tflops": 58.3,
+        "bf16_tflops": 58.3,
+        "tflops_note":"dense TFLOPS; fp16/fp8/bf16 FP32-accum basis; ~2x with Sparsity. Source: NVIDIA RTX Blackwell whitepaper Table 6",
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/40-series/rtx-4070-family/"
       }
     },
     {
@@ -574,7 +785,9 @@
         "name": "GeForce RTX 4070 Super",
         "vendor": "nvidia",
         "aliases": [
-          "geforce_rtx_4070_super"
+          "geforce_rtx_4070_super",
+          "rtx_4070_super",
+          "rtx4070s"
         ],
         "architectures": [
           "ada_lovelace"
@@ -593,8 +806,40 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default for larger effective batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference before increasing max_seq_len",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer",
+          "Muon for 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "optimizer-state budget before AdamW/Muon split",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "fp8 via transformer_engine for validated transformer recipes"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no dense full-resolution large-image tensor loading",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 504,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/40-series/rtx-4070-family/"
       }
     },
     {
@@ -605,7 +850,8 @@
         "name": "GeForce RTX 4070 Ti",
         "vendor": "nvidia",
         "aliases": [
-          "geforce_rtx_4070_ti"
+          "geforce_rtx_4070_ti",
+          "rtx_4070_ti"
         ],
         "architectures": [
           "ada_lovelace"
@@ -624,8 +870,45 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default for larger effective batch",
+          "sequence packing for padded transformer batches",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference before extending context length",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer",
+          "Muon for 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "optimizer-state budget before AdamW/Muon split",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "fp8 via transformer_engine for validated transformer recipes [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/index.html]"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no dense full-resolution large-image tensor loading",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 504,
+        "l2_cache_MB": 48,
+        "fp8_tflops": 160.4,
+        "fp16_tflops": 80.2,
+        "bf16_tflops": 80.2,
+        "tflops_note":"dense TFLOPS; fp16/fp8/bf16 FP32-accum basis; ~2x with Sparsity. Source: NVIDIA RTX Blackwell whitepaper Table 5",
+        "source_url": "https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf"
       }
     },
     {
@@ -636,7 +919,8 @@
         "name": "GeForce RTX 4070 Ti Super",
         "vendor": "nvidia",
         "aliases": [
-          "geforce_rtx_4070_ti_super"
+          "geforce_rtx_4070_ti_super",
+          "rtx_4070_ti_super"
         ],
         "architectures": [
           "ada_lovelace"
@@ -655,8 +939,40 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing for long sequence or high resolution training",
+          "gradient accumulation before raising physical batch",
+          "sequence packing for padded transformer batches",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference when weights+KV exceed memory budget",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer",
+          "Muon for 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "optimizer-state budget before AdamW/Muon split",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "fp8 via transformer_engine for validated transformer recipes [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/index.html]"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no high physical batch before accumulation/packing",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 672,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/40-series/rtx-4070-family/"
       }
     },
     {
@@ -667,7 +983,9 @@
         "name": "GeForce RTX 4080",
         "vendor": "nvidia",
         "aliases": [
-          "geforce_rtx_4080"
+          "geforce_rtx_4080",
+          "rtx_4080",
+          "rtx4080"
         ],
         "architectures": [
           "ada_lovelace"
@@ -686,8 +1004,43 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing for activation-dominated training",
+          "gradient accumulation for larger effective batch",
+          "sequence packing for padded transformer batches",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference when weights+KV exceed memory budget",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer",
+          "Muon for 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "fp8 via transformer_engine for validated transformer recipes [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/index.html]"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 716.8,
+        "l2_cache_MB": 64,
+        "fp8_tflops": 194.9,
+        "fp16_tflops": 97.5,
+        "bf16_tflops": 97.5,
+        "tflops_note": "dense TFLOPS; fp16/fp8/bf16 FP32-accum basis; ~2x with Sparsity. Source: NVIDIA RTX Ada whitepaper Table 3",
+        "source_url": "https://images.nvidia.com/aem-dam/Solutions/geforce/ada/nvidia-ada-gpu-architecture.pdf"
       }
     },
     {
@@ -698,7 +1051,9 @@
         "name": "GeForce RTX 4080 Super",
         "vendor": "nvidia",
         "aliases": [
-          "geforce_rtx_4080_super"
+          "geforce_rtx_4080_super",
+          "rtx_4080_super",
+          "rtx4080s"
         ],
         "architectures": [
           "ada_lovelace"
@@ -717,8 +1072,41 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing for activation-dominated training",
+          "gradient accumulation before raising physical batch",
+          "sequence packing for padded transformer batches",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference when weights+KV exceed memory budget",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "fused AdamW optimizer as strong baseline",
+          "hybrid Muon+AdamW optimizer for matmul-heavy training",
+          "Muon for 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "fp8 via transformer_engine for validated transformer recipes"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no single LR blindly shared by Muon and AdamW",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no optimizer-state-heavy training without budget"
+        ],
+        "memory_bandwidth_GBps": 736,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/40-series/rtx-4080-family/"
       }
     },
     {
@@ -729,7 +1117,9 @@
         "name": "GeForce RTX 4090",
         "vendor": "nvidia",
         "aliases": [
-          "geforce_rtx_4090"
+          "geforce_rtx_4090",
+          "rtx_4090",
+          "rtx4090"
         ],
         "architectures": [
           "ada_lovelace"
@@ -749,22 +1139,46 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "Keep batch size, precision, accumulation in top-level config",
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
           "bf16 autocast default",
-          "TF32 on for FP32 matmul",
-          "cudnn.benchmark=True",
-          "torch.compile(mode='max-autotune')",
-          "CUDA Graphs for hot loop",
-          "DataLoader pin_memory=True",
-          "flash-attn v3 for attention (sm_89 fwd via CUTLASS)",
-          "cap peak VRAM at 23552 MiB per job",
-          "fp8 inference via transformer_engine"
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing for activation-dominated training",
+          "gradient accumulation for larger effective batch",
+          "sequence packing for padded transformer batches",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference when weights+KV exceed memory budget",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "fused AdamW optimizer as strong baseline",
+          "hybrid Muon+AdamW optimizer for matmul-heavy training",
+          "Muon for 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "tune Muon momentum/ns_steps when loss is unstable or throughput drops",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "fp8 via transformer_engine for validated transformer recipes [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/index.html]"
         ],
         "avoid_patterns": [
-          "no FP64 matmul (consumer Ada 1:64 ratio)",
-          "no NVLink (PCIe only)",
-          "no MIG (consumer card)"
-        ]
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no single LR blindly shared by Muon and AdamW",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no optimizer-state-heavy training without budget"
+        ],
+        "memory_bandwidth_GBps": 1008,
+        "l2_cache_MB": 72,
+        "fp8_tflops": 330.3,
+        "fp16_tflops": 165.2,
+        "bf16_tflops": 165.2,
+        "tflops_note": "dense TFLOPS; fp16/fp8 FP32-accum basis; ~2x with Sparsity. Source: NVIDIA RTX Ada whitepaper Table 2",
+        "source_url": "https://images.nvidia.com/aem-dam/Solutions/geforce/ada/nvidia-ada-gpu-architecture.pdf"
       }
     },
     {
@@ -794,8 +1208,49 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "continuous batching for inference serving",
+          "KV-cache memory budget before autoregressive inference",
+          "paged/block KV-cache layout for multi-request serving",
+          "quantized inference first for generative serving",
+          "sequence packing for padded transformer batches",
+          "parameter-efficient fine-tuning before optimizer-state-heavy training",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "fused AdamW optimizer as baseline",
+          "hybrid Muon+AdamW only for matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "fp8 via transformer_engine for validated transformer inference/training recipes"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no nvfp4/mxfp8 pattern on Ada",
+          "no throughput plan based on large physical batch",
+          "no optimizer-state-heavy training without budget",
+          "no dense full-resolution large-image tensor loading",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no MIG-based serving plan from L20 metadata alone"
+        ],
+        "memory_bandwidth_GBps": 864,
+        "fp8_tensor_tflops": 237,
+        "fp16_tensor_tflops": 119,
+        "bf16_tensor_tflops": 119,
+        "tf32_tensor_tflops": 59.3,
+        "source_url": "https://www.hpe.com/psnow/doc/c04123180.pdf?ver=79"
       }
     },
     {
@@ -825,8 +1280,48 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "continuous batching for inference serving",
+          "KV-cache memory budget before autoregressive inference",
+          "paged/block KV-cache layout for multi-request serving",
+          "quantized inference first for generative serving",
+          "sequence packing for padded transformer batches",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "parameter-efficient fine-tuning before full-parameter updates",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "optimizer-state budget before AdamW/Muon split",
+          "hybrid Muon+AdamW only for small matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "fp8 via transformer_engine for validated transformer inference/training recipes"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no throughput plan based on large physical batch",
+          "no optimizer-state-heavy training without budget",
+          "no dense full-resolution large-image tensor loading",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 300,
+        "l2_cache_MB": 48,
+        "fp8_tflops": 242,
+        "fp16_tflops": 121,
+        "bf16_tflops": 121,
+        "tflops_note": "dense TFLOPS; ~2x with Sparsity. Source: NVIDIA RTX Ada whitepaper Table 5",
+        "source_url": "https://images.nvidia.com/aem-dam/Solutions/geforce/ada/nvidia-ada-gpu-architecture.pdf"
       }
     },
     {
@@ -856,8 +1351,47 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing for activation-dominated training",
+          "gradient accumulation for larger effective batch",
+          "sequence packing for padded transformer batches",
+          "KV-cache memory budget before autoregressive inference",
+          "paged/block KV-cache layout for serving workloads",
+          "quantized inference when weights+KV exceed memory budget",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "fused AdamW optimizer as baseline",
+          "hybrid Muon+AdamW optimizer for matmul-heavy training",
+          "Muon for 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "fp8 via transformer_engine for validated transformer recipes"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no dense full-resolution large-image tensor loading",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no single LR blindly shared by Muon and AdamW",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no serving design that requires MIG hardware partitioning [https://www.nvidia.com/en-us/technologies/multi-instance-gpu/]"
+        ],
+        "memory_bandwidth_GBps": 864,
+        "l2_cache_MB": 96,
+        "fp8_tflops": 362,
+        "fp16_tflops": 181,
+        "bf16_tflops": 181,
+        "tflops_note": "dense TFLOPS; ~2x with Sparsity. Source: NVIDIA RTX Ada whitepaper Table 4",
+        "source_url": "https://images.nvidia.com/aem-dam/Solutions/geforce/ada/nvidia-ada-gpu-architecture.pdf"
       }
     },
     {
@@ -887,8 +1421,52 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "fp8 via transformer_engine for validated transformer recipes",
+          "prefer transformer_engine fp8 for matmul-heavy transformer training/inference",
+          "continuous batching for LLM inference serving",
+          "KV-cache memory budget before autoregressive inference",
+          "paged/block KV-cache layout for multi-request serving",
+          "quantized inference when weights+KV exceed memory budget",
+          "activation checkpointing for activation-dominated training",
+          "gradient accumulation for larger effective batch",
+          "sequence packing for padded transformer batches",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "fused AdamW optimizer as strong baseline",
+          "hybrid Muon+AdamW optimizer for matmul-heavy training",
+          "Muon for 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "tune Muon momentum/ns_steps when loss is unstable or throughput drops",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no dense full-resolution large-image tensor loading",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no single LR blindly shared by Muon and AdamW",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no serving design that requires MIG hardware partitioning [https://www.nvidia.com/en-us/technologies/multi-instance-gpu/]"
+        ],
+        "memory_bandwidth_GBps": 864,
+        "l2_cache_MB": 96,
+        "fp8_tflops": 733,
+        "fp16_tflops": 362.05,
+        "bf16_tflops": 362.05,
+        "tf32_tensor_cores_tflops": 183,
+        "fp32_tflops": 91.6,
+        "tflops_note": "dense TFLOPS; ~2x with Sparsity",
+        "source_url": "https://www.nvidia.com/en-us/data-center/l40s/"
       }
     },
     {
@@ -918,8 +1496,42 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for memory-bound training",
+          "gradient accumulation default before raising physical batch",
+          "sequence packing default for padded transformer batches",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference before increasing batch/context",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "fused AdamW optimizer as baseline",
+          "hybrid Muon+AdamW only for matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "fp8 via transformer_engine only for compact validated transformer recipes"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no high physical batch solely because tensors fit",
+          "no optimizer-state-heavy training without budget",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 360,
+        "fp8_tflops": 327.6,
+        "tflops_note": "effective fp8 tflops using Sparsity",
+        "source_url": "https://www.nvidia.com/content/dam/en-zz/Solutions/products/workstations/nvidia-rtx-4000-datasheet.pdf"
       }
     },
     {
@@ -949,8 +1561,42 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing for long sequence or high resolution training",
+          "gradient accumulation before raising physical batch",
+          "sequence packing default for padded transformer batches",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference before increasing context",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "fused AdamW optimizer as baseline",
+          "hybrid Muon+AdamW for matmul-heavy training",
+          "Muon for 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "fp8 via transformer_engine for validated transformer recipes"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no high physical batch before accumulation/packing",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no single LR blindly shared by Muon and AdamW",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 432,
+        "fp8_tflops": 634.0,
+        "tflops_note": "effective fp8 tflops using Sparsity",
+        "source_url": "https://www.nvidia.com/content/dam/en-zz/Solutions/products/workstations/nvidia-rtx-4500-datasheet.pdf"
       }
     },
     {
@@ -980,8 +1626,43 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing for activation-dominated training",
+          "gradient accumulation for larger effective batch",
+          "sequence packing for padded transformer batches",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference when weights+KV exceed memory budget",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "fused AdamW optimizer as strong baseline",
+          "hybrid Muon+AdamW optimizer for matmul-heavy training",
+          "Muon for 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "tune Muon momentum/ns_steps when loss is unstable or throughput drops",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "fp8 via transformer_engine for validated transformer recipes"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no single LR blindly shared by Muon and AdamW",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 576,
+        "fp8_tflops": 1044.4,
+        "tflops_note": "effective fp8 tflops using Sparsity",
+        "source_url": "https://resources.nvidia.com/en-us-briefcase-for-datasheets/rtx-5000-ada-datashe?ncid=no-ncid"
       }
     },
     {
@@ -1002,7 +1683,7 @@
         ],
         "vram_MB": 49152,
         "vram_type": "gddr6",
-        "sm_count": 128,
+        "sm_count": 110,
         "workload_types": [
           "vision_training",
           "transformer_training",
@@ -1011,8 +1692,44 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing only when activation memory dominates",
+          "gradient accumulation for larger effective batch",
+          "sequence packing for padded transformer batches",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference when weights+KV exceed memory budget",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "fused AdamW optimizer as strong baseline",
+          "hybrid Muon+AdamW optimizer for matmul-heavy training",
+          "Muon for 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "prefer memory-capacity planning over physical-batch-only scaling",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "fp8 via transformer_engine for validated transformer recipes"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no throughput plan based on VRAM alone",
+          "no high physical batch solely because memory fits",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no single LR blindly shared by Muon and AdamW",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 960,
+        "fp8_tflops": 1108.4,
+        "tflops_note": "effective fp8 tflops using Sparsity",
+        "source_url": "https://www.nvidia.cn/content/dam/en-zz/Solutions/design-visualization/rtx-5880/proviz-rtx-5880-ada-datasheet-print-zhCN-3082478.pdf"
       }
     },
     {
@@ -1042,8 +1759,43 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing for activation-dominated training",
+          "gradient accumulation for larger effective batch",
+          "sequence packing for padded transformer batches",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference when weights+KV exceed memory budget",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "fused AdamW optimizer as strong baseline",
+          "hybrid Muon+AdamW optimizer for matmul-heavy training",
+          "Muon for 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "tune Muon momentum/ns_steps when loss is unstable or throughput drops",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "fp8 via transformer_engine for validated transformer recipes"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_89 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no fp8 as default for unvalidated recipes",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no single LR blindly shared by Muon and AdamW",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 960,
+        "fp8_tflops": 1457.0,
+        "tflops_note": "effective fp8 tflops using Sparsity",
+        "source_url": "https://resources.nvidia.com/en-us-briefcase-for-datasheets/proviz-print-rtx6000-1?ncid=no-ncid"
       }
     },
     {
@@ -2203,7 +2955,7 @@
         "memory_bandwidth_GBps": 1792,
         "l2_cache_MB": 96,
         "bf16_tflops": 209.5,
-        "fp8_tflops": 838,
+        "fp8_tflops": 419,
         "fp4_tflops": 1676,
         "tflops_note": "dense TFLOPS; bf16/fp8 FP32-accum basis; ~2x with Sparsity. Source: NVIDIA RTX Blackwell whitepaper Table 3",
         "source_url": "https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf"
@@ -2800,7 +3552,7 @@
     },
     {
       "type": "HAS_FEATURE",
-      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070.spec",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6x.spec",
       "to": "feat:tensor_cores",
       "properties": {
         "support_level": "supported",
@@ -2811,7 +3563,7 @@
     },
     {
       "type": "HAS_FEATURE",
-      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070.spec",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6x.spec",
       "to": "feat:amp",
       "properties": {
         "support_level": "supported",
@@ -2822,7 +3574,7 @@
     },
     {
       "type": "HAS_FEATURE",
-      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070.spec",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6x.spec",
       "to": "feat:bf16",
       "properties": {
         "support_level": "supported",
@@ -2833,7 +3585,7 @@
     },
     {
       "type": "HAS_FEATURE",
-      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070.spec",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6x.spec",
       "to": "feat:fp16",
       "properties": {
         "support_level": "supported",
@@ -2844,7 +3596,7 @@
     },
     {
       "type": "HAS_FEATURE",
-      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070.spec",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6x.spec",
       "to": "feat:fp8",
       "properties": {
         "support_level": "supported",
@@ -2855,7 +3607,7 @@
     },
     {
       "type": "HAS_FEATURE",
-      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070.spec",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6x.spec",
       "to": "feat:tf32",
       "properties": {
         "support_level": "supported",
@@ -2866,7 +3618,7 @@
     },
     {
       "type": "HAS_FEATURE",
-      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070.spec",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6x.spec",
       "to": "feat:int8",
       "properties": {
         "support_level": "supported",
@@ -2877,7 +3629,7 @@
     },
     {
       "type": "HAS_FEATURE",
-      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070.spec",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6x.spec",
       "to": "feat:sm_89",
       "properties": {
         "support_level": "supported",
@@ -2888,7 +3640,7 @@
     },
     {
       "type": "HAS_FEATURE",
-      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070.spec",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6x.spec",
       "to": "feat:tensor_cores_4gen",
       "properties": {
         "support_level": "supported",
@@ -2899,7 +3651,7 @@
     },
     {
       "type": "HAS_FEATURE",
-      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070.spec",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6x.spec",
       "to": "feat:fp8_e4m3",
       "properties": {
         "support_level": "supported",
@@ -2910,7 +3662,128 @@
     },
     {
       "type": "HAS_FEATURE",
-      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070.spec",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6x.spec",
+      "to": "feat:fp8_e5m2",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.9",
+        "device_compute_capability": "8.9",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6.spec",
+      "to": "feat:tensor_cores",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "8.9",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6.spec",
+      "to": "feat:amp",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "8.9",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6.spec",
+      "to": "feat:bf16",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.0",
+        "device_compute_capability": "8.9",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6.spec",
+      "to": "feat:fp16",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "8.9",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6.spec",
+      "to": "feat:fp8",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.9",
+        "device_compute_capability": "8.9",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6.spec",
+      "to": "feat:tf32",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.0",
+        "device_compute_capability": "8.9",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6.spec",
+      "to": "feat:int8",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "8.9",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6.spec",
+      "to": "feat:sm_89",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.9",
+        "device_compute_capability": "8.9",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6.spec",
+      "to": "feat:tensor_cores_4gen",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.9",
+        "device_compute_capability": "8.9",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6.spec",
+      "to": "feat:fp8_e4m3",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.9",
+        "device_compute_capability": "8.9",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.ada_lovelace.geforce_rtx_4070_gddr6.spec",
       "to": "feat:fp8_e5m2",
       "properties": {
         "support_level": "supported",
