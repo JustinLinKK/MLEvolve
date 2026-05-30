@@ -2997,12 +2997,14 @@
       "id": "hw:nvidia.hopper.gh200_grace_hopper.spec",
       "properties": {
         "hardware_id": "nvidia.hopper.gh200_grace_hopper.spec",
-        "name": "NVIDIA GH200 Grace Hopper",
+        "name": "NVIDIA GH200 Grace Hopper 96GB HBM3",
         "vendor": "nvidia",
         "aliases": [
-          "gh200_grace_hopper"
+          "gh200_grace_hopper",
+          "gh200_96gb_hbm3"
         ],
         "architectures": [
+          "grace",
           "hopper"
         ],
         "compute_capabilities": [
@@ -3021,8 +3023,39 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "plan Grace LPDDR5X vs HBM placement explicitly [https://docs.nvidia.com/grace-perf-tuning-guide/index.html]",
+          "keep hot weights/KV/activations in HBM; spill cold tensors to Grace memory",
+          "use NVLink-C2C memory path, not PCIe assumptions",
+          "use Transformer Engine FP8 only for validated transformer modules [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/features/low_precision_training/fp8_current_scaling/fp8_current_scaling.html]",
+          "target sm_90/TMA for custom CUDA attention or GEMM [https://docs.nvidia.com/cuda/hopper-tuning-guide/index.html]",
+          "use MIG only for isolated inference tenants [https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-gpus.html]",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule"
+        ],
+        "avoid_patterns": [
+          "no Grace LPDDR5X as HBM-equivalent",
+          "no hot weights or KV cache resident only in CPU memory",
+          "no unified-memory oversubscription without prefetch or NUMA policy",
+          "no CUDA extension missing sm_90",
+          "no MIG for jobs needing full-GPU collectives",
+          "no FP4/NVFP4 plan on Hopper",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "cpu_lpddr5x_MB": 491520,
+        "cpu_lpddr5x_bandwidth_GBps": 500,
+        "gpu_hbm3_bandwidth_GBps": 4000,
+        "l2_cache_MB_per_core": 1,
+        "fp8_tflops": 1979,
+        "fp16_tflops": 990,
+        "bf16_tflops": 990,
+        "tf32_tflops": 494,
+        "tflops_note": "dense TFLOPS; ~2x with Sparsity",
+        "source_url": "https://docs.nvidia.com/grace-perf-tuning-guide/index.html"
       }
     },
     {
@@ -3054,8 +3087,38 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "plan paired H100 NVL as 188GB HBM target for LLM inference [https://www.nvidia.com/en-us/data-center/h100/]",
+          "place paired GPUs on NVLink bridge before PCIe paths",
+          "use tensor/pipeline parallelism when model+KV exceeds one 94GB card",
+          "use Transformer Engine FP8 only for validated transformer modules [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/features/low_precision_training/fp8_current_scaling/fp8_current_scaling.html]",
+          "target sm_90/TMA for custom CUDA attention or GEMM [https://docs.nvidia.com/cuda/hopper-tuning-guide/index.html]",
+          "use MIG only for isolated inference tenants [https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-gpus.html]",
+          "keep FP64 workloads on Hopper when accuracy requires it",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule"
+        ],
+        "avoid_patterns": [
+          "no treating H100 NVL as an unbridged PCIe pair",
+          "no cross-socket pair without topology check",
+          "no MIG for jobs needing full-GPU collectives",
+          "no CUDA extension missing sm_90",
+          "no FP8 default without accuracy validation",
+          "no FP4/NVFP4 plan on Hopper",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 3900,
+        "int8_tops": 3341,
+        "fp8_tflops": 3341,
+        "fp16_tflops": 1671,
+        "bf16_tflops": 1671,
+        "tf32_tflops": 835,
+        "tflops_note": "with Sparsity",
+        "source_url": "https://www.nvidia.com/en-us/data-center/h100/"
       }
     },
     {
@@ -3087,8 +3150,31 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "treat as 80GB HBM2e / 2TB/s, not SXM bandwidth",
+          "check NVLink bridge availability before tensor parallelism",
+          "prefer PCIe-aware sharding/offload; do not assume NVSwitch",
+          "use Transformer Engine FP8 only for validated transformer modules [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/features/low_precision_training/fp8_current_scaling/fp8_current_scaling.html]",
+          "target sm_90/TMA for custom CUDA attention or GEMM [https://docs.nvidia.com/cuda/hopper-tuning-guide/index.html]",
+          "use MIG only for isolated inference tenants [https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-gpus.html]",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule"
+        ],
+        "avoid_patterns": [
+          "no assuming SXM 3.35TB/s bandwidth",
+          "no assuming NVSwitch topology from PCIe card",
+          "no MIG for jobs needing full-GPU collectives",
+          "no CUDA extension missing sm_90",
+          "no FP8 default without accuracy validation",
+          "no FP4/NVFP4 plan on Hopper",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 2000,
+        "source_url": "https://www.nvidia.com/content/dam/en-zz/Solutions/gtcs22/data-center/h100/PB-11133-001_v01.pdf"
       }
     },
     {
@@ -3121,21 +3207,42 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "Keep batch size, precision, accumulation in top-level config",
-          "bf16 autocast default for training",
-          "fp8 training+inference via transformer_engine (E4M3 fwd, E5M2 grad)",
-          "TF32 on for FP32 matmul",
-          "cudnn.benchmark=True",
-          "FP64 OK on this chip (1:2 ratio)",
-          "NVLink + NCCL for multi-GPU",
-          "MIG up to 7 partitions for inference",
-          "flash-attn v3 (sm_90 native)",
-          "cap peak VRAM at 80896 MiB per job"
+          "keep precision/parallelism/max_seq_len/optimizer configurable for H100 SXM training",
+          "bf16 default; gate FP8 per Transformer Engine recipe",
+          "FP8 E4M3-forward/E5M2-backward only after accuracy validation [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/features/low_precision_training/fp8_current_scaling/fp8_current_scaling.html]",
+          "TF32 for FP32 matmul when numerics allow",
+          "cudnn.benchmark=True only for static-shape CNN/UNet",
+          "FP64 acceptable for HPC kernels requiring precision",
+          "use SXM/NVSwitch topology for tensor-parallel LLM training",
+          "MIG up to 7 only for isolated inference tenants [https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-gpus.html]",
+          "Hopper attention kernels; pin flash-attn v3 only if selected",
+          "derive VRAM cap from runtime total_memory, not fixed 80896 MiB",
+          "target sm_90/TMA for custom CUDA attention or GEMM [https://docs.nvidia.com/cuda/hopper-tuning-guide/index.html]",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule"
         ],
         "avoid_patterns": [
-          "no FP4 (Blackwell-only)",
-          "no 5gen tensor cores (4gen only on Hopper)"
-        ]
+          "no FP4/NVFP4 plan on Hopper",
+          "no 5gen Tensor Core assumption",
+          "no topology-blind NCCL plan on HGX/DGX",
+          "no MIG for jobs needing full-GPU collectives",
+          "no CUDA extension missing sm_90",
+          "no FP8 default without accuracy validation",
+          "no hard-coded job VRAM cap",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 3350,
+        "int8_tops": 3958,
+        "fp8_tflops": 3958,
+        "fp16_tflops": 1979,
+        "bf16_tflops": 1979,
+        "tf32_tflops": 989,
+        "tflops_note": "with Sparsity",
+        "source_url": "https://www.nvidia.com/en-us/data-center/h100/"
       }
     },
     {
@@ -3168,21 +3275,42 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "Keep batch size, precision, accumulation in top-level config",
-          "bf16 autocast default",
-          "fp8 training+inference via transformer_engine (E4M3 fwd, E5M2 grad)",
-          "TF32 on for FP32 matmul",
-          "cudnn.benchmark=True for static shapes",
-          "FP64 OK on this chip (1:2 ratio)",
-          "fit larger batches given 141 GiB HBM3e",
-          "NVLink for multi-GPU all_reduce",
-          "MIG up to 7 partitions for inference",
-          "flash-attn v3",
-          "cap peak VRAM at 143360 MiB per job"
+          "keep precision/parallelism/max_seq_len/optimizer configurable for H200 training",
+          "bf16 default; gate FP8 per Transformer Engine recipe",
+          "FP8 E4M3-forward/E5M2-backward only after accuracy validation [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/features/low_precision_training/fp8_current_scaling/fp8_current_scaling.html]",
+          "TF32 for FP32 matmul when numerics allow",
+          "cudnn.benchmark=True only for static-shape CNN/UNet",
+          "FP64 acceptable for HPC kernels requiring precision",
+          "use 141GB HBM3e to reduce sharding before raising physical batch",
+          "prefer H200 for KV-cache or HBM-bandwidth bottlenecks [https://www.nvidia.com/en-us/data-center/h200/]",
+          "use SXM/NVSwitch/NCCL for tensor-parallel LLM training",
+          "MIG up to 7 only for isolated inference tenants [https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-gpus.html]",
+          "Hopper attention kernels; pin flash-attn v3 only if selected",
+          "derive VRAM cap from runtime total_memory, not fixed 143360 MiB",
+          "target sm_90/TMA for custom CUDA attention or GEMM [https://docs.nvidia.com/cuda/hopper-tuning-guide/index.html]",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule"
         ],
         "avoid_patterns": [
-          "no FP4 (Blackwell-only)"
-        ]
+          "no throughput plan based only on 141GB capacity",
+          "no high batch solely because HBM fits",
+          "no MIG for jobs needing full-GPU collectives",
+          "no CUDA extension missing sm_90",
+          "no FP8 default without accuracy validation",
+          "no FP4/NVFP4 plan on Hopper",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 4800,
+        "fp8_tflops": 3958,
+        "fp16_tflops": 1979,
+        "bf16_tflops": 1979,
+        "tf32_tflops": 989,
+        "tflops_note": "with Sparsity",
+        "source_url": "https://www.nvidia.com/en-us/data-center/h200/"
       }
     }
   ],
