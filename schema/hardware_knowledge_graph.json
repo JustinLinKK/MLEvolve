@@ -2630,8 +2630,27 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep precision/grad_accum/max_seq_len/optimizer configurable",
+          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
+          "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
+          "sequence packing and KV-cache budget before longer context",
+          "treat B100 as provisional until runtime and product-sheet validation [https://docs.nvidia.com/datacenter/dcgm/latest/user-guide/dcgm-diagnostics.html]",
+          "confirm device name, memory, and compute capability with nvidia-smi/torch before sizing",
+          "use B200/GB200 patterns only after runtime device reports B200 or GB200",
+          "hybrid Muon+AdamW only after runtime confirms a matmul-heavy training target [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]"
+        ],
+        "avoid_patterns": [
+          "no production sizing from B100 metadata without official SKU sheet",
+          "no B200/GB200 memory, MIG, or sm_100 assumptions from B100 name alone",
+          "no FP4/MXFP8 default without kernel and accuracy validation",
+          "no CUDA extension target without runtime-verified compute capability",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "official_spec_status": "partial: NVIDIA DCGM lists B100 as NVBandwidth-supported, but current public NVIDIA MIG/CUDA tables do not publish B100 memory, compute capability, or MIG profile data",
+        "source_url": "https://docs.nvidia.com/datacenter/dcgm/latest/user-guide/dcgm-diagnostics.html"
       }
     },
     {
@@ -2663,8 +2682,42 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep precision/grad_accum/max_seq_len/optimizer configurable",
+          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
+          "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
+          "sequence packing and KV-cache budget before longer context",
+          "use 180GB HBM3e and 8TB/s bandwidth for single-GPU model/KV sizing [https://docs.nvidia.com/enterprise-reference-architectures/hgx-ai-factory/latest/components.html]",
+          "use NVFP4/FP4 for validated LLM inference recipes [https://docs.nvidia.com/deeplearning/transformer-engine-releases/release-2.13/user-guide/examples/fp8_primer.html]",
+          "use MXFP8 for Blackwell FP8 training recipes on sm_100+ [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/features/low_precision_training/mxfp8/mxfp8.html]",
+          "use TensorRT-LLM for production serving with paged attention/batching [https://docs.nvidia.com/tensorrt-llm/index.html]",
+          "use HGX NVLink/NVSwitch scale-up before PCIe/IB sharding",
+          "use MIG only for isolated single-GPU tenants; max 7 instances [https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-gpus.html]",
+          "target sm_100 for CUDA/CUTLASS extensions",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "custom CUDA kernels: budget 227KB block shared memory and 64 warps/SM [https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html]",
+          "custom CUDA kernels: cluster size 16 only for B200-only opt-in path [https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html]",
+          "evaluate MLOPart/MPS only for latency-sensitive B200 serving A/B tests [https://developer.nvidia.com/blog/boost-gpu-memory-performance-with-no-code-changes-using-nvidia-cuda-mps/]",
+          "use nvCOMP hardware decompression for Snappy/LZ4/Deflate input pipelines [https://developer.nvidia.com/blog/speeding-up-data-decompression-with-nvcomp-and-the-nvidia-blackwell-decompression-engine/]"
+        ],
+        "avoid_patterns": [
+          "no 192GB sizing on current DGX/HGX B200 deployments",
+          "no MIG for jobs needing full-GPU collectives",
+          "no topology-blind NCCL plan across NVSwitch/IB boundary",
+          "no FP4 default without accuracy validation",
+          "no CUDA extension missing sm_100 target",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no cluster size 16 in portable CUDA kernels",
+          "no MLOPart for strict tenant isolation; use MIG instead",
+          "no decompression-engine dependency without allocation-type check and nvCOMP fallback"
+        ],
+        "memory_bandwidth_GBps": 8000,
+        "source_url": "https://docs.nvidia.com/enterprise-reference-architectures/hgx-ai-factory/latest/components.html"
       }
     },
     {
@@ -2672,20 +2725,25 @@
       "id": "hw:nvidia.blackwell.gb200_nvl2.spec",
       "properties": {
         "hardware_id": "nvidia.blackwell.gb200_nvl2.spec",
-        "name": "NVIDIA GB200 NVL2",
+        "name": "NVIDIA GB200 Grace Blackwell Superchip",
         "vendor": "nvidia",
         "aliases": [
-          "gb200_nvl2"
+          "gb200_nvl2",
+          "gb200_grace_blackwell_superchip"
         ],
         "architectures": [
+          "grace",
           "blackwell"
         ],
         "compute_capabilities": [
           "10.0"
         ],
-        "vram_MB": 393216,
+        "vram_MB": 380928,
+        "vram_per_gpu_MB": 190464,
         "vram_type": "hbm3e",
-        "sm_count": 296,
+        "gpu_count": 2,
+        "grace_cpu_count": 1,
+        "cpu_lpddr5x_MB": 491520,
         "workload_types": [
           "vision_training",
           "transformer_training",
@@ -2696,8 +2754,260 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep precision/grad_accum/max_seq_len/optimizer configurable",
+          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
+          "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
+          "sequence packing and KV-cache budget before longer context",
+          "plan as 1 Grace CPU + 2 Blackwell GPUs with 372GB HBM3e [https://www.nvidia.com/en-us/data-center/gb200-nvl72/]",
+          "place hot weights/KV/activations in HBM; spill cold tensors to Grace LPDDR5X",
+          "use NVLink-C2C and 3.6TB/s NVLink path, not PCIe assumptions [https://docs.nvidia.com/multi-node-nvlink-systems/multi-node-tuning-guide/overview.html]",
+          "use NVFP4/FP4 for validated real-time LLM inference recipes [https://docs.nvidia.com/deeplearning/transformer-engine-releases/release-2.13/user-guide/examples/fp8_primer.html]",
+          "use MXFP8 for Blackwell FP8 training recipes on sm_100+ [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/features/low_precision_training/mxfp8/mxfp8.html]",
+          "use TensorRT-LLM for production serving with paged attention/batching [https://docs.nvidia.com/tensorrt-llm/index.html]",
+          "use MIG only for isolated single-GPU tenants; GB200 max 7 instances [https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-gpus.html]",
+          "target sm_100 for CUDA/CUTLASS extensions",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "custom CUDA kernels: budget 126MB L2 per GB200 GPU [https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html]",
+          "use nvCOMP hardware decompression for Snappy/LZ4/Deflate input pipelines [https://developer.nvidia.com/blog/speeding-up-data-decompression-with-nvcomp-and-the-nvidia-blackwell-decompression-engine/]"
+        ],
+        "avoid_patterns": [
+          "no treating Grace LPDDR5X as HBM-equivalent",
+          "no treating the superchip as two ordinary PCIe GPUs",
+          "no 384GB HBM sizing on current GB200 docs",
+          "no MIG for jobs needing full-GPU collectives",
+          "no FP4 default without accuracy validation",
+          "no CUDA extension missing sm_100 target",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no treating aggregate HBM as one flat GPU memory space",
+          "no decompression-engine dependency without allocation-type check and nvCOMP fallback"
+        ],
+        "memory_bandwidth_GBps": 16000,
+        "nvlink_bandwidth_GBps": 3600,
+        "nvfp4_pflops_dense": 20,
+        "nvfp4_pflops_sparse": 40,
+        "fp8_fp6_pflops_sparse": 20,
+        "fp16_bf16_pflops_sparse": 10,
+        "source_url": "https://www.nvidia.com/en-us/data-center/gb200-nvl72/"
+      }
+    },
+    {
+      "label": "Hardware",
+      "id": "hw:nvidia.blackwell.gb200_nvl4.spec",
+      "properties": {
+        "hardware_id": "nvidia.blackwell.gb200_nvl4.spec",
+        "name": "NVIDIA GB200 NVL4",
+        "vendor": "nvidia",
+        "aliases": [
+          "gb200_nvl4"
+        ],
+        "architectures": [
+          "grace",
+          "blackwell"
+        ],
+        "compute_capabilities": [
+          "10.0"
+        ],
+        "vram_MB": 761856,
+        "vram_per_gpu_MB": 190464,
+        "vram_type": "hbm3e",
+        "gpu_count": 4,
+        "grace_cpu_count": 2,
+        "cpu_lpddr5x_MB": 983040,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "generative_ai",
+          "llm_training",
+          "hpc",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
+        ],
+        "recommended_patterns": [
+          "keep precision/grad_accum/max_seq_len/optimizer configurable",
+          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
+          "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
+          "sequence packing and KV-cache budget before longer context",
+          "plan as 2 Grace CPUs + 4 Blackwell GPUs for converged HPC/AI [https://www.nvidia.com/en-us/data-center/gb200-nvl72/]",
+          "place hot weights/KV/activations in HBM; spill cold tensors to Grace LPDDR5X",
+          "use NVLink-C2C/NVLink path before PCIe assumptions",
+          "use NVFP4/FP4 for validated LLM inference recipes [https://docs.nvidia.com/deeplearning/transformer-engine-releases/release-2.13/user-guide/examples/fp8_primer.html]",
+          "use MXFP8 for Blackwell FP8 training recipes on sm_100+ [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/features/low_precision_training/mxfp8/mxfp8.html]",
+          "use TensorRT-LLM for production serving with paged attention/batching [https://docs.nvidia.com/tensorrt-llm/index.html]",
+          "target sm_100 for CUDA/CUTLASS extensions",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "custom CUDA kernels: budget 126MB L2 per GB200 GPU [https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html]",
+          "use nvCOMP hardware decompression for Snappy/LZ4/Deflate input pipelines [https://developer.nvidia.com/blog/speeding-up-data-decompression-with-nvcomp-and-the-nvidia-blackwell-decompression-engine/]"
+        ],
+        "avoid_patterns": [
+          "no treating Grace LPDDR5X as HBM-equivalent",
+          "no treating NVL4 as four ordinary PCIe GPUs",
+          "no MIG for jobs needing full-GPU collectives",
+          "no FP4 default without accuracy validation",
+          "no CUDA extension missing sm_100 target",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no treating aggregate HBM as one flat GPU memory space",
+          "no decompression-engine dependency without allocation-type check and nvCOMP fallback"
+        ],
+        "memory_bandwidth_GBps": 32000,
+        "spec_note": "capacity/bandwidth derived as 2x NVIDIA GB200 Grace Blackwell Superchip; NVIDIA page directly documents NVL4 topology",
+        "source_url": "https://www.nvidia.com/en-us/data-center/gb200-nvl72/"
+      }
+    },
+    {
+      "label": "Hardware",
+      "id": "hw:nvidia.blackwell.gb200_nvl36.spec",
+      "properties": {
+        "hardware_id": "nvidia.blackwell.gb200_nvl36.spec",
+        "name": "NVIDIA GB200 NVL36",
+        "vendor": "nvidia",
+        "aliases": [
+          "gb200_nvl36",
+          "gb200_nvl36x2"
+        ],
+        "architectures": [
+          "grace",
+          "blackwell"
+        ],
+        "compute_capabilities": [
+          "10.0"
+        ],
+        "vram_MB": 6856704,
+        "vram_per_gpu_MB": 190464,
+        "vram_type": "hbm3e",
+        "gpu_count": 36,
+        "grace_cpu_count": 18,
+        "cpu_lpddr5x_MB": 8847360,
+        "workload_types": [
+          "transformer_training",
+          "generative_ai",
+          "llm_training",
+          "hpc",
+          "matmul_heavy",
+          "transformer_inference"
+        ],
+        "recommended_patterns": [
+          "keep precision/grad_accum/max_seq_len/optimizer configurable",
+          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
+          "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
+          "sequence packing and KV-cache budget before longer context",
+          "plan as one 36-GPU NVLink rack member in GB200 36x2 topology [https://docs.nvidia.com/multi-node-nvlink-systems/multi-node-tuning-guide/system.html]",
+          "use NVL36 for rack-local tensor/pipeline/expert parallelism before cross-rack sharding",
+          "budget HBM/KV cache per 36-GPU NVLink domain, not per host",
+          "use NVFP4/FP4 for validated real-time LLM inference recipes [https://docs.nvidia.com/deeplearning/transformer-engine-releases/release-2.13/user-guide/examples/fp8_primer.html]",
+          "use MXFP8 for Blackwell FP8 training recipes on sm_100+ [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/features/low_precision_training/mxfp8/mxfp8.html]",
+          "use TensorRT-LLM for production serving with paged attention/batching [https://docs.nvidia.com/tensorrt-llm/index.html]",
+          "use 36x2 topology-aware collectives when pairing two NVL36 racks [https://docs.nvidia.com/multi-node-nvlink-systems/multi-node-tuning-guide/system.html]",
+          "custom CUDA kernels: budget 126MB L2 per GB200 GPU [https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html]",
+          "target sm_100 for CUDA/CUTLASS extensions",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "use nvCOMP hardware decompression for Snappy/LZ4/Deflate input pipelines [https://developer.nvidia.com/blog/speeding-up-data-decompression-with-nvcomp-and-the-nvidia-blackwell-decompression-engine/]"
+        ],
+        "avoid_patterns": [
+          "no treating NVL36x2 as one flat NVL72x1 rack",
+          "no treating aggregate HBM as one flat GPU memory space",
+          "no topology-blind NCCL plan across NVL36 rack boundary",
+          "no per-GPU-only KV plan for rack-scale serving",
+          "no MIG for jobs needing full-rack collectives",
+          "no FP4 default without accuracy validation",
+          "no CUDA extension missing sm_100 target",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no decompression-engine dependency without allocation-type check and nvCOMP fallback"
+        ],
+        "memory_bandwidth_GBps": 288000,
+        "spec_note": "topology documented as GB200 36x2/NVL36; aggregate memory and CPU counts derive from official GB200 per-GPU/per-superchip specs",
+        "source_url": "https://docs.nvidia.com/multi-node-nvlink-systems/multi-node-tuning-guide/system.html"
+      }
+    },
+    {
+      "label": "Hardware",
+      "id": "hw:nvidia.blackwell.gb200_nvl72.spec",
+      "properties": {
+        "hardware_id": "nvidia.blackwell.gb200_nvl72.spec",
+        "name": "NVIDIA GB200 NVL72",
+        "vendor": "nvidia",
+        "aliases": [
+          "gb200_nvl72"
+        ],
+        "architectures": [
+          "grace",
+          "blackwell"
+        ],
+        "compute_capabilities": [
+          "10.0"
+        ],
+        "vram_MB": 13713408,
+        "vram_per_gpu_MB": 190464,
+        "vram_type": "hbm3e",
+        "gpu_count": 72,
+        "grace_cpu_count": 36,
+        "cpu_lpddr5x_MB": 17694720,
+        "workload_types": [
+          "transformer_training",
+          "generative_ai",
+          "llm_training",
+          "hpc",
+          "matmul_heavy",
+          "transformer_inference"
+        ],
+        "recommended_patterns": [
+          "keep precision/grad_accum/max_seq_len/optimizer configurable",
+          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
+          "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
+          "sequence packing and KV-cache budget before longer context",
+          "plan as 36 Grace CPUs + 72 Blackwell GPUs in one NVLink domain [https://www.nvidia.com/en-us/data-center/gb200-nvl72/]",
+          "use for trillion-parameter tensor/pipeline/expert-parallel LLM training or serving",
+          "use 130TB/s NVLink rack domain before IB/Ethernet sharding [https://docs.nvidia.com/multi-node-nvlink-systems/multi-node-tuning-guide/overview.html]",
+          "budget 13.4TB HBM3e and KV cache across the full rack domain",
+          "use NVFP4/FP4 for validated real-time LLM inference recipes [https://docs.nvidia.com/deeplearning/transformer-engine-releases/release-2.13/user-guide/examples/fp8_primer.html]",
+          "use MXFP8 for Blackwell FP8 training recipes on sm_100+ [https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/features/low_precision_training/mxfp8/mxfp8.html]",
+          "use TensorRT-LLM for production serving with paged attention/batching [https://docs.nvidia.com/tensorrt-llm/index.html]",
+          "target sm_100 for CUDA/CUTLASS extensions",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "custom CUDA kernels: budget 126MB L2 per GB200 GPU [https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html]",
+          "use 36x2/72x1 GB200 topology-aware collectives before cross-rack sharding [https://docs.nvidia.com/multi-node-nvlink-systems/multi-node-tuning-guide/system.html]",
+          "use nvCOMP hardware decompression for Snappy/LZ4/Deflate input pipelines [https://developer.nvidia.com/blog/speeding-up-data-decompression-with-nvcomp-and-the-nvidia-blackwell-decompression-engine/]"
+        ],
+        "avoid_patterns": [
+          "no treating NVL72 as independent PCIe servers",
+          "no topology-blind NCCL plan across NVLink/IB boundary",
+          "no per-GPU-only KV plan for rack-scale serving",
+          "no MIG for jobs needing full-rack collectives",
+          "no FP4 default without accuracy validation",
+          "no CUDA extension missing sm_100 target",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no treating aggregate HBM as one flat GPU memory space",
+          "no assuming NVL36x2 and NVL72x1 have identical failure or routing domains",
+          "no decompression-engine dependency without allocation-type check and nvCOMP fallback"
+        ],
+        "memory_bandwidth_GBps": 576000,
+        "nvlink_bandwidth_GBps": 130000,
+        "nvfp4_pflops_dense": 720,
+        "nvfp4_pflops_sparse": 1440,
+        "fp8_fp6_pflops_sparse": 720,
+        "fp16_bf16_pflops_sparse": 360,
+        "source_url": "https://www.nvidia.com/en-us/data-center/gb200-nvl72/"
       }
     },
     {
@@ -2727,8 +3037,39 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep precision/grad_accum/max_seq_len/optimizer configurable",
+          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
+          "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
+          "sequence packing and KV-cache budget before longer context",
+          "gradient accumulation before raising physical batch",
+          "quantized inference before increasing context or batch",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "treat 8GB GDDR7 as quantized-inference or small-LoRA target [https://www.nvidia.com/en-us/geforce/graphics-cards/compare/]",
+          "use QLoRA/LoRA before full-parameter fine-tuning",
+          "use NVFP4/MXFP8 only when serving stack has sm_120 kernels",
+          "target sm_120 for custom CUDA extensions",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "custom CUDA kernels: budget 99KB block shared memory and 48 warps/SM [https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html]"
+        ],
+        "avoid_patterns": [
+          "no full-parameter LLM fine-tune on 8GB VRAM",
+          "no dense full-context KV cache without memory budget",
+          "no optimizer-state-heavy training without memory budget",
+          "no NVLink/SLI multi-GPU plan on GeForce RTX 50",
+          "no FP64-heavy ML on GeForce Blackwell",
+          "no FP4/MXFP8 default without kernel and accuracy validation",
+          "no CUDA extension missing sm_120 target",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no B200/GB200 shared-memory or sm_100 launch assumptions on sm_120 GPUs"
+        ],
+        "memory_bandwidth_GBps": 448,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/compare/"
       }
     },
     {
@@ -2758,8 +3099,40 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep precision/grad_accum/max_seq_len/optimizer configurable",
+          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
+          "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
+          "sequence packing and KV-cache budget before longer context",
+          "gradient accumulation before raising physical batch",
+          "quantized inference before increasing context or batch",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "prefer this 16GB SKU over 8GB for local LLM fine-tune/inference [https://www.nvidia.com/en-us/geforce/graphics-cards/compare/]",
+          "use QLoRA/LoRA before full-parameter fine-tuning",
+          "use NVFP4/MXFP8 only when serving stack has sm_120 kernels",
+          "target sm_120 for custom CUDA extensions",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "custom CUDA kernels: budget 99KB block shared memory and 48 warps/SM [https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html]"
+        ],
+        "avoid_patterns": [
+          "no assuming 16GB allows large physical batches",
+          "no dense full-resolution large-image loading without tiling",
+          "no optimizer-state-heavy training without memory budget",
+          "no NVLink/SLI multi-GPU plan on GeForce RTX 50",
+          "no FP64-heavy ML on GeForce Blackwell",
+          "no FP4/MXFP8 default without kernel and accuracy validation",
+          "no CUDA extension missing sm_120 target",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no B200/GB200 shared-memory or sm_100 launch assumptions on sm_120 GPUs"
+        ],
+        "memory_bandwidth_GBps": 448,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/compare/"
       }
     },
     {
@@ -2789,8 +3162,40 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep precision/grad_accum/max_seq_len/optimizer configurable",
+          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
+          "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
+          "sequence packing and KV-cache budget before longer context",
+          "gradient accumulation before raising physical batch",
+          "quantized inference before increasing context or batch",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "treat 8GB SKU as compact quantized-inference target [https://www.nvidia.com/en-us/geforce/graphics-cards/compare/]",
+          "prefer 16GB 5060 Ti for training or long-context local LLM work",
+          "use QLoRA/LoRA before full-parameter fine-tuning",
+          "use NVFP4/MXFP8 only when serving stack has sm_120 kernels",
+          "target sm_120 for custom CUDA extensions",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "custom CUDA kernels: budget 99KB block shared memory and 48 warps/SM [https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html]"
+        ],
+        "avoid_patterns": [
+          "no full-parameter LLM fine-tune on 8GB VRAM",
+          "no high-context KV cache without quantization/offload plan",
+          "no optimizer-state-heavy training without memory budget",
+          "no NVLink/SLI multi-GPU plan on GeForce RTX 50",
+          "no FP64-heavy ML on GeForce Blackwell",
+          "no FP4/MXFP8 default without kernel and accuracy validation",
+          "no CUDA extension missing sm_120 target",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no B200/GB200 shared-memory or sm_100 launch assumptions on sm_120 GPUs"
+        ],
+        "memory_bandwidth_GBps": 448,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/compare/"
       }
     },
     {
@@ -2820,8 +3225,45 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep precision/grad_accum/max_seq_len/optimizer configurable",
+          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
+          "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
+          "sequence packing and KV-cache budget before longer context",
+          "gradient accumulation before raising physical batch",
+          "quantized inference before increasing context or batch",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "treat 12GB GDDR7 as quantized LLM or PEFT target [https://www.nvidia.com/en-us/geforce/graphics-cards/compare/]",
+          "use QLoRA/LoRA before full-parameter fine-tuning",
+          "use NVFP4/MXFP8 only when serving stack has sm_120 kernels",
+          "target sm_120 for custom CUDA extensions",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "custom CUDA kernels: budget 99KB block shared memory and 48 warps/SM [https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html]"
+        ],
+        "avoid_patterns": [
+          "no high physical batch solely because compute is available",
+          "no optimizer-state-heavy training without memory budget",
+          "no NVLink/SLI multi-GPU plan on GeForce RTX 50",
+          "no FP64-heavy ML on GeForce Blackwell",
+          "no FP4/MXFP8 default without kernel and accuracy validation",
+          "no CUDA extension missing sm_120 target",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no B200/GB200 shared-memory or sm_100 launch assumptions on sm_120 GPUs"
+        ],
+        "memory_bandwidth_GBps": 672,
+        "l2_cache_MB": 48,
+        "fp4_tflops": 493.9,
+        "fp8_tflops": 123.5,
+        "fp16_tflops": 61.7,
+        "bf16_tflops": 61.7,
+        "tflops_note": "dense TFLOPS/TOPS; fp16/bf16/fp8 FP32-accum basis; ~2x with Sparsity. Source: NVIDIA RTX Blackwell whitepaper Table 6",
+        "source_url": "https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf"
       }
     },
     {
@@ -2852,21 +3294,45 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "Keep batch size, precision, accumulation in top-level config",
-          "bf16 autocast default",
-          "TF32 on for FP32 matmul",
-          "cudnn.benchmark=True for static shapes",
-          "torch.compile(mode='max-autotune')",
-          "CUDA Graphs for hot loop",
-          "DataLoader pin_memory=True",
-          "cap peak VRAM at 15360 MiB per job",
-          "flash-attn v3 for attention",
-          "fp8 via transformer_engine (inference only)"
+          "keep precision/grad_accum/max_seq_len/optimizer configurable",
+          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
+          "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
+          "sequence packing and KV-cache budget before longer context",
+          "gradient accumulation before raising physical batch",
+          "quantized inference before increasing context or batch",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "use 16GB/896GBps as midrange local LLM inference and PEFT target [https://www.nvidia.com/en-us/geforce/graphics-cards/compare/]",
+          "use NVFP4/MXFP8 only with Blackwell-compatible TE/TensorRT-LLM stack [https://docs.nvidia.com/deeplearning/transformer-engine-releases/release-2.13/user-guide/examples/fp8_primer.html]",
+          "use QLoRA/LoRA before full-parameter fine-tuning",
+          "target sm_120 for custom CUDA extensions",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "custom CUDA kernels: budget 99KB block shared memory and 48 warps/SM [https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html]"
         ],
         "avoid_patterns": [
-          "no FP64 matmul or weights",
-          "no NVLink or P2P (PCIe only)"
-        ]
+          "no hard-coded 15360 MiB job cap",
+          "no flash-attn assumption without selected sm_120 kernel package",
+          "no optimizer-state-heavy training without memory budget",
+          "no NVLink/SLI multi-GPU plan on GeForce RTX 50",
+          "no FP64-heavy ML on GeForce Blackwell",
+          "no FP4/MXFP8 default without kernel and accuracy validation",
+          "no CUDA extension missing sm_120 target",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no B200/GB200 shared-memory or sm_100 launch assumptions on sm_120 GPUs"
+        ],
+        "memory_bandwidth_GBps": 896,
+        "l2_cache_MB": 48,
+        "fp4_tflops": 703,
+        "fp8_tflops": 175.8,
+        "fp16_tflops": 87.9,
+        "bf16_tflops": 87.9,
+        "tflops_note": "dense TFLOPS/TOPS; fp16/bf16/fp8 FP32-accum basis; ~2x with Sparsity. Source: NVIDIA RTX Blackwell whitepaper Table 6",
+        "source_url": "https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf"
       }
     },
     {
@@ -2896,8 +3362,45 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep precision/grad_accum/max_seq_len/optimizer configurable",
+          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
+          "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
+          "sequence packing and KV-cache budget before longer context",
+          "gradient accumulation before raising physical batch",
+          "quantized inference before increasing context or batch",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "use 16GB/960GBps for FP4/FP8 local inference and compact PEFT [https://www.nvidia.com/en-us/geforce/graphics-cards/compare/]",
+          "use NVFP4/MXFP8 only with Blackwell-compatible TE/TensorRT-LLM stack [https://docs.nvidia.com/deeplearning/transformer-engine-releases/release-2.13/user-guide/examples/fp8_primer.html]",
+          "use QLoRA/LoRA before full-parameter fine-tuning",
+          "target sm_120 for custom CUDA extensions",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "custom CUDA kernels: budget 99KB block shared memory and 48 warps/SM [https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html]"
+        ],
+        "avoid_patterns": [
+          "no assuming RTX 5090 32GB memory headroom",
+          "no full-parameter training without optimizer-state budget",
+          "no NVLink/SLI multi-GPU plan on GeForce RTX 50",
+          "no FP64-heavy ML on GeForce Blackwell",
+          "no FP4/MXFP8 default without kernel and accuracy validation",
+          "no CUDA extension missing sm_120 target",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no B200/GB200 shared-memory or sm_100 launch assumptions on sm_120 GPUs"
+        ],
+        "memory_bandwidth_GBps": 960,
+        "l2_cache_MB": 64,
+        "fp4_tflops": 900.4,
+        "fp8_tflops": 225.1,
+        "fp16_tflops": 112.6,
+        "bf16_tflops": 112.6,
+        "tflops_note": "dense TFLOPS/TOPS; fp16/bf16/fp8 FP32-accum basis; ~2x with Sparsity. Source: NVIDIA RTX Blackwell whitepaper Table 4",
+        "source_url": "https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf"
       }
     },
     {
@@ -2928,36 +3431,44 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "Keep batch size, precision, accumulation in top-level config",
-          "bf16 autocast default",
-          "TF32 on for FP32 matmul",
-          "cudnn.benchmark=True for static shapes",
-          "torch.compile(mode='max-autotune')",
-          "CUDA Graphs for hot loop",
-          "DataLoader pin_memory=True",
-          "cap peak VRAM at 31744 MiB per job",
-          "flash-attn v3 for attention",
-          "fp8/MXFP8 via transformer_engine (training and inference on Blackwell sm_120)",
-          "fused AdamW optimizer (fused=True): fuse optim step into one CUDA kernel",
-          "foreach multi-tensor optimizer for fewer kernel launches",
-          "channels_last (NHWC) memory format for CNN",
-          "non_blocking=True H2D copies overlapped with compute",
-          "torch.compile(mode='reduce-overhead') for CUDA-graph integration",
-          "set_float32_matmul_precision('high') to route FP32 matmul through TF32",
-          "sequence/sample packing to remove pad-token waste (transformer training)",
-          "NVFP4 training via Transformer Engine (16-elem blocks, E4M3 scale); matches BF16 convergence when final layers kept in BF16 [https://developer.nvidia.com/blog/using-nvfp4-low-precision-model-training-for-higher-throughput-without-losing-accuracy/]",
-          "MXFP8 training via Transformer Engine matches BF16 loss curves on Blackwell [https://developer.nvidia.com/blog/floating-point-8-an-introduction-to-efficient-lower-precision-ai-training/]"
+          "keep precision/grad_accum/max_seq_len/optimizer configurable",
+          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
+          "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
+          "sequence packing and KV-cache budget before longer context",
+          "gradient accumulation before raising physical batch",
+          "quantized inference before increasing context or batch",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "use 32GB/1.792TBps for single-GPU local LLM inference and PEFT [https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf]",
+          "use NVFP4/MXFP8 only with Blackwell-compatible TE/TensorRT-LLM stack [https://docs.nvidia.com/deeplearning/transformer-engine-releases/release-2.13/user-guide/examples/fp8_primer.html]",
+          "use QLoRA/LoRA before full-parameter fine-tuning",
+          "target sm_120 for custom CUDA extensions",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "custom CUDA kernels: budget 99KB block shared memory and 48 warps/SM [https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html]"
         ],
         "avoid_patterns": [
-          "no FP64 matmul or weights",
-          "no NVLink or P2P (PCIe only)"
+          "no hard-coded 31744 MiB job cap",
+          "no flash-attn assumption without selected sm_120 kernel package",
+          "no optimizer-state-heavy training without memory budget",
+          "no NVLink/SLI multi-GPU plan on GeForce RTX 50",
+          "no FP64-heavy ML on GeForce Blackwell",
+          "no FP4/MXFP8 default without kernel and accuracy validation",
+          "no CUDA extension missing sm_120 target",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no B200/GB200 shared-memory or sm_100 launch assumptions on sm_120 GPUs"
         ],
         "memory_bandwidth_GBps": 1792,
         "l2_cache_MB": 96,
+        "fp16_tflops": 209.5,
         "bf16_tflops": 209.5,
         "fp8_tflops": 419,
         "fp4_tflops": 1676,
-        "tflops_note": "dense TFLOPS; bf16/fp8 FP32-accum basis; ~2x with Sparsity. Source: NVIDIA RTX Blackwell whitepaper Table 3",
+        "tflops_note": "dense TOPS/TFLOPS; fp16/bf16/fp8 FP32-accum basis; ~2x with Sparsity. Source: NVIDIA RTX Blackwell whitepaper Table 3",
         "source_url": "https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf"
       }
     },
@@ -2988,8 +3499,41 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep precision/grad_accum/max_seq_len/optimizer configurable",
+          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
+          "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
+          "sequence packing and KV-cache budget before longer context",
+          "gradient accumulation before raising physical batch",
+          "quantized inference before increasing context or batch",
+          "tiled/chunked input for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "use 96GB ECC GDDR7 for single-GPU large-model prototyping [https://www.nvidia.com/rtx-pro-6000/]",
+          "use TensorRT-LLM for production serving with paged attention/batching [https://docs.nvidia.com/tensorrt-llm/index.html]",
+          "use NVFP4/MXFP8 only with Blackwell-compatible TE/TensorRT-LLM stack [https://docs.nvidia.com/deeplearning/transformer-engine-releases/release-2.13/user-guide/examples/fp8_primer.html]",
+          "use MIG only for isolated tenants; RTX PRO 6000 supports up to 4 instances [https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-gpus.html]",
+          "set display mode to compute before enabling MIG on workstation edition [https://docs.nvidia.com/datacenter/tesla/mig-user-guide/getting-started-with-mig.html]",
+          "target sm_120 for custom CUDA extensions",
+          "hybrid Muon+AdamW for matmul-heavy LLM training [https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html]",
+          "Muon for 2D hidden weights; AdamW for embedding/bias/norm/head/non-2D params",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True as initial setting",
+          "Muon adjust_lr_fn='match_rms_adamw' when reusing AdamW LR schedule",
+          "custom CUDA kernels: budget 99KB block shared memory and 48 warps/SM [https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html]"
+        ],
+        "avoid_patterns": [
+          "no NVLink multi-GPU assumption on RTX PRO 6000 workstation",
+          "no MIG change on primary display GPU without remote access",
+          "no FP4/MXFP8 default without kernel and accuracy validation",
+          "no CUDA extension missing sm_120 target",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline",
+          "no B200/GB200 shared-memory or sm_100 launch assumptions on sm_120 GPUs"
+        ],
+        "memory_bandwidth_GBps": 1792,
+        "fp4_tops": 4000,
+        "tops_note": "with Sparsity",
+        "source_url": "https://www.nvidia.com/content/dam/en-zz/Solutions/data-center/rtx-pro-6000-blackwell-workstation-edition/workstation-blackwell-rtx-pro-6000-workstation-edition-nvidia-us-3519208-web.pdf"
       }
     },
     {
@@ -8499,6 +9043,435 @@
     {
       "type": "HAS_FEATURE",
       "from": "hw:nvidia.blackwell.gb200_nvl2.spec",
+      "to": "feat:fp8_e5m2",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.9",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl4.spec",
+      "to": "feat:tensor_cores",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl4.spec",
+      "to": "feat:amp",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl4.spec",
+      "to": "feat:bf16",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.0",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl4.spec",
+      "to": "feat:fp16",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl4.spec",
+      "to": "feat:fp8",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.9",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl4.spec",
+      "to": "feat:fp4",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "10.0",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl4.spec",
+      "to": "feat:fp64",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl4.spec",
+      "to": "feat:tf32",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.0",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl4.spec",
+      "to": "feat:int8",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl4.spec",
+      "to": "feat:sm_100",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "10.0",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl4.spec",
+      "to": "feat:tensor_cores_5gen",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "10.0",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl4.spec",
+      "to": "feat:fp8_e4m3",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.9",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl4.spec",
+      "to": "feat:fp8_e5m2",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.9",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl72.spec",
+      "to": "feat:tensor_cores",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl72.spec",
+      "to": "feat:amp",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl72.spec",
+      "to": "feat:bf16",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.0",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl72.spec",
+      "to": "feat:fp16",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl72.spec",
+      "to": "feat:fp8",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.9",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl72.spec",
+      "to": "feat:fp4",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "10.0",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl72.spec",
+      "to": "feat:fp64",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl72.spec",
+      "to": "feat:tf32",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.0",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl72.spec",
+      "to": "feat:int8",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl72.spec",
+      "to": "feat:sm_100",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "10.0",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl72.spec",
+      "to": "feat:tensor_cores_5gen",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "10.0",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl72.spec",
+      "to": "feat:fp8_e4m3",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.9",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl72.spec",
+      "to": "feat:fp8_e5m2",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.9",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl36.spec",
+      "to": "feat:tensor_cores",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl36.spec",
+      "to": "feat:amp",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl36.spec",
+      "to": "feat:bf16",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.0",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl36.spec",
+      "to": "feat:fp16",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl36.spec",
+      "to": "feat:fp8",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.9",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl36.spec",
+      "to": "feat:fp4",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "10.0",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl36.spec",
+      "to": "feat:fp64",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl36.spec",
+      "to": "feat:tf32",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.0",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl36.spec",
+      "to": "feat:int8",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl36.spec",
+      "to": "feat:sm_100",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "10.0",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl36.spec",
+      "to": "feat:tensor_cores_5gen",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "10.0",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl36.spec",
+      "to": "feat:fp8_e4m3",
+      "properties": {
+        "support_level": "supported",
+        "min_compute_capability": "8.9",
+        "device_compute_capability": "10.0",
+        "verified": false
+      }
+    },
+    {
+      "type": "HAS_FEATURE",
+      "from": "hw:nvidia.blackwell.gb200_nvl36.spec",
       "to": "feat:fp8_e5m2",
       "properties": {
         "support_level": "supported",
