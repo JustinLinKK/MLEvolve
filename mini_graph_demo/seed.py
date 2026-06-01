@@ -15,7 +15,7 @@ from mini_graph_demo.fixtures import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CONSTRAINTS_FILE = REPO_ROOT / "schema" / "neo4j_constraints.cypher"
+CONSTRAINTS_FILE = REPO_ROOT / "schema" / "job_evidence" / "neo4j_constraints.cypher"
 
 
 def _apply_constraints(s) -> None:

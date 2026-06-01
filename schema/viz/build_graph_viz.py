@@ -15,13 +15,15 @@ import json
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-GRAPH = HERE / "hardware_knowledge_graph.json"
+GRAPH = HERE.parent / "hardware_knowledge_graph.json"  # data lives in schema/
 OUT = HERE / "graph_schema_viz.html"
 
 CAT_COLOR = {
     "precision": "#7fd3a0", "tensor_core": "#5bbf8a",
-    "compute_capability": "#9bd6b4", "kernel": "#b6dfc6",
-    "interconnect": "#c8e6d3", "other": "#a8cfb8",
+    "compute_capability": "#9bd6b4", "interconnect": "#c8e6d3",
+    "kernel_optimization": "#b6dfc6", "memory_optimization": "#8fcfae",
+    "data_pipeline": "#6fbf95", "parallelism": "#52a87a",
+    "optimizer": "#9ad6b8", "attention": "#7ec9a0", "other": "#a8cfb8",
 }
 HARDWARE_COLOR = "#4f9eed"
 

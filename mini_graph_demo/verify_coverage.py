@@ -13,7 +13,7 @@ import yaml
 from mini_graph_demo._driver import connect, session
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-GRAPH_SCHEMA = REPO_ROOT / "schema" / "graph_schema.yaml"
+GRAPH_SCHEMA = REPO_ROOT / "schema" / "job_evidence" / "graph_schema.yaml"
 
 
 def _schema_labels_and_rels() -> tuple[list[str], list[str]]:

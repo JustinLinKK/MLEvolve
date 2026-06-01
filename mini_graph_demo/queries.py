@@ -10,7 +10,7 @@ from pathlib import Path
 from mini_graph_demo._driver import connect, session
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-QUERIES_FILE = REPO_ROOT / "schema" / "example_queries.cypher"
+QUERIES_FILE = REPO_ROOT / "schema" / "job_evidence" / "example_queries.cypher"
 
 PARAMS = {
     "model_key": "mgd:resnet50.timm",
