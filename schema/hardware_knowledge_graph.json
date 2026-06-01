@@ -1824,8 +1824,40 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer only for small matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True"
+        ],
+        "avoid_patterns": [
+          "no FP64-heavy ML",
+          "no CUDA extension without sm_86 target",
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no dense full-resolution large-image tensor loading",
+          "no throughput plan based on large physical batch",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 600,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.nvidia.com/en-us/data-center/products/a10-gpu/"
       }
     },
     {
@@ -1856,8 +1888,33 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "FP64 viable for HPC workloads (9.7 TFLOPS FP64)",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "MIG partitioning for multi-tenant inference packing (up to 7x 5GB instances)",
+          "NVLink Bridge for 2-GPU all_reduce (600 GB/s)",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_80 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_80 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 1555,
+        "l2_cache_MB": 40,
+        "source_url": "https://www.nvidia.com/en-us/data-center/a100/"
       }
     },
     {
@@ -1888,8 +1945,33 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "FP64 viable for HPC workloads (9.7 TFLOPS FP64)",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "MIG partitioning for multi-tenant inference packing (up to 7x 10GB instances)",
+          "NVLink Bridge for 2-GPU all_reduce (600 GB/s)",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_80 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_80 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 1935,
+        "l2_cache_MB": 40,
+        "source_url": "https://www.nvidia.com/en-us/data-center/a100/"
       }
     },
     {
@@ -1920,8 +2002,33 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "FP64 viable for HPC workloads (9.7 TFLOPS FP64)",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "MIG partitioning for multi-tenant inference packing (up to 7x 5GB instances)",
+          "NVLink for multi-GPU all_reduce (600 GB/s via HGX A100)",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_80 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_80 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 1555,
+        "l2_cache_MB": 40,
+        "source_url": "https://www.nvidia.com/en-us/data-center/a100/"
       }
     },
     {
@@ -1953,20 +2060,32 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "Keep batch size, precision, accumulation in top-level config",
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
           "bf16 autocast default",
-          "TF32 on for FP32 matmul",
-          "cudnn.benchmark=True",
-          "FP64 OK on this chip (1:2 ratio, 9.7 TFLOPS)",
-          "use NVLink + NCCL all_reduce for multi-GPU",
-          "MIG partitioning for inference packing",
-          "cap peak VRAM at 80896 MiB per job",
-          "flash-attn v2 for transformer attention (v3 is Hopper-only)"
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "FP64 viable for HPC workloads (9.7 TFLOPS FP64)",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "MIG partitioning for multi-tenant inference packing (up to 7x 10GB instances)",
+          "NVLink for multi-GPU all_reduce (600 GB/s via HGX A100)",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
         ],
         "avoid_patterns": [
-          "no fp8 (sm_80 lacks FP8 path)",
-          "no Blackwell-only kernels (no FP4, no 5gen TC)"
-        ]
+          "no fp8 (sm_80 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_80 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 2039,
+        "l2_cache_MB": 40,
+        "source_url": "https://www.nvidia.com/en-us/data-center/a100/"
       }
     },
     {
@@ -1987,7 +2106,7 @@
         ],
         "vram_MB": 65536,
         "vram_type": "gddr6",
-        "sm_count": 160,
+        "sm_count": 40,
         "workload_types": [
           "vision_training",
           "transformer_training",
@@ -1995,8 +2114,28 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "treat each 16 GB GDDR6 die as independent GPU in multi-GPU setup",
+          "activation checkpointing default for transformer/diffusion training",
+          "KV-cache memory budget per die before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no MIG partitioning (not supported on A16)",
+          "no single-process workloads assuming 64 GB shared memory (4 dies are independent)",
+          "no memory plan missing params/grads/optimizer/activations/KV per die",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 800,
+        "l2_cache_MB": 8,
+        "source_url": "https://www.nvidia.com/en-us/data-center/products/a16-gpu/"
       }
     },
     {
@@ -2025,8 +2164,29 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "quantized inference (INT8/INT4) as primary path for edge deployment",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "KV-cache memory budget before autoregressive inference",
+          "activation checkpointing default for transformer training",
+          "gradient accumulation default with small physical batch",
+          "channels_last for CNN/UNet vision workloads",
+          "tiled/chunked input default for large image/video/WSI"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no large-model training (10 SMs, compute-limited)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 200,
+        "l2_cache_MB": 2,
+        "source_url": "https://www.nvidia.com/en-us/data-center/products/a2-gpu/"
       }
     },
     {
@@ -2057,8 +2217,33 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "FP64 viable for HPC workloads (10.3 TFLOPS FP64 Tensor Core)",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "MIG partitioning for multi-tenant inference packing (up to 4x 6GB instances)",
+          "NVLink Bridge for 2-GPU all_reduce (200 GB/s)",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_80 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_80 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 933,
+        "l2_cache_MB": 24,
+        "source_url": "https://www.nvidia.com/en-us/data-center/products/a30-gpu/"
       }
     },
     {
@@ -2087,8 +2272,39 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "NVLink for 2-GPU memory pooling up to 96 GB (112.5 GB/s bidirectional)",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer only for small matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no MIG partitioning (not supported on A40)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 696,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.nvidia.com/en-us/data-center/products/a40-gpu/"
       }
     },
     {
@@ -2117,8 +2333,30 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 224,
+        "l2_cache_MB": 2,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/30-series/rtx-3050/"
       }
     },
     {
@@ -2147,8 +2385,30 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 360,
+        "l2_cache_MB": 3,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/30-series/rtx-3060/"
       }
     },
     {
@@ -2177,8 +2437,30 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 448,
+        "l2_cache_MB": 4,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/30-series/rtx-3060-3060ti/"
       }
     },
     {
@@ -2207,8 +2489,30 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 448,
+        "l2_cache_MB": 4,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/30-series/rtx-3070-3070ti/"
       }
     },
     {
@@ -2237,8 +2541,30 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 608.3,
+        "l2_cache_MB": 4,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/30-series/rtx-3070-3070ti/"
       }
     },
     {
@@ -2267,8 +2593,30 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 760.3,
+        "l2_cache_MB": 5,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/30-series/rtx-3080-3080ti/"
       }
     },
     {
@@ -2297,8 +2645,30 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 912,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/30-series/rtx-3080-3080ti/"
       }
     },
     {
@@ -2327,8 +2697,30 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 912,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/30-series/rtx-3080-3080ti/"
       }
     },
     {
@@ -2357,8 +2749,40 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer only for small matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 936,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/30-series/rtx-3090-3090ti/"
       }
     },
     {
@@ -2387,8 +2811,40 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer only for small matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 1008,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/30-series/rtx-3090-3090ti/"
       }
     },
     {
@@ -2417,8 +2873,28 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 288,
+        "l2_cache_MB": 3,
+        "source_url": "https://www.nvidia.com/en-us/design-visualization/rtx-a2000/"
       }
     },
     {
@@ -2447,8 +2923,28 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)"
+        ],
+        "memory_bandwidth_GBps": 288,
+        "l2_cache_MB": 3,
+        "source_url": "https://www.nvidia.com/en-us/design-visualization/rtx-a2000/"
       }
     },
     {
@@ -2477,8 +2973,40 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer only for small matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 448,
+        "l2_cache_MB": 4,
+        "source_url": "https://www.nvidia.com/en-us/design-visualization/rtx-a4000/"
       }
     },
     {
@@ -2507,8 +3035,41 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "NVLink for 2-GPU memory pooling up to 40 GB (112.5 GB/s bidirectional)",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer only for small matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 640,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.nvidia.com/en-us/design-visualization/rtx-a4500/"
       }
     },
     {
@@ -2537,8 +3098,41 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "NVLink for 2-GPU memory pooling up to 48 GB (112.5 GB/s bidirectional)",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer only for small matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 768,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.nvidia.com/en-us/design-visualization/rtx-a5000/"
       }
     },
     {
@@ -2567,8 +3161,41 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "NVLink for 2-GPU memory pooling up to 48 GB (112.5 GB/s bidirectional)",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer only for small matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 768,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.nvidia.com/en-us/design-visualization/rtx-a5500/"
       }
     },
     {
@@ -2597,8 +3224,41 @@
           "transformer_inference",
           "vision_inference"
         ],
-        "recommended_patterns": [],
-        "avoid_patterns": []
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "flash-attn v2 for fp16/bf16 transformer attention",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "NVLink for 2-GPU memory pooling up to 96 GB (112.5 GB/s bidirectional)",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer only for small matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "tune weight_decay per optimizer group",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True"
+        ],
+        "avoid_patterns": [
+          "no fp8 (sm_86 lacks FP8 Tensor Core path)",
+          "no CUDA extension without sm_86 target",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels (no FP4, no 5th-gen TC)",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning",
+          "no optimizer comparison against undertuned AdamW baseline"
+        ],
+        "memory_bandwidth_GBps": 768,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.nvidia.com/en-us/design-visualization/rtx-a6000/"
       }
     },
     {
