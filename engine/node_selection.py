@@ -63,7 +63,7 @@ def select(agent, node: SearchNode):
                 logger.info(f"[select] → node {node.id} (method=expand)")
                 return node
         else:
-            if agent.is_root(node) and should_trigger_branch_fusion(agent) and random.random() < agent.acfg.branch_fusion_trigger_prob:
+            if agent.is_root(node) and getattr(agent.acfg, "use_aggregation", True) and should_trigger_branch_fusion(agent) and random.random() < agent.acfg.branch_fusion_trigger_prob:
                 logger.info(f"Root node {node.id} is fully expanded for regular drafts, aggregation conditions met (including probability), returning root")
                 return node
             node = _best_child(node)

@@ -76,6 +76,7 @@ class SearchConfig:
     fusion_max_time_hours: float
     fusion_min_successful_nodes: int
     fusion_min_branches: int
+    use_stagnation_detection: bool = True
 
 @dataclass
 class AgentConfig:
@@ -97,6 +98,10 @@ class AgentConfig:
     search: SearchConfig
     decay: DecayConfig
     use_diff_mode: bool = True
+    use_stepwise_generation: bool = True
+    use_evolution: bool = True
+    use_fusion: bool = True
+    use_aggregation: bool = True
 @dataclass
 class ExecConfig:
     timeout: int

@@ -4,10 +4,11 @@
 
 🌐 **Project Page**: https://internscience.github.io/MLEvolve/
 
-An agentic MLE (Machine Learning Engineering) system that automatically solves Kaggle-style ML competitions through Monte Carlo Graph Search (MCGS) with multi-agent collaboration. This is an advanced version based on [AutoMLGen](https://arxiv.org/abs/2510.08511). MLEvolve achieves **#1 on the [MLE-bench](https://github.com/openai/mle-bench) leaderboard** with **only 12 hours** of runtime.
+An agentic MLE (Machine Learning Engineering) system that automatically solves Kaggle-style ML competitions through Monte Carlo Graph Search (MCGS) with multi-agent collaboration. This is an advanced version based on [AutoMLGen](https://arxiv.org/abs/2510.08511). MLEvolve achieves **#1 on the [MLE-bench](https://github.com/openai/mle-bench) leaderboard** (65.3% medal rate, 12-hour budget) and obtains competitive results on mathematical optimization tasks.
 
 ## Timeline
 
+- **2026-06-01** — **65.3% medal rate** on full MLE-bench (75 tasks), also achieves competitive results on AlphaEvolve mathematical optimization tasks.
 - **2026-03-23** — Now supports OpenAI-compatible APIs (GPT, Qwen, DeepSeek, etc.). Models with function calling support are recommended for best performance.
 - **2026-02-14** — MLEvolve codebase is now open-source.
 - **2026-02-14** — MLEvolve achieves **#1 on MLE-bench** (12-hour budget).
@@ -15,15 +16,52 @@ An agentic MLE (Machine Learning Engineering) system that automatically solves K
 
 ## MLE-bench Results
 
-Performance on the [MLE-bench](https://github.com/openai/mle-bench) leaderboard (Any Medal %, mean ± SEM):
+Performance on the [MLE-bench](https://github.com/openai/mle-bench) full set (75 tasks). Medal rates reported across three complexity levels and overall (mean ± SEM over 3 seeds).
 
-| Rank | Agent | LLM | Low (%) | Medium (%) | High (%) | All (%) | Time (h) |
-|------|-------|-----|---------|------------|----------|---------|----------|
-| 1 | **MLEvolve (Ours)** | Gemini-3-Pro-Preview | **80.30 ± 1.52** | 57.89 ± 1.52 | **42.22 ± 2.22** | **61.33 ± 1.33** | 12 |
-| 2 | PiEvolve | Gemini-3-Pro-Preview | **80.30 ± 1.52** | **58.77 ± 0.88** | 40.00 ± 0.00 | **61.33 ± 0.77** | 24 |
-| 3 | Famou-Agent 2.0 | Gemini-2.5-Pro | 75.76 ± 1.52 | 57.89 ± 1.52 | 40.00 ± 0.00 | 59.56 ± 0.89 | 24 |
-| 4 | ML-Master 2.0 | Deepseek-V3.2-Speciale | 75.76 ± 1.51 | 50.88 ± 3.51 | **42.22 ± 2.22** | 56.44 ± 2.47 | 24 |
-| 5 | PiEvolve | Gemini-3-Pro-Preview | 74.24 ± 3.03 | 45.61 ± 0.88 | 35.55 ± 2.22 | 52.00 ± 0.77 | 12 |
+#### Proprietary Methods
+
+| Agent | LLM | Time (h) | Low (%) | Medium (%) | High (%) | All (%) |
+|-------|-----|:---------:|---------|------------|----------|---------|
+| FM-Agent | Gemini-2.5-Pro | 24 | 62.1 ± 1.5 | 36.8 ± 1.5 | 33.3 ± 0.0 | 43.6 ± 0.9 |
+| MLE-STAR-Pro-1.5 | Gemini-2.5-Pro | 24 | 68.2 ± 2.6 | 34.2 ± 1.5 | 33.3 ± 0.0 | 44.0 ± 1.3 |
+| MARS | Gemini-3-Pro-preview | 24 | 74.2 ± 1.5 | 52.6 ± 3.0 | 37.8 ± 2.2 | 56.0 ± 1.5 |
+| MARS+ | Gemini-3-Pro-preview | 24 | 78.8 ± 1.5 | 60.5 ± 1.5 | 44.4 ± 2.2 | 62.7 ± 0.8 |
+| AIBuildAI | Claude-Opus-4.6 | 24 | 77.3 ± 0.0 | 61.4 ± 0.9 | 46.7 ± 0.0 | 63.1 ± 0.4 |
+
+#### Open-Source Methods
+
+| Agent | LLM | Time (h) | Low (%) | Medium (%) | High (%) | All (%) |
+|-------|-----|:---------:|---------|------------|----------|---------|
+| AIDE | o1-preview | 24 | 35.9 ± 1.9 | 8.5 ± 0.4 | 11.7 ± 1.3 | 17.1 ± 0.6 |
+| ML-Master | DeepSeek-R1 | 12 | 48.5 ± 1.5 | 20.2 ± 2.3 | 24.4 ± 2.2 | 29.3 ± 0.8 |
+| AIRA-Dojo | o3 | 24 | 55.0 ± 1.5 | 22.0 ± 1.2 | 21.7 ± 1.1 | 31.6 ± 0.8 |
+| R&D-Agent | gpt-5 | 12 | 68.2 ± 2.6 | 21.1 ± 1.5 | 22.2 ± 2.2 | 35.1 ± 0.4 |
+| Leeroo | Gemini-3-Pro-preview | 24 | 68.2 ± 2.6 | 44.7 ± 1.5 | 40.0 ± 0.0 | 50.7 ± 1.3 |
+| ML-Master 2.0 | DeepSeek-V3.2-Speciale | 24 | 75.8 ± 1.5 | 50.9 ± 3.5 | 42.2 ± 2.2 | 56.4 ± 2.5 |
+| **MLEvolve (Ours)** | **Gemini-3.1-Pro-preview** | **12** | **80.3 ± 1.5** | **64.0 ± 0.9** | **46.7 ± 0.0** | **65.3 ± 0.8** |
+
+
+## AlphaEvolve Mathematical Optimization Results
+
+Comparison on 15 mathematical programming tasks.
+
+| Problem | ↑/↓ | AlphaEvolve | AlphaEvolve-v2 | SimpleTES | TTT-Discover | OpenEvolve | MLEvolve |
+|---------|:---:|-------------|----------------|-----------|--------------|------------|----------|
+| Packing hexagons in hexagons | ↓ | 3.930092 | 3.931 | 3.931 | — | — | **3.9284759302** |
+| Circle packing in a square | ↑ | 2.6358627564 | — | 2.635983 | — | — | **2.6359830395** |
+| Circle packing in a rectangle | ↑ | 2.3658321334 | — | — | — | — | **2.3658323759** |
+| Heilbronn convex regions | ↑ | 0.0309368890 | 0.0309 | — | — | — | **0.0309372079** |
+| Heilbronn triangles | ↑ | 0.03652988988003016 | 0.0365 | — | — | — | **0.03652988988003020** |
+| Kissing number dim 11 | ↑ | **593** | **593** | — | — | — | 592 |
+| Sums differences problems 1 | ↑ | 1.1479889651 | 1.1479 | 1.143975 | — | — | **1.1901774219** |
+| Sums differences problems 2 | ↑ | 1.1584172816 | 1.1584 | — | — | — | **1.1585457700** |
+| An uncertainty inequality | ↓ | 0.3520991044225 | 0.3521 | — | — | — | **0.3520991044160** |
+| First autocorrelation inequality | ↓ | 1.5052939684 | 1.5032 | 1.503871 | 1.5028628983 | 1.507190 | **1.5028628749** |
+| Third autocorrelation (variant) | ↓ | 1.4687620697 | — | — | — | — | **1.4587698922** |
+| Third autocorrelation inequality | ↓ | 1.4556427954 | 1.4557 | **1.453675** | — | 1.460000 | 1.4548507482 |
+| Second autocorrelation inequality | ↑ | 0.8962799442 | 0.961 | **0.962694** | 0.959100 | 0.944900 | 0.9054217971 |
+| Max-to-min ratios | ↓ | 12.88926611203 | 12.889266112 | — | — | — | **12.8892299077** |
+| Minimum Overlap Problem | ↓ | 0.3809230351 | 0.380924 | **0.380868** | 0.3808753232 | 0.380965 | 0.3808968496 |
 
 
 ## Coding Module in AI-Scientist

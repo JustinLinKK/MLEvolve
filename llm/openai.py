@@ -10,7 +10,7 @@ from openai import OpenAI
 
 from config import Config
 from .gemini import FunctionSpec, compile_prompt_to_md
-from .model_profiles import get_profile, supports_json_schema, thinking_json_incompatible
+from .model_profiles import get_profile, supports_json_schema, thinking_json_incompatible, supports_tool_choice_required, get_thinking_extra_body
 
 logger = logging.getLogger("MLEvolve")
 
@@ -77,7 +77,16 @@ def _stage_config_for_model(cfg: Config, model: str):
     return cfg.agent.feedback
 
 
-def _build_messages(system_message: str | None, user_message: str | None) -> list[dict[str, str]]:
+def _build_messages(system_message: str | None, user_message: str | None, model: str = "") -> list[dict[str, str]]:
+    # Anthropic API (Claude) requires the messages array to contain at least
+    # one user-role message; system is a separate top-level field. When only
+    # system_message is provided, the OpenAI-compat proxy converts
+    # [{role: system}] -> system="...", messages=[] which Anthropic rejects
+    # with "field messages is required". Promote system to user in that case.
+    is_claude = (model or "").lower().startswith("claude")
+    if is_claude and system_message and not user_message:
+        return [{"role": "user", "content": system_message}]
+
     messages = []
     if system_message:
         messages.append({"role": "system", "content": system_message})
@@ -104,13 +113,16 @@ def query(
         base_url=stage.base_url or None,
         timeout=1200.0,
     )
-    messages = _build_messages(system_message, user_message)
+    messages = _build_messages(system_message, user_message, model=model)
     if not messages:
         raise ValueError("Either system_message or user_message must be provided")
 
-    # Function calling requires non_thinking mode, otherwise Qwen API errors:
-    # "tool_choice does not support required/object in thinking mode"
-    use_thinking = func_spec is None
+    # Function calling requires non_thinking mode for Qwen (errors on
+    # tool_choice=required + thinking). Claude supports thinking + tool use
+    # as long as tool_choice is auto/none — handled below by
+    # _NO_TOOL_CHOICE_REQUIRED_PREFIXES, which keeps tool_choice=auto for Claude.
+    is_claude = model.lower().startswith("claude")
+    use_thinking = func_spec is None or is_claude
     profile = get_profile(model, use_thinking=use_thinking)
 
     extra_body: dict[str, Any] = {}
@@ -118,6 +130,9 @@ def query(
         extra_body["top_k"] = profile["top_k"]
     if "enable_thinking" in profile:
         extra_body["enable_thinking"] = profile["enable_thinking"]
+    # Merge model-specific thinking params (synced from agentic-mle)
+    if use_thinking:
+        extra_body.update(get_thinking_extra_body(model))
 
     params: dict[str, Any] = {
         "model": model,
@@ -136,7 +151,8 @@ def query(
         if not supports_json_schema(model):
             tool_dict.pop("strict", None)
         params["tools"] = [tool_dict]
-        params["tool_choice"] = func_spec.openai_tool_choice_dict
+        if supports_tool_choice_required(model):
+            params["tool_choice"] = func_spec.openai_tool_choice_dict
 
     t0 = time.time()
     logger.info(f"Querying OpenAI-compatible API with model: {model}")
@@ -232,7 +248,10 @@ def generate(
     # Qwen: thinking + json_schema are mutually exclusive — drop schema, keep thinking.
     if json_schema is not None and thinking_json_incompatible(model):
         json_schema = None
-    use_thinking = json_schema is None
+    # Claude: adaptive thinking + json_schema both supported — always keep thinking ON.
+    # Other models: thinking on only when no json_schema (legacy Qwen-aligned behavior).
+    is_claude = model.lower().startswith("claude")
+    use_thinking = json_schema is None or is_claude
     profile = get_profile(model, use_thinking=use_thinking)
 
     extra_body: dict[str, Any] = {}
@@ -240,6 +259,9 @@ def generate(
         extra_body["top_k"] = profile["top_k"]
     if "enable_thinking" in profile:
         extra_body["enable_thinking"] = profile["enable_thinking"]
+    # Merge model-specific thinking params (synced from agentic-mle)
+    if use_thinking:
+        extra_body.update(get_thinking_extra_body(model))
 
     params: dict[str, Any] = {
         "model": model,

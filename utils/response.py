@@ -35,13 +35,30 @@ def extract_jsons(text):
 
 
 def trim_long_string(string, threshold=5100, k=2500):
-    if len(string) > threshold:
-        first_k_chars = string[:k]
-        last_k_chars = string[-k:]
-        truncated_len = len(string) - 2 * k
-        return f"{first_k_chars}\n ... [{truncated_len} characters truncated] ... \n{last_k_chars}"
-    else:
+    """Truncate to first-k + last-k; rescue `Final ... Validation ... : <num>` lines into the middle."""
+    if len(string) <= threshold:
         return string
+
+    strict = re.compile(r'^Final\s+Validation\s+\w+\s*[:=]\s*[-+]?\d', re.IGNORECASE | re.MULTILINE)
+    key_lines = [l for l in string.split('\n') if strict.search(l)]
+    if not key_lines:
+        loose = re.compile(r'Final\s+[\w\s]*?Validation\s+[\w\s]*?[:=]\s*[-+]?\d', re.IGNORECASE)
+        key_lines = [l for l in string.split('\n') if loose.search(l)]
+
+    first_k_chars = string[:k]
+    last_k_chars = string[-k:]
+    truncated_len = len(string) - 2 * k
+
+    if key_lines:
+        key_block = '\n'.join(key_lines[-3:])
+        return (
+            f"{first_k_chars}\n"
+            f" ... [{truncated_len} characters truncated] ... \n"
+            f"{key_block}\n"
+            f" ... [output continues] ... \n"
+            f"{last_k_chars}"
+        )
+    return f"{first_k_chars}\n ... [{truncated_len} characters truncated] ... \n{last_k_chars}"
 
 
 def extract_code(text):

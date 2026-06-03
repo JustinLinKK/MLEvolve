@@ -56,6 +56,18 @@ def get_impl_guideline(
         "• Score MUST be computed on hold-out validation set using proper metric formula",
         "• CRITICAL CONSISTENCY REQUIREMENT: Ensure that validation and test inference use IDENTICAL processing logic. Any differences in how validation and test data are handled (such as post-processing, reconstruction, or formatting) can cause large performance gaps between validation and test sets. Maintain consistency across all data processing steps for both validation and test phases.",
         "",
+        "**4. Preserve Task Semantics in Local Validation**",
+        "• Your local validation must evaluate the SAME core task as the final submission, not an easier proxy sub-problem.",
+        "• ❌ FORBIDDEN: Silently redefining the task into a simpler objective (for example: multi-target -> single-target, detection -> presence-only classification, ranking -> plain classification, structured prediction -> one-field prediction).",
+        "• If the submission predicts structured outputs, your validation metric must cover the key predicted structure rather than only a weak sub-component.",
+        "• The validation target, prediction format, and post-processing logic must stay semantically aligned with the required submission format.",
+        "",
+        "**5. Make Validation Auditable**",
+        "• In code and logs, make the validation setup easy to audit: split method, metric formula, predicted target, and any threshold/post-processing used.",
+        "• The reported `Final Validation Score` must be computed with the official metric definition, or a task-faithful local implementation of that same metric.",
+        "• ❌ FORBIDDEN: Using a proxy metric as the main validation score for model comparison, search ranking, or best-solution selection.",
+        "• Do not report a validation score from a metric that ignores critical task dimensions required by the leaderboard.",
+        "",
         "📁 **Directories**: Input data in `./input/`, submission in `./submission/`, temp files in `./working/`",
         "",
         f"📦 **Packages & Internet**: numpy, pandas, sklearn, torch, transformers, timm, xgboost, lightgbm (all pre-installed). torch.hub.load(), HuggingFace, etc. available during development."
@@ -74,6 +86,8 @@ def get_impl_guideline(
         "□ Did I generate submission.csv in correct path with ALL test predictions?",
         "□ Did I print validation metric as the last line?",
         "□ Did I use the COMPLETE training dataset (not a tiny subset)?",
+        "□ Did my local validation preserve the original task semantics instead of a simpler proxy?",
+        "□ Is my reported `Final Validation Score` computed with the official metric definition rather than a proxy metric?",
     ]
     if expose_prediction:
         impl_guideline.append(
