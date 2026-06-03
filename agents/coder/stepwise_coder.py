@@ -463,6 +463,7 @@ def create_default_step_agents(*, hardware_aware: bool = True) -> List[StepAgent
         model_guidelines.extend(
             [
                 "Hardware-aware model design: use the Hardware-Aware Model Design Brief to compare model families before choosing an architecture. Optimize for the task metric first, while treating lower training time and higher GPU utilization as persistent objectives.",
+                "This model_design step is the combined hardware-aware design stage: use the brief's compact hardware node, available feature keys, and selected feature details when they are relevant to architecture, precision, or layer choices.",
                 "Prefer architectures and layers that can use documented hardware fast paths from the brief, such as tensor-core-friendly dimensions, AMP/bf16/fp16, transformer engine, torch.compile, or efficient convolution kernels, only when the evidence applies to this task and installed environment.",
                 "Do not invent pretrained checkpoint paths, Kaggle input directories, torch hub directories, or dummy model weights to satisfy hardware advice. If a model source is not explicitly available, choose an available baseline-compatible model family.",
             ]

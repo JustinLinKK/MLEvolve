@@ -159,3 +159,4 @@ opt = torch.optim.AdamW(model.parameters(), lr=3e-4, fused=True)
 - [ ] Define model-structure features for prediction: backbone name, parameter count if available, framework, training mode, feature extractor vs end-to-end fine-tune, input shape, batch size, optimizer, epochs, folds, augmentation cost, and precision mode.
 - [ ] Build a lightweight predictor from accumulated scheduler runs and batch-size observations.
 - [ ] Track predictor confidence and trigger selective actual probing only when confidence is low or the estimated memory margin is unsafe.
+- [ ] Design predictor-based scheduler mode. Intentionally undecided: do not add predictor planner behavior, APIs, schema, or config until the mode contract is specified.

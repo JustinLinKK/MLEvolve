@@ -9,6 +9,7 @@ import yaml
 
 import config as mle_config
 from localml_scheduler.config import SchedulerConfig
+from localml_scheduler.hardware_knowledge.store import HardwareKnowledgeGraphStore
 from run import _scheduler_settings_from_cfg
 
 
@@ -206,3 +207,38 @@ def test_scheduler_config_accepts_redis_cache_settings(tmp_path: Path) -> None:
     assert settings.redis_cache.ttl_seconds == 120
     assert settings.redis_cache.max_entries == 32
     assert settings.to_dict()["redis_cache"]["cache_vector_queries"] is False
+
+
+def test_scheduler_and_hardware_graph_configs_are_decoupled(tmp_path: Path) -> None:
+    settings = SchedulerConfig.from_dict(
+        {
+            "runtime_root": str(tmp_path / "runtime"),
+            "graph_db": {
+                "enabled": True,
+                "uri": "bolt://profile-neo4j:7687",
+                "password_env": "LOCALML_SCHEDULER_NEO4J_PASSWORD",
+            },
+            "hardware_knowledge_graph": {
+                "enabled": True,
+                "uri": "bolt://hardware-neo4j:7687",
+                "password_env": "LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD",
+            },
+        }
+    )
+
+    assert settings.graph_db.uri == "bolt://profile-neo4j:7687"
+    assert settings.hardware_knowledge_graph.uri == "bolt://hardware-neo4j:7687"
+    assert settings.hardware_knowledge_graph.password_env == "LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD"
+    assert HardwareKnowledgeGraphStore(settings, driver=object()).config.uri == "bolt://hardware-neo4j:7687"
+
+
+def test_local_compose_defines_separate_profile_and_hardware_neo4j_services() -> None:
+    compose = yaml.safe_load(Path("docker-compose.local.yml").read_text(encoding="utf-8"))
+    services = compose["services"]
+
+    assert "neo4j-profile" in services
+    assert "neo4j-hardware" in services
+    assert services["neo4j-profile"]["ports"] == ["${NEO4J_PROFILE_HTTP_PORT:-7474}:7474", "${NEO4J_PROFILE_BOLT_PORT:-7687}:7687"]
+    assert services["neo4j-hardware"]["ports"] == ["${NEO4J_HARDWARE_HTTP_PORT:-7475}:7474", "${NEO4J_HARDWARE_BOLT_PORT:-7688}:7687"]
+    assert "neo4j_profile_data" in compose["volumes"]
+    assert "neo4j_hardware_data" in compose["volumes"]
