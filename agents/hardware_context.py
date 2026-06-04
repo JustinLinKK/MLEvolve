@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from llm import generate
 from engine.script_introspection import introspect_training_script
 
 logger = logging.getLogger("MLEvolve")
@@ -95,6 +97,20 @@ def get_hardware_design_brief(agent: Any) -> HardwarePromptContext:
     except Exception as exc:
         logger.debug("Hardware model-design context lookup failed: %s", exc)
         return HardwarePromptContext(candidate=candidate)
+
+    raw_context = dict(raw_context or {})
+    initial_compact = compact_model_design_context(raw_context)
+    selected_feature_ids = _select_hardware_feature_ids_for_design(agent, candidate, initial_compact)
+    if selected_feature_ids and hasattr(scheduler_client, "get_hardware_feature_details"):
+        try:
+            raw_context["selected_hardware_feature_ids"] = selected_feature_ids
+            raw_context["selected_hardware_feature_details"] = scheduler_client.get_hardware_feature_details(
+                hardware_id="current",
+                feature_ids=selected_feature_ids,
+                limit=max(1, len(selected_feature_ids)),
+            )
+        except Exception as exc:
+            logger.debug("Hardware feature detail lookup failed: %s", exc)
 
     compact = compact_model_design_context(raw_context)
     max_chars = _safe_int(getattr(agent.acfg, "hardware_context_max_prompt_chars", 3500), default=3500)
@@ -367,6 +383,85 @@ def compact_optimization_context(raw_context: dict[str, Any] | None) -> dict[str
     return compact
 
 
+def _select_hardware_feature_ids_for_design(
+    agent: Any,
+    candidate: dict[str, Any],
+    compact: dict[str, Any],
+    *,
+    max_features: int = 4,
+) -> list[str]:
+    feature_index = list((compact.get("hardware_feature_index") or {}).get("features") or [])
+    if not feature_index:
+        return []
+    available_ids = [str(item.get("feature_id") or "").strip() for item in feature_index if item.get("feature_id")]
+    available_set = set(available_ids)
+    if not available_set:
+        return []
+    feature_lines = []
+    for item in feature_index[:32]:
+        feature_id = item.get("feature_id")
+        if not feature_id:
+            continue
+        feature_lines.append(
+            "- {feature_id}: {name}; category={category}; support={support}; impact={impact}".format(
+                feature_id=feature_id,
+                name=item.get("feature_name") or "",
+                category=item.get("category") or "",
+                support=item.get("support_level") or "",
+                impact=item.get("performance_impact") or "",
+            )
+        )
+    if not feature_lines:
+        return []
+    prompt = (
+        "Select only the hardware feature IDs that are directly useful for the model_design stage.\n"
+        "Return a JSON object exactly like {\"feature_ids\": [\"bf16\"]}. "
+        f"Choose at most {max_features} IDs. Choose zero if none are relevant.\n\n"
+        f"Task description:\n{getattr(agent, 'task_desc', '')}\n\n"
+        f"Data preview:\n{getattr(agent, 'data_preview', '')}\n\n"
+        f"Workload: {candidate.get('workload_type') or candidate.get('task_type') or compact.get('workload_type')}\n\n"
+        "Available feature index:\n"
+        + "\n".join(feature_lines)
+    )
+    try:
+        response = generate(
+            prompt=prompt,
+            temperature=0.0,
+            cfg=agent.cfg,
+        )
+    except Exception as exc:
+        logger.debug("Hardware feature selector failed: %s", exc)
+        return []
+    return _parse_selected_feature_ids(response, available_set=available_set, max_features=max_features)
+
+
+def _parse_selected_feature_ids(response: str, *, available_set: set[str], max_features: int) -> list[str]:
+    text = str(response or "").strip()
+    if not text:
+        return []
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        if not match:
+            return []
+        try:
+            payload = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return []
+    raw_ids = payload.get("feature_ids") if isinstance(payload, dict) else []
+    if not isinstance(raw_ids, list):
+        return []
+    selected: list[str] = []
+    for item in raw_ids:
+        feature_id = str(item or "").strip()
+        if feature_id in available_set and feature_id not in selected:
+            selected.append(feature_id)
+        if len(selected) >= max(0, int(max_features)):
+            break
+    return selected
+
+
 def compact_model_design_context(raw_context: dict[str, Any] | None) -> dict[str, Any]:
     raw_context = raw_context or {}
     model_options = []
@@ -387,8 +482,28 @@ def compact_model_design_context(raw_context: dict[str, Any] | None) -> dict[str
         )
         if option:
             model_options.append(option)
+    feature_index_raw = raw_context.get("hardware_feature_index") or {}
+    feature_index = {
+        "found": bool(feature_index_raw.get("found")),
+        "hardware": _pick(dict(feature_index_raw.get("hardware") or {}), ("hardware_id", "name", "name_key", "architecture")),
+        "features": [
+            _compact_hardware_feature_index_item(item)
+            for item in list(feature_index_raw.get("features") or [])[:32]
+        ],
+        "feature_count": feature_index_raw.get("feature_count"),
+        "source": feature_index_raw.get("source"),
+    }
+    feature_index = {key: value for key, value in feature_index.items() if value not in (None, {}, [], "")}
+    selected_details = raw_context.get("selected_hardware_feature_details") or {}
+    selected_features = [
+        _compact_hardware_feature_detail(item)
+        for item in list(selected_details.get("features") or [])[:6]
+    ]
     compact = {
         "hardware_context": _compact_hardware_context(raw_context.get("hardware_context") or {}),
+        "hardware_feature_index": feature_index,
+        "selected_hardware_feature_ids": _clean_string_list(raw_context.get("selected_hardware_feature_ids") or [], limit=8),
+        "selected_hardware_features": selected_features,
         "workload_type": raw_context.get("workload_type"),
         "model_options": model_options,
         "recommendations": _clean_string_list(raw_context.get("recommendations") or [], limit=8),
@@ -453,6 +568,36 @@ def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 35
             benefit_text = f"; benefits={benefits}" if benefits else ""
             risk_text = f"; risks={risk}" if risk else ""
             lines.append(f"  - {family}{suffix}: {_short(rationale, 180)}{benefit_text}{risk_text}")
+    feature_index = compact.get("hardware_feature_index") or {}
+    feature_keys = list(feature_index.get("features") or [])
+    if feature_keys:
+        lines.append("- Available hardware feature keys linked to this hardware:")
+        for feature in feature_keys[:16]:
+            details = _format_kv(
+                feature,
+                ("category", "support_level", "performance_impact", "recommended", "confidence"),
+            )
+            suffix = f" ({details})" if details else ""
+            name = feature.get("feature_name") or ""
+            lines.append(f"  - {feature.get('feature_id')}: {name}{suffix}")
+        if len(feature_keys) > 16:
+            lines.append(f"  - ... {len(feature_keys) - 16} more feature key(s) omitted from the prompt")
+    selected_features = list(compact.get("selected_hardware_features") or [])
+    if selected_features:
+        lines.append("- Selected hardware feature details for model_design:")
+        for feature in selected_features[:4]:
+            feature_id = feature.get("feature_id") or "feature"
+            name = feature.get("feature_name") or feature.get("title") or ""
+            summary = feature.get("summary_text") or feature.get("detail_text") or ""
+            details = _format_kv(feature, ("category", "support_level", "performance_impact", "confidence"))
+            suffix = f" ({details})" if details else ""
+            lines.append(f"  - {feature_id}: {name}{suffix}: {_short(summary, 220)}")
+            for pattern in feature.get("recommended_patterns") or []:
+                lines.append(f"    recommended: {_short(pattern, 220)}")
+            for pattern in feature.get("avoid_patterns") or []:
+                lines.append(f"    avoid: {_short(pattern, 220)}")
+            if feature.get("sample_code"):
+                lines.append(f"    sample: {_short(feature['sample_code'], 260)}")
     recommendations = compact.get("recommendations") or []
     if recommendations:
         lines.append("- Design recommendations:")
@@ -469,6 +614,10 @@ def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 35
         "- Decision rule: Choose the architecture that best satisfies the task metric while using hardware features "
         "to reduce training time and improve GPU utilization. If hardware evidence is weak, keep a conservative "
         "baseline-compatible architecture."
+    )
+    lines.append(
+        "- Feature-detail rule: The feature key list is only an index. Use detailed guidance only from the selected "
+        "hardware feature details above; do not assume unexpanded feature keys have undocumented behavior."
     )
     lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
     lines.append(f"- Budget guardrail: {HARDWARE_BUDGET_GUARDRAIL_RULE}")
@@ -739,6 +888,62 @@ def _compact_vector_evidence(vector: dict[str, Any]) -> dict[str, Any]:
         "docs": [_compact_code_knowledge(item) for item in list(vector.get("docs") or [])[:2]],
         "api_symbols": [_compact_code_knowledge(item) for item in list(vector.get("api_symbols") or [])[:2]],
     }
+
+
+def _compact_hardware_feature_index_item(item: dict[str, Any]) -> dict[str, Any]:
+    compact = _pick(
+        dict(item),
+        (
+            "feature_id",
+            "feature_name",
+            "category",
+            "support_level",
+            "recommended",
+            "performance_impact",
+            "frameworks",
+            "tags",
+            "confidence",
+        ),
+    )
+    return {
+        key: _short(value, 120) if isinstance(value, str) else value
+        for key, value in compact.items()
+        if value not in (None, "", [], {})
+    }
+
+
+def _compact_hardware_feature_detail(item: dict[str, Any]) -> dict[str, Any]:
+    compact = _pick(
+        dict(item),
+        (
+            "feature_id",
+            "feature_name",
+            "title",
+            "category",
+            "support_level",
+            "recommended",
+            "performance_impact",
+            "summary_text",
+            "detail_text",
+            "software_requirements",
+            "recommended_patterns",
+            "avoid_patterns",
+            "sample_code",
+            "confidence",
+            "evidence_ref",
+        ),
+    )
+    shortened: dict[str, Any] = {}
+    for key, value in compact.items():
+        if value in (None, "", [], {}):
+            continue
+        if isinstance(value, str):
+            shortened[key] = _short(value, 260 if key != "sample_code" else 400)
+        elif isinstance(value, list):
+            shortened[key] = [_short(item, 220) if isinstance(item, str) else item for item in value[:4]]
+        else:
+            shortened[key] = value
+    return shortened
 
 
 def _compact_code_knowledge(item: dict[str, Any]) -> dict[str, Any]:

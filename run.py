@@ -133,6 +133,16 @@ def run():
         if scheduler_cfg is not None and bool(getattr(scheduler_cfg, "enabled", False)):
             scheduler_settings = _scheduler_settings_from_cfg(cfg, scheduler_cfg)
             scheduler_client = SchedulerClient(scheduler_settings)
+            try:
+                prewarm_result = scheduler_client.prewarm_current_hardware_neighborhood("current")
+                if prewarm_result.get("ok"):
+                    logger.info(
+                        "🧭 Prewarmed hardware graph neighborhood for %s (%s features).",
+                        prewarm_result.get("hardware_name") or prewarm_result.get("hardware_id") or "current hardware",
+                        prewarm_result.get("feature_count", 0),
+                    )
+            except Exception as exc:
+                logger.debug("Hardware graph neighborhood prewarm skipped: %s", exc)
             if bool(getattr(scheduler_cfg, "start_service", True)):
                 scheduler_service = scheduler_client.create_service().start(background=True)
                 logger.info(f"🧭 localml_scheduler service started at {scheduler_settings.runtime_root}")

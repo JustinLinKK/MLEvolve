@@ -14,6 +14,7 @@ if [[ ! -f "$CONFIG_PATH" ]]; then
 fi
 
 export LOCALML_SCHEDULER_NEO4J_PASSWORD="${LOCALML_SCHEDULER_NEO4J_PASSWORD:-test12345}"
+export LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD="${LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD:-test12345}"
 
 read_config_value() {
   local dotted_key="$1"
@@ -49,6 +50,9 @@ CONFIG_API_SYMBOL_COLLECTION="$(read_config_value scheduler.settings.hardware_fe
 CONFIG_GRAPH_DB_URI="$(read_config_value scheduler.settings.graph_db.uri bolt://127.0.0.1:7687)"
 CONFIG_NEO4J_USERNAME="$(read_config_value scheduler.settings.graph_db.username neo4j)"
 CONFIG_NEO4J_DATABASE="$(read_config_value scheduler.settings.graph_db.database neo4j)"
+CONFIG_HARDWARE_GRAPH_DB_URI="$(read_config_value scheduler.settings.hardware_knowledge_graph.uri bolt://127.0.0.1:7688)"
+CONFIG_HARDWARE_NEO4J_USERNAME="$(read_config_value scheduler.settings.hardware_knowledge_graph.username neo4j)"
+CONFIG_HARDWARE_NEO4J_DATABASE="$(read_config_value scheduler.settings.hardware_knowledge_graph.database neo4j)"
 
 export QDRANT_URL="${QDRANT_URL:-$CONFIG_QDRANT_URL}"
 export QDRANT_API_KEY="${QDRANT_API_KEY:-}"
@@ -62,6 +66,9 @@ export API_SYMBOL_COLLECTION="${API_SYMBOL_COLLECTION:-$CONFIG_API_SYMBOL_COLLEC
 export GRAPH_DB_URI="${GRAPH_DB_URI:-$CONFIG_GRAPH_DB_URI}"
 export NEO4J_USERNAME="${NEO4J_USERNAME:-$CONFIG_NEO4J_USERNAME}"
 export NEO4J_DATABASE="${NEO4J_DATABASE:-$CONFIG_NEO4J_DATABASE}"
+export HARDWARE_GRAPH_DB_URI="${HARDWARE_GRAPH_DB_URI:-$CONFIG_HARDWARE_GRAPH_DB_URI}"
+export HARDWARE_NEO4J_USERNAME="${HARDWARE_NEO4J_USERNAME:-$CONFIG_HARDWARE_NEO4J_USERNAME}"
+export HARDWARE_NEO4J_DATABASE="${HARDWARE_NEO4J_DATABASE:-$CONFIG_HARDWARE_NEO4J_DATABASE}"
 
 TEMP_CONFIG=""
 cleanup() {
@@ -86,11 +93,15 @@ data = yaml.safe_load(source.read_text(encoding="utf-8")) or {}
 
 settings = data.setdefault("scheduler", {}).setdefault("settings", {})
 graph_db = settings.setdefault("graph_db", {})
+hardware_knowledge_graph = settings.setdefault("hardware_knowledge_graph", {})
 hardware_feature_db = settings.setdefault("hardware_feature_db", {})
 
 graph_db["uri"] = os.environ["GRAPH_DB_URI"]
 graph_db["username"] = os.environ["NEO4J_USERNAME"]
 graph_db["database"] = os.environ["NEO4J_DATABASE"]
+hardware_knowledge_graph["uri"] = os.environ["HARDWARE_GRAPH_DB_URI"]
+hardware_knowledge_graph["username"] = os.environ["HARDWARE_NEO4J_USERNAME"]
+hardware_knowledge_graph["database"] = os.environ["HARDWARE_NEO4J_DATABASE"]
 hardware_feature_db["url"] = os.environ["QDRANT_URL"]
 hardware_feature_db["collection_name"] = os.environ["HARDWARE_COLLECTION"]
 hardware_feature_db["code_doc_collection_name"] = os.environ["CODE_DOC_COLLECTION"]
@@ -121,14 +132,24 @@ EOF
     -v mlevolve_qdrant:/qdrant/storage \
     qdrant/qdrant
 
-  docker start mlevolve-neo4j >/dev/null 2>&1 || \
+  docker start mlevolve-neo4j-profile >/dev/null 2>&1 || \
   docker run -d \
-    --name mlevolve-neo4j \
+    --name mlevolve-neo4j-profile \
     --restart unless-stopped \
     -p 7474:7474 -p 7687:7687 \
     -e NEO4J_AUTH="neo4j/${LOCALML_SCHEDULER_NEO4J_PASSWORD}" \
-    -v mlevolve_neo4j_data:/data \
-    -v mlevolve_neo4j_logs:/logs \
+    -v mlevolve_neo4j_profile_data:/data \
+    -v mlevolve_neo4j_profile_logs:/logs \
+    neo4j:5.26
+
+  docker start mlevolve-neo4j-hardware >/dev/null 2>&1 || \
+  docker run -d \
+    --name mlevolve-neo4j-hardware \
+    --restart unless-stopped \
+    -p 7475:7474 -p 7688:7687 \
+    -e NEO4J_AUTH="neo4j/${LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD:-test12345}" \
+    -v mlevolve_neo4j_hardware_data:/data \
+    -v mlevolve_neo4j_hardware_logs:/logs \
     neo4j:5.26
 }
 
@@ -233,10 +254,15 @@ PY
 }
 
 wait_for_neo4j() {
+  local uri="$1"
+  local username="$2"
+  local password="$3"
+  local database="$4"
+  local label="$5"
   local waited=0
   local max_wait="${NEO4J_WAIT_SECONDS:-60}"
 
-  until python - <<'PY' >/dev/null 2>&1
+  until GRAPH_DB_URI="$uri" NEO4J_USERNAME="$username" LOCALML_SCHEDULER_NEO4J_PASSWORD="$password" NEO4J_DATABASE="$database" python - <<'PY' >/dev/null 2>&1
 import os
 
 from neo4j import GraphDatabase
@@ -258,13 +284,13 @@ PY
   do
     if (( waited >= max_wait )); then
       cat >&2 <<EOF
-Neo4j did not become reachable within ${max_wait}s.
+Neo4j (${label}) did not become reachable within ${max_wait}s.
 
-Tried: $GRAPH_DB_URI
-User:  ${NEO4J_USERNAME}
+Tried: $uri
+User:  $username
 
 If the existing Neo4j is running on your host, try:
-  GRAPH_DB_URI=bolt://host.docker.internal:7687 ./bootstrap.sh
+  GRAPH_DB_URI=bolt://host.docker.internal:7687 HARDWARE_GRAPH_DB_URI=bolt://host.docker.internal:7688 ./bootstrap.sh
 
 If it is in Kubernetes, port-forward it first, then point GRAPH_DB_URI at the
 forwarded address. Also make sure LOCALML_SCHEDULER_NEO4J_PASSWORD is set to the
@@ -278,18 +304,14 @@ EOF
 }
 
 ensure_schema_knowledge_dirs() {
-  local -a required_dirs=(
-    schema/api_symbol_chunks
-    schema/code_doc_chunks
-    schema/hardware_feature_records
-  )
-  local dir
-  for dir in "${required_dirs[@]}"; do
-    if [[ ! -d "$dir" ]]; then
-      echo "Expected knowledge directory is missing: $dir" >&2
-      return 1
-    fi
-  done
+  if [[ -f schema/hardware_knowledge_graph.json ]]; then
+    return 0
+  fi
+  if [[ -d schema/api_symbol_chunks || -d schema/code_doc_chunks || -d schema/hardware_feature_records ]]; then
+    return 0
+  fi
+  echo "Expected schema/hardware_knowledge_graph.json or legacy knowledge directories under schema/." >&2
+  return 1
 }
 
 ingest_schema_knowledge() {
@@ -313,10 +335,12 @@ fi
 
 echo "Using existing database endpoints:"
 echo "  Qdrant: $QDRANT_URL"
-echo "  Neo4j:  $GRAPH_DB_URI"
+echo "  Neo4j profile:  $GRAPH_DB_URI"
+echo "  Neo4j hardware: $HARDWARE_GRAPH_DB_URI"
 
 wait_for_qdrant
-wait_for_neo4j
+wait_for_neo4j "$GRAPH_DB_URI" "$NEO4J_USERNAME" "${LOCALML_SCHEDULER_NEO4J_PASSWORD:-}" "$NEO4J_DATABASE" "profile"
+wait_for_neo4j "$HARDWARE_GRAPH_DB_URI" "$HARDWARE_NEO4J_USERNAME" "${LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD:-test12345}" "$HARDWARE_NEO4J_DATABASE" "hardware"
 
 if [[ "$QDRANT_URL" != "$CONFIG_QDRANT_URL" ||
       "$HARDWARE_COLLECTION" != "$CONFIG_HARDWARE_COLLECTION" ||
@@ -325,7 +349,10 @@ if [[ "$QDRANT_URL" != "$CONFIG_QDRANT_URL" ||
       "$API_SYMBOL_COLLECTION" != "$CONFIG_API_SYMBOL_COLLECTION" ||
       "$GRAPH_DB_URI" != "$CONFIG_GRAPH_DB_URI" ||
       "$NEO4J_USERNAME" != "$CONFIG_NEO4J_USERNAME" ||
-      "$NEO4J_DATABASE" != "$CONFIG_NEO4J_DATABASE" ]]; then
+      "$NEO4J_DATABASE" != "$CONFIG_NEO4J_DATABASE" ||
+      "$HARDWARE_GRAPH_DB_URI" != "$CONFIG_HARDWARE_GRAPH_DB_URI" ||
+      "$HARDWARE_NEO4J_USERNAME" != "$CONFIG_HARDWARE_NEO4J_USERNAME" ||
+      "$HARDWARE_NEO4J_DATABASE" != "$CONFIG_HARDWARE_NEO4J_DATABASE" ]]; then
   write_runtime_config
 else
   export MLEVOLVE_CONFIG="$CONFIG_PATH"

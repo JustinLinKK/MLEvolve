@@ -70,7 +70,7 @@ scheduler:
       cache_graph_queries: true
       cache_vector_queries: true
     auto_resume_recoverable: false
-    # Database 1: local Neo4j graph evidence store.
+    # Database 1: local Neo4j scheduler profile/evidence graph store.
     graph_db:
       enabled: true
       mode: primary
@@ -83,7 +83,15 @@ scheduler:
       auto_import_legacy_sqlite: true
       legacy_sqlite_path: null
       allow_legacy_fallback: true
-    # Database 2: local Qdrant vector/code-knowledge store.
+    # Database 2: local Neo4j static hardware knowledge graph store.
+    hardware_knowledge_graph:
+      enabled: true
+      provider: neo4j
+      uri: bolt://127.0.0.1:7688
+      username: neo4j
+      password_env: LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD
+      database: neo4j
+    # Database 3: local Qdrant vector/code-knowledge store.
     hardware_feature_db:
       enabled: true
       provider: qdrant
