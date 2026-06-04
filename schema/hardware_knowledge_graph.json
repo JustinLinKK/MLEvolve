@@ -3993,7 +3993,7 @@
         ],
         "usage": "Hybrid Muon+AdamW training optimizer for matmul-heavy candidates: the example code shows the parameter split, Muon settings, and AdamW companion optimizer.",
         "default_recommendation_scope": "matmul_heavy_training_candidate",
-        "limitations": "software optimizer; no hardware-specific acceleration is required; training-time optimizer choice, not an inference feature",
+        "limitations": "software training optimizer; requires a PyTorch build that exposes torch.optim.Muon; no hardware-specific acceleration is required; use only on selected 2D hidden weights and keep AdamW for embeddings/bias/norm/head/non-2D params; benchmark against tuned AdamW; not an inference feature",
         "source_urls": [
           "https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html",
           "https://docs.pytorch.org/docs/2.12/generated/torch.optim.AdamW.html",
@@ -4001,10 +4001,13 @@
           "https://arxiv.org/abs/2502.16982"
         ],
         "recommended_patterns": [
-          "hybrid Muon+AdamW for matmul-heavy training with a tuned AdamW baseline"
+          "hybrid Muon+AdamW for matmul-heavy training with a tuned AdamW baseline",
+          "split params by dimensionality/name: Muon for hidden 2D matrices, AdamW for embeddings, heads, bias, norm, and non-2D params",
+          "tune Muon lr/momentum/ns_steps separately from AdamW lr/weight_decay"
         ],
         "avoid_patterns": [
-          "no Muon on embedding/bias/norm/head/non-2D params and no comparison against undertuned AdamW"
+          "no Muon on embedding/bias/norm/head/non-2D params and no comparison against undertuned AdamW",
+          "no blind AdamW replacement in small CNN, tabular, inference, or memory-bound runs"
         ],
         "notes": "Use Muon on selected 2D hidden weights and AdamW on embedding/bias/norm/head/non-2D params; tune Muon and AdamW learning rates separately; tune weight_decay per optimizer group; prefer adjust_lr_fn='match_rms_adamw' when reusing an AdamW LR schedule; compare against a tuned AdamW baseline."
       }
@@ -4018,7 +4021,7 @@
         "category": "optimizer",
         "description": "SOAP optimizer: Shampoo run in the eigenbasis of its own preconditioner, then plain Adam in that rotated space; amortizes eigendecomposition. >40% fewer iterations / >35% wall-clock vs AdamW to same loss in large-batch regime.",
         "tensor_core_generation": "not_required; preconditioner math is matrix-operation heavy",
-        "example_code": "from soap import SOAP\n\noptim = SOAP(model.parameters(), lr=3e-3, betas=(0.95, 0.95), weight_decay=0.01, precondition_frequency=10)\noptim.zero_grad()\nloss.backward()\noptim.step()",
+        "example_code": "try:\n    from soap import SOAP\nexcept ImportError:\n    raise SystemExit('SKIP: install the SOAP package or keep AdamW baseline')\n\noptim = SOAP(model.parameters(), lr=3e-3, betas=(0.95, 0.95), weight_decay=0.01, precondition_frequency=10)\noptim.zero_grad()\nloss.backward()\noptim.step()",
         "example_code_source": "nikhilvyas.soap.readme.basic_usage.001",
         "api_symbols": [
           "soap.SOAP"
@@ -4029,7 +4032,16 @@
         "source_urls": [
           "https://github.com/nikhilvyas/SOAP",
           "https://arxiv.org/abs/2409.11321"
-        ]
+        ],
+        "recommended_patterns": [
+          "try SOAP only after a tuned AdamW baseline in large-batch or optimizer-limited training",
+          "track optimizer-step time, peak memory, and validation loss because preconditioner cost can dominate"
+        ],
+        "avoid_patterns": [
+          "no SOAP as a universal default for small, latency-bound, or memory-constrained runs",
+          "no adoption without verifying the third-party SOAP package/API in the runtime"
+        ],
+        "notes": "LLM-facing rule: classify SOAP as an experimental software optimizer candidate, not a hardware feature. Use when optimizer convergence is the bottleneck; skip when data/model execution dominates."
       }
     },
     {
@@ -4040,8 +4052,8 @@
         "name": "ademamix_optimizer",
         "category": "optimizer",
         "description": "AdEMAMix optimizer: augments Adam's fast gradient EMA with a second very-slow EMA (beta3 ~0.9999). A 1.3B model on 101B tokens matches AdamW on 197B (~51% token reduction to same loss). One extra EMA buffer.",
-        "tensor_core_generation": "",
-        "example_code": "from ademamix import AdEMAMix\n\nnum_iterations = 256000\noptim = AdEMAMix(params=model.parameters(), lr=1e-3, betas=(0.9, 0.999, 0.9999), alpha=8.0, beta3_warmup=num_iterations, alpha_warmup=num_iterations, weight_decay=0.1)\noptim.zero_grad()\nloss.backward()\noptim.step()",
+        "tensor_core_generation": "not_required; Adam-style optimizer state update is software-side",
+        "example_code": "try:\n    import torch\n    from ademamix import AdEMAMix\nexcept ImportError:\n    raise SystemExit('SKIP: install the AdEMAMix package or keep AdamW baseline')\n\nnum_iterations = 256000\noptim = AdEMAMix(params=model.parameters(), lr=1e-3, betas=(0.9, 0.999, 0.9999), alpha=8.0, beta3_warmup=num_iterations, alpha_warmup=num_iterations, weight_decay=0.1)\noptim.zero_grad()\nloss.backward()\noptim.step()",
         "example_code_source": "apple.ml_ademamix.readme.pytorch_usage.001",
         "api_symbols": [
           "ademamix.AdEMAMix"
@@ -4052,7 +4064,16 @@
         "source_urls": [
           "https://github.com/apple/ml-ademamix",
           "https://arxiv.org/abs/2409.03137"
-        ]
+        ],
+        "recommended_patterns": [
+          "candidate for long-token or LLM-style training where AdamW token efficiency is the bottleneck",
+          "budget one extra EMA buffer and tune alpha/beta3 warmups with the LR schedule"
+        ],
+        "avoid_patterns": [
+          "no AdEMAMix as a drop-in default for short, small-data, or memory-constrained runs",
+          "no comparison against untuned AdamW or mismatched token/step budgets"
+        ],
+        "notes": "LLM-facing rule: recommend only as an optimizer experiment with memory budget and tuned baseline; it gives no inference speedup and no hardware-specific acceleration."
       }
     },
     {
@@ -4086,7 +4107,19 @@
           "custom_kernel:symmetric_gemm",
           "custom_kernel:triangular_fused_gemm"
         ],
-        "source_url": "https://tridao.me/blog/2026/gram-newton-schulz/"
+        "source_url": "https://tridao.me/blog/2026/gram-newton-schulz/",
+        "usage": "Kernel-level optimization for Muon/Newton-Schulz orthogonalization when profiler evidence shows the NS step is material. The example is a correctness fallback, not the fused production kernel.",
+        "default_recommendation_scope": "muon_newton_schulz_kernel_candidate",
+        "limitations": "experimental custom-kernel idea; not a generic GEMM replacement; relevant only when Muon/Newton-Schulz optimizer-step time is significant; requires custom CUDA/Triton/CUTLASS implementation and numerical parity tests; source is a technical blog, not official vendor documentation",
+        "recommended_patterns": [
+          "profile Muon optimizer-step time before considering the fused symmetric/triangular GEMM kernel",
+          "keep the reference Newton-Schulz implementation for correctness checks and fallback"
+        ],
+        "avoid_patterns": [
+          "no use without Muon/Newton-Schulz workload",
+          "no marking verified=true until benchmark and numerical parity are recorded"
+        ],
+        "notes": "LLM-facing rule: suggest this only after Muon has been selected and profiler evidence shows orthogonalization dominates; otherwise prefer normal optimizer tuning."
       }
     },
     {
