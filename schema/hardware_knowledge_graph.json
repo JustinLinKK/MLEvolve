@@ -4021,7 +4021,7 @@
         "category": "optimizer",
         "description": "SOAP optimizer: Shampoo run in the eigenbasis of its own preconditioner, then plain Adam in that rotated space; amortizes eigendecomposition. >40% fewer iterations / >35% wall-clock vs AdamW to same loss in large-batch regime.",
         "tensor_core_generation": "not_required; preconditioner math is matrix-operation heavy",
-        "example_code": "try:\n    from soap import SOAP\nexcept ImportError:\n    raise SystemExit('SKIP: install the SOAP package or keep AdamW baseline')\n\noptim = SOAP(model.parameters(), lr=3e-3, betas=(0.95, 0.95), weight_decay=0.01, precondition_frequency=10)\noptim.zero_grad()\nloss.backward()\noptim.step()",
+        "example_code": "import torch\nfrom torch import nn\nfrom soap import SOAP\n\nmodel = nn.Linear(16, 4)\nx = torch.randn(8, 16)\nloss = model(x).pow(2).mean()\noptim = SOAP(model.parameters(), lr=3e-3, betas=(0.95, 0.95), weight_decay=0.01, precondition_frequency=10)\noptim.zero_grad()\nloss.backward()\noptim.step()",
         "example_code_source": "nikhilvyas.soap.readme.basic_usage.001",
         "api_symbols": [
           "soap.SOAP"
@@ -4053,7 +4053,7 @@
         "category": "optimizer",
         "description": "AdEMAMix optimizer: augments Adam's fast gradient EMA with a second very-slow EMA (beta3 ~0.9999). A 1.3B model on 101B tokens matches AdamW on 197B (~51% token reduction to same loss). One extra EMA buffer.",
         "tensor_core_generation": "not_required; Adam-style optimizer state update is software-side",
-        "example_code": "try:\n    import torch\n    from ademamix import AdEMAMix\nexcept ImportError:\n    raise SystemExit('SKIP: install the AdEMAMix package or keep AdamW baseline')\n\nnum_iterations = 256000\noptim = AdEMAMix(params=model.parameters(), lr=1e-3, betas=(0.9, 0.999, 0.9999), alpha=8.0, beta3_warmup=num_iterations, alpha_warmup=num_iterations, weight_decay=0.1)\noptim.zero_grad()\nloss.backward()\noptim.step()",
+        "example_code": "import torch\nfrom torch import nn\nfrom ademamix import AdEMAMix\n\nmodel = nn.Linear(16, 4)\nx = torch.randn(8, 16)\nloss = model(x).pow(2).mean()\nnum_iterations = 256000\noptim = AdEMAMix(params=model.parameters(), lr=1e-3, betas=(0.9, 0.999, 0.9999), alpha=8.0, beta3_warmup=num_iterations, alpha_warmup=num_iterations, weight_decay=0.1)\noptim.zero_grad()\nloss.backward()\noptim.step()",
         "example_code_source": "apple.ml_ademamix.readme.pytorch_usage.001",
         "api_symbols": [
           "ademamix.AdEMAMix"
@@ -4100,7 +4100,7 @@
         "category": "kernel_optimization",
         "description": "Gram Newton-Schulz symmetric/triangular fused GEMM: the Newton-Schulz step (used by Muon) is a symmetric product; a triangular fused kernel removes the wasted half of multiplies plus a DRAM round-trip cuBLAS incurs. Up to 2x faster NS step. Same math (Gram-matrix restart guards stability).",
         "tensor_core_generation": "tensor_core_compatible; benefits_from_symmetric_gemm_kernel",
-        "example_code": "import torch\n\n# Conceptual fallback only. Production use should call the fused symmetric/triangular GEMM kernel.\ndef gram_newton_schulz_reference(X, ns_steps=5, eps=1e-7):\n    X = X / (X.norm() + eps)\n    wide = X.shape[0] < X.shape[1]\n    for _ in range(ns_steps):\n        if wide:\n            G = X @ X.T\n            X = 1.5 * X - 0.5 * (G @ X)\n        else:\n            G = X.T @ X\n            X = 1.5 * X - 0.5 * (X @ G)\n    return X\n\nupdate = gram_newton_schulz_reference(momentum_matrix)",
+        "example_code": "import torch\n\n# Conceptual fallback only. Production use should call the fused symmetric/triangular GEMM kernel.\ndef gram_newton_schulz_reference(X, ns_steps=5, eps=1e-7):\n    X = X / (X.norm() + eps)\n    wide = X.shape[0] < X.shape[1]\n    for _ in range(ns_steps):\n        if wide:\n            G = X @ X.T\n            X = 1.5 * X - 0.5 * (G @ X)\n        else:\n            G = X.T @ X\n            X = 1.5 * X - 0.5 * (X @ G)\n    return X\n\nmomentum_matrix = torch.randn(128, 64)\nupdate = gram_newton_schulz_reference(momentum_matrix)",
         "example_code_source": "gram_newton_schulz.reference_fallback.001",
         "api_symbols": [
           "custom_kernel:gram_newton_schulz",
@@ -4177,7 +4177,7 @@
         "category": "precision",
         "description": "FP8 row-wise (per-token) scaling: one fp8 scale factor per row of each operand instead of per-tensor; a single outlier row no longer forces a coarse scale that underflows the rest. Strictly more accuracy-preserving than per-tensor fp8; loss parity with bf16. GEMMs still on fp8 Tensor Cores (~1.11x over bf16 H100). Available via torchao.",
         "tensor_core_generation": "4th_generation_or_later_fp8_tensor_cores",
-        "example_code": "import torch\nfrom torch import nn\nfrom torchao.float8 import convert_to_float8_training, Float8LinearConfig, Float8LinearRecipeName\n\nmodel = nn.Sequential(nn.Linear(2048, 4096), nn.GELU(), nn.Linear(4096, 2048)).bfloat16().cuda()\nconfig = Float8LinearConfig.from_recipe_name(Float8LinearRecipeName.ROWWISE)\nconvert_to_float8_training(model, config=config)\nmodel = torch.compile(model)\nx = torch.randn(16, 2048, device='cuda', dtype=torch.bfloat16)\ny = model(x)",
+        "example_code": "import torch\nfrom torch import nn\nfrom torchao.float8 import Float8LinearConfig, Float8LinearRecipeName, convert_to_float8_training\n\nmodel = nn.Sequential(nn.Linear(2048, 4096), nn.GELU(), nn.Linear(4096, 2048)).bfloat16().cuda()\nconfig = Float8LinearConfig.from_recipe_name(Float8LinearRecipeName.ROWWISE)\nconvert_to_float8_training(model, config=config)\nmodel = torch.compile(model)\nx = torch.randn(16, 2048, device='cuda', dtype=torch.bfloat16)\ny = model(x)",
         "example_code_source": "torchao.0_17.float8_rowwise_training.001",
         "api_symbols": [
           "torchao.float8.convert_to_float8_training",
@@ -4197,11 +4197,12 @@
         "category": "parallelism",
         "description": "FP8 all-gather in FSDP2: shards and all-gathers parameters in fp8 instead of bf16, halving the sharded-parameter communication volume in distributed training. Multi-GPU only. Built on torchao float8 + FSDP2.",
         "tensor_core_generation": "4th_generation_or_later_fp8_tensor_cores",
-        "example_code": "import torch\nfrom torch import nn\nfrom torchao.float8 import convert_to_float8_training, Float8LinearConfig, Float8LinearRecipeName\n\nmodel = nn.Sequential(nn.Linear(4096, 4096), nn.GELU(), nn.Linear(4096, 4096)).bfloat16().cuda()\nconfig = Float8LinearConfig.from_recipe_name(Float8LinearRecipeName.TENSORWISE)\nconfig.enable_fsdp_float8_all_gather = True\nconvert_to_float8_training(model, config=config)\n# Apply FSDP2/fully_shard outside this snippet in distributed setup.",
+        "example_code": "import torch\nfrom torch import nn\nfrom torchao.float8 import Float8LinearConfig, convert_to_float8_training\nfrom torchao.float8 import precompute_float8_dynamic_scale_for_fsdp\nfrom torch.distributed.fsdp import fully_shard\n\nmodel = nn.Sequential(nn.Linear(4096, 4096), nn.GELU(), nn.Linear(4096, 4096)).bfloat16().cuda()\nconfig = Float8LinearConfig(enable_fsdp_float8_all_gather=True)\nconvert_to_float8_training(model, config=config)\nfor layer in model:\n    if isinstance(layer, nn.Linear):\n        fully_shard(layer)\nfully_shard(model)\n# In the distributed training loop, call after optimizer.step():\nprecompute_float8_dynamic_scale_for_fsdp(model)",
         "example_code_source": "torchao.0_17.float8_config.fsdp_all_gather.001",
         "api_symbols": [
           "torchao.float8.Float8LinearConfig",
           "torchao.float8.Float8LinearConfig.enable_fsdp_float8_all_gather",
+          "torchao.float8.precompute_float8_dynamic_scale_for_fsdp",
           "torchao.float8.convert_to_float8_training",
           "torch.distributed.fsdp.fully_shard"
         ],
