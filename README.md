@@ -8,7 +8,7 @@ An agentic MLE (Machine Learning Engineering) system that automatically solves K
 
 ## Timeline
 
-- **2026-06-01** — **65.3% medal rate** on full MLE-bench (75 tasks), also achieves competitive results on AlphaEvolve mathematical optimization tasks.
+- **2026-06-01** — **65.3% medal rate** on full MLE-bench (75 tasks), also achieves competitive results on mathematical optimization tasks.
 - **2026-03-23** — Now supports OpenAI-compatible APIs (GPT, Qwen, DeepSeek, etc.). Models with function calling support are recommended for best performance.
 - **2026-02-14** — MLEvolve codebase is now open-source.
 - **2026-02-14** — MLEvolve achieves **#1 on MLE-bench** (12-hour budget).
@@ -41,27 +41,67 @@ Performance on the [MLE-bench](https://github.com/openai/mle-bench) full set (75
 | **MLEvolve (Ours)** | **Gemini-3.1-Pro-preview** | **12** | **80.3 ± 1.5** | **64.0 ± 0.9** | **46.7 ± 0.0** | **65.3 ± 0.8** |
 
 
-## AlphaEvolve Mathematical Optimization Results
+## Mathematical Optimization Results
 
-Comparison on 15 mathematical programming tasks.
+Beyond machine-learning engineering, MLEvolve **generalizes** to open problems in mathematical optimization. Every baseline here (AlphaEvolve and its v2, SimpleTES, TTT-Discover, OpenEvolve) is a framework **purpose-built for optimization**; even so, MLEvolve **matches or surpasses AlphaEvolve on 14 of 15 tasks** and achieves the **best result among all compared methods on 11 of 15 tasks**.
 
-| Problem | ↑/↓ | AlphaEvolve | AlphaEvolve-v2 | SimpleTES | TTT-Discover | OpenEvolve | MLEvolve |
-|---------|:---:|-------------|----------------|-----------|--------------|------------|----------|
-| Packing hexagons in hexagons | ↓ | 3.930092 | 3.931 | 3.931 | — | — | **3.9284759302** |
-| Circle packing in a square | ↑ | 2.6358627564 | — | 2.635983 | — | — | **2.6359830395** |
-| Circle packing in a rectangle | ↑ | 2.3658321334 | — | — | — | — | **2.3658323759** |
-| Heilbronn convex regions | ↑ | 0.0309368890 | 0.0309 | — | — | — | **0.0309372079** |
-| Heilbronn triangles | ↑ | 0.03652988988003016 | 0.0365 | — | — | — | **0.03652988988003020** |
-| Kissing number dim 11 | ↑ | **593** | **593** | — | — | — | 592 |
-| Sums differences problems 1 | ↑ | 1.1479889651 | 1.1479 | 1.143975 | — | — | **1.1901774219** |
-| Sums differences problems 2 | ↑ | 1.1584172816 | 1.1584 | — | — | — | **1.1585457700** |
-| An uncertainty inequality | ↓ | 0.3520991044225 | 0.3521 | — | — | — | **0.3520991044160** |
-| First autocorrelation inequality | ↓ | 1.5052939684 | 1.5032 | 1.503871 | 1.5028628983 | 1.507190 | **1.5028628749** |
-| Third autocorrelation (variant) | ↓ | 1.4687620697 | — | — | — | — | **1.4587698922** |
-| Third autocorrelation inequality | ↓ | 1.4556427954 | 1.4557 | **1.453675** | — | 1.460000 | 1.4548507482 |
-| Second autocorrelation inequality | ↑ | 0.8962799442 | 0.961 | **0.962694** | 0.959100 | 0.944900 | 0.9054217971 |
-| Max-to-min ratios | ↓ | 12.88926611203 | 12.889266112 | — | — | — | **12.8892299077** |
-| Minimum Overlap Problem | ↓ | 0.3809230351 | 0.380924 | **0.380868** | 0.3808753232 | 0.380965 | 0.3808968496 |
+Comparison on 15 mathematical programming tasks. Each column header carries the optimization direction (**↑** = higher is better, **↓** = lower is better); **bold** marks the best value. The 15 tasks are split across three tables so the page fits — see the legend below for full task names.
+
+**Tasks 1–5**
+
+| Method | Hex packing ↓ | Circle/square ↑ | Circle/rect ↑ | Heilbronn convex ↑ | Heilbronn tri ↑ |
+|--------|---------------|-----------------|---------------|--------------------|-----------------|
+| AlphaEvolve | 3.930092 | 2.6358627564 | 2.3658321334 | 0.0309368890 | 0.03652988988003016 |
+| AlphaEvolve-v2 | 3.931 | — | — | 0.0309 | 0.0365 |
+| SimpleTES | 3.931 | 2.635983 | — | — | — |
+| TTT-Discover | — | — | — | — | — |
+| OpenEvolve | — | — | — | — | — |
+| **MLEvolve** | **3.9284759302** | **2.6359830395** | **2.3658323759** | **0.0309372079** | **0.03652988988003020** |
+
+**Tasks 6–10**
+
+| Method | Kissing d11 ↑ | Sum-diff 1 ↑ | Sum-diff 2 ↑ | Uncertainty ↓ | Autocorr 1 ↓ |
+|--------|---------------|--------------|--------------|---------------|--------------|
+| AlphaEvolve | **593** | 1.1479889651 | 1.1584172816 | 0.3520991044225 | 1.5052939684 |
+| AlphaEvolve-v2 | **593** | 1.1479 | 1.1584 | 0.3521 | 1.5032 |
+| SimpleTES | — | 1.143975 | — | — | 1.503871 |
+| TTT-Discover | — | — | — | — | 1.5028628983 |
+| OpenEvolve | — | — | — | — | 1.507190 |
+| **MLEvolve** | 592 | **1.1901774219** | **1.1585457700** | **0.3520991044160** | **1.5028628749** |
+
+**Tasks 11–15**
+
+| Method | Autocorr 3v ↓ | Autocorr 3 ↓ | Autocorr 2 ↑ | Max/min ↓ | Min overlap ↓ |
+|--------|---------------|--------------|--------------|-----------|---------------|
+| AlphaEvolve | 1.4687620697 | 1.4556427954 | 0.8962799442 | 12.88926611203 | 0.3809230351 |
+| AlphaEvolve-v2 | — | 1.4557 | 0.961 | 12.889266112 | 0.380924 |
+| SimpleTES | — | **1.453675** | **0.962694** | — | **0.380868** |
+| TTT-Discover | — | — | 0.959100 | — | 0.3808753232 |
+| OpenEvolve | — | 1.460000 | 0.944900 | — | 0.380965 |
+| **MLEvolve** | **1.4587698922** | 1.4548507482 | 0.9054217971 | **12.8892299077** | **0.3808968496** |
+
+<details>
+<summary><b>Task legend</b> (short header → full task name)</summary>
+
+| Short | Full task name |
+|-------|----------------|
+| Hex packing | Packing hexagons in hexagons |
+| Circle/square | Circle packing in a square |
+| Circle/rect | Circle packing in a rectangle |
+| Heilbronn convex | Heilbronn convex regions |
+| Heilbronn tri | Heilbronn triangles |
+| Kissing d11 | Kissing number dim 11 |
+| Sum-diff 1 | Sums differences problems 1 |
+| Sum-diff 2 | Sums differences problems 2 |
+| Uncertainty | An uncertainty inequality |
+| Autocorr 1 | First autocorrelation inequality |
+| Autocorr 3v | Third autocorrelation (variant) |
+| Autocorr 3 | Third autocorrelation inequality |
+| Autocorr 2 | Second autocorrelation inequality |
+| Max/min | Max-to-min ratios |
+| Min overlap | Minimum Overlap Problem |
+
+</details>
 
 
 ## Coding Module in AI-Scientist
@@ -88,7 +128,7 @@ MLEvolve powers the **coding and algorithm optimization** module within the [Int
 ```bash
 pip install --no-deps -r requirements_base.txt
 pip install --no-deps -r requirements_ml.txt
-pip install --no-deps -r requirements_domain.txt  
+pip install --no-deps -r requirements_domain.txt
 ```
 
 **3. Configure** — Edit `config/config.yaml`, fields you **must** fill in:
@@ -130,9 +170,16 @@ We thank [AIDE](https://github.com/WecoAI/aideml) and [ML-Master](https://github
 
 ## Citation
 
-If you find this repo useful, you can also cite our earlier work.
+If you find this repo useful, please cite our work.
 
 ```bibtex
+@article{du2026mlevolve,
+  title={MLEvolve: A Self-Evolving Framework for Automated Machine Learning Algorithm Discovery},
+  author={Du, Shangheng and Yan, Xiangchao and Shi, Jinxin and Cao, Zongsheng and Feng, Shiyang and Liang, Zichen and Sun, Boyuan and Peng, Tianshuo and Zhou, Yifan and Li, Xin and Zhou, Jie and He, Liang and Zhang, Bo and Bai, Lei},
+  journal={arXiv preprint arXiv:2606.06473},
+  year={2026}
+}
+
 @article{du2025automlgen,
   title={AutoMLGen: Navigating Fine-Grained Optimization for Coding Agents},
   author={Du, Shangheng and Yan, Xiangchao and Jiang, Dengyang and Yuan, Jiakang and Hu, Yusong and Li, Xin and He, Liang and Zhang, Bo and Bai, Lei},
