@@ -2,12 +2,17 @@
   <img src="assets/logo.svg" alt="MLEvolve" width="400"/>
 </p>
 
-🌐 **Project Page**: https://internscience.github.io/MLEvolve/
+<p align="center">
+  <a href="https://arxiv.org/abs/2606.06473"><img src="https://img.shields.io/badge/arXiv-2606.06473-b31b1b.svg" alt="arXiv"></a>
+  <a href="https://internscience.github.io/MLEvolve/"><img src="https://img.shields.io/badge/Project-Page-blue.svg" alt="Project Page"></a>
+  <a href="https://github.com/InternScience/MLEvolve"><img src="https://img.shields.io/github/stars/InternScience/MLEvolve?style=social" alt="GitHub Stars"></a>
+</p>
 
 An agentic MLE (Machine Learning Engineering) system that automatically solves Kaggle-style ML competitions through Monte Carlo Graph Search (MCGS) with multi-agent collaboration. This is an advanced version based on [AutoMLGen](https://arxiv.org/abs/2510.08511). MLEvolve achieves **#1 on the [MLE-bench](https://github.com/openai/mle-bench) leaderboard** (65.3% medal rate, 12-hour budget) and obtains competitive results on mathematical optimization tasks.
 
 ## Timeline
 
+- **2026-06-05** — Paper released on arXiv: [MLEvolve: A Self-Evolving Framework for Automated Machine Learning Algorithm Discovery](https://arxiv.org/abs/2606.06473).
 - **2026-06-01** — **65.3% medal rate** on full MLE-bench (75 tasks), also achieves competitive results on mathematical optimization tasks.
 - **2026-03-23** — Now supports OpenAI-compatible APIs (GPT, Qwen, DeepSeek, etc.). Models with function calling support are recommended for best performance.
 - **2026-02-14** — MLEvolve codebase is now open-source.
@@ -78,7 +83,7 @@ Comparison on 15 mathematical programming tasks. Each column header carries the 
 | SimpleTES | — | **1.453675** | **0.962694** | — | **0.380868** |
 | TTT-Discover | — | — | 0.959100 | — | 0.3808753232 |
 | OpenEvolve | — | 1.460000 | 0.944900 | — | 0.380965 |
-| **MLEvolve** | **1.4587698922** | 1.4548507482 | 0.9054217971 | **12.8892299077** | **0.3808968496** |
+| **MLEvolve** | **1.4587698922** | 1.4548507482 | 0.9054217971 | **12.8892299077** | 0.3808968496 |
 
 <details>
 <summary><b>Task legend</b> (short header → full task name)</summary>
