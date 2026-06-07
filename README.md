@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://arxiv.org/abs/2606.06473"><img src="https://img.shields.io/badge/arXiv-2606.06473-b31b1b.svg" alt="arXiv"></a>
+  <a href="https://huggingface.co/papers/2606.06473"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Paper-yellow.svg" alt="Hugging Face"></a>
   <a href="https://internscience.github.io/MLEvolve/"><img src="https://img.shields.io/badge/Project-Page-blue.svg" alt="Project Page"></a>
   <a href="https://github.com/InternScience/MLEvolve"><img src="https://img.shields.io/github/stars/InternScience/MLEvolve?style=social" alt="GitHub Stars"></a>
 </p>
