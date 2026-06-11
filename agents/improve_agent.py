@@ -15,7 +15,11 @@ from agents.hardware_context import (
 from agents.triggers import get_patience_counter, register_node
 from agents.prompts import (
     ROBUSTNESS_GENERALIZATION_STRATEGY,
+    apply_pipeline_decision_to_node,
+    build_pipeline_decision,
+    format_pipeline_decision_prompt_section,
     prompt_leakage_prevention,
+    pipeline_decision_instructions,
     prompt_resp_fmt,
     get_internet_clarification,
     get_impl_guideline_from_agent,
@@ -52,7 +56,20 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
     hardware_section = hardware_ctx.prompt_section
     if hardware_section:
         prompt["Hardware/Profile Optimization Context"] = hardware_section
+    pipeline_decision = build_pipeline_decision(
+        agent,
+        stage="improve",
+        data_preview=agent.data_preview,
+        hardware_contexts=[hardware_ctx],
+        parent_pipeline_decision=getattr(parent_node, "pipeline_decision", None),
+        previous_code=parent_node.code,
+        execution_output=parent_node.term_out,
+    )
+    pipeline_decision_section = format_pipeline_decision_prompt_section(pipeline_decision)
+    prompt["Pipeline Decision"] = pipeline_decision
+    prompt["Pipeline Decision Contract"] = pipeline_decision_section
     prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
+    prompt["Instructions"] |= pipeline_decision_instructions(pipeline_decision)
     prompt["Previous solution"] = {
         "Code": wrap_code(parent_node.code),
     }
@@ -241,7 +258,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
     if prompt.get("Memory", "").strip():
         memory_section = f"\n# Memory\nBelow is a record of previous improvement attempts and their outcomes:\n {prompt['Memory']}\n"
 
-    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{hardware_section}\n{instructions}"
+    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{hardware_section}\n{pipeline_decision_section}\n{instructions}"
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nThe current solution uses the following code:\n{prompt['Previous solution']['Code']}\nIts output was:\n{output}\nBuilding on this, I'll develop an improved approach."
     prompt_complete = build_chat_prompt_for_model(agent.acfg.code.model, introduction, user_prompt, assistant_prefix)
 
@@ -265,6 +282,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
     new_node = SearchNode(plan=plan, code=code, parent=parent_node, stage="improve",
                         local_best_node=parent_node.local_best_node, from_topk=from_topk)
     apply_hardware_context_to_node(new_node, hardware_ctx)
+    apply_pipeline_decision_to_node(new_node, pipeline_decision)
     register_node(agent, new_node, prompt_complete, parent_node=parent_node)
 
     if hasattr(parent_node, '_topk_triggered'):
@@ -309,6 +327,8 @@ def _diff_improve(agent, prompt_base, data_preview, parent_node):
         "execution_output": parent_node.term_out if hasattr(parent_node, 'term_out') else "",
         "parent_node": parent_node,
         "hardware_prompt_section": prompt_base.get("Hardware/Profile Optimization Context", ""),
+        "pipeline_decision": prompt_base.get("Pipeline Decision"),
+        "pipeline_decision_section": prompt_base.get("Pipeline Decision Contract", ""),
     }
 
     use_memory = (
@@ -349,5 +369,12 @@ def _diff_improve(agent, prompt_base, data_preview, parent_node):
         data_preview=data_preview,
         execution_output=context["execution_output"],
         introduction=_IMPROVE_DIFF_INTRODUCTION,
-        extra_user_sections=context.get("hardware_prompt_section", ""),
+        extra_user_sections="\n".join(
+            section
+            for section in (
+                context.get("hardware_prompt_section", ""),
+                context.get("pipeline_decision_section", ""),
+            )
+            if section
+        ),
     )

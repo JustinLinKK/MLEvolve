@@ -18,7 +18,11 @@ from agents.hardware_context import (
 )
 from agents.prompts import (
     ROBUSTNESS_GENERALIZATION_STRATEGY,
+    apply_pipeline_decision_to_node,
+    build_pipeline_decision,
+    format_pipeline_decision_prompt_section,
     prompt_leakage_prevention,
+    pipeline_decision_instructions,
     prompt_resp_fmt,
     get_prompt_environment,
     get_impl_guideline_from_agent,
@@ -82,8 +86,18 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
     hardware_section = "\n".join(
         section for section in (hardware_design_brief.prompt_section, hardware_ctx.prompt_section) if section.strip()
     )
+    pipeline_decision = build_pipeline_decision(
+        agent,
+        stage="draft",
+        data_preview=agent.data_preview,
+        hardware_contexts=[hardware_design_brief, hardware_ctx],
+    )
+    pipeline_decision_section = format_pipeline_decision_prompt_section(pipeline_decision)
+    prompt["Pipeline Decision"] = pipeline_decision
+    prompt["Pipeline Decision Contract"] = pipeline_decision_section
     prompt["Instructions"] |= prompt_resp_fmt()
     prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
+    prompt["Instructions"] |= pipeline_decision_instructions(pipeline_decision)
 
     prompt["Instructions"] |= {
         "🔬 Critical: Scientific Approach to Design": [
@@ -178,7 +192,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
     if prompt.get("Memory", "").strip():
         memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
 
-    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{hardware_section}\n{instructions}"
+    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{hardware_section}\n{pipeline_decision_section}\n{instructions}"
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll examine the dataset:\n{agent.data_preview}"
     prompt_complete = build_chat_prompt_for_model(
         agent.acfg.code.model, introduction, user_prompt, assistant_prefix
@@ -201,6 +215,8 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
                     "design_brief": hardware_design_brief.compact_context,
                     "execution_context": hardware_ctx.compact_context,
                 },
+                "pipeline_decision": pipeline_decision,
+                "pipeline_decision_section": pipeline_decision_section,
             },
         )
     else:
@@ -209,6 +225,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
                         local_best_node=agent.virtual_root)
     apply_hardware_context_to_node(new_node, hardware_ctx)
     apply_hardware_design_brief_to_node(new_node, hardware_design_brief)
+    apply_pipeline_decision_to_node(new_node, pipeline_decision)
     register_node(agent, new_node, prompt_complete, new_branch=True)
 
     logger.info(f"[draft] → node {new_node.id} (branch={new_node.branch_id})")
