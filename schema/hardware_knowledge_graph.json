@@ -4516,6 +4516,471 @@
         "tflops_note": "with Sparsity",
         "source_url": "https://www.nvidia.com/en-us/data-center/h200/"
       }
+    },
+    {
+      "label": "Hardware",
+      "id": "hw:amd.rdna3.radeon_rx_7600.spec",
+      "properties": {
+        "hardware_id": "amd.rdna3.radeon_rx_7600.spec",
+        "name": "AMD Radeon RX 7600",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_7600",
+          "rx_7600",
+          "rx7600"
+        ],
+        "architectures": [
+          "rdna3"
+        ],
+        "compute_capabilities": [
+          "gfx1102"
+        ],
+        "vram_MB": 8192,
+        "vram_type": "gddr6",
+        "sm_count": 32,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
+        ],
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (RDNA 3 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels"
+        ],
+        "memory_bandwidth_GBps": 288,
+        "l2_cache_MB": 2,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/7000-series/amd-radeon-rx-7600.html"
+      }
+    },
+    {
+      "label": "Hardware",
+      "id": "hw:amd.rdna3.radeon_rx_7700.spec",
+      "properties": {
+        "hardware_id": "amd.rdna3.radeon_rx_7700.spec",
+        "name": "AMD Radeon RX 7700",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_7700",
+          "rx_7700",
+          "rx7700"
+        ],
+        "architectures": [
+          "rdna3"
+        ],
+        "compute_capabilities": [
+          "gfx1101"
+        ],
+        "vram_MB": 12288,
+        "vram_type": "gddr6",
+        "sm_count": 54,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
+        ],
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (RDNA 3 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels"
+        ],
+        "memory_bandwidth_GBps": 622,
+        "l2_cache_MB": 2,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/7000-series/amd-radeon-rx-7700.html"
+      }
+    },
+    {
+      "label": "Hardware",
+      "id": "hw:amd.rdna3.radeon_rx_7800_xt.spec",
+      "properties": {
+        "hardware_id": "amd.rdna3.radeon_rx_7800_xt.spec",
+        "name": "AMD Radeon RX 7800 XT",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_7800_xt",
+          "rx_7800_xt",
+          "rx7800xt"
+        ],
+        "architectures": [
+          "rdna3"
+        ],
+        "compute_capabilities": [
+          "gfx1101"
+        ],
+        "vram_MB": 16384,
+        "vram_type": "gddr6",
+        "sm_count": 60,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
+        ],
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (RDNA 3 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels"
+        ],
+        "memory_bandwidth_GBps": 624,
+        "l2_cache_MB": 4,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/7000-series/amd-radeon-rx-7800-xt.html"
+      }
+    },
+    {
+      "label": "Hardware",
+      "id": "hw:amd.rdna3.radeon_rx_7900_gre.spec",
+      "properties": {
+        "hardware_id": "amd.rdna3.radeon_rx_7900_gre.spec",
+        "name": "AMD Radeon RX 7900 GRE",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_7900_gre",
+          "rx_7900_gre",
+          "rx7900gre"
+        ],
+        "architectures": [
+          "rdna3"
+        ],
+        "compute_capabilities": [
+          "gfx1100"
+        ],
+        "vram_MB": 16384,
+        "vram_type": "gddr6",
+        "sm_count": 80,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
+        ],
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (RDNA 3 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels"
+        ],
+        "memory_bandwidth_GBps": 576,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/7000-series/amd-radeon-rx-7900-gre.html"
+      }
+    },
+    {
+      "label": "Hardware",
+      "id": "hw:amd.rdna3.radeon_rx_7900_xt.spec",
+      "properties": {
+        "hardware_id": "amd.rdna3.radeon_rx_7900_xt.spec",
+        "name": "AMD Radeon RX 7900 XT",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_7900_xt",
+          "rx_7900_xt",
+          "rx7900xt"
+        ],
+        "architectures": [
+          "rdna3"
+        ],
+        "compute_capabilities": [
+          "gfx1100"
+        ],
+        "vram_MB": 20480,
+        "vram_type": "gddr6",
+        "sm_count": 84,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
+        ],
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer only for small matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True"
+        ],
+        "avoid_patterns": [
+          "no fp8 (RDNA 3 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning"
+        ],
+        "memory_bandwidth_GBps": 800,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/7000-series/amd-radeon-rx-7900xt.html"
+      }
+    },
+    {
+      "label": "Hardware",
+      "id": "hw:amd.rdna3.radeon_rx_7900_xtx.spec",
+      "properties": {
+        "hardware_id": "amd.rdna3.radeon_rx_7900_xtx.spec",
+        "name": "AMD Radeon RX 7900 XTX",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_7900_xtx",
+          "rx_7900_xtx",
+          "rx7900xtx"
+        ],
+        "architectures": [
+          "rdna3"
+        ],
+        "compute_capabilities": [
+          "gfx1100"
+        ],
+        "vram_MB": 24576,
+        "vram_type": "gddr6",
+        "sm_count": 96,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
+        ],
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer only for small matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True"
+        ],
+        "avoid_patterns": [
+          "no fp8 (RDNA 3 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning"
+        ],
+        "memory_bandwidth_GBps": 960,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/7000-series/amd-radeon-rx-7900xtx.html"
+      }
+    },
+    {
+      "label": "Hardware",
+      "id": "hw:amd.rdna4.radeon_rx_9070.spec",
+      "properties": {
+        "hardware_id": "amd.rdna4.radeon_rx_9070.spec",
+        "name": "AMD Radeon RX 9070",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_9070",
+          "rx_9070",
+          "rx9070"
+        ],
+        "architectures": [
+          "rdna4"
+        ],
+        "compute_capabilities": [
+          "gfx1201"
+        ],
+        "vram_MB": 16384,
+        "vram_type": "gddr6",
+        "sm_count": 56,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
+        ],
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm 6.2+, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (RDNA 4 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels",
+          "no ROCm < 6.2 (gfx1201 requires ROCm 6.2+)"
+        ],
+        "memory_bandwidth_GBps": 644,
+        "l2_cache_MB": 8,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/9000-series/amd-radeon-rx-9070.html"
+      }
+    },
+    {
+      "label": "Hardware",
+      "id": "hw:amd.rdna4.radeon_rx_9070_xt.spec",
+      "properties": {
+        "hardware_id": "amd.rdna4.radeon_rx_9070_xt.spec",
+        "name": "AMD Radeon RX 9070 XT",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_9070_xt",
+          "rx_9070_xt",
+          "rx9070xt"
+        ],
+        "architectures": [
+          "rdna4"
+        ],
+        "compute_capabilities": [
+          "gfx1201"
+        ],
+        "vram_MB": 16384,
+        "vram_type": "gddr6",
+        "sm_count": 64,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
+        ],
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm 6.2+, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (RDNA 4 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels",
+          "no ROCm < 6.2 (gfx1201 requires ROCm 6.2+)"
+        ],
+        "memory_bandwidth_GBps": 644,
+        "l2_cache_MB": 8,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/9000-series/amd-radeon-rx-9070xt.html"
+      }
     }
   ],
   "edges": [
