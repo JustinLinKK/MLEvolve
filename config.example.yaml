@@ -225,6 +225,7 @@ agent:
   check_data_leakage: true
   use_diff_mode: true
   hardware_context_enabled: true
+  pipeline_decision_enabled: true
   hardware_context_limit: 8
   hardware_context_max_prompt_chars: 3500
   fusion_vs_evolution_prob: 0.3
