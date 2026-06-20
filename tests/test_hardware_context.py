@@ -157,6 +157,108 @@ def test_hardware_design_brief_ranks_model_options_without_overriding_constraint
     assert HARDWARE_BUDGET_GUARDRAIL_RULE in prompt
 
 
+def test_hardware_design_brief_fetches_only_selected_feature_details(monkeypatch) -> None:
+    class FakeScheduler:
+        def __init__(self) -> None:
+            self.detail_calls = []
+            self.settings = SimpleNamespace(
+                gpu_scheduler=SimpleNamespace(
+                    mode="parallel_auto_pack",
+                    backend_priority=["stream", "cuda_process", "exclusive"],
+                    concurrent_backend_allowlist=["stream"],
+                    submission_defaults=SimpleNamespace(
+                        requires_gpu=True,
+                        packing_family="mlevolve_script",
+                        backend_allowlist=[],
+                        batch_probe_model_key=None,
+                    ),
+                )
+            )
+
+        def get_model_design_hardware_context(self, **kwargs):
+            return {
+                "found": True,
+                "hardware_context": {
+                    "found": True,
+                    "hardware": {"gpu_name": "NVIDIA GeForce RTX 5090", "hardware_key": "hw-current"},
+                },
+                "hardware_feature_index": {
+                    "found": True,
+                    "hardware": {"hardware_id": "nvidia.blackwell.geforce_rtx_5090.spec", "name": "GeForce RTX 5090"},
+                    "features": [
+                        {
+                            "feature_id": "bf16",
+                            "feature_name": "BF16",
+                            "category": "precision_optimization",
+                            "support_level": "native",
+                            "performance_impact": "high",
+                        },
+                        {
+                            "feature_id": "fp8",
+                            "feature_name": "FP8",
+                            "category": "precision_optimization",
+                            "support_level": "supported",
+                            "performance_impact": "medium",
+                        },
+                    ],
+                    "feature_count": 2,
+                    "source": "redis",
+                },
+                "workload_type": kwargs.get("workload_type"),
+                "model_options": [
+                    {
+                        "model_family": "vision_transformer",
+                        "rationale": "Good task fit when precision is supported.",
+                        "confidence": 0.6,
+                    }
+                ],
+                "recommendations": ["Use selected hardware details only when they apply."],
+                "confidence": 0.6,
+            }
+
+        def get_hardware_feature_details(self, *, hardware_id, feature_ids, limit):
+            self.detail_calls.append((hardware_id, list(feature_ids), limit))
+            return {
+                "found": True,
+                "hardware": {"hardware_id": "nvidia.blackwell.geforce_rtx_5090.spec", "name": "GeForce RTX 5090"},
+                "features": [
+                    {
+                        "feature_id": "bf16",
+                        "feature_name": "BF16",
+                        "category": "precision_optimization",
+                        "support_level": "native",
+                        "summary_text": "Native BF16 tensor-core path.",
+                        "recommended_patterns": ["Use torch.autocast with bf16."],
+                        "avoid_patterns": ["Avoid if numerically unstable."],
+                    }
+                ],
+            }
+
+    scheduler = FakeScheduler()
+    agent = SimpleNamespace(
+        scheduler_client=scheduler,
+        acfg=SimpleNamespace(
+            hardware_context_enabled=True,
+            hardware_context_limit=4,
+            hardware_context_max_prompt_chars=4000,
+            code=SimpleNamespace(temp=0.7),
+        ),
+        cfg=SimpleNamespace(exp_id="task-a"),
+        task_desc="image classification",
+        data_preview="train images and labels",
+    )
+    monkeypatch.setattr("agents.hardware_context.generate", lambda **_: '{"feature_ids": ["bf16", "made_up"]}')
+
+    context = get_hardware_design_brief(agent)
+
+    assert scheduler.detail_calls == [("current", ["bf16"], 1)]
+    assert "Available hardware feature keys linked to this hardware" in context.prompt_section
+    assert "Selected hardware feature details for model_design" in context.prompt_section
+    assert "Native BF16 tensor-core path" in context.prompt_section
+    assert "fp8" in context.prompt_section
+    assert "detail for fp8" not in context.prompt_section
+
+
 def test_scheduler_lookup_is_non_fatal_and_uses_get_optimization_context() -> None:
     class FakeScheduler:
         def __init__(self) -> None:

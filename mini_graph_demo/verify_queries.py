@@ -16,7 +16,7 @@ from mini_graph_demo._driver import connect, session
 from mini_graph_demo.queries import _split_queries
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-QUERIES_FILE = REPO_ROOT / "schema" / "example_queries.cypher"
+QUERIES_FILE = REPO_ROOT / "schema" / "job_evidence" / "example_queries.cypher"
 
 PARAMS_Q1 = {
     "model_key": "mgd:resnet50.timm",

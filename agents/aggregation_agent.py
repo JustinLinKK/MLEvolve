@@ -8,7 +8,14 @@ from agents.hardware_context import (
     get_hardware_context_for_stage,
     hardware_context_instructions,
 )
-from agents.prompts import prompt_resp_fmt, get_impl_guideline_from_agent
+from agents.prompts import (
+    apply_pipeline_decision_to_node,
+    build_pipeline_decision,
+    format_pipeline_decision_prompt_section,
+    get_impl_guideline_from_agent,
+    pipeline_decision_instructions,
+    prompt_resp_fmt,
+)
 from agents.planner import build_chat_prompt_for_model
 from agents.coder import plan_and_code_query
 
@@ -126,9 +133,20 @@ def run(
     }
     hardware_ctx = get_hardware_context_for_stage(agent, "aggregation")
     hardware_section = hardware_ctx.prompt_section
+    pipeline_decision = build_pipeline_decision(
+        agent,
+        stage="aggregation",
+        data_preview=getattr(agent, "data_preview", "") or "",
+        hardware_contexts=[hardware_ctx],
+        stage_context=reference_experiences,
+    )
+    pipeline_decision_section = format_pipeline_decision_prompt_section(pipeline_decision)
+    prompt["Pipeline Decision"] = pipeline_decision
+    prompt["Pipeline Decision Contract"] = pipeline_decision_section
 
     prompt["Instructions"] |= prompt_resp_fmt()
     prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
+    prompt["Instructions"] |= pipeline_decision_instructions(pipeline_decision)
 
     if mode == "node":
         prompt["Instructions"] |= {
@@ -175,7 +193,8 @@ def run(
 
     user_prompt = (
         f"\n# Task description\n{prompt['Task description']}\n\n"
-        f"{hardware_section}# Branch Experiences\n{prompt['Branch Experiences']}\n\n{instructions}"
+        f"{hardware_section}{pipeline_decision_section}"
+        f"# Branch Experiences\n{prompt['Branch Experiences']}\n\n{instructions}"
     )
     prompt_complete = build_chat_prompt_for_model(agent.acfg.code.model, introduction, user_prompt, assistant_prefix)
 
@@ -189,6 +208,7 @@ def run(
         local_best_node=agent.virtual_root,
     )
     apply_hardware_context_to_node(aggregation_node, hardware_ctx)
+    apply_pipeline_decision_to_node(aggregation_node, pipeline_decision)
     register_node(agent, aggregation_node, prompt_complete, new_branch=True)
     agent.fusion_draft_count += 1
 

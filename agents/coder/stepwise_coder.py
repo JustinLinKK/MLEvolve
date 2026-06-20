@@ -36,6 +36,8 @@ class StepwiseContext:
     hardware_brief: str = ""
     hardware_candidate: Dict[str, Any] = field(default_factory=dict)
     hardware_context: Dict[str, Any] = field(default_factory=dict)
+    pipeline_decision: Dict[str, Any] = field(default_factory=dict)
+    pipeline_decision_section: str = ""
 
 
 @dataclass
@@ -187,6 +189,7 @@ class StepAgent:
             "Data preview": data_preview_str,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
             "Hardware/Profile Optimization Context": context.hardware_brief,
+            "Pipeline Decision Contract": context.pipeline_decision_section,
             "Previous steps": prev_summary,
             "Current step": {
                 "Name": self.name,
@@ -249,6 +252,7 @@ class StepAgent:
                 memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
 
         hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
+        pipeline_decision_section = prompt.get("Pipeline Decision Contract", "")
 
         previous_solution_section = ""
         if context.stage == "improve" and "Previous solution" in prompt:
@@ -258,6 +262,7 @@ class StepAgent:
             f"\n# Task description\n{prompt['Task description']}\n\n"
             f"{memory_section}\n"
             f"{hardware_section}\n"
+            f"{pipeline_decision_section}\n"
             f"{previous_solution_section}"
             f"# Previous steps\n{prompt['Previous steps']}\n\n"
             f"# Current step: {prompt['Current step']['Name']}\n{prompt['Current step']['Description']}\n\n"
@@ -355,6 +360,7 @@ class MetaAgent:
             "Task description": task_desc,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
             "Hardware/Profile Optimization Context": context.hardware_brief,
+            "Pipeline Decision Contract": context.pipeline_decision_section,
             "Data preview": data_preview_str,
             "Step results": "".join(steps_summary),
             "Instructions": prompt_instructions,
@@ -378,6 +384,7 @@ class MetaAgent:
             else:
                 memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
         hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
+        pipeline_decision_section = prompt.get("Pipeline Decision Contract", "")
 
         okay_text = "Let me approach this systematically.\nFirst, I'll examine the dataset:"
 
@@ -401,6 +408,7 @@ class MetaAgent:
             f"\n# Task description\n{prompt['Task description']}\n\n"
             f"{memory_section}\n\n"
             f"{hardware_section}\n"
+            f"{pipeline_decision_section}\n"
             f"# Step results\n{prompt['Step results']}\n\n"
             f"{instructions}"
         )
@@ -424,7 +432,11 @@ def _hardware_reasoning_enabled(agent_instance) -> bool:
     return bool(getattr(acfg, "hardware_context_enabled", True))
 
 
-def create_default_step_agents(*, hardware_aware: bool = True) -> List[StepAgent]:
+def create_default_step_agents(
+    *,
+    hardware_aware: bool = True,
+    pipeline_decision_aware: bool = True,
+) -> List[StepAgent]:
     data_guidelines = [
         "Your responsibility: Load data from `./input`, clean, create features (preprocessing, encoding, augmentation), and split dataset into train/validation/test.",
         "CRITICAL: This step MUST include BOTH data loading AND feature engineering. Do NOT only load the raw data. You must actively create, transform, and enhance features to improve model performance.",
@@ -456,6 +468,25 @@ def create_default_step_agents(*, hardware_aware: bool = True) -> List[StepAgent
         "CRITICAL: The metric calculation must match the Evaluation section exactly - use the same matching criteria, the same formula, the same thresholds (if any), and the same aggregation method as specified.",
         "CRITICAL: The final line must be: `print(f'Final Validation Score: {{score}}')`. This is required for the score parser.",
     ]
+    if pipeline_decision_aware:
+        data_guidelines.extend(
+            [
+                "Pipeline decision: consume `datatype.modality`, `datatype.target_type`, and `datatype.shape_constraints` before choosing preprocessing or feature engineering.",
+                "Pipeline decision: use `tuning.dataloader_policy` only for data loading mechanics; do not choose the model family or optimizer in this step.",
+            ]
+        )
+        model_guidelines.extend(
+            [
+                "Pipeline decision: consume `datatype`, `model`, and `optimizer.loss`/`optimizer.optimizer` to define only the model, criterion, and optimizer.",
+                "Pipeline decision: do not use unavailable weights, packages, or hardware-only tricks to justify a model family.",
+            ]
+        )
+        training_guidelines.extend(
+            [
+                "Pipeline decision: consume `optimizer`, `tuning`, and `evidence` for training, validation, checkpointing, submission generation, and runtime logging.",
+                "Pipeline decision: when evidence is missing, implement the recorded safe fallbacks rather than inventing hardware claims.",
+            ]
+        )
     if hardware_aware:
         data_guidelines.append(
             "Hardware-aware data pipeline: when using GPU training, keep input resolution/sequence length configurable, use DataLoader settings compatible with the hardware brief, and prefer pin_memory/non-blocking transfers when tensors move to CUDA."
@@ -463,6 +494,7 @@ def create_default_step_agents(*, hardware_aware: bool = True) -> List[StepAgent
         model_guidelines.extend(
             [
                 "Hardware-aware model design: use the Hardware-Aware Model Design Brief to compare model families before choosing an architecture. Optimize for the task metric first, while treating lower training time and higher GPU utilization as persistent objectives.",
+                "This model_design step is the combined hardware-aware design stage: use the brief's compact hardware node, available feature keys, and selected feature details when they are relevant to architecture, precision, or layer choices.",
                 "Prefer architectures and layers that can use documented hardware fast paths from the brief, such as tensor-core-friendly dimensions, AMP/bf16/fp16, transformer engine, torch.compile, or efficient convolution kernels, only when the evidence applies to this task and installed environment.",
                 "Do not invent pretrained checkpoint paths, Kaggle input directories, torch hub directories, or dummy model weights to satisfy hardware advice. If a model source is not explicitly available, choose an available baseline-compatible model family.",
             ]
@@ -514,9 +546,14 @@ def stepwise_plan_and_code_query(
         hardware_brief=context.get("hardware_prompt_section", ""),
         hardware_candidate=context.get("hardware_candidate", {}) or {},
         hardware_context=context.get("hardware_context", {}) or {},
+        pipeline_decision=context.get("pipeline_decision", {}) or {},
+        pipeline_decision_section=context.get("pipeline_decision_section", ""),
     )
 
-    step_agents = create_default_step_agents(hardware_aware=_hardware_reasoning_enabled(agent_instance))
+    step_agents = create_default_step_agents(
+        hardware_aware=_hardware_reasoning_enabled(agent_instance),
+        pipeline_decision_aware=bool(stepwise_context.pipeline_decision_section),
+    )
     meta_agent = MetaAgent()
 
     step_results: List[Dict[str, str]] = []

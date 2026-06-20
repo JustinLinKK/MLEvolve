@@ -254,6 +254,7 @@ def build_planner_suffix(
     code = prompt_base.get("Previous solution", {}).get("Code", "")
     execution_output = context.get("execution_output", "")
     hardware_section = context.get("hardware_prompt_section") or prompt_base.get("Hardware/Profile Optimization Context", "")
+    pipeline_decision_section = context.get("pipeline_decision_section") or prompt_base.get("Pipeline Decision Contract", "")
 
     suffix = (
         f"Let me approach this systematically.\n"
@@ -263,6 +264,8 @@ def build_planner_suffix(
     )
     if hardware_section:
         suffix += f"Hardware/profile context:\n{hardware_section}\n"
+    if pipeline_decision_section:
+        suffix += f"Pipeline decision trace:\n{pipeline_decision_section}\n"
     if extra_text:
         suffix += extra_text + "\n"
     suffix += "Now I will output my analysis in JSON format only (no additional text):"
@@ -326,6 +329,9 @@ def run_planner(
     hardware_section = planning_prompt_dict.get("Hardware/Profile Optimization Context", "")
     if hardware_section:
         user_prompt_parts.append(f"{hardware_section}\n")
+    pipeline_decision_section = planning_prompt_dict.get("Pipeline Decision Contract", "")
+    if pipeline_decision_section:
+        user_prompt_parts.append(f"{pipeline_decision_section}\n")
     if extra_prompt_sections:
         for section_text in extra_prompt_sections.values():
             if section_text:

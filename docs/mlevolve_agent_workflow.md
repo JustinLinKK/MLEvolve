@@ -110,9 +110,11 @@ Its prompt is assembled from:
 - the task description
 - the current data preview
 - memory of earlier attempts from the root
+- a pipeline decision trace that locks the order `datatype -> model -> optimizer -> tuning`
 - implementation guidelines
 - leakage-prevention instructions
 - optional cold-start model guidance
+- optional hardware/profile context, used as evidence for compatible tuning rather than as a task override
 
 Depending on config, draft generation can happen in one of two ways:
 
@@ -124,7 +126,8 @@ After generation:
 1. A `SearchNode(stage="draft")` is created.
 2. `register_node(...)` in [agents/triggers.py](../agents/triggers.py) assigns a new `branch_id`.
 3. The original prompt is serialized into `node.prompt_input`.
-4. The node becomes the first real node in that branch.
+4. The compact decision is persisted on `node.pipeline_decision`.
+5. The node becomes the first real node in that branch.
 
 ### 8. Code review runs before execution
 
@@ -195,6 +198,11 @@ The available stage agents are:
 - [agents/fusion_agent.py](../agents/fusion_agent.py): borrow ideas from other successful branches
 - [agents/aggregation_agent.py](../agents/aggregation_agent.py): create a new root-level fusion draft from multiple good branches
 
+Every code-producing stage receives the pipeline decision contract when
+`agent.pipeline_decision_enabled=true`. Child nodes inherit their parent's trace
+by default, and stages that reconsider the solution generate and persist an
+updated trace before writing code.
+
 ### 12. What each stage agent actually uses as context
 
 The stage agents differ mainly in what context they expose to the model.
@@ -211,6 +219,7 @@ Improve agent:
 - parent code
 - parent execution output
 - sibling attempt memory from the same parent
+- parent pipeline decision, updated only where execution feedback or the new plan contradicts it
 - plateau-aware prompting
 - optional diff-based implementation
 
