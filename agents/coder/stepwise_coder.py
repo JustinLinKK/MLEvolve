@@ -17,6 +17,7 @@ from typing import List, Tuple, Dict, Any
 
 from llm import generate, compile_prompt_to_md
 from utils.response import extract_code, extract_text_up_to_code, wrap_code
+from agents.hardware_context import format_hardware_design_brief, format_hardware_prompt_section
 from agents.planner.base_planner import (
     PLANNING_ALLOWED_MODULES,
     PLANNING_JSON_FORMAT,
@@ -25,6 +26,12 @@ from agents.planner.base_planner import (
 )
 
 logger = logging.getLogger("MLEvolve")
+
+_STEP_HARDWARE_STAGES = {
+    "data_processing_and_feature_engineering": {"datatype"},
+    "model_design": {"model", "optimizer"},
+    "training_evaluation": {"tuning"},
+}
 
 
 @dataclass
@@ -38,6 +45,79 @@ class StepwiseContext:
     hardware_context: Dict[str, Any] = field(default_factory=dict)
     pipeline_decision: Dict[str, Any] = field(default_factory=dict)
     pipeline_decision_section: str = ""
+    used_prompts: List[Dict[str, str]] = field(default_factory=list)
+
+
+def _hardware_brief_for_step(context: StepwiseContext, step_name: str) -> str:
+    allowed_stages = _STEP_HARDWARE_STAGES.get(step_name)
+    hardware_context = context.hardware_context or {}
+    execution_context = dict(hardware_context.get("execution_context") or {})
+    design_brief = dict(hardware_context.get("design_brief") or {})
+    if not allowed_stages or not execution_context:
+        return context.hardware_brief
+
+    sections: list[str] = []
+    if step_name == "model_design" and design_brief:
+        filtered_design = _filter_design_feature_index(design_brief, allowed_stages)
+        design_section = format_hardware_design_brief(filtered_design, max_chars=1800)
+        if design_section.strip():
+            sections.append(design_section)
+
+    filtered_execution = _filter_compact_stage_hardware(execution_context, allowed_stages)
+    if step_name == "data_processing_and_feature_engineering":
+        filtered_execution.pop("graph_evidence", None)
+        filtered_execution.pop("vector_evidence", None)
+        filtered_execution.pop("derived_diagnosis", None)
+    elif step_name == "model_design":
+        filtered_execution.pop("graph_evidence", None)
+
+    execution_section = format_hardware_prompt_section(filtered_execution, max_chars=1800)
+    if execution_section.strip():
+        sections.append(execution_section)
+    return "\n".join(section for section in sections if section.strip()) or context.hardware_brief
+
+
+def _filter_compact_stage_hardware(compact: Dict[str, Any], allowed_stages: set[str]) -> Dict[str, Any]:
+    filtered = dict(compact)
+    stage_context = dict(filtered.get("stage_hardware_features") or {})
+    stages = [
+        item
+        for item in list(stage_context.get("stages") or [])
+        if str(item.get("stage") or "") in allowed_stages
+    ]
+    if stages:
+        stage_context["stages"] = stages
+        stage_context["stage_filter"] = [item.get("stage") for item in stages if item.get("stage")]
+        feature_ids: list[str] = []
+        for item in stages:
+            for feature in item.get("features") or []:
+                feature_id = str(feature.get("feature_id") or "").strip()
+                if feature_id and feature_id not in feature_ids:
+                    feature_ids.append(feature_id)
+        stage_context["feature_ids"] = feature_ids
+        stage_context["feature_count"] = sum(int(item.get("feature_count") or 0) for item in stages)
+    else:
+        stage_context = {}
+    filtered["stage_hardware_features"] = stage_context
+    return filtered
+
+
+def _filter_design_feature_index(compact: Dict[str, Any], allowed_stages: set[str]) -> Dict[str, Any]:
+    filtered = dict(compact)
+    feature_index = dict(filtered.get("hardware_feature_index") or {})
+    features = list(feature_index.get("features") or [])
+    if features:
+        feature_index["features"] = [
+            feature
+            for feature in features
+            if (
+                str(feature.get("pipeline_stage") or "") in allowed_stages
+                or str(feature.get("category") or "") in {"compute_capability", "interconnect", "kernel_optimization", "tensor_core", "optimizer"}
+            )
+        ]
+        feature_index["feature_count"] = len(feature_index["features"])
+        filtered["hardware_feature_index"] = feature_index
+    return filtered
 
 
 @dataclass
@@ -71,6 +151,7 @@ class StepAgent:
             previous_module_code=previous_module_code,
             improvement_strategy=improvement_strategy,
         )
+        context.used_prompts.append({"name": self.name, "prompt": prompt})
 
         completion_text = None
         for _ in range(retries):
@@ -183,12 +264,13 @@ class StepAgent:
             else:
                 prompt_instructions["Implementation guideline"] = [base_impl_guideline] + step_specific_impl
 
+        hardware_brief = _hardware_brief_for_step(context, self.name)
         prompt: Dict[str, Any] = {
             "Introduction": introduction,
             "Task description": task_desc,
             "Data preview": data_preview_str,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
-            "Hardware/Profile Optimization Context": context.hardware_brief,
+            "Hardware/Profile Optimization Context": hardware_brief,
             "Pipeline Decision Contract": context.pipeline_decision_section,
             "Previous steps": prev_summary,
             "Current step": {
@@ -292,6 +374,7 @@ class MetaAgent:
             agent_instance=agent_instance,
             context=context,
         )
+        context.used_prompts.append({"name": "merge", "prompt": prompt})
 
         completion_text = None
         for _ in range(retries):
@@ -587,4 +670,5 @@ def stepwise_plan_and_code_query(
 
     logger.info("Stepwise generation completed.")
 
+    context["used_prompt_sections"] = list(stepwise_context.used_prompts)
     return final_plan, final_code

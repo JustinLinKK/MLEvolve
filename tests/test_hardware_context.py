@@ -17,7 +17,12 @@ from agents.hardware_context import (
     hardware_context_instructions,
     optimize_training_parameters_for_round,
 )
-from agents.coder.stepwise_coder import _hardware_reasoning_enabled, create_default_step_agents
+from agents.coder.stepwise_coder import (
+    StepwiseContext,
+    _hardware_brief_for_step,
+    _hardware_reasoning_enabled,
+    create_default_step_agents,
+)
 from engine.script_introspection import introspect_training_script, normalized_mlevolve_script_signature
 from engine.search_node import Journal, SearchNode
 from utils.serialize import dumps_json, loads_json
@@ -128,6 +133,55 @@ def test_compact_context_formats_prompt_without_raw_bloat() -> None:
     assert "raw_context" not in prompt
 
 
+def test_stage_filtered_hardware_features_are_compacted_into_prompt() -> None:
+    raw = {
+        "hardware_context": {
+            "found": True,
+            "hardware": {"gpu_name": "RTX 5090", "summary_text": "RTX 5090"},
+        },
+        "stage_hardware_features": {
+            "found": True,
+            "stage_filter": ["optimizer"],
+            "hardware": {"gpu_name": "RTX 5090", "architecture": "blackwell"},
+            "stages": [
+                {
+                    "stage": "optimizer",
+                    "node": {
+                        "stage_filter": "optimizer",
+                        "recipes": ["muon_optimizer"],
+                        "experimental_recipes": ["soap_optimizer", "ademamix_optimizer"],
+                    },
+                    "features": [
+                        {
+                            "feature_id": "soap_optimizer",
+                            "name": "SOAP optimizer",
+                            "category": "optimizer",
+                            "support_level": "experimental",
+                            "recommended": False,
+                            "verified": False,
+                            "limitations": "RTX 5090-specific benefit is not widely confirmed.",
+                        }
+                    ],
+                    "feature_count": 1,
+                }
+            ],
+            "features": [{"feature_id": "soap_optimizer"}],
+            "feature_count": 1,
+            "source": "hardware_knowledge_graph.json",
+        },
+        "confidence": 0.4,
+    }
+
+    compact = compact_optimization_context(raw)
+    prompt = format_hardware_prompt_section(compact, max_chars=2000)
+
+    assert "Stage-filtered hardware knowledge" in prompt
+    assert "optimizer" in prompt
+    assert "soap_optimizer" in prompt
+    assert "not widely confirmed" in prompt
+    assert "hardware_knowledge_graph.json" in prompt
+
+
 def test_hardware_design_brief_ranks_model_options_without_overriding_constraints() -> None:
     compact = {
         "hardware_context": {
@@ -155,6 +209,63 @@ def test_hardware_design_brief_ranks_model_options_without_overriding_constraint
     assert "tensor-core-friendly" in prompt
     assert CONSTRAINT_PRECEDENCE_RULE in prompt
     assert HARDWARE_BUDGET_GUARDRAIL_RULE in prompt
+
+
+def test_stepwise_hardware_brief_uses_current_step_stage_filter() -> None:
+    execution_context = compact_optimization_context(
+        {
+            "hardware_context": {
+                "found": True,
+                "hardware": {"gpu_name": "RTX 5090", "summary_text": "RTX 5090"},
+            },
+            "stage_hardware_features": {
+                "found": True,
+                "stage_filter": ["datatype", "tuning"],
+                "stages": [
+                    {
+                        "stage": "datatype",
+                        "node": {"stage_filter": "datatype", "software_features": ["nvimagecodec_gpu_decode"]},
+                        "features": [
+                            {
+                                "feature_id": "dataset_decomposition",
+                                "name": "Dataset decomposition",
+                                "category": "data_pipeline",
+                            }
+                        ],
+                        "feature_count": 1,
+                    },
+                    {
+                        "stage": "tuning",
+                        "node": {"stage_filter": "tuning", "datatypes": ["bf16", "fp8"]},
+                        "features": [
+                            {
+                                "feature_id": "bf16",
+                                "name": "BF16",
+                                "category": "precision",
+                            }
+                        ],
+                        "feature_count": 1,
+                    },
+                ],
+                "features": [{"feature_id": "dataset_decomposition"}, {"feature_id": "bf16"}],
+                "feature_count": 2,
+                "source": "unit-test",
+            },
+            "confidence": 0.5,
+        }
+    )
+    context = StepwiseContext(
+        hardware_brief="full fallback context",
+        hardware_context={"execution_context": execution_context},
+    )
+
+    data_brief = _hardware_brief_for_step(context, "data_processing_and_feature_engineering")
+    training_brief = _hardware_brief_for_step(context, "training_evaluation")
+
+    assert "dataset_decomposition" in data_brief
+    assert "bf16" not in data_brief
+    assert "bf16" in training_brief
+    assert "dataset_decomposition" not in training_brief
 
 
 def test_hardware_design_brief_fetches_only_selected_feature_details(monkeypatch) -> None:

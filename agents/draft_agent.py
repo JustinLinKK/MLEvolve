@@ -32,6 +32,17 @@ from agents.planner import build_chat_prompt_for_model
 logger = logging.getLogger("MLEvolve")
 
 
+def _format_used_prompt_sections(sections: list[dict[str, str]]) -> str:
+    parts: list[str] = []
+    for idx, section in enumerate(sections, 1):
+        name = str(section.get("name") or f"prompt_{idx}")
+        prompt = str(section.get("prompt") or "")
+        if not prompt:
+            continue
+        parts.append(f"# Used Prompt {idx}: {name}\n\n{prompt}")
+    return "\n\n".join(parts)
+
+
 def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
     """Generate initial draft. If init_solution_path is provided and readable, use file content directly."""
     if init_solution_path:
@@ -201,23 +212,29 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
         logger.info("Draft limit reached before draft generation could reserve a child slot.")
         return None
 
+    prompt_for_log = prompt_complete
     if agent.use_stepwise_generation:
+        stepwise_context_payload = {
+            "stage": "draft",
+            "memory": prompt.get("Memory", ""),
+            "hardware_prompt_section": hardware_section,
+            "hardware_candidate": hardware_ctx.candidate,
+            "hardware_context": {
+                "design_brief": hardware_design_brief.compact_context,
+                "execution_context": hardware_ctx.compact_context,
+            },
+            "pipeline_decision": pipeline_decision,
+            "pipeline_decision_section": pipeline_decision_section,
+        }
         plan, code = stepwise_plan_and_code_query(
             agent_instance=agent,
             prompt_base=prompt,
             data_preview=agent.data_preview,
-            context={
-                "stage": "draft",
-                "memory": prompt.get("Memory", ""),
-                "hardware_prompt_section": hardware_section,
-                "hardware_candidate": hardware_ctx.candidate,
-                "hardware_context": {
-                    "design_brief": hardware_design_brief.compact_context,
-                    "execution_context": hardware_ctx.compact_context,
-                },
-                "pipeline_decision": pipeline_decision,
-                "pipeline_decision_section": pipeline_decision_section,
-            },
+            context=stepwise_context_payload,
+        )
+        prompt_for_log = (
+            _format_used_prompt_sections(stepwise_context_payload.get("used_prompt_sections") or [])
+            or prompt_complete
         )
     else:
         plan, code = plan_and_code_query(agent, prompt_complete)
@@ -226,7 +243,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
     apply_hardware_context_to_node(new_node, hardware_ctx)
     apply_hardware_design_brief_to_node(new_node, hardware_design_brief)
     apply_pipeline_decision_to_node(new_node, pipeline_decision)
-    register_node(agent, new_node, prompt_complete, new_branch=True)
+    register_node(agent, new_node, prompt_for_log, new_branch=True)
 
     logger.info(f"[draft] → node {new_node.id} (branch={new_node.branch_id})")
     return new_node

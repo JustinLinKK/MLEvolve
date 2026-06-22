@@ -374,6 +374,7 @@ def compact_optimization_context(raw_context: dict[str, Any] | None) -> dict[str
         "hardware_context": _compact_hardware_context(raw_context.get("hardware_context") or {}),
         "graph_evidence": _compact_graph_evidence(raw_context.get("graph_evidence") or {}),
         "derived_diagnosis": _compact_diagnosis(raw_context.get("derived_diagnosis") or {}),
+        "stage_hardware_features": _compact_stage_hardware_features(raw_context.get("stage_hardware_features") or {}),
         "vector_evidence": _compact_vector_evidence(raw_context.get("vector_evidence") or {}),
         "recommendations": _clean_string_list(raw_context.get("recommendations") or [], limit=8),
         "risk_flags": _clean_string_list(raw_context.get("risk_flags") or [], limit=8),
@@ -491,6 +492,7 @@ def compact_model_design_context(raw_context: dict[str, Any] | None) -> dict[str
             for item in list(feature_index_raw.get("features") or [])[:32]
         ],
         "feature_count": feature_index_raw.get("feature_count"),
+        "stage_filter": feature_index_raw.get("stage_filter"),
         "source": feature_index_raw.get("source"),
     }
     feature_index = {key: value for key, value in feature_index.items() if value not in (None, {}, [], "")}
@@ -658,6 +660,10 @@ def format_hardware_prompt_section(compact: dict[str, Any], *, max_chars: int = 
             )
             if limit_bits:
                 lines.append(f"- Scheduler limits: {limit_bits}")
+
+    stage_hardware_lines = _format_stage_hardware_features(compact.get("stage_hardware_features") or {})
+    if stage_hardware_lines:
+        lines.extend(stage_hardware_lines)
 
     diagnosis = compact.get("derived_diagnosis") or {}
     symptoms = diagnosis.get("profile_symptoms") or []
@@ -882,6 +888,95 @@ def _compact_diagnosis(diagnosis: dict[str, Any]) -> dict[str, list[str]]:
     }
 
 
+def _compact_stage_hardware_features(stage_context: dict[str, Any]) -> dict[str, Any]:
+    if not stage_context:
+        return {}
+    stages: list[dict[str, Any]] = []
+    for item in list(stage_context.get("stages") or [])[:4]:
+        node = dict(item.get("node") or {})
+        compact_node = _pick(
+            node,
+            (
+                "stage_filter",
+                "datatypes",
+                "software_features",
+                "recipes",
+                "experimental_recipes",
+                "recommended_patterns",
+                "avoid_patterns",
+            ),
+        )
+        for list_key, item_limit in (
+            ("datatypes", 8),
+            ("software_features", 8),
+            ("recipes", 8),
+            ("experimental_recipes", 6),
+            ("recommended_patterns", 4),
+            ("avoid_patterns", 4),
+        ):
+            if list_key in compact_node:
+                compact_node[list_key] = _clean_string_list(compact_node.get(list_key) or [], limit=item_limit)
+        features = [
+            _compact_stage_hardware_feature(feature)
+            for feature in list(item.get("features") or [])[:6]
+        ]
+        compact_stage = {
+            "stage": item.get("stage") or compact_node.get("stage_filter"),
+            "node": {key: value for key, value in compact_node.items() if value not in (None, "", [], {})},
+            "features": [feature for feature in features if feature],
+            "feature_count": item.get("feature_count"),
+        }
+        stages.append({key: value for key, value in compact_stage.items() if value not in (None, "", [], {})})
+    feature_ids = _clean_string_list(
+        [feature.get("feature_id") for feature in stage_context.get("features") or [] if feature.get("feature_id")],
+        limit=24,
+    )
+    compact = {
+        "found": bool(stage_context.get("found")),
+        "stage_filter": stage_context.get("stage_filter"),
+        "hardware": _pick(dict(stage_context.get("hardware") or {}), ("node_id", "gpu_name", "architecture", "vram_MB", "compute_capability")),
+        "stages": stages,
+        "feature_ids": feature_ids,
+        "feature_count": stage_context.get("feature_count"),
+        "source": stage_context.get("source"),
+        "reason": stage_context.get("reason"),
+    }
+    return {key: value for key, value in compact.items() if value not in (None, "", [], {})}
+
+
+def _compact_stage_hardware_feature(item: dict[str, Any]) -> dict[str, Any]:
+    compact = _pick(
+        dict(item),
+        (
+            "feature_id",
+            "name",
+            "feature_name",
+            "category",
+            "support_level",
+            "recommended",
+            "verified",
+            "performance_impact",
+            "recommendation_scope",
+            "limitations",
+            "notes",
+            "usage",
+            "recommended_patterns",
+            "avoid_patterns",
+        ),
+    )
+    shortened: dict[str, Any] = {}
+    for key, value in compact.items():
+        if value in (None, "", [], {}):
+            continue
+        if isinstance(value, str):
+            shortened[key] = _short(value, 220)
+        elif isinstance(value, list):
+            shortened[key] = [_short(entry, 180) if isinstance(entry, str) else entry for entry in value[:3]]
+        else:
+            shortened[key] = value
+    return shortened
+
+
 def _compact_vector_evidence(vector: dict[str, Any]) -> dict[str, Any]:
     return {
         "recipes": [_compact_code_knowledge(item) for item in list(vector.get("recipes") or [])[:2]],
@@ -900,6 +995,7 @@ def _compact_hardware_feature_index_item(item: dict[str, Any]) -> dict[str, Any]
             "support_level",
             "recommended",
             "performance_impact",
+            "pipeline_stage",
             "frameworks",
             "tags",
             "confidence",
@@ -965,6 +1061,55 @@ def _compact_code_knowledge(item: dict[str, Any]) -> dict[str, Any]:
         if key in compact:
             compact[key] = _short(compact[key], 220)
     return {key: value for key, value in compact.items() if value not in (None, "", [], {})}
+
+
+def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
+    if not stage_context or not stage_context.get("found"):
+        return []
+    lines = ["- Stage-filtered hardware knowledge:"]
+    stages = list(stage_context.get("stages") or [])
+    if not stages and stage_context.get("feature_ids"):
+        lines.append(
+            f"  - stage={stage_context.get('stage_filter')}: feature_ids={stage_context.get('feature_ids')}"
+        )
+        return lines
+    for stage in stages[:4]:
+        stage_name = stage.get("stage") or "pipeline"
+        node = stage.get("node") or {}
+        direct_bits = _format_kv(
+            node,
+            (
+                "datatypes",
+                "software_features",
+                "recipes",
+                "experimental_recipes",
+            ),
+        )
+        suffix = f"; {direct_bits}" if direct_bits else ""
+        lines.append(f"  - {stage_name}{suffix}")
+        for feature in list(stage.get("features") or [])[:4]:
+            feature_id = feature.get("feature_id") or "feature"
+            name = feature.get("name") or feature.get("feature_name") or ""
+            details = _format_kv(
+                feature,
+                (
+                    "category",
+                    "support_level",
+                    "recommended",
+                    "verified",
+                    "performance_impact",
+                    "recommendation_scope",
+                ),
+            )
+            detail_text = f" ({details})" if details else ""
+            summary = feature.get("limitations") or feature.get("usage") or feature.get("notes") or ""
+            summary_text = f": {_short(summary, 160)}" if summary else ""
+            lines.append(f"    - {feature_id}: {name}{detail_text}{summary_text}")
+    source = stage_context.get("source")
+    feature_count = stage_context.get("feature_count")
+    if source or feature_count is not None:
+        lines.append(f"  - source={source or 'unknown'}; linked_features={feature_count}")
+    return lines
 
 
 def _format_evidence_group(label: str, groups: dict[str, Any]) -> list[str]:
