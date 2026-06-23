@@ -148,10 +148,21 @@ def test_stage_filtered_hardware_features_are_compacted_into_prompt() -> None:
                     "stage": "optimizer",
                     "node": {
                         "stage_filter": "optimizer",
+                        "datatypes": ["bf16"],
+                        "software_features": ["amp"],
                         "recipes": ["muon_optimizer"],
                         "experimental_recipes": ["soap_optimizer", "ademamix_optimizer"],
                     },
                     "features": [
+                        {
+                            "feature_id": "muon_optimizer",
+                            "name": "Muon optimizer",
+                            "category": "optimizer",
+                            "support_level": "supported",
+                            "recommended": True,
+                            "verified": False,
+                            "limitations": "Use only for selected 2D hidden weights after a stable baseline.",
+                        },
                         {
                             "feature_id": "soap_optimizer",
                             "name": "SOAP optimizer",
@@ -162,11 +173,11 @@ def test_stage_filtered_hardware_features_are_compacted_into_prompt() -> None:
                             "limitations": "RTX 5090-specific benefit is not widely confirmed.",
                         }
                     ],
-                    "feature_count": 1,
+                    "feature_count": 2,
                 }
             ],
-            "features": [{"feature_id": "soap_optimizer"}],
-            "feature_count": 1,
+            "features": [{"feature_id": "muon_optimizer"}, {"feature_id": "soap_optimizer"}],
+            "feature_count": 2,
             "source": "hardware_knowledge_graph.json",
         },
         "confidence": 0.4,
@@ -177,9 +188,84 @@ def test_stage_filtered_hardware_features_are_compacted_into_prompt() -> None:
 
     assert "Stage-filtered hardware knowledge" in prompt
     assert "optimizer" in prompt
+    assert "muon_optimizer" in prompt
     assert "soap_optimizer" in prompt
-    assert "not widely confirmed" in prompt
+    assert "omitted_not_recommended" in prompt
+    assert "not widely confirmed" not in prompt
+    assert "experimental_recipes" not in prompt
+    assert "bf16" not in prompt
+    assert "amp" not in prompt
     assert "hardware_knowledge_graph.json" in prompt
+
+
+def test_stage_node_direct_fields_are_pruned_by_pipeline_stage() -> None:
+    raw = {
+        "hardware_context": {
+            "found": True,
+            "hardware": {"gpu_name": "RTX 5090", "summary_text": "RTX 5090"},
+        },
+        "stage_hardware_features": {
+            "found": True,
+            "stage_filter": ["datatype", "tuning"],
+            "stages": [
+                {
+                    "stage": "datatype",
+                    "node": {
+                        "stage_filter": "datatype",
+                        "datatypes": ["bf16"],
+                        "software_features": ["amp", "nvimagecodec_gpu_decode"],
+                        "recipes": ["dataset_decomposition", "muon_optimizer"],
+                        "experimental_recipes": ["soap_optimizer"],
+                    },
+                    "features": [
+                        {
+                            "feature_id": "dataset_decomposition",
+                            "name": "Dataset decomposition",
+                            "category": "data_pipeline",
+                        }
+                    ],
+                    "feature_count": 1,
+                },
+                {
+                    "stage": "tuning",
+                    "node": {
+                        "stage_filter": "tuning",
+                        "datatypes": ["bf16"],
+                        "software_features": ["amp", "cut_cross_entropy"],
+                        "recipes": ["muon_optimizer"],
+                        "experimental_recipes": ["soap_optimizer"],
+                    },
+                    "features": [
+                        {
+                            "feature_id": "bf16",
+                            "name": "BF16",
+                            "category": "precision",
+                        }
+                    ],
+                    "feature_count": 1,
+                },
+            ],
+            "feature_count": 2,
+            "source": "unit-test",
+        },
+    }
+
+    compact = compact_optimization_context(raw)
+    prompt = format_hardware_prompt_section(compact, max_chars=2400)
+
+    datatype_line = next(line for line in prompt.splitlines() if line.startswith("  - datatype"))
+    tuning_line = next(line for line in prompt.splitlines() if line.startswith("  - tuning"))
+    assert "nvimagecodec_gpu_decode" in datatype_line
+    assert "bf16" not in datatype_line
+    assert "amp" not in datatype_line
+    assert "dataset_decomposition" not in datatype_line
+    assert "muon_optimizer" not in datatype_line
+    assert "soap_optimizer" not in datatype_line
+    assert "bf16" in tuning_line
+    assert "amp" in tuning_line
+    assert "cut_cross_entropy" not in tuning_line
+    assert "muon_optimizer" not in tuning_line
+    assert "experimental_recipes" not in prompt
 
 
 def test_hardware_design_brief_ranks_model_options_without_overriding_constraints() -> None:

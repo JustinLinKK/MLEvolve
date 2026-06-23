@@ -70,11 +70,35 @@ def _hardware_brief_for_step(context: StepwiseContext, step_name: str) -> str:
         filtered_execution.pop("derived_diagnosis", None)
     elif step_name == "model_design":
         filtered_execution.pop("graph_evidence", None)
+        filtered_execution.pop("vector_evidence", None)
+        filtered_execution.pop("derived_diagnosis", None)
 
     execution_section = format_hardware_prompt_section(filtered_execution, max_chars=1800)
     if execution_section.strip():
         sections.append(execution_section)
     return "\n".join(section for section in sections if section.strip()) or context.hardware_brief
+
+
+def _hardware_brief_for_merge(context: StepwiseContext) -> str:
+    hardware_context = context.hardware_context or {}
+    execution_context = dict(hardware_context.get("execution_context") or {})
+    if not execution_context:
+        return context.hardware_brief
+    filtered_execution = dict(execution_context)
+    filtered_execution.pop("graph_evidence", None)
+    filtered_execution.pop("vector_evidence", None)
+    filtered_execution.pop("derived_diagnosis", None)
+    filtered_execution.pop("recommendations", None)
+    filtered_execution.pop("evidence_refs", None)
+    stage_context = dict(filtered_execution.get("stage_hardware_features") or {})
+    if stage_context:
+        stage_context["stages"] = [
+            {**dict(stage), "features": []}
+            for stage in list(stage_context.get("stages") or [])
+        ]
+        filtered_execution["stage_hardware_features"] = stage_context
+    section = format_hardware_prompt_section(filtered_execution, max_chars=1800)
+    return section if section.strip() else context.hardware_brief
 
 
 def _filter_compact_stage_hardware(compact: Dict[str, Any], allowed_stages: set[str]) -> Dict[str, Any]:
@@ -436,13 +460,15 @@ class MetaAgent:
             "- The code should be a single-file Python program that can be executed as-is",
             "- Assume previous steps have NOT been executed; do not skip execution steps and only read files or outputs.",
             "- All parts must work together seamlessly",
+            "- Use hardware context only to preserve compatible precision, batch, dataloader, and runtime choices. Do not redesign the selected model or optimizer during merge.",
+            "- Never emit merge-conflict markers such as <<<<<<<, =======, or >>>>>>>. Resolve conflicting snippets into ordinary Python before returning the final code.",
         ]
 
         prompt: Dict[str, Any] = {
             "Introduction": introduction,
             "Task description": task_desc,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
-            "Hardware/Profile Optimization Context": context.hardware_brief,
+            "Hardware/Profile Optimization Context": _hardware_brief_for_merge(context),
             "Pipeline Decision Contract": context.pipeline_decision_section,
             "Data preview": data_preview_str,
             "Step results": "".join(steps_summary),
