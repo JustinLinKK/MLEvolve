@@ -3959,254 +3959,468 @@
       }
     },
     {
-      "label": "Feature",
-      "id": "feat:cut_cross_entropy",
+      "label": "Hardware",
+      "id": "hw:amd.rdna3.radeon_rx_7600.spec",
       "properties": {
-        "feature_id": "cut_cross_entropy",
-        "name": "cut_cross_entropy",
-        "category": "kernel_optimization",
-        "description": "Cut Cross-Entropy: fuses a linear classifier/logit projection with the cross-entropy loss so the (N x V) logits tensor is never materialized in global memory [https://github.com/apple/ml-cross-entropy]; chunked online log-sum-exp in SRAM. Same math (exact CE + gradient), >4x peak-memory cut on large-vocab heads, >2x kernel speed.",
-        "tensor_core_generation": "benefits_from_tensor_core_lm_head_gemm",
-        "example_code": "import torch\nfrom cut_cross_entropy import linear_cross_entropy\n\nB, T, D, V = 2, 16, 1024, 32000\nembeddings = torch.randn(B, T, D, device='cuda', dtype=torch.bfloat16, requires_grad=True)\nclassifier = torch.randn(V, D, device='cuda', dtype=torch.bfloat16, requires_grad=True)\nlabels = torch.randint(0, V, (B, T), device='cuda')\nloss = linear_cross_entropy(embeddings, classifier, labels, shift=1)\nloss.backward()",
-        "example_code_source": "apple.ml_cross_entropy.readme.basic_usage.001",
-        "api_symbols": [
-          "cut_cross_entropy.linear_cross_entropy",
-          "cut_cross_entropy.transformers.cce_patch"
+        "hardware_id": "amd.rdna3.radeon_rx_7600.spec",
+        "name": "AMD Radeon RX 7600",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_7600",
+          "rx_7600",
+          "rx7600"
         ],
-        "source_url": "https://arxiv.org/abs/2411.09009"
-      }
-    },
-    {
-      "label": "Feature",
-      "id": "feat:muon_optimizer",
-      "properties": {
-        "feature_id": "muon_optimizer",
-        "name": "muon_optimizer",
-        "category": "optimizer",
-        "description": "Muon optimizer: for 2D weight matrices, replaces the momentum-smoothed gradient with its nearest semi-orthogonal matrix via a fixed 5-step Newton-Schulz iteration (no SVD); 1D params stay on AdamW. Matches AdamW final loss using ~52% of training FLOPs.",
-        "tensor_core_generation": "not_required; NS/GEMM-heavy optimizer step can benefit from fast matmul",
-        "example_code": "import torch\n\nmuon_params = []\nadamw_params = []\nfor name, p in model.named_parameters():\n    if not p.requires_grad:\n        continue\n    is_hidden_2d = p.ndim == 2 and 'embed' not in name and 'lm_head' not in name\n    if is_hidden_2d:\n        muon_params.append(p)\n    else:\n        adamw_params.append(p)\n\noptim_muon = torch.optim.Muon(muon_params, lr=0.02, weight_decay=0.1, momentum=0.95, nesterov=True, ns_steps=5, adjust_lr_fn='match_rms_adamw')\noptim_adamw = torch.optim.AdamW(adamw_params, lr=3e-4, weight_decay=0.01)\n\noptim_muon.zero_grad()\noptim_adamw.zero_grad()\nloss.backward()\noptim_muon.step()\noptim_adamw.step()",
-        "example_code_source": "pytorch.2_12.optim_muon.hybrid_adamw.001",
-        "api_symbols": [
-          "torch.optim.Muon",
-          "torch.optim.AdamW"
+        "architectures": [
+          "rdna3"
         ],
-        "usage": "Hybrid Muon+AdamW training optimizer for matmul-heavy candidates: the example code shows the parameter split, Muon settings, and AdamW companion optimizer.",
-        "default_recommendation_scope": "matmul_heavy_training_candidate",
-        "limitations": "software training optimizer; requires a PyTorch build that exposes torch.optim.Muon; no hardware-specific acceleration is required; use only on selected 2D hidden weights and keep AdamW for embeddings/bias/norm/head/non-2D params; benchmark against tuned AdamW; not an inference feature",
-        "source_urls": [
-          "https://docs.pytorch.org/docs/2.12/generated/torch.optim.Muon.html",
-          "https://docs.pytorch.org/docs/2.12/generated/torch.optim.AdamW.html",
-          "https://docs.pytorch.org/docs/2.12/optim.html",
-          "https://arxiv.org/abs/2502.16982"
+        "compute_capabilities": [
+          "gfx1102"
+        ],
+        "vram_MB": 8192,
+        "vram_type": "gddr6",
+        "sm_count": 32,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
         ],
         "recommended_patterns": [
-          "hybrid Muon+AdamW for matmul-heavy training with a tuned AdamW baseline",
-          "split params by dimensionality/name: Muon for hidden 2D matrices, AdamW for embeddings, heads, bias, norm, and non-2D params",
-          "tune Muon lr/momentum/ns_steps separately from AdamW lr/weight_decay"
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
         ],
         "avoid_patterns": [
-          "no Muon on embedding/bias/norm/head/non-2D params and no comparison against undertuned AdamW",
-          "no blind AdamW replacement in small CNN, tabular, inference, or memory-bound runs"
+          "no fp8 (RDNA 3 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels"
         ],
-        "notes": "Use Muon on selected 2D hidden weights and AdamW on embedding/bias/norm/head/non-2D params; tune Muon and AdamW learning rates separately; tune weight_decay per optimizer group; prefer adjust_lr_fn='match_rms_adamw' when reusing an AdamW LR schedule; compare against a tuned AdamW baseline."
+        "memory_bandwidth_GBps": 288,
+        "l2_cache_MB": 2,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/7000-series/amd-radeon-rx-7600.html"
       }
     },
     {
-      "label": "Feature",
-      "id": "feat:soap_optimizer",
+      "label": "Hardware",
+      "id": "hw:amd.rdna3.radeon_rx_7700.spec",
       "properties": {
-        "feature_id": "soap_optimizer",
-        "name": "soap_optimizer",
-        "category": "optimizer",
-        "description": "SOAP optimizer: Shampoo run in the eigenbasis of its own preconditioner, then plain Adam in that rotated space; amortizes eigendecomposition. >40% fewer iterations / >35% wall-clock vs AdamW to same loss in large-batch regime.",
-        "tensor_core_generation": "not_required; preconditioner math is matrix-operation heavy",
-        "example_code": "import torch\nfrom torch import nn\nfrom soap import SOAP\n\nmodel = nn.Linear(16, 4)\nx = torch.randn(8, 16)\nloss = model(x).pow(2).mean()\noptim = SOAP(model.parameters(), lr=3e-3, betas=(0.95, 0.95), weight_decay=0.01, precondition_frequency=10)\noptim.zero_grad()\nloss.backward()\noptim.step()",
-        "example_code_source": "nikhilvyas.soap.readme.basic_usage.001",
-        "api_symbols": [
-          "soap.SOAP"
+        "hardware_id": "amd.rdna3.radeon_rx_7700.spec",
+        "name": "AMD Radeon RX 7700",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_7700",
+          "rx_7700",
+          "rx7700"
         ],
-        "usage": "Software optimizer feature for large-batch or optimizer-limited experiments after a tuned AdamW baseline; no hardware-specific SOAP pattern is defined in this file.",
-        "default_recommendation_scope": "candidate_optimizer_feature",
-        "limitations": "preconditioner and eigendecomposition overhead plus optimizer state can outweigh benefits on small, latency-bound, or memory-constrained runs; benchmark against tuned AdamW before adoption",
-        "source_urls": [
-          "https://github.com/nikhilvyas/SOAP",
-          "https://arxiv.org/abs/2409.11321"
+        "architectures": [
+          "rdna3"
+        ],
+        "compute_capabilities": [
+          "gfx1101"
+        ],
+        "vram_MB": 12288,
+        "vram_type": "gddr6",
+        "sm_count": 54,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
         ],
         "recommended_patterns": [
-          "try SOAP only after a tuned AdamW baseline in large-batch or optimizer-limited training",
-          "track optimizer-step time, peak memory, and validation loss because preconditioner cost can dominate"
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
         ],
         "avoid_patterns": [
-          "no SOAP as a universal default for small, latency-bound, or memory-constrained runs",
-          "no adoption without verifying the third-party SOAP package/API in the runtime"
+          "no fp8 (RDNA 3 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels"
         ],
-        "notes": "LLM-facing rule: classify SOAP as an experimental software optimizer candidate, not a hardware feature. Use when optimizer convergence is the bottleneck; skip when data/model execution dominates."
+        "memory_bandwidth_GBps": 622,
+        "l2_cache_MB": 2,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/7000-series/amd-radeon-rx-7700.html"
       }
     },
     {
-      "label": "Feature",
-      "id": "feat:ademamix_optimizer",
+      "label": "Hardware",
+      "id": "hw:amd.rdna3.radeon_rx_7800_xt.spec",
       "properties": {
-        "feature_id": "ademamix_optimizer",
-        "name": "ademamix_optimizer",
-        "category": "optimizer",
-        "description": "AdEMAMix optimizer: augments Adam's fast gradient EMA with a second very-slow EMA (beta3 ~0.9999). A 1.3B model on 101B tokens matches AdamW on 197B (~51% token reduction to same loss). One extra EMA buffer.",
-        "tensor_core_generation": "not_required; Adam-style optimizer state update is software-side",
-        "example_code": "import torch\nfrom torch import nn\nfrom ademamix import AdEMAMix\n\nmodel = nn.Linear(16, 4)\nx = torch.randn(8, 16)\nloss = model(x).pow(2).mean()\nnum_iterations = 256000\noptim = AdEMAMix(params=model.parameters(), lr=1e-3, betas=(0.9, 0.999, 0.9999), alpha=8.0, beta3_warmup=num_iterations, alpha_warmup=num_iterations, weight_decay=0.1)\noptim.zero_grad()\nloss.backward()\noptim.step()",
-        "example_code_source": "apple.ml_ademamix.readme.pytorch_usage.001",
-        "api_symbols": [
-          "ademamix.AdEMAMix"
+        "hardware_id": "amd.rdna3.radeon_rx_7800_xt.spec",
+        "name": "AMD Radeon RX 7800 XT",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_7800_xt",
+          "rx_7800_xt",
+          "rx7800xt"
         ],
-        "usage": "Software optimizer feature that augments Adam-style EMAs with a slow EMA; no hardware-specific AdEMAMix pattern is defined in this file.",
-        "default_recommendation_scope": "candidate_optimizer_feature",
-        "limitations": "adds optimizer state and requires alpha, beta3, alpha_warmup, beta3_warmup, learning-rate, and weight-decay tuning; benchmark against tuned AdamW before adoption",
-        "source_urls": [
-          "https://github.com/apple/ml-ademamix",
-          "https://arxiv.org/abs/2409.03137"
+        "architectures": [
+          "rdna3"
+        ],
+        "compute_capabilities": [
+          "gfx1101"
+        ],
+        "vram_MB": 16384,
+        "vram_type": "gddr6",
+        "sm_count": 60,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
         ],
         "recommended_patterns": [
-          "candidate for long-token or LLM-style training where AdamW token efficiency is the bottleneck",
-          "budget one extra EMA buffer and tune alpha/beta3 warmups with the LR schedule"
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
         ],
         "avoid_patterns": [
-          "no AdEMAMix as a drop-in default for short, small-data, or memory-constrained runs",
-          "no comparison against untuned AdamW or mismatched token/step budgets"
+          "no fp8 (RDNA 3 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels"
         ],
-        "notes": "LLM-facing rule: recommend only as an optimizer experiment with memory budget and tuned baseline; it gives no inference speedup and no hardware-specific acceleration."
+        "memory_bandwidth_GBps": 624,
+        "l2_cache_MB": 4,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/7000-series/amd-radeon-rx-7800-xt.html"
       }
     },
     {
-      "label": "Feature",
-      "id": "feat:dataset_decomposition",
+      "label": "Hardware",
+      "id": "hw:amd.rdna3.radeon_rx_7900_gre.spec",
       "properties": {
-        "feature_id": "dataset_decomposition",
-        "name": "dataset_decomposition",
-        "category": "data_pipeline",
-        "description": "Dataset Decomposition: decompose corpus into same-length buckets and train a short-to-long variable-sequence-length curriculum with only intra-document attention. Changes data ordering not model/loss; reaches target accuracy up to 6x faster than fixed-length concatenation.",
-        "tensor_core_generation": "",
-        "example_code": "def decompose_documents(tokenized_docs, bucket_lengths=(128, 256, 512, 1024, 2048)):\n    buckets = {L: [] for L in bucket_lengths}\n    for doc in tokenized_docs:\n        n = len(doc)\n        for L in bucket_lengths:\n            for start in range(0, n - L + 1, L):\n                # never concatenate across documents\n                buckets[L].append(doc[start:start + L])\n    return buckets\n\ndef sample_curriculum_bucket(buckets, step, total_steps):\n    lengths = sorted([L for L, seqs in buckets.items() if seqs])\n    max_idx = max(0, int((len(lengths) - 1) * step / max(1, total_steps - 1)))\n    active_lengths = lengths[:max_idx + 1]\n    return active_lengths[-1]",
-        "example_code_source": "paper.dataset_decomposition.conceptual_bucket_curriculum.001",
-        "api_symbols": [],
-        "source_url": "https://arxiv.org/abs/2405.13226"
-      }
-    },
-    {
-      "label": "Feature",
-      "id": "feat:gram_newton_schulz_symmetric_gemm",
-      "properties": {
-        "feature_id": "gram_newton_schulz_symmetric_gemm",
-        "name": "gram_newton_schulz_symmetric_gemm",
-        "category": "kernel_optimization",
-        "description": "Gram Newton-Schulz symmetric/triangular fused GEMM: the Newton-Schulz step (used by Muon) is a symmetric product; a triangular fused kernel removes the wasted half of multiplies plus a DRAM round-trip cuBLAS incurs. Up to 2x faster NS step. Same math (Gram-matrix restart guards stability).",
-        "tensor_core_generation": "tensor_core_compatible; benefits_from_symmetric_gemm_kernel",
-        "example_code": "import torch\n\n# Conceptual fallback only. Production use should call the fused symmetric/triangular GEMM kernel.\ndef gram_newton_schulz_reference(X, ns_steps=5, eps=1e-7):\n    X = X / (X.norm() + eps)\n    wide = X.shape[0] < X.shape[1]\n    for _ in range(ns_steps):\n        if wide:\n            G = X @ X.T\n            X = 1.5 * X - 0.5 * (G @ X)\n        else:\n            G = X.T @ X\n            X = 1.5 * X - 0.5 * (X @ G)\n    return X\n\nmomentum_matrix = torch.randn(128, 64)\nupdate = gram_newton_schulz_reference(momentum_matrix)",
-        "example_code_source": "gram_newton_schulz.reference_fallback.001",
-        "api_symbols": [
-          "custom_kernel:gram_newton_schulz",
-          "custom_kernel:symmetric_gemm",
-          "custom_kernel:triangular_fused_gemm"
+        "hardware_id": "amd.rdna3.radeon_rx_7900_gre.spec",
+        "name": "AMD Radeon RX 7900 GRE",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_7900_gre",
+          "rx_7900_gre",
+          "rx7900gre"
         ],
-        "source_url": "https://tridao.me/blog/2026/gram-newton-schulz/",
-        "usage": "Kernel-level optimization for Muon/Newton-Schulz orthogonalization when profiler evidence shows the NS step is material. The example is a correctness fallback, not the fused production kernel.",
-        "default_recommendation_scope": "muon_newton_schulz_kernel_candidate",
-        "limitations": "experimental custom-kernel idea; not a generic GEMM replacement; relevant only when Muon/Newton-Schulz optimizer-step time is significant; requires custom CUDA/Triton/CUTLASS implementation and numerical parity tests; source is a technical blog, not official vendor documentation",
+        "architectures": [
+          "rdna3"
+        ],
+        "compute_capabilities": [
+          "gfx1100"
+        ],
+        "vram_MB": 16384,
+        "vram_type": "gddr6",
+        "sm_count": 80,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
+        ],
         "recommended_patterns": [
-          "profile Muon optimizer-step time before considering the fused symmetric/triangular GEMM kernel",
-          "keep the reference Newton-Schulz implementation for correctness checks and fallback"
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
         ],
         "avoid_patterns": [
-          "no use without Muon/Newton-Schulz workload",
-          "no marking verified=true until benchmark and numerical parity are recorded"
+          "no fp8 (RDNA 3 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels"
         ],
-        "notes": "LLM-facing rule: suggest this only after Muon has been selected and profiler evidence shows orthogonalization dominates; otherwise prefer normal optimizer tuning."
+        "memory_bandwidth_GBps": 576,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/7000-series/amd-radeon-rx-7900-gre.html"
       }
     },
     {
-      "label": "Feature",
-      "id": "feat:nvimagecodec_gpu_decode",
+      "label": "Hardware",
+      "id": "hw:amd.rdna3.radeon_rx_7900_xt.spec",
       "properties": {
-        "feature_id": "nvimagecodec_gpu_decode",
-        "name": "nvimagecodec_gpu_decode",
-        "category": "data_pipeline",
-        "description": "nvImageCodec GPU image decode: decodes encoded image bytes (nvJPEG/nvJPEG2000/nvTIFF plus hardware JPEG decode on documented nvJPEG hardware [https://docs.nvidia.com/cuda/nvjpeg/index.html]) directly into GPU memory, DLPack zero-copy to torch, decode of batch N+1 overlapping compute of batch N. Removes CPU-decode bottleneck for CV/imaging. ~2.18x faster JPEG loading. No-op for text/LLM training.",
-        "tensor_core_generation": "",
-        "example_code": "import torch\nfrom nvidia import nvimgcodec\n\ndecoder = nvimgcodec.Decoder()\nnv_img = decoder.read('sample.jp2')\ncap = nv_img.to_dlpack()\ntorch_img = torch.from_dlpack(cap)\nassert torch_img.is_cuda\nbatch = torch_img.permute(2, 0, 1).unsqueeze(0).contiguous()",
-        "example_code_source": "nvidia.nvimagecodec.samples.torch_dlpack.001",
-        "api_symbols": [
-          "nvidia.nvimgcodec.Decoder",
-          "nvidia.nvimgcodec.Encoder",
-          "nvidia.nvimgcodec.Image.to_dlpack",
-          "nvidia.nvimgcodec.as_image",
-          "torch.from_dlpack",
-          "torch.to_dlpack"
+        "hardware_id": "amd.rdna3.radeon_rx_7900_xt.spec",
+        "name": "AMD Radeon RX 7900 XT",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_7900_xt",
+          "rx_7900_xt",
+          "rx7900xt"
         ],
-        "source_url": "https://docs.nvidia.com/cuda/nvimagecodec/samples/torch.html"
+        "architectures": [
+          "rdna3"
+        ],
+        "compute_capabilities": [
+          "gfx1100"
+        ],
+        "vram_MB": 20480,
+        "vram_type": "gddr6",
+        "sm_count": 84,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
+        ],
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer only for small matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True"
+        ],
+        "avoid_patterns": [
+          "no fp8 (RDNA 3 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning"
+        ],
+        "memory_bandwidth_GBps": 800,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/7000-series/amd-radeon-rx-7900xt.html"
       }
     },
     {
-      "label": "Feature",
-      "id": "feat:async_tensor_parallel",
+      "label": "Hardware",
+      "id": "hw:amd.rdna3.radeon_rx_7900_xtx.spec",
       "properties": {
-        "feature_id": "async_tensor_parallel",
-        "name": "async_tensor_parallel",
-        "category": "parallelism",
-        "description": "Asynchronous tensor-parallel communication overlap (PyTorch SymmetricMemory): uses eligible NCCL Copy Engine collectives such as all_gather_into_tensor/all_to_all_single on symmetric-memory tensors so communication can overlap compute. Multi-GPU only; no effect single-GPU. Same math.",
-        "tensor_core_generation": "",
-        "example_code": "import os\nimport torch\nimport torch.distributed as dist\nimport torch.distributed._symmetric_memory as symm_mem\n\nrank = int(os.environ.get('LOCAL_RANK', '0'))\ndevice = torch.device('cuda', rank)\nopts = dist.ProcessGroupNCCL.Options()\nopts.config.cta_policy = dist.ProcessGroupNCCL.NCCL_CTA_POLICY_ZERO\ndist.init_process_group(backend='nccl', pg_options=opts, device_id=device)\nworld_size = dist.get_world_size()\n\nsymm_mem.set_backend('NCCL')\ngroup_name = dist.group.WORLD.group_name\ninp = symm_mem.empty(1024 * 1024, device=device)\nout = symm_mem.empty(1024 * 1024 * world_size, device=device)\nsymm_mem.rendezvous(inp, group=group_name)\nsymm_mem.rendezvous(out, group=group_name)\nwork = dist.all_gather_into_tensor(out, inp, async_op=True)\n# compute can be scheduled here on independent work\nwork.wait()",
-        "example_code_source": "pytorch.2_12.symmetric_memory.copy_engine_collective.001",
-        "api_symbols": [
-          "torch.distributed.ProcessGroupNCCL.Options",
-          "torch.distributed.ProcessGroupNCCL.NCCL_CTA_POLICY_ZERO",
-          "torch.distributed.init_process_group",
-          "torch.distributed._symmetric_memory.empty",
-          "torch.distributed._symmetric_memory.rendezvous",
-          "torch.distributed._symmetric_memory.set_backend",
-          "torch.distributed.all_gather_into_tensor",
-          "torch.distributed.all_to_all_single"
+        "hardware_id": "amd.rdna3.radeon_rx_7900_xtx.spec",
+        "name": "AMD Radeon RX 7900 XTX",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_7900_xtx",
+          "rx_7900_xtx",
+          "rx7900xtx"
         ],
-        "source_url": "https://docs.pytorch.org/docs/2.12/symmetric_memory.html"
+        "architectures": [
+          "rdna3"
+        ],
+        "compute_capabilities": [
+          "gfx1100"
+        ],
+        "vram_MB": 24576,
+        "vram_type": "gddr6",
+        "sm_count": 96,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
+        ],
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads",
+          "hybrid Muon+AdamW optimizer only for small matmul-heavy training",
+          "Muon for selected 2D hidden weights",
+          "AdamW for embedding/bias/norm/head/non-2D params",
+          "tune muon_lr and adamw_lr separately",
+          "prefer match_rms_adamw before large Muon LR sweep",
+          "Muon ns_steps=5 momentum=0.95 nesterov=True"
+        ],
+        "avoid_patterns": [
+          "no fp8 (RDNA 3 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels",
+          "no Muon for embedding/bias/norm/head/non-2D params",
+          "no AdamW LR copied to Muon without adjust_lr_fn or retuning"
+        ],
+        "memory_bandwidth_GBps": 960,
+        "l2_cache_MB": 6,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/7000-series/amd-radeon-rx-7900xtx.html"
       }
     },
     {
-      "label": "Feature",
-      "id": "feat:fp8_rowwise_scaling",
+      "label": "Hardware",
+      "id": "hw:amd.rdna4.radeon_rx_9070.spec",
       "properties": {
-        "feature_id": "fp8_rowwise_scaling",
-        "name": "fp8_rowwise_scaling",
-        "category": "precision",
-        "description": "FP8 row-wise (per-token) scaling: one fp8 scale factor per row of each operand instead of per-tensor; a single outlier row no longer forces a coarse scale that underflows the rest. Strictly more accuracy-preserving than per-tensor fp8; loss parity with bf16. GEMMs still on fp8 Tensor Cores (~1.11x over bf16 H100). Available via torchao.",
-        "tensor_core_generation": "4th_generation_or_later_fp8_tensor_cores",
-        "example_code": "import torch\nfrom torch import nn\nfrom torchao.float8 import Float8LinearConfig, Float8LinearRecipeName, convert_to_float8_training\n\nmodel = nn.Sequential(nn.Linear(2048, 4096), nn.GELU(), nn.Linear(4096, 2048)).bfloat16().cuda()\nconfig = Float8LinearConfig.from_recipe_name(Float8LinearRecipeName.ROWWISE)\nconvert_to_float8_training(model, config=config)\nmodel = torch.compile(model)\nx = torch.randn(16, 2048, device='cuda', dtype=torch.bfloat16)\ny = model(x)",
-        "example_code_source": "torchao.0_17.float8_rowwise_training.001",
-        "api_symbols": [
-          "torchao.float8.convert_to_float8_training",
-          "torchao.float8.Float8LinearConfig",
-          "torchao.float8.Float8LinearConfig.from_recipe_name",
-          "torchao.float8.Float8LinearRecipeName.ROWWISE"
+        "hardware_id": "amd.rdna4.radeon_rx_9070.spec",
+        "name": "AMD Radeon RX 9070",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_9070",
+          "rx_9070",
+          "rx9070"
         ],
-        "source_url": "https://docs.pytorch.org/ao/stable/eager_tutorials/pretraining.html"
+        "architectures": [
+          "rdna4"
+        ],
+        "compute_capabilities": [
+          "gfx1201"
+        ],
+        "vram_MB": 16384,
+        "vram_type": "gddr6",
+        "sm_count": 56,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
+        ],
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm 6.2+, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (RDNA 4 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels",
+          "no ROCm < 6.2 (gfx1201 requires ROCm 6.2+)"
+        ],
+        "memory_bandwidth_GBps": 644,
+        "l2_cache_MB": 8,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/9000-series/amd-radeon-rx-9070.html"
       }
     },
     {
-      "label": "Feature",
-      "id": "feat:fp8_all_gather_fsdp2",
+      "label": "Hardware",
+      "id": "hw:amd.rdna4.radeon_rx_9070_xt.spec",
       "properties": {
-        "feature_id": "fp8_all_gather_fsdp2",
-        "name": "fp8_all_gather_fsdp2",
-        "category": "parallelism",
-        "description": "FP8 all-gather in FSDP2: shards and all-gathers parameters in fp8 instead of bf16, halving the sharded-parameter communication volume in distributed training. Multi-GPU only. Built on torchao float8 + FSDP2.",
-        "tensor_core_generation": "4th_generation_or_later_fp8_tensor_cores",
-        "example_code": "import torch\nfrom torch import nn\nfrom torchao.float8 import Float8LinearConfig, convert_to_float8_training\nfrom torchao.float8 import precompute_float8_dynamic_scale_for_fsdp\nfrom torch.distributed.fsdp import fully_shard\n\nmodel = nn.Sequential(nn.Linear(4096, 4096), nn.GELU(), nn.Linear(4096, 4096)).bfloat16().cuda()\nconfig = Float8LinearConfig(enable_fsdp_float8_all_gather=True)\nconvert_to_float8_training(model, config=config)\nfor layer in model:\n    if isinstance(layer, nn.Linear):\n        fully_shard(layer)\nfully_shard(model)\n# In the distributed training loop, call after optimizer.step():\nprecompute_float8_dynamic_scale_for_fsdp(model)",
-        "example_code_source": "torchao.0_17.float8_config.fsdp_all_gather.001",
-        "api_symbols": [
-          "torchao.float8.Float8LinearConfig",
-          "torchao.float8.Float8LinearConfig.enable_fsdp_float8_all_gather",
-          "torchao.float8.precompute_float8_dynamic_scale_for_fsdp",
-          "torchao.float8.convert_to_float8_training",
-          "torch.distributed.fsdp.fully_shard"
+        "hardware_id": "amd.rdna4.radeon_rx_9070_xt.spec",
+        "name": "AMD Radeon RX 9070 XT",
+        "vendor": "amd",
+        "aliases": [
+          "radeon_rx_9070_xt",
+          "rx_9070_xt",
+          "rx9070xt"
         ],
-        "source_url": "https://docs.pytorch.org/ao/stable/api_reference/generated/torchao.float8.Float8LinearConfig.html"
+        "architectures": [
+          "rdna4"
+        ],
+        "compute_capabilities": [
+          "gfx1201"
+        ],
+        "vram_MB": 16384,
+        "vram_type": "gddr6",
+        "sm_count": 64,
+        "workload_types": [
+          "vision_training",
+          "transformer_training",
+          "matmul_heavy",
+          "transformer_inference",
+          "vision_inference"
+        ],
+        "recommended_patterns": [
+          "keep batch_size/precision/grad_accum/max_seq_len/image_size/optimizer configurable",
+          "bf16 autocast default (ROCm 6.2+, torch.autocast device_type='cuda')",
+          "TF32 matmul via set_float32_matmul_precision('high')",
+          "torch.compile with ROCm backend for kernel fusion",
+          "flash-attn via ROCm for fp16/bf16 transformer attention (verify rocm-flash-attention)",
+          "activation checkpointing default for transformer/diffusion training",
+          "gradient accumulation default with small physical batch",
+          "sequence packing default for transformer training",
+          "KV-cache memory budget before autoregressive inference",
+          "quantized inference first for autoregressive/generative inference",
+          "tiled/chunked input default for large image/video/WSI",
+          "channels_last for CNN/UNet vision workloads"
+        ],
+        "avoid_patterns": [
+          "no fp8 (RDNA 4 lacks FP8 Tensor Core path)",
+          "no CUDA-only extensions without ROCm HIP equivalent",
+          "no flash-attn v3 (Hopper-only CUDA kernel)",
+          "no memory plan missing params/grads/optimizer/activations/KV",
+          "no throughput plan based on large physical batch",
+          "no dense full-resolution large-image tensor loading",
+          "no Ada/Hopper/Blackwell-only kernels",
+          "no ROCm < 6.2 (gfx1201 requires ROCm 6.2+)"
+        ],
+        "memory_bandwidth_GBps": 644,
+        "l2_cache_MB": 8,
+        "source_url": "https://www.amd.com/en/products/graphics/desktops/radeon/9000-series/amd-radeon-rx-9070xt.html"
       }
     }
   ],
