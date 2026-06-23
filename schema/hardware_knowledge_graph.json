@@ -5969,7 +5969,7 @@
           "no Muon on embedding/bias/norm/head/non-2D params and no comparison against undertuned AdamW",
           "no blind AdamW replacement in small CNN, tabular, inference, or memory-bound runs"
         ],
-        "notes": "Use Muon on selected 2D hidden weights and AdamW on embedding/bias/norm/head/non-2D params; tune Muon and AdamW learning rates separately; tune weight_decay per optimizer group; prefer adjust_lr_fn='match_rms_adamw' when reusing an AdamW LR schedule; compare against a tuned AdamW baseline."
+        "notes": "Use Muon on selected 2D hidden weights and AdamW on embedding/bias/norm/head/non-2D params; tune Muon and AdamW learning rates separately; tune weight_decay per optimizer group; initial Muon settings: ns_steps=5, momentum=0.95, nesterov=True; prefer adjust_lr_fn='match_rms_adamw' when reusing an AdamW LR schedule; compare against a tuned AdamW baseline."
       }
     },
     {
