@@ -162,6 +162,15 @@ def test_stage_filtered_hardware_features_are_compacted_into_prompt() -> None:
                             "recommended": True,
                             "verified": False,
                             "limitations": "Use only for selected 2D hidden weights after a stable baseline.",
+                            "usage": "Hybrid Muon+AdamW optimizer with separate parameter groups.",
+                            "notes": "Use Muon on selected 2D hidden weights and AdamW on embedding/bias/norm/head/non-2D params; initial Muon settings: ns_steps=5, momentum=0.95, nesterov=True; prefer adjust_lr_fn='match_rms_adamw'.",
+                            "recommended_patterns": [
+                                "split params by dimensionality/name: Muon for hidden 2D matrices, AdamW for embeddings, heads, bias, norm, and non-2D params",
+                            ],
+                            "avoid_patterns": [
+                                "no Muon on embedding/bias/norm/head/non-2D params",
+                            ],
+                            "example_code": "optim_muon = torch.optim.Muon(muon_params, lr=0.02, weight_decay=0.1, momentum=0.95, nesterov=True, ns_steps=5, adjust_lr_fn='match_rms_adamw')",
                         },
                         {
                             "feature_id": "soap_optimizer",
@@ -190,11 +199,16 @@ def test_stage_filtered_hardware_features_are_compacted_into_prompt() -> None:
     assert "optimizer" in prompt
     assert "muon_optimizer" in prompt
     assert "soap_optimizer" in prompt
+    assert "ns_steps=5" in prompt
+    assert "momentum=0.95" in prompt
+    assert "nesterov=True" in prompt
+    assert "match_rms_adamw" in prompt
+    assert "AdamW on embedding/bias/norm/head/non-2D params" in prompt
     assert "omitted_not_recommended" in prompt
     assert "not widely confirmed" not in prompt
     assert "experimental_recipes" not in prompt
     assert "bf16" not in prompt
-    assert "amp" not in prompt
+    assert "software_features" not in prompt
     assert "hardware_knowledge_graph.json" in prompt
 
 

@@ -1080,16 +1080,29 @@ def _compact_stage_hardware_feature(feature: dict[str, Any]) -> dict[str, Any]:
             "usage",
             "recommended_patterns",
             "avoid_patterns",
+            "example_code",
         ),
+    )
+    feature_id = str(compact.get("feature_id") or feature.get("feature_id") or "").lower()
+    is_optimizer = compact.get("category") == "optimizer" or any(
+        token in feature_id for token in ("optimizer", "muon", "adamw", "soap", "ademamix")
     )
     shortened: dict[str, Any] = {}
     for key, value in compact.items():
         if value in (None, "", [], {}):
             continue
         if isinstance(value, str):
-            shortened[key] = _short(value, 220)
+            if key == "example_code":
+                limit = 520
+            elif is_optimizer and key in {"usage", "limitations", "notes"}:
+                limit = 260
+            else:
+                limit = 220
+            shortened[key] = _short(value, limit)
         elif isinstance(value, list):
-            shortened[key] = [_short(entry, 180) if isinstance(entry, str) else entry for entry in value[:3]]
+            item_limit = 220 if is_optimizer and key in {"recommended_patterns", "avoid_patterns"} else 180
+            item_count = 4 if is_optimizer and key in {"recommended_patterns", "avoid_patterns"} else 3
+            shortened[key] = [_short(entry, item_limit) if isinstance(entry, str) else entry for entry in value[:item_count]]
         else:
             shortened[key] = value
     return shortened
@@ -1193,6 +1206,7 @@ def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
         return lines
     for stage in stages[:4]:
         stage_name = stage.get("stage") or "pipeline"
+        is_optimizer_stage = str(stage_name).strip().lower() == "optimizer"
         node = stage.get("node") or {}
         direct_bits = _format_kv(
             node,
@@ -1233,9 +1247,27 @@ def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
                 ),
             )
             detail_text = f" ({details})" if details else ""
-            summary = feature.get("limitations") or feature.get("usage") or feature.get("notes") or ""
-            summary_text = f": {_short(summary, 160)}" if summary else ""
+            summary_keys = (
+                ("usage", "notes", "limitations")
+                if is_optimizer_stage
+                else ("limitations", "usage", "notes")
+            )
+            summary_parts: list[str] = []
+            for key in summary_keys:
+                summary = feature.get(key)
+                if summary:
+                    text = _short(summary, 220 if is_optimizer_stage else 160)
+                    if text not in summary_parts:
+                        summary_parts.append(f"{key}: {text}")
+            summary_text = f": {'; '.join(summary_parts[:3])}" if summary_parts else ""
             lines.append(f"    - {feature_id}: {name}{detail_text}{summary_text}")
+            if is_optimizer_stage:
+                for pattern in list(feature.get("recommended_patterns") or [])[:3]:
+                    lines.append(f"      recommended: {_short(pattern, 220)}")
+                for pattern in list(feature.get("avoid_patterns") or [])[:2]:
+                    lines.append(f"      avoid: {_short(pattern, 220)}")
+                if feature_id == "muon_optimizer" and feature.get("example_code"):
+                    lines.append(f"      example: {_short(feature['example_code'], 360)}")
     source = stage_context.get("source")
     feature_count = stage_context.get("feature_count")
     if source or feature_count is not None:
