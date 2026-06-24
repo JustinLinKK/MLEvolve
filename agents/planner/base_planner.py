@@ -26,6 +26,7 @@ logger = logging.getLogger("MLEvolve")
 PLANNING_ALLOWED_MODULES = [
     "data_processing_and_feature_engineering",
     "model_design",
+    "datatype_precision",
     "training_evaluation",
 ]
 
