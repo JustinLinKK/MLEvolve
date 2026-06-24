@@ -88,12 +88,17 @@ class SearchNode(DataClassJsonMixin):
     backend_name: Optional[str] = field(default=None, kw_only=True)
     hardware_decision: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
     pipeline_decision: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
+    stage_note_board: List[Dict[str, Any]] = field(default_factory=list, kw_only=True)
+    bug_report: Optional[str] = field(default=None, kw_only=True)
+    fix_report: Optional[str] = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         if self.parent is not None:
             self.parent.children.add(self)
             if self.pipeline_decision is None and self.parent.pipeline_decision is not None:
                 self.pipeline_decision = copy.deepcopy(self.parent.pipeline_decision)
+            if not self.stage_note_board and self.parent.stage_note_board:
+                self.stage_note_board = copy.deepcopy(self.parent.stage_note_board)
         if self.stage not in ["root", "improve", "debug", "draft", "fusion_draft", "evolution", "fusion"]:
             raise ValueError(f"Invalid stage: {self.stage}")
 

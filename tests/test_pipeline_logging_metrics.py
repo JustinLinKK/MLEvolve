@@ -47,6 +47,14 @@ def test_pipeline_action_logger_writes_sqlite_tables(tmp_path: Path) -> None:
         stage="draft",
         prompt_text="# Prompt\nUse stage-filtered hardware knowledge.",
     )
+    debug_snapshot = logger.record_debug_report(
+        node_id="node-2",
+        parent_node_id="node-1",
+        branch_id=1,
+        bug_report="Root cause: missing submission.csv.",
+        fix_report="Write submission.csv with the sample submission columns.",
+        payload={"parent_exc_type": "FileNotFoundError"},
+    )
 
     with sqlite3.connect(tmp_path / "pipeline.sqlite3") as conn:
         assert conn.execute("SELECT COUNT(*) FROM pipeline_events").fetchone()[0] == 1
@@ -60,10 +68,19 @@ def test_pipeline_action_logger_writes_sqlite_tables(tmp_path: Path) -> None:
         assert prompt_row[0] == "node-1"
         assert prompt_row[1] == snapshot["prompt_chars"]
         assert prompt_row[3] == "# Prompt\nUse stage-filtered hardware knowledge."
+        debug_row = conn.execute(
+            "SELECT node_id, bug_report, fix_report, report_path FROM debug_reports"
+        ).fetchone()
+        assert debug_row[0] == "node-2"
+        assert debug_row[1] == "Root cause: missing submission.csv."
+        assert debug_row[2] == "Write submission.csv with the sample submission columns."
 
     prompt_path = Path(snapshot["prompt_path"])
     assert prompt_path.exists()
     assert prompt_path.read_text(encoding="utf-8") == "# Prompt\nUse stage-filtered hardware knowledge."
+    debug_path = Path(debug_snapshot["debug_report_path"])
+    assert debug_path.exists()
+    assert "## Bug Report" in debug_path.read_text(encoding="utf-8")
 
 
 def test_comparison_metrics_generation_and_compare(tmp_path: Path) -> None:

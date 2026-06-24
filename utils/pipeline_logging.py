@@ -141,6 +141,22 @@ class PipelineActionLogger:
                 );
                 CREATE INDEX IF NOT EXISTS idx_prompt_snapshots_run_node
                     ON prompt_snapshots(run_id, node_id);
+
+                CREATE TABLE IF NOT EXISTS debug_reports (
+                    report_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    parent_node_id TEXT,
+                    branch_id INTEGER,
+                    created_at TEXT NOT NULL,
+                    bug_report TEXT NOT NULL,
+                    fix_report TEXT NOT NULL,
+                    report_path TEXT,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_debug_reports_run_node
+                    ON debug_reports(run_id, node_id);
                 """
             )
 
@@ -331,6 +347,98 @@ class PipelineActionLogger:
         path.write_text(prompt_text, encoding="utf-8")
         return path
 
+    def record_debug_report(
+        self,
+        *,
+        node_id: str,
+        bug_report: str,
+        fix_report: str,
+        parent_node_id: str | None = None,
+        branch_id: int | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        bug_text = str(bug_report or "").strip()
+        fix_text = str(fix_report or "").strip()
+        if not bug_text and not fix_text:
+            return {}
+        report_path = self._write_debug_report_artifact(
+            node_id=node_id,
+            bug_report=bug_text,
+            fix_report=fix_text,
+            parent_node_id=parent_node_id,
+            branch_id=branch_id,
+            payload=payload,
+        )
+        with self._lock, self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO debug_reports
+                (run_id, mode, node_id, parent_node_id, branch_id, created_at,
+                 bug_report, fix_report, report_path, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    self.run_id,
+                    self.mode,
+                    str(node_id),
+                    parent_node_id,
+                    branch_id,
+                    utc_now_iso(),
+                    bug_text,
+                    fix_text,
+                    str(report_path) if report_path is not None else None,
+                    _json(payload),
+                ),
+            )
+            report_id = int(cursor.lastrowid)
+        return {
+            "debug_report_id": report_id,
+            "debug_report_path": str(report_path) if report_path is not None else None,
+            "debug_report_chars": len(bug_text) + len(fix_text),
+        }
+
+    def _write_debug_report_artifact(
+        self,
+        *,
+        node_id: str,
+        bug_report: str,
+        fix_report: str,
+        parent_node_id: str | None,
+        branch_id: int | None,
+        payload: dict[str, Any] | None,
+    ) -> Path | None:
+        report_dir = self.db_path.parent / "debug_reports"
+        report_dir.mkdir(parents=True, exist_ok=True)
+        safe_node = _safe_filename(str(node_id or "node"))[:80] or "node"
+        path = report_dir / f"{safe_node}.debug-report.md"
+        lines = [
+            "# Debug Report",
+            "",
+            f"- Node: {node_id}",
+        ]
+        if parent_node_id:
+            lines.append(f"- Parent: {parent_node_id}")
+        if branch_id is not None:
+            lines.append(f"- Branch: {branch_id}")
+        parent_error_type = (payload or {}).get("parent_exc_type")
+        if parent_error_type:
+            lines.append(f"- Parent error type: {parent_error_type}")
+        lines.extend(
+            [
+                "",
+                "## Bug Report",
+                "",
+                bug_report or "(not provided)",
+                "",
+                "## Fix Report",
+                "",
+                fix_report or "(not provided)",
+                "",
+            ]
+        )
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return path
+
     def update_job_packet_for_node(self, node_id: str, **fields: Any) -> None:
         allowed = {"status", "duration_seconds", "resolved_batch_size", "metric", "finished_at"}
         updates = {key: value for key, value in fields.items() if key in allowed and value is not None}
@@ -455,6 +563,33 @@ def record_pipeline_prompt_snapshot(owner: Any, node: Any, prompt_text: str) -> 
             branch_id=getattr(node, "branch_id", None),
             stage=getattr(node, "stage", None),
             prompt_text=prompt_text,
+        )
+    except Exception:
+        return {}
+
+
+def record_pipeline_debug_report(
+    owner: Any,
+    node: Any,
+    *,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    logger = pipeline_logger_for(owner)
+    if logger is None or node is None:
+        return {}
+    bug_report = str(getattr(node, "bug_report", "") or "").strip()
+    fix_report = str(getattr(node, "fix_report", "") or "").strip()
+    if not bug_report and not fix_report:
+        return {}
+    parent = getattr(node, "parent", None)
+    try:
+        return logger.record_debug_report(
+            node_id=str(getattr(node, "id", "")),
+            parent_node_id=str(getattr(parent, "id", "")) if parent is not None else None,
+            branch_id=getattr(node, "branch_id", None),
+            bug_report=bug_report,
+            fix_report=fix_report,
+            payload=payload,
         )
     except Exception:
         return {}

@@ -1,15 +1,17 @@
 # Pipeline Stage Prompt Contract
 
 MLEvolve now creates a compact pipeline decision before every code-producing
-stage. The decision enforces this order:
+stage. The hardware-aware stepwise workflow follows this order:
 
 ```text
-datatype -> model -> optimizer -> tuning
+model_design -> datatype_precision -> training_evaluation
 ```
 
-`datatype` means data modality and target shape, not floating-point precision.
-Numeric precision such as fp32, fp16, bf16, and tf32 belongs under `tuning`
-unless the task itself requires a specific numeric type.
+The persisted decision still stores `datatype`, `model`, `optimizer`, and
+`tuning` fields. `datatype` means data modality and target shape, not
+floating-point precision. Numeric precision such as fp32, fp16, bf16, and tf32
+belongs to the `datatype_precision` step and the `tuning.precision_policy`
+field unless the task itself requires a specific numeric type.
 
 ## Decision Schema
 
@@ -69,8 +71,9 @@ The contract is injected into:
 Stepwise agents consume different parts of the same trace:
 
 - `data_processing_and_feature_engineering`: `datatype` and dataloader policy
-- `model_design`: `datatype`, `model`, and optimizer/loss choices
-- `training_evaluation`: `optimizer`, `tuning`, and `evidence`
+- `model_design`: `model` plus loss/output-interface choices
+- `datatype_precision`: `tuning.precision_policy` and precision evidence
+- `training_evaluation`: `optimizer`, remaining `tuning`, and `evidence`
 
 ## Evidence Rules
 

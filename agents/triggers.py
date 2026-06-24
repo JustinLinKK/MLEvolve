@@ -89,6 +89,7 @@ def register_node(agent, node: SearchNode, prompt, parent_node=None, new_branch:
     try:
         from utils.pipeline_logging import (
             log_pipeline_event,
+            record_pipeline_debug_report,
             record_pipeline_node_action,
             record_pipeline_prompt_snapshot,
         )
@@ -102,6 +103,13 @@ def register_node(agent, node: SearchNode, prompt, parent_node=None, new_branch:
             "parent_node_id": getattr(parent_node or node.parent, "id", None),
         }
         payload.update({key: value for key, value in prompt_snapshot.items() if value is not None})
+        if node.stage == "debug":
+            report_payload = {
+                "parent_exc_type": getattr(parent_node or node.parent, "exc_type", None),
+                "parent_analysis": getattr(parent_node or node.parent, "analysis", None),
+            }
+            debug_report_snapshot = record_pipeline_debug_report(agent, node, payload=report_payload)
+            payload.update({key: value for key, value in debug_report_snapshot.items() if value is not None})
         log_pipeline_event(agent, "node_created", node=node, payload=payload)
         record_pipeline_node_action(agent, node, "node_created", payload=payload)
     except Exception:

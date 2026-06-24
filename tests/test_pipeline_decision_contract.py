@@ -71,11 +71,11 @@ def _decision_payload(**evidence_overrides):
 def test_pipeline_prompt_contract_preserves_required_order() -> None:
     section = format_pipeline_decision_prompt_section(_decision_payload())
 
-    assert PIPELINE_STAGE_ORDER == ("datatype", "model", "optimizer", "tuning")
-    order_tokens = ["1. Datatype", "2. Model", "3. Optimizer", "4. Tuning"]
+    assert PIPELINE_STAGE_ORDER == ("model_design", "datatype_precision", "training_evaluation")
+    order_tokens = ["1. Model design", "2. Datatype precision", "3. Training evaluation"]
     positions = [section.index(token) for token in order_tokens]
     assert positions == sorted(positions)
-    assert "datatype -> model -> optimizer -> tuning" in section
+    assert "model_design -> datatype_precision -> training_evaluation" in section
 
 
 def test_missing_graph_or_predictor_evidence_uses_safe_fallback(monkeypatch) -> None:
@@ -145,7 +145,8 @@ def test_pipeline_decision_persists_on_search_node_round_trip(monkeypatch) -> No
     loaded = loads_json(dumps_json(journal), Journal)
     loaded_node = loaded.nodes[1]
 
-    assert list(decision.keys())[:4] == list(PIPELINE_STAGE_ORDER)
+    section = format_pipeline_decision_prompt_section(decision)
+    assert "model_design -> datatype_precision -> training_evaluation" in section
     assert loaded_node.pipeline_decision["evidence"]["evidence_refs"] == ["graph:job:1"]
     assert loaded_node.pipeline_decision["evidence"]["confidence"] == 0.8
 

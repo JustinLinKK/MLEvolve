@@ -66,6 +66,7 @@ class AgentSearch:
         self.use_coldstart = cfg.coldstart.use_coldstart
         self.coldstart_description = cfg.coldstart.description
         self.scheduler_client = None
+        self.hardware_cache_status: dict | None = None
 
         # Top-N candidates
         self.top_k = self.scfg.top_candidates_size
@@ -122,6 +123,44 @@ class AgentSearch:
     def attach_scheduler(self, scheduler_client) -> None:
         """Expose the in-process scheduler client to stage agents for read-only context."""
         self.scheduler_client = scheduler_client
+        self.hardware_cache_status = self._prewarm_current_hardware_context(scheduler_client)
+
+    def _hardware_context_enabled(self) -> bool:
+        experiment = getattr(self.cfg, "experiment", None)
+        mode = str(getattr(experiment, "mode", "") or "").strip().lower().replace("-", "_")
+        if mode in {"origin", "baseline"}:
+            return False
+        return bool(getattr(self.acfg, "hardware_context_enabled", True))
+
+    def _prewarm_current_hardware_context(self, scheduler_client) -> dict:
+        if not self._hardware_context_enabled():
+            return {"ok": False, "reason": "hardware context disabled"}
+        prewarm = getattr(scheduler_client, "prewarm_current_hardware_neighborhood", None)
+        if not callable(prewarm):
+            return {"ok": False, "reason": "scheduler client has no hardware prewarm hook"}
+        try:
+            configured_limit = int(getattr(self.acfg, "hardware_context_limit", 8) or 8)
+        except (TypeError, ValueError):
+            configured_limit = 8
+        limit = max(256, configured_limit * 32)
+        try:
+            status = dict(prewarm(hardware_id="current", limit=limit) or {})
+            status.setdefault("ok", bool(status.get("hardware_name") or status.get("hardware_id")))
+            status.setdefault("requested_hardware_id", "current")
+            status.setdefault("limit", limit)
+            if status.get("ok"):
+                logger.info(
+                    "Prewarmed hardware graph context for %s with %s feature(s) via %s.",
+                    status.get("hardware_name") or status.get("hardware_id") or "current hardware",
+                    status.get("feature_count", 0),
+                    status.get("source") or "unknown source",
+                )
+            else:
+                logger.info("Hardware graph prewarm completed without a matching node: %s", status.get("reason"))
+            return status
+        except Exception as exc:
+            logger.warning("Hardware graph prewarm failed; continuing with direct lookup fallback: %s", exc)
+            return {"ok": False, "requested_hardware_id": "current", "limit": limit, "reason": str(exc)}
 
     def refresh_hardware_context(self, node: SearchNode) -> None:
         """Refresh compact hardware/profile evidence for a generated node."""

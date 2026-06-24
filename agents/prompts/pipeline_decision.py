@@ -1,8 +1,9 @@
 """Pipeline-stage decision contract for prompt generation.
 
-The decision contract forces generated ML solutions to reason in the order:
-datatype -> model -> optimizer -> tuning. Hardware/profile evidence can inform
-the final tuning stage, but missing evidence must be recorded as a fallback
+The decision contract stores datatype/model/optimizer/tuning choices, while
+hardware-aware stepwise generation follows the SVG workflow:
+model_design -> datatype_precision -> training_evaluation. Hardware/profile
+evidence can inform tuning, but missing evidence must be recorded as a fallback
 instead of invented claims.
 """
 
@@ -19,7 +20,7 @@ logger = logging.getLogger("MLEvolve")
 
 PIPELINE_DECISION_HEADING = "# Pipeline Decision Contract"
 PIPELINE_DECISION_TRACE_HEADING = "# Pipeline Decision Trace"
-PIPELINE_STAGE_ORDER = ("datatype", "model", "optimizer", "tuning")
+PIPELINE_STAGE_ORDER = ("model_design", "datatype_precision", "training_evaluation")
 BATCH_SIZE_POLICIES = ("fixed", "scheduler_recommended", "adaptive")
 PRECISION_POLICIES = ("fp32", "tf32", "fp16_amp", "bf16_amp", "disabled")
 
@@ -123,9 +124,9 @@ def pipeline_decision_instructions(
     return {
         "Pipeline Decision Contract": [
             "Use the Pipeline Decision Trace as the source of truth for code generation and planning.",
-            "Reason in this exact order before changing code: datatype -> model -> optimizer -> tuning.",
-            "Do not jump directly to optimizer, precision, or batch-size choices before datatype and model family are decided.",
-            "Treat datatype as data modality and target shape. Numeric precision such as fp32, fp16, bf16, or tf32 belongs under tuning unless the task explicitly requires a numeric type.",
+            "Follow the hardware-aware stepwise workflow: model_design -> datatype_precision -> training_evaluation.",
+            "Do not jump directly to optimizer, precision, or batch-size choices before model family and output interface are decided.",
+            "The stored datatype field describes data modality and target shape. Numeric precision such as fp32, fp16, bf16, or tf32 belongs under datatype_precision and tuning.precision_policy unless the task explicitly requires a numeric type.",
             "Hardware/profile evidence may influence model fit and tuning only when it is compatible with the task, installed packages, and available model sources.",
             "Hardware tuning must not increase epochs, folds, model size, image resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization.",
             "If execution feedback contradicts an earlier decision, update only the relevant part of the decision and explain why in the plan.",
@@ -210,12 +211,11 @@ def format_pipeline_decision_prompt_section(decision: dict[str, Any] | None, *, 
 def _render_pipeline_decision_section(payload: str) -> str:
     return (
         f"{PIPELINE_DECISION_HEADING}\n"
-        "Before writing or modifying code, decide the ML pipeline in this exact order: "
-        "datatype -> model -> optimizer -> tuning.\n\n"
-        "1. Datatype / data modality: identify modality, target type, and shape constraints.\n"
-        "2. Model: choose a model family that follows from the datatype and metric before hardware speed.\n"
-        "3. Optimizer and loss: choose loss from the target/metric, then optimizer for stability.\n"
-        "4. Tuning: choose batch size, accumulation, precision, dataloader settings, checkpointing, and OOM/timeout fallbacks.\n"
+        "Before writing or modifying code, follow the hardware-aware stepwise workflow: "
+        "model_design -> datatype_precision -> training_evaluation.\n\n"
+        "1. Model design: choose architecture/model family, loss, and output interface first.\n"
+        "2. Datatype precision: choose dtype, AMP/TF32, GradScaler, autocast, and precision fallback policy.\n"
+        "3. Training evaluation: choose optimizer, scheduler, batch size, dataloader settings, checkpointing, validation, submission, runtime fallbacks, and logging.\n"
         "Hardware tuning must not increase epochs, folds, model size, image resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization.\n"
         "If evidence is missing, use the fallback recorded in the trace instead of inventing hardware claims.\n\n"
         f"{PIPELINE_DECISION_TRACE_HEADING}\n"
@@ -226,7 +226,7 @@ def _render_pipeline_decision_section(payload: str) -> str:
 def _render_compact_pipeline_decision_section(payload: str) -> str:
     return (
         f"{PIPELINE_DECISION_HEADING}\n"
-        "Required order: datatype -> model -> optimizer -> tuning. "
+        "Required hardware-aware step order: model_design -> datatype_precision -> training_evaluation. "
         "Use the trace as the source of truth, apply hardware evidence only when compatible, "
         "and use recorded fallbacks when evidence is missing.\n\n"
         f"{PIPELINE_DECISION_TRACE_HEADING}\n"
@@ -285,17 +285,16 @@ def _build_decision_prompt(
     system = (
         "You are the MLEvolve pipeline-decision agent. "
         "Return one compact JSON object and no prose. "
-        "The required reasoning order is datatype -> model -> optimizer -> tuning."
+        "The required hardware-aware step order is model_design -> datatype_precision -> training_evaluation."
     )
     user = (
         f"Stage: {stage}\n\n"
         f"Task description:\n{task_desc}\n\n"
         f"Data preview:\n{data_preview}\n\n"
         "Pipeline contract:\n"
-        "1. Datatype / data modality: identify modality, target type, and shape constraints.\n"
-        "2. Model: choose a model family from datatype and metric first.\n"
-        "3. Optimizer and loss: choose loss from target/metric, then optimizer for stability.\n"
-        "4. Tuning: choose batch size, precision, dataloader policy, checkpoint cadence, and fallbacks.\n\n"
+        "1. Model design: choose architecture/model family, loss, and output interface first.\n"
+        "2. Datatype precision: choose dtype, AMP/TF32, GradScaler, autocast, and precision fallback policy.\n"
+        "3. Training evaluation: choose optimizer, scheduler, batch size, dataloader policy, checkpoint cadence, validation/submission behavior, and fallbacks.\n\n"
         "Rules:\n"
         "- Do not use hardware speed as a reason to violate task correctness, package availability, model-source availability, or submission format.\n"
         "- Hardware tuning must not increase epochs, folds, model size, input resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization.\n"

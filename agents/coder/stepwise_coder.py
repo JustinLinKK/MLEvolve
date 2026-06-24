@@ -13,6 +13,7 @@ Main entry: stepwise_plan_and_code_query()
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Any
 
@@ -27,6 +28,19 @@ from agents.planner.base_planner import (
 
 logger = logging.getLogger("MLEvolve")
 
+STEP_LOGICAL_STAGE: Dict[str, str] = {
+    "data_processing_and_feature_engineering": "stage1_candidate_construction",
+    "model_design": "stage1_candidate_construction",
+    "datatype_precision": "stage2_datatype_precision",
+    "training_evaluation": "stage3_training_evaluation",
+}
+
+STEP_LOGICAL_STAGE_LABEL: Dict[str, str] = {
+    "stage1_candidate_construction": "Stage 1 candidate construction",
+    "stage2_datatype_precision": "Stage 2 datatype/precision",
+    "stage3_training_evaluation": "Stage 3 training/evaluation",
+}
+
 
 @dataclass
 class StepwiseContext:
@@ -40,10 +54,37 @@ class StepwiseContext:
     hardware_context: Dict[str, Any] = field(default_factory=dict)
     pipeline_decision: Dict[str, Any] = field(default_factory=dict)
     pipeline_decision_section: str = ""
+    stage_note_board: List[Dict[str, Any]] = field(default_factory=list)
     used_prompts: List[Dict[str, str]] = field(default_factory=list)
 
     def hardware_section_for(self, step_name: str) -> str:
         return self.hardware_stage_sections.get(step_name) or self.hardware_brief
+
+    def logical_stage_for(self, step_name: str) -> str:
+        return STEP_LOGICAL_STAGE.get(step_name, step_name)
+
+    def note_board_section(self, step_name: str) -> str:
+        lines = [
+            "# Cross-Stage Note Board",
+            "- Purpose: preserve the candidate intent across Stage 1, Stage 2, and Stage 3 so later stages optimize toward the same target.",
+        ]
+        if self.stage_note_board:
+            lines.append("- Notes so far:")
+            for item in self.stage_note_board[-8:]:
+                stage = item.get("stage") or "stage"
+                stage_group = STEP_LOGICAL_STAGE_LABEL.get(str(item.get("stage_group") or ""), item.get("stage_group") or "")
+                baseline_change = item.get("baseline_change") or "not recorded"
+                purpose = item.get("purpose") or "not recorded"
+                hardware_keys = item.get("hardware_keys") or []
+                key_text = ", ".join(str(key) for key in hardware_keys[:8]) if hardware_keys else "none"
+                prefix = f"{stage_group} / {stage}" if stage_group else str(stage)
+                lines.append(
+                    f"  - {prefix}: baseline_change={baseline_change}; purpose={purpose}; hardware_keys={key_text}"
+                )
+        else:
+            current_group = STEP_LOGICAL_STAGE_LABEL.get(self.logical_stage_for(step_name), step_name)
+            lines.append(f"- No prior notes yet. This step is part of {current_group}; write concise notes for later stages.")
+        return "\n".join(lines) + "\n"
 
     def hardware_section_for_merge(self) -> str:
         sections: list[str] = []
@@ -183,7 +224,9 @@ class StepAgent:
         prompt_instructions["Response format"] = (
             "Your response should be:\n"
             "1. A brief plan (2-3 sentences) describing what you will do in this step\n"
-            "2. A single markdown code block (wrapped in ```) containing ONLY the code for this step\n"
+            "2. A `Note board:` block with 1-3 bullets. Each bullet must use this exact shape: "
+            "`- baseline_change: <what changed from the baseline or prior step> | purpose: <why this supports the candidate target> | hardware_keys: <comma-separated local feature keys or none>`\n"
+            "3. A single markdown code block (wrapped in ```) containing ONLY the code for this step\n"
             "IMPORTANT: Do NOT write code for other steps. Only write code for the current step."
         )
 
@@ -209,6 +252,7 @@ class StepAgent:
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
             "Hardware/Profile Optimization Context": context.hardware_section_for(self.name),
             "Pipeline Decision Contract": context.pipeline_decision_section,
+            "Cross-Stage Note Board": context.note_board_section(self.name),
             "Previous steps": prev_summary,
             "Current step": {
                 "Name": self.name,
@@ -272,6 +316,7 @@ class StepAgent:
 
         hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
         pipeline_decision_section = prompt.get("Pipeline Decision Contract", "")
+        note_board_section = prompt.get("Cross-Stage Note Board", "")
 
         previous_solution_section = ""
         if context.stage == "improve" and "Previous solution" in prompt:
@@ -282,6 +327,7 @@ class StepAgent:
             f"{memory_section}\n"
             f"{hardware_section}\n"
             f"{pipeline_decision_section}\n"
+            f"{note_board_section}\n"
             f"{previous_solution_section}"
             f"# Previous steps\n{prompt['Previous steps']}\n\n"
             f"# Current step: {prompt['Current step']['Name']}\n{prompt['Current step']['Description']}\n\n"
@@ -395,6 +441,7 @@ class MetaAgent:
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
             "Hardware/Profile Optimization Context": context.hardware_section_for_merge(),
             "Pipeline Decision Contract": context.pipeline_decision_section,
+            "Cross-Stage Note Board": context.note_board_section("merge"),
             "Data preview": data_preview_str,
             "Step results": "".join(steps_summary),
             "Instructions": prompt_instructions,
@@ -419,6 +466,7 @@ class MetaAgent:
                 memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
         hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
         pipeline_decision_section = prompt.get("Pipeline Decision Contract", "")
+        note_board_section = prompt.get("Cross-Stage Note Board", "")
 
         okay_text = "Let me approach this systematically.\nFirst, I'll examine the dataset:"
 
@@ -443,6 +491,7 @@ class MetaAgent:
             f"{memory_section}\n\n"
             f"{hardware_section}\n"
             f"{pipeline_decision_section}\n"
+            f"{note_board_section}\n"
             f"# Step results\n{prompt['Step results']}\n\n"
             f"{instructions}"
         )
@@ -472,10 +521,12 @@ def create_default_step_agents(
     pipeline_decision_aware: bool = True,
 ) -> List[StepAgent]:
     data_guidelines = [
-        "Your responsibility: Load data from `./input`, clean, create features (preprocessing, encoding, augmentation), and split dataset into train/validation/test.",
+        "Your responsibility: Stage 1 candidate construction. Load data from `./input`, clean, create features (preprocessing, encoding, augmentation), and split dataset into train/validation/test.",
+        "Stage 1 flow: hardware context lookup, data processing, and model design together define this round's candidate before datatype and training stages refine execution details.",
         "CRITICAL: This step MUST include BOTH data loading AND feature engineering. Do NOT only load the raw data. You must actively create, transform, and enhance features to improve model performance.",
         "IMPORTANT: Apply feature engineering techniques such as feature scaling, encoding, transformation, and data augmentation methods appropriate for the task. Explore and implement feature engineering strategies that can enhance the model's ability to learn from the data.",
-        "CRITICAL: Do NOT build models, write training code, or perform evaluation. Focus ONLY on data preparation and feature engineering.",
+        "CRITICAL: Do NOT build models, write training code, choose optimizer, choose batch size, choose AMP/dtype policy, or perform evaluation. Focus ONLY on data preparation and feature engineering.",
+        "Note board: record what changed from the baseline data path and why, so model_design can complete the Stage 1 candidate target.",
     ]
     model_guidelines = [
         "Your responsibility: Design the model architecture or choose reference pretrained model, loss function, and optimizer based on the task and the features from previous steps.",
@@ -507,27 +558,41 @@ def create_default_step_agents(
         data_guidelines.append(
             "Hardware-aware data pipeline: when using GPU training, keep input resolution/sequence length configurable, use DataLoader settings compatible with the hardware brief, and prefer pin_memory/non-blocking transfers when tensors move to CUDA."
         )
+        hardware_node_rule = (
+            "Hardware graph contract: the stage-specific hardware node response is already attached in the Hardware/Profile Optimization Context. "
+            "Do not query the hardware node again; query local feature-node details only for selected feature keys when deeper guidance is needed, and never fetch external URLs."
+        )
+        data_guidelines.append(hardware_node_rule)
         model_guidelines = [
-            "Your responsibility: Stage 1 hardware-aware model design. Choose the model architecture or available pretrained model family, loss function, model output interface, and any model-local regularization needed for the task.",
+            "Your responsibility: Stage 1 hardware-aware candidate construction. Complete the candidate target by choosing the model architecture or available pretrained model family, loss function, model output interface, and any model-local regularization needed for the task.",
+            "Stage 1 flow: consume the Stage 1 hardware context plus the data_processing notes; this model step finalizes the candidate that Stage 2 and Stage 3 must preserve.",
             "CRITICAL: Do NOT write the training loop, data processing, feature engineering, optimizer, scheduler, batch size, epoch count, learning rate, dataloader worker settings, gradient accumulation, checkpoint cadence, or precision policy.",
             "CRITICAL: Do NOT choose AMP, bf16, fp16, fp32, TF32, GradScaler, autocast, or tensor dtype settings in this step. The datatype_precision step owns those decisions.",
             "IMPORTANT: Consider the task's evaluation metric when designing the model. The model output format should be compatible with the required evaluation metric calculation.",
             "Hardware-aware model design: use the Hardware-Aware Model Design Brief to compare model families before choosing an architecture. Optimize for the task metric first, while treating lower training time and higher GPU utilization as persistent objectives.",
             "Use the brief's compact hardware node, available feature keys, and selected feature details only when they are relevant to architecture, layer choice, tensor-core-friendly dimensions, or model-family feasibility.",
+            hardware_node_rule,
+            "Note board: Stage 1 notes are mandatory. Record what changed from the baseline model/data design and the purpose, because later stages must align precision and training choices to this target.",
             "Do not invent pretrained checkpoint paths, Kaggle input directories, torch hub directories, or dummy model weights to satisfy hardware advice. If a model source is not explicitly available, choose an available baseline-compatible model family.",
         ]
         datatype_guidelines = [
             "Your responsibility: Stage 2 hardware-aware datatype and tensor precision policy. Define reusable precision settings such as DEVICE, USE_AMP, AMP_DTYPE, USE_TF32, GradScaler behavior, autocast helper/context, and full-precision fallback behavior.",
+            "Read the Cross-Stage Note Board first and preserve the Stage 1 candidate target; precision choices should support that target instead of changing the model/data design.",
             "CRITICAL: Do NOT change model architecture, loss function, data features, preprocessing, optimizer, scheduler, batch size, epochs, learning rate, dataloader workers, gradient accumulation, checkpoint cadence, validation metric, or submission logic.",
             "Use the Hardware/Profile Optimization Context to choose among fp32, tf32, fp16, bf16, or disabled AMP. Prefer bf16 only when hardware and framework evidence support it; use GradScaler for fp16 when needed; keep fp32 fallback for fragile losses or unsupported devices.",
+            hardware_node_rule,
+            "Note board: record how the precision policy supports the Stage 1 target and which feature keys drove the choice.",
             "Keep precision configurable and backend-compatible. Do not hardcode scheduler backend choices, CUDA process modes, CUDA streams, or MPS behavior.",
             "Expose simple variables/utilities that the training_evaluation step can consume directly, and include lightweight logging of selected precision without batch-level noise.",
         ]
         training_guidelines = [
             "Your responsibility: Stage 3 hardware-aware training hyperparameter optimization. Write the training loop using the data/features, model, loss/interface, and datatype_precision variables from previous steps. Define optimizer, learning rate, weight decay, scheduler, physical batch size, gradient accumulation, dataloader workers, checkpoint cadence, validation, test inference, and `submission.csv`.",
+            "Read the Cross-Stage Note Board first and align optimizer, batch, dataloader, runtime, and fallback choices with the Stage 1 candidate target and Stage 2 precision policy.",
             "CRITICAL: Assume all previous code steps have already been executed. Do NOT redefine or reload data/features, redesign the model/loss, or replace the datatype_precision policy. Consume those variables and utilities AS-IS.",
             "CRITICAL: Own training hyperparameters in this step: batch size, effective batch size, accumulation steps, epochs, learning rate, weight decay, scheduler, early stopping, dataloader workers, pin_memory, persistent_workers, checkpointing, and runtime logging.",
             "CRITICAL: Use the datatype_precision variables/utilities for autocast, GradScaler, TF32, and fallback handling. Do NOT choose a different dtype policy unless the previous precision settings are impossible to use, and then keep a safe fallback.",
+            hardware_node_rule,
+            "Note board: record how training/runtime choices preserve the Stage 1 target and use the Stage 2 precision policy.",
             "CRITICAL: Validation metric computation must use the same prediction method as test inference, using training data only as reference, to avoid data leakage and ensure the metric reflects true generalization performance.",
             "CRITICAL CONSISTENCY REQUIREMENT: Ensure that validation and test inference use IDENTICAL processing logic. Any differences in how validation and test data are handled can cause large performance gaps between validation and test sets.",
             "CRITICAL: You MUST actively prevent overfitting. Use appropriate regularization, early stopping, and validation discipline without overfitting to the validation set.",
@@ -632,6 +697,8 @@ def _build_stepwise_metadata(
                 "plan": result.get("plan", ""),
                 "code_chars": len(result.get("code") or ""),
                 "hardware_context_used": bool(hardware_section.strip()),
+                "stage_group": STEP_LOGICAL_STAGE.get(step_name, step_name),
+                "stage_notes": list(result.get("stage_notes") or []),
             }
         )
     return {
@@ -641,7 +708,139 @@ def _build_stepwise_metadata(
         "decisions": decisions,
         "hardware_candidate": dict(context.hardware_candidate or {}),
         "hardware_context_keys": sorted((context.hardware_context or {}).keys()),
+        "stage_note_board": list(context.stage_note_board or []),
     }
+
+
+def _extract_stage_note_board(
+    *,
+    step_name: str,
+    plan_text: str,
+    code: str,
+    context: StepwiseContext,
+) -> List[Dict[str, Any]]:
+    block_lines = _note_board_block_lines(plan_text)
+    entries: List[Dict[str, Any]] = []
+    for line in block_lines[:3]:
+        parsed = _parse_note_board_line(line)
+        if not parsed:
+            continue
+        parsed["stage"] = step_name
+        parsed["stage_group"] = context.logical_stage_for(step_name)
+        entries.append(parsed)
+    if entries:
+        return entries
+    fallback = _fallback_stage_note(step_name=step_name, plan_text=plan_text, code=code, context=context)
+    return [fallback] if fallback else []
+
+
+def _note_board_block_lines(plan_text: str) -> List[str]:
+    lines = str(plan_text or "").splitlines()
+    collecting = False
+    block: List[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if re.match(r"^(?:\d+\.\s*)?(?:#{1,6}\s*)?note board\s*:?\s*$", stripped, flags=re.IGNORECASE):
+            collecting = True
+            continue
+        if not collecting:
+            continue
+        if re.match(r"^#{1,6}\s+\S+", stripped) and "note board" not in stripped.lower():
+            break
+        match = re.match(r"^[-*]\s+(.*)$", stripped)
+        if match:
+            block.append(match.group(1).strip())
+        elif stripped and block:
+            break
+    return block
+
+
+def _parse_note_board_line(line: str) -> Dict[str, Any]:
+    parts: Dict[str, str] = {}
+    for chunk in re.split(r"\s+\|\s+", line):
+        if ":" not in chunk:
+            continue
+        key, value = chunk.split(":", 1)
+        normalized_key = key.strip().lower().replace(" ", "_")
+        parts[normalized_key] = value.strip()
+    baseline_change = parts.get("baseline_change") or parts.get("change") or ""
+    purpose = parts.get("purpose") or parts.get("why") or ""
+    hardware_keys = _parse_note_hardware_keys(parts.get("hardware_keys") or parts.get("feature_keys") or "")
+    if not baseline_change and not purpose:
+        baseline_change = line.strip()
+    return {
+        "baseline_change": _compact_note_text(baseline_change),
+        "purpose": _compact_note_text(purpose),
+        "hardware_keys": hardware_keys,
+    }
+
+
+def _parse_note_hardware_keys(value: str) -> List[str]:
+    text = str(value or "").strip()
+    if not text or text.lower() in {"none", "n/a", "na", "-"}:
+        return []
+    text = text.strip("[]()")
+    keys: List[str] = []
+    for item in re.split(r"[,;]", text):
+        key = item.strip().strip("`'\"")
+        if key and key.lower() not in {"none", "n/a", "na"} and key not in keys:
+            keys.append(key)
+    return keys[:8]
+
+
+def _fallback_stage_note(
+    *,
+    step_name: str,
+    plan_text: str,
+    code: str,
+    context: StepwiseContext,
+) -> Dict[str, Any] | None:
+    summary = _first_sentence(plan_text) or "Generated this stage's implementation."
+    if not summary and not code:
+        return None
+    return {
+        "stage": step_name,
+        "stage_group": context.logical_stage_for(step_name),
+        "baseline_change": _compact_note_text(summary),
+        "purpose": _default_note_purpose(step_name),
+        "hardware_keys": _infer_hardware_keys_from_text(plan_text)[:8],
+    }
+
+
+def _first_sentence(text: str) -> str:
+    cleaned = re.sub(r"(?is)(?:\d+\.\s*)?(?:#{1,6}\s*)?note board\s*:.*$", "", str(text or "")).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    if not cleaned:
+        return ""
+    match = re.search(r"(.+?[.!?])(?:\s|$)", cleaned)
+    return (match.group(1) if match else cleaned[:180]).strip()
+
+
+def _default_note_purpose(step_name: str) -> str:
+    if step_name in {"data_processing_and_feature_engineering", "model_design"}:
+        return "Define the Stage 1 candidate target for later precision and training stages."
+    if step_name == "datatype_precision":
+        return "Support the Stage 1 candidate target with a compatible precision policy."
+    if step_name == "training_evaluation":
+        return "Train and evaluate the Stage 1 candidate using the selected precision policy."
+    return "Preserve cross-stage implementation intent."
+
+
+def _infer_hardware_keys_from_text(text: str) -> List[str]:
+    keys: List[str] = []
+    for match in re.finditer(r"`([a-zA-Z0-9][a-zA-Z0-9_:-]{1,80})`", str(text or "")):
+        key = match.group(1)
+        if "_" in key and key not in keys:
+            keys.append(key)
+    return keys
+
+
+def _compact_note_text(text: str, *, limit: int = 220) -> str:
+    cleaned = re.sub(r"https?://\S+", "", str(text or "").strip())
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: max(0, limit - 3)].rstrip() + "..."
 
 
 def stepwise_plan_and_code_query(
@@ -664,6 +863,7 @@ def stepwise_plan_and_code_query(
         hardware_context=context.get("hardware_context", {}) or {},
         pipeline_decision=context.get("pipeline_decision", {}) or {},
         pipeline_decision_section=context.get("pipeline_decision_section", ""),
+        stage_note_board=list(context.get("stage_note_board", []) or []),
     )
 
     hardware_aware = _hardware_reasoning_enabled(agent_instance)
@@ -691,6 +891,15 @@ def stepwise_plan_and_code_query(
             "plan": plan,
             "code": code,
         })
+        stage_notes = _extract_stage_note_board(
+            step_name=agent.name,
+            plan_text=plan,
+            code=code,
+            context=stepwise_context,
+        )
+        if stage_notes:
+            stepwise_context.stage_note_board.extend(stage_notes)
+            step_results[-1]["stage_notes"] = stage_notes
 
     logger.info("Merging all steps...")
     final_plan, final_code = meta_agent.merge(
