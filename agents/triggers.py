@@ -87,8 +87,13 @@ def register_node(agent, node: SearchNode, prompt, parent_node=None, new_branch:
             agent.branch_all_nodes[node.branch_id].append(node)
     prompt_text = node.prompt_input or ""
     try:
-        from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
+        from utils.pipeline_logging import (
+            log_pipeline_event,
+            record_pipeline_node_action,
+            record_pipeline_prompt_snapshot,
+        )
 
+        prompt_snapshot = record_pipeline_prompt_snapshot(agent, node, prompt_text)
         payload = {
             "new_branch": new_branch,
             "branch_id": node.branch_id,
@@ -96,6 +101,7 @@ def register_node(agent, node: SearchNode, prompt, parent_node=None, new_branch:
             "prompt_sha256": hashlib.sha256(prompt_text.encode("utf-8")).hexdigest() if prompt_text else None,
             "parent_node_id": getattr(parent_node or node.parent, "id", None),
         }
+        payload.update({key: value for key, value in prompt_snapshot.items() if value is not None})
         log_pipeline_event(agent, "node_created", node=node, payload=payload)
         record_pipeline_node_action(agent, node, "node_created", payload=payload)
     except Exception:

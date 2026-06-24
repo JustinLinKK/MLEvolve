@@ -38,9 +38,24 @@ class StepwiseContext:
     hardware_stage_sections: Dict[str, str] = field(default_factory=dict)
     hardware_candidate: Dict[str, Any] = field(default_factory=dict)
     hardware_context: Dict[str, Any] = field(default_factory=dict)
+    pipeline_decision: Dict[str, Any] = field(default_factory=dict)
+    pipeline_decision_section: str = ""
+    used_prompts: List[Dict[str, str]] = field(default_factory=list)
 
     def hardware_section_for(self, step_name: str) -> str:
         return self.hardware_stage_sections.get(step_name) or self.hardware_brief
+
+    def hardware_section_for_merge(self) -> str:
+        sections: list[str] = []
+        for step_name in (
+            "model_design",
+            "datatype_precision",
+            "training_evaluation",
+        ):
+            section = self.hardware_stage_sections.get(step_name, "")
+            if section.strip() and section not in sections:
+                sections.append(section)
+        return "\n".join(sections) or self.hardware_brief
 
 
 @dataclass
@@ -74,6 +89,7 @@ class StepAgent:
             previous_module_code=previous_module_code,
             improvement_strategy=improvement_strategy,
         )
+        context.used_prompts.append({"name": self.name, "prompt": prompt})
 
         completion_text = None
         for _ in range(retries):
@@ -192,6 +208,7 @@ class StepAgent:
             "Data preview": data_preview_str,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
             "Hardware/Profile Optimization Context": context.hardware_section_for(self.name),
+            "Pipeline Decision Contract": context.pipeline_decision_section,
             "Previous steps": prev_summary,
             "Current step": {
                 "Name": self.name,
@@ -254,6 +271,7 @@ class StepAgent:
                 memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
 
         hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
+        pipeline_decision_section = prompt.get("Pipeline Decision Contract", "")
 
         previous_solution_section = ""
         if context.stage == "improve" and "Previous solution" in prompt:
@@ -263,6 +281,7 @@ class StepAgent:
             f"\n# Task description\n{prompt['Task description']}\n\n"
             f"{memory_section}\n"
             f"{hardware_section}\n"
+            f"{pipeline_decision_section}\n"
             f"{previous_solution_section}"
             f"# Previous steps\n{prompt['Previous steps']}\n\n"
             f"# Current step: {prompt['Current step']['Name']}\n{prompt['Current step']['Description']}\n\n"
@@ -292,6 +311,7 @@ class MetaAgent:
             agent_instance=agent_instance,
             context=context,
         )
+        context.used_prompts.append({"name": "merge", "prompt": prompt})
 
         completion_text = None
         for _ in range(retries):
@@ -365,13 +385,16 @@ class MetaAgent:
             "- The code should be a single-file Python program that can be executed as-is",
             "- Assume previous steps have NOT been executed; do not skip execution steps and only read files or outputs.",
             "- All parts must work together seamlessly",
+            "- Use hardware context only to preserve compatible precision, batch, dataloader, and runtime choices. Do not redesign the selected model or optimizer during merge.",
+            "- Never emit merge-conflict markers such as <<<<<<<, =======, or >>>>>>>. Resolve conflicting snippets into ordinary Python before returning the final code.",
         ]
 
         prompt: Dict[str, Any] = {
             "Introduction": introduction,
             "Task description": task_desc,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
-            "Hardware/Profile Optimization Context": context.hardware_brief,
+            "Hardware/Profile Optimization Context": context.hardware_section_for_merge(),
+            "Pipeline Decision Contract": context.pipeline_decision_section,
             "Data preview": data_preview_str,
             "Step results": "".join(steps_summary),
             "Instructions": prompt_instructions,
@@ -395,6 +418,7 @@ class MetaAgent:
             else:
                 memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
         hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
+        pipeline_decision_section = prompt.get("Pipeline Decision Contract", "")
 
         okay_text = "Let me approach this systematically.\nFirst, I'll examine the dataset:"
 
@@ -418,6 +442,7 @@ class MetaAgent:
             f"\n# Task description\n{prompt['Task description']}\n\n"
             f"{memory_section}\n\n"
             f"{hardware_section}\n"
+            f"{pipeline_decision_section}\n"
             f"# Step results\n{prompt['Step results']}\n\n"
             f"{instructions}"
         )
@@ -441,7 +466,11 @@ def _hardware_reasoning_enabled(agent_instance) -> bool:
     return bool(getattr(acfg, "hardware_context_enabled", True))
 
 
-def create_default_step_agents(*, hardware_aware: bool = True) -> List[StepAgent]:
+def create_default_step_agents(
+    *,
+    hardware_aware: bool = True,
+    pipeline_decision_aware: bool = True,
+) -> List[StepAgent]:
     data_guidelines = [
         "Your responsibility: Load data from `./input`, clean, create features (preprocessing, encoding, augmentation), and split dataset into train/validation/test.",
         "CRITICAL: This step MUST include BOTH data loading AND feature engineering. Do NOT only load the raw data. You must actively create, transform, and enhance features to improve model performance.",
@@ -514,6 +543,45 @@ def create_default_step_agents(*, hardware_aware: bool = True) -> List[StepAgent
                 "When feasible, log resolved batch size, selected precision, elapsed time, throughput, and peak CUDA memory so later scheduler graph evidence can learn from this run.",
             ]
         )
+    if pipeline_decision_aware:
+        data_guidelines.extend(
+            [
+                "Pipeline decision: consume `datatype.modality`, `datatype.target_type`, and `datatype.shape_constraints` before choosing preprocessing or feature engineering.",
+                "Pipeline decision: use `tuning.dataloader_policy` only for data loading mechanics; do not choose the model family or optimizer in this step.",
+            ]
+        )
+        if hardware_aware:
+            model_guidelines.extend(
+                [
+                    "Pipeline decision: consume `datatype`, `model`, and `optimizer.loss` to define the model interface and criterion only; leave optimizer, scheduler, precision, and batch policy to later hardware-aware stages.",
+                    "Pipeline decision: do not use unavailable weights, packages, or hardware-only tricks to justify a model family.",
+                ]
+            )
+            datatype_guidelines.extend(
+                [
+                    "Pipeline decision: consume `tuning.precision_policy`, `evidence`, and the Hardware/Profile Optimization Context to define only dtype, AMP/TF32, GradScaler, autocast, and precision fallback behavior.",
+                    "Pipeline decision: do not change model family, loss, optimizer, scheduler, dataloader policy, batch size, or validation/submission behavior in this step.",
+                ]
+            )
+            training_guidelines.extend(
+                [
+                    "Pipeline decision: consume `optimizer.optimizer`, `optimizer.scheduler`, `tuning.batch_size_policy`, `tuning.dataloader_policy`, `tuning.fallbacks`, and `evidence` for training, validation, checkpointing, submission generation, and runtime logging.",
+                    "Pipeline decision: when evidence is missing, implement the recorded safe fallbacks rather than inventing hardware claims.",
+                ]
+            )
+        else:
+            model_guidelines.extend(
+                [
+                    "Pipeline decision: consume `datatype`, `model`, and `optimizer.loss`/`optimizer.optimizer` to define only the model, criterion, and optimizer.",
+                    "Pipeline decision: do not use unavailable weights, packages, or hardware-only tricks to justify a model family.",
+                ]
+            )
+            training_guidelines.extend(
+                [
+                    "Pipeline decision: consume `optimizer`, `tuning`, and `evidence` for training, validation, checkpointing, submission generation, and runtime logging.",
+                    "Pipeline decision: when evidence is missing, implement the recorded safe fallbacks rather than inventing hardware claims.",
+                ]
+            )
     step_agents = [
         StepAgent(
             name="data_processing_and_feature_engineering",
@@ -594,10 +662,15 @@ def stepwise_plan_and_code_query(
         hardware_stage_sections=context.get("hardware_stage_sections", {}) or {},
         hardware_candidate=context.get("hardware_candidate", {}) or {},
         hardware_context=context.get("hardware_context", {}) or {},
+        pipeline_decision=context.get("pipeline_decision", {}) or {},
+        pipeline_decision_section=context.get("pipeline_decision_section", ""),
     )
 
     hardware_aware = _hardware_reasoning_enabled(agent_instance)
-    step_agents = create_default_step_agents(hardware_aware=hardware_aware)
+    step_agents = create_default_step_agents(
+        hardware_aware=hardware_aware,
+        pipeline_decision_aware=bool(stepwise_context.pipeline_decision_section),
+    )
     meta_agent = MetaAgent()
 
     step_results: List[Dict[str, str]] = []
@@ -631,6 +704,7 @@ def stepwise_plan_and_code_query(
 
     logger.info("Stepwise generation completed.")
 
+    context["used_prompt_sections"] = list(stepwise_context.used_prompts)
     if return_metadata:
         return final_plan, final_code, _build_stepwise_metadata(
             step_results=step_results,

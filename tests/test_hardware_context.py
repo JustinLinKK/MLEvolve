@@ -143,6 +143,155 @@ def test_compact_context_formats_prompt_without_raw_bloat() -> None:
     assert "raw_context" not in prompt
 
 
+def test_stage_filtered_hardware_features_are_compacted_into_prompt() -> None:
+    raw = {
+        "hardware_context": {
+            "found": True,
+            "hardware": {"gpu_name": "RTX 5090", "summary_text": "RTX 5090"},
+        },
+        "stage_hardware_features": {
+            "found": True,
+            "stage_filter": ["optimizer"],
+            "hardware": {"gpu_name": "RTX 5090", "architecture": "blackwell"},
+            "stages": [
+                {
+                    "stage": "optimizer",
+                    "node": {
+                        "stage_filter": "optimizer",
+                        "datatypes": ["bf16"],
+                        "software_features": ["amp"],
+                        "recipes": ["muon_optimizer"],
+                        "experimental_recipes": ["soap_optimizer", "ademamix_optimizer"],
+                    },
+                    "features": [
+                        {
+                            "feature_id": "muon_optimizer",
+                            "name": "Muon optimizer",
+                            "category": "optimizer",
+                            "support_level": "supported",
+                            "recommended": True,
+                            "verified": False,
+                            "limitations": "Use only for selected 2D hidden weights after a stable baseline.",
+                            "usage": "Hybrid Muon+AdamW optimizer with separate parameter groups.",
+                            "notes": "Use Muon on selected 2D hidden weights and AdamW on embedding/bias/norm/head/non-2D params; initial Muon settings: ns_steps=5, momentum=0.95, nesterov=True; prefer adjust_lr_fn='match_rms_adamw'.",
+                            "recommended_patterns": [
+                                "split params by dimensionality/name: Muon for hidden 2D matrices, AdamW for embeddings, heads, bias, norm, and non-2D params",
+                            ],
+                            "avoid_patterns": [
+                                "no Muon on embedding/bias/norm/head/non-2D params",
+                            ],
+                            "example_code": "optim_muon = torch.optim.Muon(muon_params, lr=0.02, weight_decay=0.1, momentum=0.95, nesterov=True, ns_steps=5, adjust_lr_fn='match_rms_adamw')",
+                        },
+                        {
+                            "feature_id": "soap_optimizer",
+                            "name": "SOAP optimizer",
+                            "category": "optimizer",
+                            "support_level": "experimental",
+                            "recommended": False,
+                            "verified": False,
+                            "limitations": "RTX 5090-specific benefit is not widely confirmed.",
+                        }
+                    ],
+                    "feature_count": 2,
+                }
+            ],
+            "features": [{"feature_id": "muon_optimizer"}, {"feature_id": "soap_optimizer"}],
+            "feature_count": 2,
+            "source": "hardware_knowledge_graph.json",
+        },
+        "confidence": 0.4,
+    }
+
+    compact = compact_optimization_context(raw)
+    prompt = format_hardware_prompt_section(compact, max_chars=2000)
+
+    assert "Stage-filtered hardware knowledge" in prompt
+    assert "optimizer" in prompt
+    assert "muon_optimizer" in prompt
+    assert "soap_optimizer" in prompt
+    assert "ns_steps=5" in prompt
+    assert "momentum=0.95" in prompt
+    assert "nesterov=True" in prompt
+    assert "match_rms_adamw" in prompt
+    assert "AdamW on embedding/bias/norm/head/non-2D params" in prompt
+    assert "omitted_not_recommended" in prompt
+    assert "not widely confirmed" not in prompt
+    assert "experimental_recipes" not in prompt
+    assert "bf16" not in prompt
+    assert "software_features" not in prompt
+    assert "hardware_knowledge_graph.json" in prompt
+
+
+def test_stage_node_direct_fields_are_pruned_by_pipeline_stage() -> None:
+    raw = {
+        "hardware_context": {
+            "found": True,
+            "hardware": {"gpu_name": "RTX 5090", "summary_text": "RTX 5090"},
+        },
+        "stage_hardware_features": {
+            "found": True,
+            "stage_filter": ["datatype", "tuning"],
+            "stages": [
+                {
+                    "stage": "datatype",
+                    "node": {
+                        "stage_filter": "datatype",
+                        "datatypes": ["bf16"],
+                        "software_features": ["amp", "nvimagecodec_gpu_decode"],
+                        "recipes": ["dataset_decomposition", "muon_optimizer"],
+                        "experimental_recipes": ["soap_optimizer"],
+                    },
+                    "features": [
+                        {
+                            "feature_id": "dataset_decomposition",
+                            "name": "Dataset decomposition",
+                            "category": "data_pipeline",
+                        }
+                    ],
+                    "feature_count": 1,
+                },
+                {
+                    "stage": "tuning",
+                    "node": {
+                        "stage_filter": "tuning",
+                        "datatypes": ["bf16"],
+                        "software_features": ["amp", "cut_cross_entropy"],
+                        "recipes": ["muon_optimizer"],
+                        "experimental_recipes": ["soap_optimizer"],
+                    },
+                    "features": [
+                        {
+                            "feature_id": "bf16",
+                            "name": "BF16",
+                            "category": "precision",
+                        }
+                    ],
+                    "feature_count": 1,
+                },
+            ],
+            "feature_count": 2,
+            "source": "unit-test",
+        },
+    }
+
+    compact = compact_optimization_context(raw)
+    prompt = format_hardware_prompt_section(compact, max_chars=2400)
+
+    datatype_line = next(line for line in prompt.splitlines() if line.startswith("  - datatype"))
+    tuning_line = next(line for line in prompt.splitlines() if line.startswith("  - tuning"))
+    assert "nvimagecodec_gpu_decode" in datatype_line
+    assert "bf16" not in datatype_line
+    assert "amp" not in datatype_line
+    assert "dataset_decomposition" not in datatype_line
+    assert "muon_optimizer" not in datatype_line
+    assert "soap_optimizer" not in datatype_line
+    assert "bf16" in tuning_line
+    assert "amp" in tuning_line
+    assert "cut_cross_entropy" not in tuning_line
+    assert "muon_optimizer" not in tuning_line
+    assert "experimental_recipes" not in prompt
+
+
 def test_stage_specific_hardware_prompts_split_precision_and_training_focus() -> None:
     raw = {
         "hardware_context": {
@@ -380,6 +529,86 @@ def test_hardware_design_brief_ranks_model_options_without_overriding_constraint
     assert "tensor-core-friendly" in prompt
     assert CONSTRAINT_PRECEDENCE_RULE in prompt
     assert HARDWARE_BUDGET_GUARDRAIL_RULE in prompt
+
+
+def test_stepwise_hardware_stage_sections_route_stage_filtered_features() -> None:
+    execution_context = compact_optimization_context(
+        {
+            "hardware_context": {
+                "found": True,
+                "hardware": {"gpu_name": "RTX 5090", "summary_text": "RTX 5090"},
+            },
+            "stage_hardware_features": {
+                "found": True,
+                "stage_filter": ["datatype", "tuning"],
+                "stages": [
+                    {
+                        "stage": "datatype",
+                        "node": {"stage_filter": "datatype", "software_features": ["nvimagecodec_gpu_decode"]},
+                        "features": [
+                            {
+                                "feature_id": "dataset_decomposition",
+                                "name": "Dataset decomposition",
+                                "category": "data_pipeline",
+                            }
+                        ],
+                        "feature_count": 1,
+                    },
+                    {
+                        "stage": "optimizer",
+                        "node": {"stage_filter": "optimizer", "recipes": ["muon_optimizer"]},
+                        "features": [
+                            {
+                                "feature_id": "muon_optimizer",
+                                "name": "Muon optimizer",
+                                "category": "optimizer",
+                                "recommended": True,
+                            }
+                        ],
+                        "feature_count": 1,
+                    },
+                    {
+                        "stage": "tuning",
+                        "node": {"stage_filter": "tuning", "datatypes": ["bf16", "fp8"]},
+                        "features": [
+                            {
+                                "feature_id": "bf16",
+                                "name": "BF16",
+                                "category": "precision",
+                            }
+                        ],
+                        "feature_count": 1,
+                    },
+                ],
+                "features": [
+                    {"feature_id": "dataset_decomposition"},
+                    {"feature_id": "muon_optimizer"},
+                    {"feature_id": "bf16"},
+                ],
+                "feature_count": 3,
+                "source": "unit-test",
+            },
+            "confidence": 0.5,
+        }
+    )
+    sections = build_stepwise_hardware_stage_sections(
+        design_context=SimpleNamespace(prompt_section="# Hardware-Aware Model Design Brief\n", compact_context={}),
+        execution_context=SimpleNamespace(compact_context=execution_context),
+        max_chars=4000,
+    )
+
+    data_section = sections["data_processing_and_feature_engineering"]
+    dtype_section = sections["datatype_precision"]
+    training_section = sections["training_evaluation"]
+
+    assert "dataset_decomposition" in data_section
+    assert "bf16" not in data_section
+    assert "muon_optimizer" in training_section
+    assert "bf16" in training_section
+    assert "dataset_decomposition" not in training_section
+    assert "Datatype/Precision" in dtype_section
+    assert "bf16" in dtype_section
+    assert "muon_optimizer" not in dtype_section
 
 
 def test_hardware_design_brief_fetches_only_selected_feature_details(monkeypatch) -> None:

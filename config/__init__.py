@@ -117,6 +117,7 @@ class AgentConfig:
     decay: DecayConfig
     use_diff_mode: bool = True
     hardware_context_enabled: bool = True
+    pipeline_decision_enabled: bool = True
     hardware_context_limit: int = 8
     hardware_context_max_prompt_chars: int = 3500
 @dataclass

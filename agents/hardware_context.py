@@ -81,6 +81,111 @@ _DATATYPE_EXCLUDE_KEYWORDS = (
     "checkpoint",
 )
 
+_STAGE_NODE_FIELD_LIMITS: dict[str, tuple[tuple[str, int], ...]] = {
+    "datatype": (
+        ("software_features", 6),
+        ("recommended_patterns", 3),
+        ("avoid_patterns", 3),
+    ),
+    "model": (
+        ("datatypes", 4),
+        ("software_features", 6),
+        ("recommended_patterns", 3),
+        ("avoid_patterns", 3),
+    ),
+    "optimizer": (
+        ("recipes", 4),
+        ("recommended_patterns", 3),
+        ("avoid_patterns", 3),
+    ),
+    "tuning": (
+        ("datatypes", 6),
+        ("software_features", 6),
+        ("recommended_patterns", 3),
+        ("avoid_patterns", 3),
+    ),
+}
+_DEFAULT_STAGE_NODE_FIELD_LIMITS: tuple[tuple[str, int], ...] = (
+    ("datatypes", 4),
+    ("software_features", 4),
+    ("recommended_patterns", 3),
+    ("avoid_patterns", 3),
+)
+_STAGE_DIRECT_VALUE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "datatype": (
+        "data",
+        "dataset",
+        "dataloader",
+        "decode",
+        "image",
+        "video",
+        "wsi",
+        "tile",
+        "tiled",
+        "chunk",
+        "decomposition",
+        "sequence",
+        "packing",
+        "channels_last",
+    ),
+    "model": (
+        "attention",
+        "sdpa",
+        "flash",
+        "tensor_core",
+        "tensor",
+        "kernel",
+        "compile",
+        "channels_last",
+        "unet",
+        "cnn",
+        "transformer",
+        "activation",
+        "checkpoint",
+        "sm_",
+        "nvlink",
+        "mig",
+        "topology",
+    ),
+    "optimizer": (
+        "optimizer",
+        "adam",
+        "muon",
+        "soap",
+        "ademamix",
+        "loss",
+        "cross_entropy",
+        "cross-entropy",
+        "gram_newton",
+        "newton_schulz",
+        "scheduler",
+        "learning_rate",
+        "lr",
+        "weight_decay",
+        "momentum",
+    ),
+    "tuning": (
+        "bf16",
+        "fp16",
+        "fp8",
+        "fp4",
+        "fp64",
+        "tf32",
+        "int8",
+        "amp",
+        "precision",
+        "autocast",
+        "quant",
+        "grad",
+        "batch",
+        "vram",
+        "memory",
+        "throughput",
+        "parallel",
+        "tensor_parallel",
+    ),
+}
+
 
 @dataclass
 class HardwarePromptContext:
@@ -278,12 +383,82 @@ def build_stepwise_hardware_stage_sections(
     generic_section = format_hardware_prompt_section(compact, max_chars=max_chars) if compact else ""
     datatype_section = format_hardware_datatype_prompt_section(compact, max_chars=max_chars) if compact else ""
     training_section = format_hardware_training_prompt_section(compact, max_chars=max_chars) if compact else ""
+    data_feature_section = _format_stage_specific_hardware_features(compact, ("datatype",), max_chars=max_chars)
+    model_feature_section = _format_stage_specific_hardware_features(compact, ("model",), max_chars=max_chars)
+    precision_feature_section = _format_stage_specific_hardware_features(compact, ("tuning",), max_chars=max_chars)
+    training_feature_section = _format_stage_specific_hardware_features(
+        compact,
+        ("optimizer", "tuning"),
+        max_chars=max_chars,
+    )
     return {
-        "data_processing_and_feature_engineering": generic_section,
-        "model_design": design_section or generic_section,
-        "datatype_precision": datatype_section or generic_section,
-        "training_evaluation": training_section or generic_section,
+        "data_processing_and_feature_engineering": data_feature_section or generic_section,
+        "model_design": _join_prompt_sections((design_section, model_feature_section), max_chars=max_chars)
+        or design_section
+        or generic_section,
+        "datatype_precision": _join_prompt_sections((datatype_section, precision_feature_section), max_chars=max_chars)
+        or generic_section,
+        "training_evaluation": _join_prompt_sections((training_section, training_feature_section), max_chars=max_chars)
+        or generic_section,
     }
+
+
+def _join_prompt_sections(sections: tuple[str, ...], *, max_chars: int) -> str:
+    text = "\n".join(section.strip() for section in sections if section and section.strip()).strip()
+    if not text:
+        return ""
+    if len(text) > max_chars:
+        text = text[: max(0, max_chars - 48)].rstrip() + "\n... [hardware context truncated]"
+    return text + "\n"
+
+
+def _format_stage_specific_hardware_features(
+    compact: dict[str, Any],
+    stage_filters: tuple[str, ...],
+    *,
+    max_chars: int,
+) -> str:
+    stage_context = _filter_stage_hardware_features(
+        compact.get("stage_hardware_features") or {},
+        stage_filters,
+    )
+    lines = _format_stage_hardware_features(stage_context)
+    if not lines:
+        return ""
+    text = "\n".join([HARDWARE_CONTEXT_HEADING, *lines]).strip()
+    if len(text) > max_chars:
+        text = text[: max(0, max_chars - 48)].rstrip() + "\n... [stage hardware context truncated]"
+    return text + "\n"
+
+
+def _filter_stage_hardware_features(
+    stage_context: dict[str, Any],
+    stage_filters: tuple[str, ...],
+) -> dict[str, Any]:
+    if not stage_context or not stage_context.get("found"):
+        return {}
+    allowed = {str(stage).strip().lower() for stage in stage_filters if str(stage).strip()}
+    stages = [
+        dict(stage)
+        for stage in list(stage_context.get("stages") or [])
+        if str(stage.get("stage") or "").strip().lower() in allowed
+    ]
+    if not stages:
+        return {}
+    feature_ids: list[str] = []
+    feature_count = 0
+    for stage in stages:
+        feature_count += int(stage.get("feature_count") or 0)
+        for feature in list(stage.get("features") or []):
+            feature_id = str(feature.get("feature_id") or "").strip()
+            if feature_id and feature_id not in feature_ids:
+                feature_ids.append(feature_id)
+    filtered = dict(stage_context)
+    filtered["stages"] = stages
+    filtered["stage_filter"] = [stage.get("stage") for stage in stages if stage.get("stage")]
+    filtered["feature_ids"] = feature_ids
+    filtered["feature_count"] = feature_count
+    return {key: value for key, value in filtered.items() if value not in (None, "", [], {})}
 
 
 def apply_stepwise_hardware_decisions_to_node(
@@ -484,6 +659,7 @@ def compact_optimization_context(raw_context: dict[str, Any] | None) -> dict[str
         "hardware_context": _compact_hardware_context(raw_context.get("hardware_context") or {}),
         "graph_evidence": _compact_graph_evidence(raw_context.get("graph_evidence") or {}),
         "derived_diagnosis": _compact_diagnosis(raw_context.get("derived_diagnosis") or {}),
+        "stage_hardware_features": _compact_stage_hardware_features(raw_context.get("stage_hardware_features") or {}),
         "vector_evidence": _compact_vector_evidence(raw_context.get("vector_evidence") or {}),
         "recommendations": _clean_string_list(raw_context.get("recommendations") or [], limit=8),
         "risk_flags": _clean_string_list(raw_context.get("risk_flags") or [], limit=8),
@@ -601,6 +777,7 @@ def compact_model_design_context(raw_context: dict[str, Any] | None) -> dict[str
             for item in list(feature_index_raw.get("features") or [])[:32]
         ],
         "feature_count": feature_index_raw.get("feature_count"),
+        "stage_filter": feature_index_raw.get("stage_filter"),
         "source": feature_index_raw.get("source"),
     }
     feature_index = {key: value for key, value in feature_index.items() if value not in (None, {}, [], "")}
@@ -768,6 +945,10 @@ def format_hardware_prompt_section(compact: dict[str, Any], *, max_chars: int = 
             )
             if limit_bits:
                 lines.append(f"- Scheduler limits: {limit_bits}")
+
+    stage_hardware_lines = _format_stage_hardware_features(compact.get("stage_hardware_features") or {})
+    if stage_hardware_lines:
+        lines.extend(stage_hardware_lines)
 
     diagnosis = compact.get("derived_diagnosis") or {}
     symptoms = diagnosis.get("profile_symptoms") or []
@@ -1142,6 +1323,121 @@ def _compact_diagnosis(diagnosis: dict[str, Any]) -> dict[str, list[str]]:
     }
 
 
+def _filter_stage_direct_values(stage_name: str, list_key: str, values: Any) -> list[str]:
+    cleaned = _clean_string_list(values or [], limit=32)
+    if not cleaned or list_key in {"recommended_patterns", "avoid_patterns"}:
+        return cleaned
+    keywords = _STAGE_DIRECT_VALUE_KEYWORDS.get(stage_name)
+    if not keywords:
+        return cleaned
+    filtered: list[str] = []
+    for value in cleaned:
+        text = value.lower().replace("-", "_").replace(" ", "_")
+        if any(keyword.replace("-", "_").replace(" ", "_") in text for keyword in keywords):
+            filtered.append(value)
+    return filtered
+
+
+def _compact_stage_hardware_features(stage_context: dict[str, Any]) -> dict[str, Any]:
+    if not stage_context:
+        return {}
+    stages: list[dict[str, Any]] = []
+    for item in list(stage_context.get("stages") or [])[:4]:
+        node = dict(item.get("node") or {})
+        stage_name = str(item.get("stage") or node.get("stage_filter") or "").strip()
+        field_limits = _STAGE_NODE_FIELD_LIMITS.get(stage_name, _DEFAULT_STAGE_NODE_FIELD_LIMITS)
+        compact_node = {"stage_filter": node.get("stage_filter")} if node.get("stage_filter") else {}
+        for list_key, item_limit in field_limits:
+            if list_key in node:
+                compact_node[list_key] = _clean_string_list(
+                    _filter_stage_direct_values(stage_name, list_key, node.get(list_key) or []),
+                    limit=item_limit,
+                )
+
+        features: list[dict[str, Any]] = []
+        omitted_not_recommended: list[str] = []
+        for raw_feature in list(item.get("features") or [])[:8]:
+            feature = _compact_stage_hardware_feature(feature=raw_feature)
+            if not feature:
+                continue
+            feature_id = str(feature.get("feature_id") or feature.get("name") or "feature").strip()
+            if feature.get("recommended") is False:
+                if feature_id and feature_id not in omitted_not_recommended:
+                    omitted_not_recommended.append(feature_id)
+                continue
+            features.append(feature)
+        compact_stage = {
+            "stage": stage_name or compact_node.get("stage_filter"),
+            "node": {key: value for key, value in compact_node.items() if value not in (None, "", [], {})},
+            "features": features[:4],
+            "feature_count": item.get("feature_count"),
+            "shown_feature_count": len(features[:4]),
+            "omitted_not_recommended": omitted_not_recommended[:6],
+        }
+        stages.append({key: value for key, value in compact_stage.items() if value not in (None, "", [], {})})
+    feature_ids = _clean_string_list(
+        [feature.get("feature_id") for feature in stage_context.get("features") or [] if feature.get("feature_id")],
+        limit=24,
+    )
+    compact = {
+        "found": bool(stage_context.get("found")),
+        "stage_filter": stage_context.get("stage_filter"),
+        "hardware": _pick(dict(stage_context.get("hardware") or {}), ("node_id", "gpu_name", "architecture", "vram_MB", "compute_capability")),
+        "stages": stages,
+        "feature_ids": feature_ids,
+        "feature_count": stage_context.get("feature_count"),
+        "source": stage_context.get("source"),
+        "reason": stage_context.get("reason"),
+    }
+    return {key: value for key, value in compact.items() if value not in (None, "", [], {})}
+
+
+def _compact_stage_hardware_feature(feature: dict[str, Any]) -> dict[str, Any]:
+    compact = _pick(
+        dict(feature),
+        (
+            "feature_id",
+            "name",
+            "feature_name",
+            "category",
+            "support_level",
+            "recommended",
+            "verified",
+            "performance_impact",
+            "recommendation_scope",
+            "limitations",
+            "notes",
+            "usage",
+            "recommended_patterns",
+            "avoid_patterns",
+            "example_code",
+        ),
+    )
+    feature_id = str(compact.get("feature_id") or feature.get("feature_id") or "").lower()
+    is_optimizer = compact.get("category") == "optimizer" or any(
+        token in feature_id for token in ("optimizer", "muon", "adamw", "soap", "ademamix")
+    )
+    shortened: dict[str, Any] = {}
+    for key, value in compact.items():
+        if value in (None, "", [], {}):
+            continue
+        if isinstance(value, str):
+            if key == "example_code":
+                limit = 520
+            elif is_optimizer and key in {"usage", "limitations", "notes"}:
+                limit = 260
+            else:
+                limit = 220
+            shortened[key] = _short(value, limit)
+        elif isinstance(value, list):
+            item_limit = 220 if is_optimizer and key in {"recommended_patterns", "avoid_patterns"} else 180
+            item_count = 4 if is_optimizer and key in {"recommended_patterns", "avoid_patterns"} else 3
+            shortened[key] = [_short(entry, item_limit) if isinstance(entry, str) else entry for entry in value[:item_count]]
+        else:
+            shortened[key] = value
+    return shortened
+
+
 def _compact_vector_evidence(vector: dict[str, Any]) -> dict[str, Any]:
     return {
         "recipes": [_compact_code_knowledge(item) for item in list(vector.get("recipes") or [])[:2]],
@@ -1160,6 +1456,7 @@ def _compact_hardware_feature_index_item(item: dict[str, Any]) -> dict[str, Any]
             "support_level",
             "recommended",
             "performance_impact",
+            "pipeline_stage",
             "frameworks",
             "tags",
             "confidence",
@@ -1225,6 +1522,87 @@ def _compact_code_knowledge(item: dict[str, Any]) -> dict[str, Any]:
         if key in compact:
             compact[key] = _short(compact[key], 220)
     return {key: value for key, value in compact.items() if value not in (None, "", [], {})}
+
+
+def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
+    if not stage_context or not stage_context.get("found"):
+        return []
+    lines = ["- Stage-filtered hardware knowledge:"]
+    stages = list(stage_context.get("stages") or [])
+    if not stages and stage_context.get("feature_ids"):
+        lines.append(
+            f"  - stage={stage_context.get('stage_filter')}: feature_ids={stage_context.get('feature_ids')}"
+        )
+        return lines
+    for stage in stages[:4]:
+        stage_name = stage.get("stage") or "pipeline"
+        is_optimizer_stage = str(stage_name).strip().lower() == "optimizer"
+        node = stage.get("node") or {}
+        direct_bits = _format_kv(
+            node,
+            (
+                "datatypes",
+                "software_features",
+                "recipes",
+                "recommended_patterns",
+                "avoid_patterns",
+            ),
+        )
+        suffix = f"; {direct_bits}" if direct_bits else ""
+        lines.append(f"  - {stage_name}{suffix}")
+        audit_bits: list[str] = []
+        feature_count = stage.get("feature_count")
+        shown_count = stage.get("shown_feature_count")
+        if feature_count is not None:
+            audit_bits.append(f"features_shown={shown_count or 0}/{feature_count}")
+        elif shown_count is not None:
+            audit_bits.append(f"features_shown={shown_count}")
+        omitted = stage.get("omitted_not_recommended") or []
+        if omitted:
+            audit_bits.append(f"omitted_not_recommended={omitted}")
+        if audit_bits:
+            lines.append(f"    - filter_audit: {', '.join(audit_bits)}")
+        for feature in list(stage.get("features") or [])[:4]:
+            feature_id = feature.get("feature_id") or "feature"
+            name = feature.get("name") or feature.get("feature_name") or ""
+            details = _format_kv(
+                feature,
+                (
+                    "category",
+                    "support_level",
+                    "recommended",
+                    "verified",
+                    "performance_impact",
+                    "recommendation_scope",
+                ),
+            )
+            detail_text = f" ({details})" if details else ""
+            summary_keys = (
+                ("usage", "notes", "limitations")
+                if is_optimizer_stage
+                else ("limitations", "usage", "notes")
+            )
+            summary_parts: list[str] = []
+            for key in summary_keys:
+                summary = feature.get(key)
+                if summary:
+                    text = _short(summary, 220 if is_optimizer_stage else 160)
+                    if text not in summary_parts:
+                        summary_parts.append(f"{key}: {text}")
+            summary_text = f": {'; '.join(summary_parts[:3])}" if summary_parts else ""
+            lines.append(f"    - {feature_id}: {name}{detail_text}{summary_text}")
+            if is_optimizer_stage:
+                for pattern in list(feature.get("recommended_patterns") or [])[:3]:
+                    lines.append(f"      recommended: {_short(pattern, 220)}")
+                for pattern in list(feature.get("avoid_patterns") or [])[:2]:
+                    lines.append(f"      avoid: {_short(pattern, 220)}")
+                if feature_id == "muon_optimizer" and feature.get("example_code"):
+                    lines.append(f"      example: {_short(feature['example_code'], 360)}")
+    source = stage_context.get("source")
+    feature_count = stage_context.get("feature_count")
+    if source or feature_count is not None:
+        lines.append(f"  - source={source or 'unknown'}; linked_features={feature_count}")
+    return lines
 
 
 def _format_evidence_group(label: str, groups: dict[str, Any]) -> list[str]:

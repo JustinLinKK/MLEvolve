@@ -40,6 +40,13 @@ def test_pipeline_action_logger_writes_sqlite_tables(tmp_path: Path) -> None:
     )
     logger.update_job_packet_for_node("node-1", metric=0.75, status="parsed_valid")
     logger.record_run_metrics({"mode": "baseline", "node_count": 1})
+    snapshot = logger.record_prompt_snapshot(
+        node_id="node-1",
+        parent_node_id="root",
+        branch_id=1,
+        stage="draft",
+        prompt_text="# Prompt\nUse stage-filtered hardware knowledge.",
+    )
 
     with sqlite3.connect(tmp_path / "pipeline.sqlite3") as conn:
         assert conn.execute("SELECT COUNT(*) FROM pipeline_events").fetchone()[0] == 1
@@ -47,6 +54,16 @@ def test_pipeline_action_logger_writes_sqlite_tables(tmp_path: Path) -> None:
         row = conn.execute("SELECT status, metric, detected_batch_size FROM job_packets").fetchone()
         assert row == ("parsed_valid", 0.75, 16)
         assert conn.execute("SELECT COUNT(*) FROM run_metrics").fetchone()[0] == 1
+        prompt_row = conn.execute(
+            "SELECT node_id, prompt_chars, prompt_path, prompt_text FROM prompt_snapshots"
+        ).fetchone()
+        assert prompt_row[0] == "node-1"
+        assert prompt_row[1] == snapshot["prompt_chars"]
+        assert prompt_row[3] == "# Prompt\nUse stage-filtered hardware knowledge."
+
+    prompt_path = Path(snapshot["prompt_path"])
+    assert prompt_path.exists()
+    assert prompt_path.read_text(encoding="utf-8") == "# Prompt\nUse stage-filtered hardware knowledge."
 
 
 def test_comparison_metrics_generation_and_compare(tmp_path: Path) -> None:

@@ -10,6 +10,7 @@ An agentic MLE (Machine Learning Engineering) system that automatically solves K
 
 - [MLEvolve Agent Workflow](docs/mlevolve_agent_workflow.md): step-by-step walkthrough of how the search controller, stage agents, executor, and evaluation loop work together during a run.
 - [Hardware-Aware Optimization](docs/mlevolve_hardware_aware_optimization.md): design notes for feeding scheduler profile evidence and code-knowledge retrieval back into MLEvolve stage agents.
+- [Pipeline Stage Prompt Contract](docs/pipeline_stage_prompt_contract.md): configurable ordered `datatype -> model -> optimizer -> tuning` prompt contract and persisted decision trace.
 
 ## Timeline
 
