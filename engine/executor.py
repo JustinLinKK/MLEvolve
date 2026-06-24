@@ -644,6 +644,11 @@ class Interpreter:
         framework = script_metadata.get("framework")
         uses_amp = script_metadata.get("uses_amp")
         requires_gpu = script_metadata.get("requires_gpu")
+        precision_mode = script_metadata.get("precision_mode")
+        learning_rate = script_metadata.get("learning_rate")
+        weight_decay = script_metadata.get("weight_decay")
+        gradient_accumulation_steps = script_metadata.get("gradient_accumulation_steps")
+        num_workers = script_metadata.get("num_workers")
         self._pipeline_emit(
             "job_script_created",
             node_id=node_id,
@@ -662,6 +667,11 @@ class Interpreter:
                 "framework": framework,
                 "uses_amp": uses_amp,
                 "requires_gpu": requires_gpu,
+                "precision_mode": precision_mode,
+                "learning_rate": learning_rate,
+                "weight_decay": weight_decay,
+                "gradient_accumulation_steps": gradient_accumulation_steps,
+                "num_workers": num_workers,
             },
         )
 
@@ -725,6 +735,11 @@ class Interpreter:
             "framework": framework,
             "uses_amp": uses_amp,
             "requires_gpu": requires_gpu,
+            "precision_mode": precision_mode,
+            "learning_rate": learning_rate,
+            "weight_decay": weight_decay,
+            "gradient_accumulation_steps": gradient_accumulation_steps,
+            "num_workers": num_workers,
             "script_signature": script_signature,
             "scheduler_mode": getattr(scheduler_settings.gpu_scheduler, "mode", None),
             "batch_probe_enabled": batch_probe_enabled,
@@ -951,6 +966,11 @@ class Interpreter:
             framework = script_metadata.get("framework")
             uses_amp = script_metadata.get("uses_amp")
             requires_gpu = script_metadata.get("requires_gpu")
+            precision_mode = script_metadata.get("precision_mode")
+            learning_rate = script_metadata.get("learning_rate")
+            weight_decay = script_metadata.get("weight_decay")
+            gradient_accumulation_steps = script_metadata.get("gradient_accumulation_steps")
+            num_workers = script_metadata.get("num_workers")
             self._pipeline_emit(
                 "job_script_created",
                 node_id=str(id),
@@ -969,6 +989,11 @@ class Interpreter:
                     "framework": framework,
                     "uses_amp": uses_amp,
                     "requires_gpu": requires_gpu,
+                    "precision_mode": precision_mode,
+                    "learning_rate": learning_rate,
+                    "weight_decay": weight_decay,
+                    "gradient_accumulation_steps": gradient_accumulation_steps,
+                    "num_workers": num_workers,
                 },
             )
 
@@ -1035,6 +1060,11 @@ class Interpreter:
                 "framework": framework,
                 "uses_amp": uses_amp,
                 "requires_gpu": requires_gpu,
+                "precision_mode": precision_mode,
+                "learning_rate": learning_rate,
+                "weight_decay": weight_decay,
+                "gradient_accumulation_steps": gradient_accumulation_steps,
+                "num_workers": num_workers,
                 "script_signature": script_signature,
                 "scheduler_mode": getattr(scheduler_settings.gpu_scheduler, "mode", None),
                 "batch_probe_enabled": batch_probe_enabled,

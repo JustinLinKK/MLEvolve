@@ -12,6 +12,8 @@ from agents.triggers import register_node
 from agents.hardware_context import (
     apply_hardware_design_brief_to_node,
     apply_hardware_context_to_node,
+    apply_stepwise_hardware_decisions_to_node,
+    build_stepwise_hardware_stage_sections,
     get_hardware_design_brief,
     get_hardware_context_for_stage,
     hardware_context_instructions,
@@ -94,6 +96,11 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
     }
     hardware_design_brief = get_hardware_design_brief(agent)
     hardware_ctx = get_hardware_context_for_stage(agent, "draft")
+    hardware_stage_sections = build_stepwise_hardware_stage_sections(
+        design_context=hardware_design_brief,
+        execution_context=hardware_ctx,
+        max_chars=getattr(agent.acfg, "hardware_context_max_prompt_chars", 3500),
+    )
     hardware_section = "\n".join(
         section for section in (hardware_design_brief.prompt_section, hardware_ctx.prompt_section) if section.strip()
     )
@@ -218,6 +225,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
             "stage": "draft",
             "memory": prompt.get("Memory", ""),
             "hardware_prompt_section": hardware_section,
+            "hardware_stage_sections": hardware_stage_sections,
             "hardware_candidate": hardware_ctx.candidate,
             "hardware_context": {
                 "design_brief": hardware_design_brief.compact_context,
@@ -226,11 +234,12 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
             "pipeline_decision": pipeline_decision,
             "pipeline_decision_section": pipeline_decision_section,
         }
-        plan, code = stepwise_plan_and_code_query(
+        plan, code, stepwise_metadata = stepwise_plan_and_code_query(
             agent_instance=agent,
             prompt_base=prompt,
             data_preview=agent.data_preview,
             context=stepwise_context_payload,
+            return_metadata=True,
         )
         prompt_for_log = (
             _format_used_prompt_sections(stepwise_context_payload.get("used_prompt_sections") or [])
@@ -238,11 +247,18 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
         )
     else:
         plan, code = plan_and_code_query(agent, prompt_complete)
+        stepwise_metadata = {}
     new_node = SearchNode(plan=plan, code=code, parent=agent.virtual_root, stage="draft",
                         local_best_node=agent.virtual_root)
     apply_hardware_context_to_node(new_node, hardware_ctx)
     apply_hardware_design_brief_to_node(new_node, hardware_design_brief)
     apply_pipeline_decision_to_node(new_node, pipeline_decision)
+    apply_stepwise_hardware_decisions_to_node(
+        new_node,
+        stepwise_metadata,
+        design_context=hardware_design_brief,
+        execution_context=hardware_ctx,
+    )
     register_node(agent, new_node, prompt_for_log, new_branch=True)
 
     logger.info(f"[draft] → node {new_node.id} (branch={new_node.branch_id})")
