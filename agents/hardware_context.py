@@ -1094,7 +1094,9 @@ def _compact_stage_hardware_feature(feature: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, str):
             if key == "example_code":
                 limit = 520
-            elif is_optimizer and key in {"usage", "limitations", "notes"}:
+            elif is_optimizer and key == "notes":
+                limit = 340
+            elif is_optimizer and key in {"usage", "limitations"}:
                 limit = 260
             else:
                 limit = 220
@@ -1256,7 +1258,8 @@ def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
             for key in summary_keys:
                 summary = feature.get(key)
                 if summary:
-                    text = _short(summary, 220 if is_optimizer_stage else 160)
+                    limit = 320 if is_optimizer_stage and key == "notes" else 220 if is_optimizer_stage else 160
+                    text = _short(summary, limit)
                     if text not in summary_parts:
                         summary_parts.append(f"{key}: {text}")
             summary_text = f": {'; '.join(summary_parts[:3])}" if summary_parts else ""
