@@ -15,6 +15,8 @@ logger = logging.getLogger("MLEvolve")
 
 HARDWARE_CONTEXT_HEADING = "# Hardware/Profile Optimization Context"
 HARDWARE_DESIGN_HEADING = "# Hardware-Aware Model Design Brief"
+HARDWARE_DATATYPE_HEADING = "# Hardware-Aware Datatype/Precision Context"
+HARDWARE_TRAINING_HEADING = "# Hardware-Aware Training Hyperparameter Context"
 EVIDENCE_NOT_LAW_RULE = (
     "Treat recommendations as empirical evidence, not hard rules. Follow high-confidence hardware/profile "
     "guidance by default; if a scoring reason requires deviating, state why and include a fallback such as "
@@ -29,6 +31,54 @@ HARDWARE_BUDGET_GUARDRAIL_RULE = (
     "For hardware/runtime optimization, preserve the parent solution's modeling budget unless the user explicitly "
     "asks to improve score. Do not increase epochs, folds, model size, input resolution, ensemble count, TTA, "
     "dataset size, or validation workload as a hardware-only optimization."
+)
+_PRECISION_KEYWORDS = (
+    "precision",
+    "dtype",
+    "amp",
+    "autocast",
+    "bf16",
+    "bfloat16",
+    "fp16",
+    "float16",
+    "tf32",
+    "float32",
+    "fp32",
+    "gradscaler",
+    "grad scaler",
+    "tensor core",
+    "matmul",
+)
+_TRAINING_HPARAM_KEYWORDS = (
+    "batch",
+    "epoch",
+    "accum",
+    "learning rate",
+    "lr",
+    "weight decay",
+    "dataloader",
+    "num_workers",
+    "worker",
+    "pin_memory",
+    "persistent_workers",
+    "checkpoint",
+    "runtime",
+    "throughput",
+    "vram",
+    "packing",
+    "oom",
+    "timeout",
+)
+_DATATYPE_EXCLUDE_KEYWORDS = (
+    "batch size",
+    "epochs",
+    "epoch budget",
+    "learning rate",
+    "weight decay",
+    "num_workers",
+    "dataloader workers",
+    "gradient accumulation",
+    "checkpoint",
 )
 
 
@@ -162,7 +212,7 @@ def get_hardware_context_for_stage(
 
     compact = compact_optimization_context(raw_context)
     max_chars = _safe_int(getattr(agent.acfg, "hardware_context_max_prompt_chars", 3500), default=3500)
-    prompt_section = format_hardware_prompt_section(compact, max_chars=max_chars)
+    prompt_section = format_hardware_prompt_section_for_stage(compact, stage=stage, max_chars=max_chars)
     return HardwarePromptContext(
         candidate=candidate,
         raw_context=raw_context,
@@ -203,7 +253,7 @@ def apply_hardware_design_brief_to_node(node: Any, context: HardwarePromptContex
     if context is None or not context.compact_context:
         return
     compact = context.compact_context
-    node.hardware_decision = {
+    _store_hardware_decision(node, {
         "stage": "model_design",
         "rationale": "Hardware-aware model design brief was provided before draft generation.",
         "chosen_params": {},
@@ -213,7 +263,67 @@ def apply_hardware_design_brief_to_node(node: Any, context: HardwarePromptContex
         "evidence_refs": list(compact.get("evidence_refs") or []),
         "confidence": float(compact.get("confidence") or 0.0),
         "fallback_reason": None if compact.get("model_options") else "no model-family hardware evidence found",
+    })
+
+
+def build_stepwise_hardware_stage_sections(
+    *,
+    design_context: HardwarePromptContext | None,
+    execution_context: HardwarePromptContext | None,
+    max_chars: int = 3500,
+) -> dict[str, str]:
+    """Return focused hardware sections for the internal stepwise agents."""
+    design_section = design_context.prompt_section if design_context is not None else ""
+    compact = execution_context.compact_context if execution_context is not None else {}
+    generic_section = format_hardware_prompt_section(compact, max_chars=max_chars) if compact else ""
+    datatype_section = format_hardware_datatype_prompt_section(compact, max_chars=max_chars) if compact else ""
+    training_section = format_hardware_training_prompt_section(compact, max_chars=max_chars) if compact else ""
+    return {
+        "data_processing_and_feature_engineering": generic_section,
+        "model_design": design_section or generic_section,
+        "datatype_precision": datatype_section or generic_section,
+        "training_evaluation": training_section or generic_section,
     }
+
+
+def apply_stepwise_hardware_decisions_to_node(
+    node: Any,
+    metadata: dict[str, Any] | None,
+    *,
+    design_context: HardwarePromptContext | None,
+    execution_context: HardwarePromptContext | None,
+) -> None:
+    """Store an ordered hardware-aware generation record on a search node."""
+    if not metadata:
+        return
+    step_decisions = list(metadata.get("decisions") or [])
+    if not step_decisions:
+        return
+
+    generated_candidate = introspect_training_script(getattr(node, "code", "") or "")
+    design_compact = design_context.compact_context if design_context is not None else {}
+    execution_compact = execution_context.compact_context if execution_context is not None else {}
+    pipeline: list[dict[str, Any]] = []
+    for item in step_decisions:
+        stage = str(item.get("stage") or "")
+        if stage not in {"model_design", "datatype_precision", "training_evaluation"}:
+            continue
+        compact = design_compact if stage == "model_design" else execution_compact
+        decision = {
+            "stage": stage,
+            "rationale": _stage_decision_rationale(stage),
+            "step_plan": item.get("plan") or "",
+            "chosen_params": _stage_chosen_params(stage, generated_candidate),
+            "original_params": {},
+            "evidence_refs": list(compact.get("evidence_refs") or []),
+            "confidence": float(compact.get("confidence") or 0.0),
+            "fallback_reason": None if item.get("hardware_context_used") else "no hardware context was available for this internal step",
+        }
+        if stage == "model_design":
+            decision["model_options"] = list(design_compact.get("model_options") or [])
+        pipeline.append(decision)
+    if pipeline:
+        _set_hardware_decision_pipeline(node, pipeline)
 
 
 def optimize_training_parameters_for_round(agent: Any, nodes: list[Any]) -> list[dict[str, Any]]:
@@ -294,8 +404,8 @@ def optimize_training_parameters_for_round(agent: Any, nodes: list[Any]) -> list
         }
         previous_decision = getattr(node, "hardware_decision", None)
         if previous_decision:
-            decision["previous_decision"] = previous_decision
-        node.hardware_decision = decision
+            decision["previous_decision"] = _latest_decision_without_pipeline(previous_decision)
+        _store_hardware_decision(node, decision)
         decisions.append(decision)
     return decisions
 
@@ -699,6 +809,153 @@ def format_hardware_prompt_section(compact: dict[str, Any], *, max_chars: int = 
     return text + "\n"
 
 
+def format_hardware_prompt_section_for_stage(
+    compact: dict[str, Any],
+    *,
+    stage: str,
+    max_chars: int = 3500,
+) -> str:
+    stage_key = str(stage or "").strip().lower()
+    if stage_key in {"datatype_precision", "precision", "dtype"}:
+        return format_hardware_datatype_prompt_section(compact, max_chars=max_chars)
+    if stage_key in {"training_evaluation", "pre_submit_training_review", "training_hyperparameters"}:
+        return format_hardware_training_prompt_section(compact, max_chars=max_chars)
+    return format_hardware_prompt_section(compact, max_chars=max_chars)
+
+
+def format_hardware_datatype_prompt_section(compact: dict[str, Any], *, max_chars: int = 3500) -> str:
+    if not compact:
+        return ""
+
+    lines = [HARDWARE_DATATYPE_HEADING]
+    hardware = compact.get("hardware_context") or {}
+    _append_hardware_summary(lines, hardware)
+
+    diagnosis = _filter_diagnosis(compact.get("derived_diagnosis") or {}, _PRECISION_KEYWORDS)
+    symptoms = diagnosis.get("profile_symptoms") or []
+    targets = diagnosis.get("optimization_targets") or []
+    if symptoms or targets:
+        lines.append(f"- Precision diagnosis: symptoms={symptoms or ['none']} targets={targets or ['none']}")
+
+    recommendations = _filter_string_list(
+        compact.get("recommendations") or [],
+        include_keywords=_PRECISION_KEYWORDS,
+        exclude_keywords=_DATATYPE_EXCLUDE_KEYWORDS,
+        limit=8,
+    )
+    if recommendations:
+        lines.append("- Precision recommendations:")
+        lines.extend(f"  - {item}" for item in recommendations)
+
+    risks = _filter_string_list(
+        compact.get("risk_flags") or [],
+        include_keywords=_PRECISION_KEYWORDS,
+        exclude_keywords=(),
+        limit=8,
+    )
+    if risks:
+        lines.append("- Precision risk flags:")
+        lines.extend(f"  - {item}" for item in risks)
+
+    vector_evidence = _filter_evidence_groups(
+        compact.get("vector_evidence") or {},
+        include_keywords=_PRECISION_KEYWORDS,
+        exclude_keywords=_DATATYPE_EXCLUDE_KEYWORDS,
+    )
+    vector_lines = _format_evidence_group("Precision code knowledge", vector_evidence)
+    if vector_lines:
+        lines.extend(vector_lines)
+
+    refs = compact.get("evidence_refs") or []
+    if refs:
+        lines.append(f"- Evidence refs: {', '.join(refs[:8])}")
+    lines.append(f"- Confidence: {compact.get('confidence', 0.0)}")
+    lines.append(
+        "- Stage boundary: Choose only tensor datatype and precision policy here: DEVICE, USE_AMP, AMP_DTYPE, "
+        "USE_TF32, GradScaler, autocast helper, fallback behavior, and precision logging."
+    )
+    lines.append(
+        "- Out of scope for this stage: model architecture, loss, features, batch size, epochs, learning rate, "
+        "dataloader workers, gradient accumulation, checkpoint cadence, validation metric, and submission logic."
+    )
+    lines.append(f"- Rule: {EVIDENCE_NOT_LAW_RULE}")
+    lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
+    text = "\n".join(lines).strip()
+    if len(text) > max_chars:
+        text = text[: max(0, max_chars - 48)].rstrip() + "\n... [datatype context truncated]"
+    return text + "\n"
+
+
+def format_hardware_training_prompt_section(compact: dict[str, Any], *, max_chars: int = 3500) -> str:
+    if not compact:
+        return ""
+
+    lines = [HARDWARE_TRAINING_HEADING]
+    hardware = compact.get("hardware_context") or {}
+    _append_hardware_summary(lines, hardware)
+
+    diagnosis = _filter_diagnosis(compact.get("derived_diagnosis") or {}, _TRAINING_HPARAM_KEYWORDS)
+    symptoms = diagnosis.get("profile_symptoms") or []
+    targets = diagnosis.get("optimization_targets") or []
+    if symptoms or targets:
+        lines.append(f"- Training diagnosis: symptoms={symptoms or ['none']} targets={targets or ['none']}")
+
+    recommendations = _filter_string_list(
+        compact.get("recommendations") or [],
+        include_keywords=_TRAINING_HPARAM_KEYWORDS,
+        exclude_keywords=(),
+        limit=8,
+    )
+    if recommendations:
+        lines.append("- Training hyperparameter recommendations:")
+        lines.extend(f"  - {item}" for item in recommendations)
+
+    risks = _filter_string_list(
+        compact.get("risk_flags") or [],
+        include_keywords=_TRAINING_HPARAM_KEYWORDS,
+        exclude_keywords=(),
+        limit=8,
+    )
+    if risks:
+        lines.append("- Training risk flags:")
+        lines.extend(f"  - {item}" for item in risks)
+
+    graph_evidence = compact.get("graph_evidence") or {}
+    graph_lines = _format_evidence_group("Training graph evidence", graph_evidence)
+    if graph_lines:
+        lines.extend(graph_lines)
+
+    vector_evidence = _filter_evidence_groups(
+        compact.get("vector_evidence") or {},
+        include_keywords=_TRAINING_HPARAM_KEYWORDS,
+        exclude_keywords=(),
+    )
+    vector_lines = _format_evidence_group("Training code knowledge", vector_evidence)
+    if vector_lines:
+        lines.extend(vector_lines)
+
+    refs = compact.get("evidence_refs") or []
+    if refs:
+        lines.append(f"- Evidence refs: {', '.join(refs[:8])}")
+    lines.append(f"- Confidence: {compact.get('confidence', 0.0)}")
+    lines.append(
+        "- Stage boundary: Optimize training hyperparameters here: physical batch size, effective batch size, "
+        "gradient accumulation, epochs, learning rate, weight decay, scheduler, dataloader workers, checkpointing, "
+        "runtime logging, validation, and submission."
+    )
+    lines.append(
+        "- Precision boundary: consume the datatype_precision variables/utilities. Do not pick a new AMP dtype here "
+        "unless the prior policy is impossible to use and a safe fallback is needed."
+    )
+    lines.append(f"- Rule: {EVIDENCE_NOT_LAW_RULE}")
+    lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
+    lines.append(f"- Budget guardrail: {HARDWARE_BUDGET_GUARDRAIL_RULE}")
+    text = "\n".join(lines).strip()
+    if len(text) > max_chars:
+        text = text[: max(0, max_chars - 48)].rstrip() + "\n... [training context truncated]"
+    return text + "\n"
+
+
 def infer_workload_type(task_desc: Any, data_preview: str | None = None) -> str:
     text = f"{task_desc or ''} {data_preview or ''}".lower()
     if any(token in text for token in ("image", "jpg", "jpeg", "png", "dicom", "vision", "segmentation")):
@@ -864,6 +1121,9 @@ def _compact_profile(item: dict[str, Any]) -> dict[str, Any]:
             "peak_vram_mib",
             "avg_sm_utilization_pct",
             "throughput_samples_per_second",
+            "precision",
+            "precision_mode",
+            "uses_amp",
             "backend_name",
             "failure_reason",
         ),
@@ -981,6 +1241,172 @@ def _format_evidence_group(label: str, groups: dict[str, Any]) -> list[str]:
             suffix = f" ({details})" if details else ""
             lines.append(f"  - {group_name}: {_short(summary, 180)}{suffix}")
     return lines
+
+
+def _append_hardware_summary(lines: list[str], hardware: dict[str, Any]) -> None:
+    if not hardware:
+        return
+    lines.append(f"- Hardware: {hardware.get('summary') or 'current hardware'}")
+    backend = hardware.get("backend_capabilities") or {}
+    if backend:
+        backend_bits = _format_kv(
+            backend,
+            (
+                "mode",
+                "effective_mode",
+                "backend_priority",
+                "enabled_backends",
+                "concurrent_groups_enabled",
+                "concurrent_backend_allowlist",
+            ),
+        )
+        if backend_bits:
+            lines.append(f"- Scheduler backend config: {backend_bits}")
+    limits = hardware.get("scheduler_limits") or {}
+    if limits:
+        limit_bits = _format_kv(
+            limits,
+            ("safe_vram_budget_mb", "max_packed_jobs_per_gpu", "mode", "effective_mode", "backend_priority"),
+        )
+        if limit_bits:
+            lines.append(f"- Scheduler limits: {limit_bits}")
+
+
+def _filter_diagnosis(diagnosis: dict[str, Any], include_keywords: tuple[str, ...]) -> dict[str, list[str]]:
+    return {
+        "profile_symptoms": _filter_string_list(
+            diagnosis.get("profile_symptoms") or [],
+            include_keywords=include_keywords,
+            exclude_keywords=(),
+            limit=8,
+        ),
+        "optimization_targets": _filter_string_list(
+            diagnosis.get("optimization_targets") or [],
+            include_keywords=include_keywords,
+            exclude_keywords=(),
+            limit=8,
+        ),
+    }
+
+
+def _filter_evidence_groups(
+    groups: dict[str, Any],
+    *,
+    include_keywords: tuple[str, ...],
+    exclude_keywords: tuple[str, ...],
+) -> dict[str, list[dict[str, Any]]]:
+    filtered: dict[str, list[dict[str, Any]]] = {}
+    for group_name, entries in groups.items():
+        kept = []
+        for entry in list(entries or []):
+            text = _evidence_entry_text(entry)
+            if _matches_keywords(text, include_keywords) and not _matches_keywords(text, exclude_keywords):
+                kept.append(entry)
+        if kept:
+            filtered[group_name] = kept
+    return filtered
+
+
+def _filter_string_list(
+    values: Any,
+    *,
+    include_keywords: tuple[str, ...],
+    exclude_keywords: tuple[str, ...],
+    limit: int,
+) -> list[str]:
+    result: list[str] = []
+    for value in list(values or []):
+        text = str(value)
+        if not _matches_keywords(text, include_keywords):
+            continue
+        if _matches_keywords(text, exclude_keywords):
+            continue
+        short = _short(text, 240)
+        if short and short not in result:
+            result.append(short)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _matches_keywords(text: Any, keywords: tuple[str, ...]) -> bool:
+    if not keywords:
+        return False
+    lowered = str(text or "").lower()
+    return any(keyword in lowered for keyword in keywords)
+
+
+def _evidence_entry_text(entry: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key, value in dict(entry or {}).items():
+        if isinstance(value, list):
+            parts.extend(str(item) for item in value)
+        else:
+            parts.append(str(value))
+    return " ".join(parts)
+
+
+def _store_hardware_decision(node: Any, decision: dict[str, Any]) -> None:
+    chain = _hardware_decision_chain(getattr(node, "hardware_decision", None))
+    chain.append(dict(decision))
+    _set_hardware_decision_pipeline(node, chain)
+
+
+def _set_hardware_decision_pipeline(node: Any, pipeline: list[dict[str, Any]]) -> None:
+    if not pipeline:
+        return
+    sanitized = [_latest_decision_without_pipeline(item) for item in pipeline]
+    latest = dict(sanitized[-1])
+    latest["pipeline"] = sanitized
+    latest["latest_stage"] = latest.get("stage")
+    node.hardware_decision = latest
+
+
+def _hardware_decision_chain(decision: Any) -> list[dict[str, Any]]:
+    if not isinstance(decision, dict):
+        return []
+    pipeline = decision.get("pipeline")
+    if isinstance(pipeline, list):
+        return [_latest_decision_without_pipeline(item) for item in pipeline if isinstance(item, dict)]
+    return [_latest_decision_without_pipeline(decision)]
+
+
+def _latest_decision_without_pipeline(decision: Any) -> dict[str, Any]:
+    if not isinstance(decision, dict):
+        return {}
+    cleaned = dict(decision)
+    cleaned.pop("pipeline", None)
+    cleaned.pop("latest_stage", None)
+    return cleaned
+
+
+def _stage_decision_rationale(stage: str) -> str:
+    if stage == "model_design":
+        return "Stage 1 selected the model design while deferring datatype and training hyperparameters."
+    if stage == "datatype_precision":
+        return "Stage 2 selected the tensor datatype and precision policy before training hyperparameter tuning."
+    if stage == "training_evaluation":
+        return "Stage 3 selected training hyperparameters and evaluation/submission behavior after model and dtype decisions."
+    return "Hardware-aware stepwise generation stage completed."
+
+
+def _stage_chosen_params(stage: str, candidate: dict[str, Any]) -> dict[str, Any]:
+    if stage == "model_design":
+        keys = ("model_key", "model_family", "framework")
+    elif stage == "datatype_precision":
+        keys = ("precision_mode", "uses_amp", "framework")
+    elif stage == "training_evaluation":
+        keys = (
+            "proposed_batch_size",
+            "proposed_epochs",
+            "learning_rate",
+            "weight_decay",
+            "gradient_accumulation_steps",
+            "num_workers",
+        )
+    else:
+        keys = ()
+    return {key: candidate.get(key) for key in keys if candidate.get(key) not in (None, "", [], {})}
 
 
 def _execution_resource_hints(term_out: str) -> dict[str, Any]:

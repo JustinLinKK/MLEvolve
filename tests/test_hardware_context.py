@@ -8,16 +8,21 @@ from agents.hardware_context import (
     HARDWARE_BUDGET_GUARDRAIL_RULE,
     _scheduler_backend_config,
     apply_hardware_context_to_node,
+    apply_stepwise_hardware_decisions_to_node,
+    build_stepwise_hardware_stage_sections,
     build_hardware_candidate,
     compact_optimization_context,
+    format_hardware_datatype_prompt_section,
     format_hardware_design_brief,
     format_hardware_prompt_section,
+    format_hardware_training_prompt_section,
     get_hardware_design_brief,
     get_hardware_context_for_stage,
     hardware_context_instructions,
     optimize_training_parameters_for_round,
 )
-from agents.coder.stepwise_coder import _hardware_reasoning_enabled, create_default_step_agents
+from agents.coder.stepwise_coder import _hardware_reasoning_enabled, create_default_step_agents, stepwise_plan_and_code_query
+from agents.planner.base_planner import PLANNING_ALLOWED_MODULES
 from engine.script_introspection import introspect_training_script, normalized_mlevolve_script_signature
 from engine.search_node import Journal, SearchNode
 from utils.serialize import dumps_json, loads_json
@@ -34,6 +39,11 @@ import timm
 	N_FOLDS = 5
 	ENSEMBLE_SIZE = 2
 	TTA_STEPS = 3
+	PRECISION_MODE = "bf16"
+	LR = 1e-3
+	WEIGHT_DECAY = 0.01
+	GRADIENT_ACCUMULATION_STEPS = 2
+	NUM_WORKERS = 4
 	model = timm.create_model(MODEL_NAME)
 with torch.amp.autocast("cuda", dtype=torch.bfloat16):
     pass
@@ -52,6 +62,11 @@ with torch.amp.autocast("cuda", dtype=torch.bfloat16):
     assert candidate["framework"] == "pytorch"
     assert candidate["uses_amp"] is True
     assert candidate["requires_gpu"] is True
+    assert candidate["precision_mode"] == "bf16"
+    assert candidate["learning_rate"] == 1e-3
+    assert candidate["weight_decay"] == 0.01
+    assert candidate["gradient_accumulation_steps"] == 2
+    assert candidate["num_workers"] == 4
 
     changed_batch = code.replace("BATCH_SIZE = 32", "BATCH_SIZE = 8")
     assert normalized_mlevolve_script_signature(code) == normalized_mlevolve_script_signature(changed_batch)
@@ -126,6 +141,216 @@ def test_compact_context_formats_prompt_without_raw_bloat() -> None:
     assert CONSTRAINT_PRECEDENCE_RULE in prompt
     assert HARDWARE_BUDGET_GUARDRAIL_RULE in prompt
     assert "raw_context" not in prompt
+
+
+def test_stage_specific_hardware_prompts_split_precision_and_training_focus() -> None:
+    raw = {
+        "hardware_context": {
+            "found": True,
+            "hardware": {
+                "hardware_key": "hw-1",
+                "gpu_name": "RTX Test",
+                "summary_text": "RTX Test with tensor cores",
+            },
+            "backend_capabilities": {"effective_mode": "parallel_auto_pack"},
+            "scheduler_limits": {"safe_vram_budget_mb": 24000},
+        },
+        "graph_evidence": {
+            "exact_profiles": [
+                {
+                    "summary_text": "bf16 run succeeded",
+                    "resolved_batch_size": 16,
+                    "precision": "bf16",
+                    "runtime_seconds": 12.5,
+                    "ref": "graph:bf16",
+                }
+            ],
+            "similar_profiles": [],
+            "packed_profiles": [],
+        },
+        "derived_diagnosis": {
+            "profile_symptoms": ["precision_not_optimized", "batch_too_small"],
+            "optimization_targets": ["enable_tensor_core", "increase_batch_size"],
+        },
+        "vector_evidence": {
+            "recipes": [
+                {
+                    "record_id": "amp-recipe",
+                    "record_type": "optimization_recipe_chunks",
+                    "title": "Use BF16 autocast",
+                    "recommended_patterns": ["Use torch.amp.autocast with bf16."],
+                    "confidence": 0.8,
+                },
+                {
+                    "record_id": "batch-recipe",
+                    "record_type": "optimization_recipe_chunks",
+                    "title": "Tune batch size",
+                    "recommended_patterns": ["Use graph-recommended physical batch size 16."],
+                    "confidence": 0.8,
+                },
+            ],
+            "docs": [],
+            "api_symbols": [],
+        },
+        "recommendations": [
+            "Use torch.amp.autocast with bf16.",
+            "Use graph-recommended physical batch size 16 as the starting point.",
+        ],
+        "risk_flags": ["avoid fixed oversized batch size", "avoid fp16 without GradScaler"],
+        "evidence_refs": ["graph:bf16", "code_knowledge:amp-recipe"],
+        "confidence": 0.8,
+    }
+    compact = compact_optimization_context(raw)
+
+    dtype_prompt = format_hardware_datatype_prompt_section(compact, max_chars=3000)
+    training_prompt = format_hardware_training_prompt_section(compact, max_chars=3000)
+    sections = build_stepwise_hardware_stage_sections(
+        design_context=SimpleNamespace(prompt_section="# Hardware-Aware Model Design Brief\n", compact_context={}),
+        execution_context=SimpleNamespace(compact_context=compact),
+        max_chars=3000,
+    )
+
+    assert "Datatype/Precision" in dtype_prompt
+    assert "torch.amp.autocast with bf16" in dtype_prompt
+    assert "Use graph-recommended physical batch size 16 as the starting point" not in dtype_prompt
+    assert "learning rate" in dtype_prompt
+    assert "Training Hyperparameter" in training_prompt
+    assert "physical batch size 16" in training_prompt
+    assert "consume the datatype_precision" in training_prompt
+    assert "Model Design Brief" in sections["model_design"]
+    assert "Datatype/Precision" in sections["datatype_precision"]
+    assert "Training Hyperparameter" in sections["training_evaluation"]
+
+
+def test_hardware_aware_step_agents_split_stage_order_and_boundaries() -> None:
+    hardware_agents = create_default_step_agents(hardware_aware=True)
+    baseline_agents = create_default_step_agents(hardware_aware=False)
+
+    assert [agent.name for agent in hardware_agents] == [
+        "data_processing_and_feature_engineering",
+        "model_design",
+        "datatype_precision",
+        "training_evaluation",
+    ]
+    assert [agent.name for agent in baseline_agents] == [
+        "data_processing_and_feature_engineering",
+        "model_design",
+        "training_evaluation",
+    ]
+    assert "datatype_precision" in PLANNING_ALLOWED_MODULES
+    model_guidelines = "\n".join(hardware_agents[1].guidelines)
+    dtype_guidelines = "\n".join(hardware_agents[2].guidelines)
+    training_guidelines = "\n".join(hardware_agents[3].guidelines)
+
+    assert "Do NOT choose AMP" in model_guidelines
+    assert "datatype_precision step owns" in model_guidelines
+    assert "Do NOT change model architecture" in dtype_guidelines
+    assert "Do NOT redefine or reload data/features" in training_guidelines
+    assert "Own training hyperparameters" in training_guidelines
+
+
+def test_stepwise_generation_can_return_stage_metadata(monkeypatch) -> None:
+    responses = []
+
+    def fake_generate(**kwargs):
+        responses.append(kwargs["prompt"])
+        return "Plan for this step.\n```python\nVALUE = 1\n```"
+
+    monkeypatch.setattr("agents.coder.stepwise_coder.generate", fake_generate)
+    agent = SimpleNamespace(
+        acfg=SimpleNamespace(
+            code=SimpleNamespace(temp=0.0, model="test-model"),
+            hardware_context_enabled=True,
+        ),
+        cfg=SimpleNamespace(experiment=SimpleNamespace(mode="hardware_aware")),
+    )
+
+    plan, code, metadata = stepwise_plan_and_code_query(
+        agent_instance=agent,
+        prompt_base={
+            "Introduction": "intro",
+            "Task description": "image classification",
+            "Memory": "",
+            "Instructions": {},
+        },
+        data_preview="train_images",
+        context={
+            "stage": "draft",
+            "hardware_prompt_section": "# Combined hardware context\n",
+            "hardware_stage_sections": {
+                "model_design": "# Hardware-Aware Model Design Brief\n",
+                "datatype_precision": "# Hardware-Aware Datatype/Precision Context\n",
+                "training_evaluation": "# Hardware-Aware Training Hyperparameter Context\n",
+            },
+        },
+        return_metadata=True,
+    )
+
+    assert plan
+    assert "VALUE = 1" in code
+    assert metadata["step_order"] == [
+        "data_processing_and_feature_engineering",
+        "model_design",
+        "datatype_precision",
+        "training_evaluation",
+    ]
+    assert metadata["decisions"][2]["stage"] == "datatype_precision"
+    assert any("Datatype/Precision" in str(prompt) for prompt in responses)
+
+
+def test_stepwise_hardware_decisions_are_stored_as_ordered_pipeline() -> None:
+    root = SearchNode(code="", plan="root", stage="root")
+    node = SearchNode(
+        code=(
+            "MODEL_NAME = 'vit_base_patch16_224'\n"
+            "PRECISION_MODE = 'bf16'\n"
+            "BATCH_SIZE = 16\n"
+            "EPOCHS = 2\n"
+            "LR = 1e-3\n"
+            "WEIGHT_DECAY = 0.01\n"
+            "GRADIENT_ACCUMULATION_STEPS = 2\n"
+            "NUM_WORKERS = 4\n"
+        ),
+        plan="draft",
+        parent=root,
+        stage="draft",
+    )
+    design_context = SimpleNamespace(
+        compact_context={
+            "model_options": [{"model_family": "vision_transformer"}],
+            "evidence_refs": ["design:1"],
+            "confidence": 0.7,
+        }
+    )
+    execution_context = SimpleNamespace(
+        compact_context={
+            "evidence_refs": ["exec:1"],
+            "confidence": 0.8,
+        }
+    )
+    metadata = {
+        "decisions": [
+            {"stage": "model_design", "plan": "Use a ViT interface.", "hardware_context_used": True},
+            {"stage": "datatype_precision", "plan": "Use bf16 autocast.", "hardware_context_used": True},
+            {"stage": "training_evaluation", "plan": "Tune batch and LR.", "hardware_context_used": True},
+        ]
+    }
+
+    apply_stepwise_hardware_decisions_to_node(
+        node,
+        metadata,
+        design_context=design_context,
+        execution_context=execution_context,
+    )
+
+    pipeline = node.hardware_decision["pipeline"]
+    assert [decision["stage"] for decision in pipeline] == [
+        "model_design",
+        "datatype_precision",
+        "training_evaluation",
+    ]
+    assert pipeline[1]["chosen_params"]["precision_mode"] == "bf16"
+    assert pipeline[2]["chosen_params"]["learning_rate"] == 1e-3
 
 
 def test_hardware_design_brief_ranks_model_options_without_overriding_constraints() -> None:

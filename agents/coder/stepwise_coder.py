@@ -4,6 +4,7 @@ Provides stepwise code generation using multi-agent collaboration where speciali
 agents handle different stages of the ML pipeline:
   - data_processing_and_feature_engineering
   - model_design
+  - datatype_precision (hardware-aware mode only)
   - training_evaluation
 
 Main entry: stepwise_plan_and_code_query()
@@ -34,8 +35,12 @@ class StepwiseContext:
     previous_code: str = ""
     execution_output: str = ""
     hardware_brief: str = ""
+    hardware_stage_sections: Dict[str, str] = field(default_factory=dict)
     hardware_candidate: Dict[str, Any] = field(default_factory=dict)
     hardware_context: Dict[str, Any] = field(default_factory=dict)
+
+    def hardware_section_for(self, step_name: str) -> str:
+        return self.hardware_stage_sections.get(step_name) or self.hardware_brief
 
 
 @dataclass
@@ -186,7 +191,7 @@ class StepAgent:
             "Task description": task_desc,
             "Data preview": data_preview_str,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
-            "Hardware/Profile Optimization Context": context.hardware_brief,
+            "Hardware/Profile Optimization Context": context.hardware_section_for(self.name),
             "Previous steps": prev_summary,
             "Current step": {
                 "Name": self.name,
@@ -337,13 +342,25 @@ class MetaAgent:
             "There should be no additional headings or text in your response."
         )
 
+        has_datatype_step = any(result.get("name") == "datatype_precision" for result in step_results)
+        execution_flow = (
+            "data processing & feature engineering -> model design -> datatype/precision policy -> training & evaluation"
+            if has_datatype_step
+            else "data processing & feature engineering -> model design -> training & evaluation"
+        )
+        conflict_rule = (
+            "- Resolve conflicts between steps by following the earlier step's design: model_design defines the model/loss/interface, datatype_precision defines precision policy, and training_evaluation consumes both."
+            if has_datatype_step
+            else "- Resolve conflicts between steps by following the earlier step's design (e.g., model_design defines the model, training_evaluation trains it)"
+        )
+
         prompt_instructions["Merge guidelines"] = [
             "- Combine all code sections into a single, runnable Python script",
             "- CRITICAL: You are a MERGER, not a designer. Faithfully integrate the code from all steps. Do NOT introduce new models, algorithms, or approaches that were not in the original steps.",
             "- Ensure variable names are consistent across steps",
             "- Remove duplicate imports and definitions",
-            "- Resolve conflicts between steps by following the earlier step's design (e.g., model_design defines the model, training_evaluation trains it)",
-            "- Ensure the execution flow is logical: data processing & feature engineering -> model design -> training & evaluation",
+            conflict_rule,
+            f"- Ensure the execution flow is logical: {execution_flow}",
             "- Make sure the final code prints validation metric (must match task's Evaluation section) and saves submission.csv",
             "- The code should be a single-file Python program that can be executed as-is",
             "- Assume previous steps have NOT been executed; do not skip execution steps and only read files or outputs.",
@@ -456,28 +473,48 @@ def create_default_step_agents(*, hardware_aware: bool = True) -> List[StepAgent
         "CRITICAL: The metric calculation must match the Evaluation section exactly - use the same matching criteria, the same formula, the same thresholds (if any), and the same aggregation method as specified.",
         "CRITICAL: The final line must be: `print(f'Final Validation Score: {{score}}')`. This is required for the score parser.",
     ]
+    datatype_guidelines: List[str] = []
     if hardware_aware:
         data_guidelines.append(
             "Hardware-aware data pipeline: when using GPU training, keep input resolution/sequence length configurable, use DataLoader settings compatible with the hardware brief, and prefer pin_memory/non-blocking transfers when tensors move to CUDA."
         )
-        model_guidelines.extend(
-            [
-                "Hardware-aware model design: use the Hardware-Aware Model Design Brief to compare model families before choosing an architecture. Optimize for the task metric first, while treating lower training time and higher GPU utilization as persistent objectives.",
-                "This model_design step is the combined hardware-aware design stage: use the brief's compact hardware node, available feature keys, and selected feature details when they are relevant to architecture, precision, or layer choices.",
-                "Prefer architectures and layers that can use documented hardware fast paths from the brief, such as tensor-core-friendly dimensions, AMP/bf16/fp16, transformer engine, torch.compile, or efficient convolution kernels, only when the evidence applies to this task and installed environment.",
-                "Do not invent pretrained checkpoint paths, Kaggle input directories, torch hub directories, or dummy model weights to satisfy hardware advice. If a model source is not explicitly available, choose an available baseline-compatible model family.",
-            ]
-        )
+        model_guidelines = [
+            "Your responsibility: Stage 1 hardware-aware model design. Choose the model architecture or available pretrained model family, loss function, model output interface, and any model-local regularization needed for the task.",
+            "CRITICAL: Do NOT write the training loop, data processing, feature engineering, optimizer, scheduler, batch size, epoch count, learning rate, dataloader worker settings, gradient accumulation, checkpoint cadence, or precision policy.",
+            "CRITICAL: Do NOT choose AMP, bf16, fp16, fp32, TF32, GradScaler, autocast, or tensor dtype settings in this step. The datatype_precision step owns those decisions.",
+            "IMPORTANT: Consider the task's evaluation metric when designing the model. The model output format should be compatible with the required evaluation metric calculation.",
+            "Hardware-aware model design: use the Hardware-Aware Model Design Brief to compare model families before choosing an architecture. Optimize for the task metric first, while treating lower training time and higher GPU utilization as persistent objectives.",
+            "Use the brief's compact hardware node, available feature keys, and selected feature details only when they are relevant to architecture, layer choice, tensor-core-friendly dimensions, or model-family feasibility.",
+            "Do not invent pretrained checkpoint paths, Kaggle input directories, torch hub directories, or dummy model weights to satisfy hardware advice. If a model source is not explicitly available, choose an available baseline-compatible model family.",
+        ]
+        datatype_guidelines = [
+            "Your responsibility: Stage 2 hardware-aware datatype and tensor precision policy. Define reusable precision settings such as DEVICE, USE_AMP, AMP_DTYPE, USE_TF32, GradScaler behavior, autocast helper/context, and full-precision fallback behavior.",
+            "CRITICAL: Do NOT change model architecture, loss function, data features, preprocessing, optimizer, scheduler, batch size, epochs, learning rate, dataloader workers, gradient accumulation, checkpoint cadence, validation metric, or submission logic.",
+            "Use the Hardware/Profile Optimization Context to choose among fp32, tf32, fp16, bf16, or disabled AMP. Prefer bf16 only when hardware and framework evidence support it; use GradScaler for fp16 when needed; keep fp32 fallback for fragile losses or unsupported devices.",
+            "Keep precision configurable and backend-compatible. Do not hardcode scheduler backend choices, CUDA process modes, CUDA streams, or MPS behavior.",
+            "Expose simple variables/utilities that the training_evaluation step can consume directly, and include lightweight logging of selected precision without batch-level noise.",
+        ]
+        training_guidelines = [
+            "Your responsibility: Stage 3 hardware-aware training hyperparameter optimization. Write the training loop using the data/features, model, loss/interface, and datatype_precision variables from previous steps. Define optimizer, learning rate, weight decay, scheduler, physical batch size, gradient accumulation, dataloader workers, checkpoint cadence, validation, test inference, and `submission.csv`.",
+            "CRITICAL: Assume all previous code steps have already been executed. Do NOT redefine or reload data/features, redesign the model/loss, or replace the datatype_precision policy. Consume those variables and utilities AS-IS.",
+            "CRITICAL: Own training hyperparameters in this step: batch size, effective batch size, accumulation steps, epochs, learning rate, weight decay, scheduler, early stopping, dataloader workers, pin_memory, persistent_workers, checkpointing, and runtime logging.",
+            "CRITICAL: Use the datatype_precision variables/utilities for autocast, GradScaler, TF32, and fallback handling. Do NOT choose a different dtype policy unless the previous precision settings are impossible to use, and then keep a safe fallback.",
+            "CRITICAL: Validation metric computation must use the same prediction method as test inference, using training data only as reference, to avoid data leakage and ensure the metric reflects true generalization performance.",
+            "CRITICAL CONSISTENCY REQUIREMENT: Ensure that validation and test inference use IDENTICAL processing logic. Any differences in how validation and test data are handled can cause large performance gaps between validation and test sets.",
+            "CRITICAL: You MUST actively prevent overfitting. Use appropriate regularization, early stopping, and validation discipline without overfitting to the validation set.",
+            "CRITICAL: You MUST implement the exact evaluation metric as specified in the task description's 'Evaluation' section. Do not use dummy, simplified, or approximate metrics.",
+            "CRITICAL: The final line must be: `print(f'Final Validation Score: {score}')`. This is required for the score parser.",
+        ]
         training_guidelines.extend(
             [
                 "Hardware-aware training: optimize runtime at fixed modeling intent. Do NOT increase epochs, folds, model size, input resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization unless the user explicitly asks for score improvement.",
-                "Allowed hardware optimizations: physical batch size, gradient accumulation while preserving effective batch size, AMP/TF32/bf16, dataloader workers, pin_memory, persistent_workers, channels_last, safe torch.compile, checkpointing, and runtime logging.",
+                "Allowed hardware optimizations in this stage: physical batch size, gradient accumulation while preserving effective batch size, dataloader workers, pin_memory, persistent_workers, channels_last, safe torch.compile, checkpointing, and runtime logging. Precision choices must consume the datatype_precision policy.",
                 "Scheduler-aware training: adapt to the scheduler backend config in the Hardware/Profile Optimization Context. Do not hardcode CUDA process, CUDA stream, MPS, or backend selection in the script; keep code backend-compatible and configurable.",
-                "Hardware-aware training: use the hardware/profile context to choose physical batch size, AMP dtype, gradient accumulation, checkpoint cadence, and dataloader settings. If choosing a riskier setting for score reasons, include an explicit fallback path for OOM/timeout such as smaller batch size, accumulation, lower resolution, fewer epochs, or checkpoint resume.",
+                "Hardware-aware training: use the hardware/profile context to choose physical batch size, accumulation, checkpoint cadence, and dataloader settings. If choosing a riskier setting for score reasons, include an explicit fallback path for OOM/timeout such as smaller batch size, accumulation, lower resolution, fewer epochs, or checkpoint resume.",
                 "When feasible, log resolved batch size, selected precision, elapsed time, throughput, and peak CUDA memory so later scheduler graph evidence can learn from this run.",
             ]
         )
-    return [
+    step_agents = [
         StepAgent(
             name="data_processing_and_feature_engineering",
             introduction="You are a Data Preparation Specialist responsible for data loading, cleaning, and feature engineering.",
@@ -486,17 +523,57 @@ def create_default_step_agents(*, hardware_aware: bool = True) -> List[StepAgent
         ),
         StepAgent(
             name="model_design",
-            introduction="You are a Model Architect responsible for designing the model architecture, loss function, and optimizer.",
-            description="Design the model architecture (including pretrained models), and define the loss function and optimizer.",
+            introduction="You are a Model Architect responsible for designing the model architecture, loss function, and output interface.",
+            description="Design the model architecture (including pretrained models), loss function, and output interface.",
             guidelines=model_guidelines,
         ),
+    ]
+    if hardware_aware:
+        step_agents.append(
+            StepAgent(
+                name="datatype_precision",
+                introduction="You are a Hardware Precision Specialist responsible for tensor datatype and mixed-precision policy.",
+                description="Define device, tensor dtype, AMP/autocast, TF32, GradScaler, fallback, and precision logging utilities.",
+                guidelines=datatype_guidelines,
+            )
+        )
+    step_agents.append(
         StepAgent(
             name="training_evaluation",
             introduction="You are a Training and Evaluation Expert responsible for implementing training, validation, and submission generation.",
             description="Implement the training loop, validation, metric tracking, model saving, and generate submission file.",
             guidelines=training_guidelines,
         ),
-    ]
+    )
+    return step_agents
+
+
+def _build_stepwise_metadata(
+    *,
+    step_results: List[Dict[str, str]],
+    context: StepwiseContext,
+    hardware_aware: bool,
+) -> Dict[str, Any]:
+    decisions = []
+    for result in step_results:
+        step_name = result.get("name", "")
+        hardware_section = context.hardware_section_for(step_name)
+        decisions.append(
+            {
+                "stage": step_name,
+                "plan": result.get("plan", ""),
+                "code_chars": len(result.get("code") or ""),
+                "hardware_context_used": bool(hardware_section.strip()),
+            }
+        )
+    return {
+        "stage": context.stage,
+        "hardware_aware": hardware_aware,
+        "step_order": [result.get("name", "") for result in step_results],
+        "decisions": decisions,
+        "hardware_candidate": dict(context.hardware_candidate or {}),
+        "hardware_context_keys": sorted((context.hardware_context or {}).keys()),
+    }
 
 
 def stepwise_plan_and_code_query(
@@ -504,7 +581,8 @@ def stepwise_plan_and_code_query(
     prompt_base: Dict[str, Any],
     data_preview: str,
     context: Dict[str, Any],
-    ) -> Tuple[str, str]:
+    return_metadata: bool = False,
+    ) -> Tuple[str, str] | Tuple[str, str, Dict[str, Any]]:
     logger.info("Using stepwise generation route.")
 
     stepwise_context = StepwiseContext(
@@ -513,11 +591,13 @@ def stepwise_plan_and_code_query(
         previous_code=context.get("previous_code", ""),
         execution_output=context.get("execution_output", ""),
         hardware_brief=context.get("hardware_prompt_section", ""),
+        hardware_stage_sections=context.get("hardware_stage_sections", {}) or {},
         hardware_candidate=context.get("hardware_candidate", {}) or {},
         hardware_context=context.get("hardware_context", {}) or {},
     )
 
-    step_agents = create_default_step_agents(hardware_aware=_hardware_reasoning_enabled(agent_instance))
+    hardware_aware = _hardware_reasoning_enabled(agent_instance)
+    step_agents = create_default_step_agents(hardware_aware=hardware_aware)
     meta_agent = MetaAgent()
 
     step_results: List[Dict[str, str]] = []
@@ -551,4 +631,10 @@ def stepwise_plan_and_code_query(
 
     logger.info("Stepwise generation completed.")
 
+    if return_metadata:
+        return final_plan, final_code, _build_stepwise_metadata(
+            step_results=step_results,
+            context=stepwise_context,
+            hardware_aware=hardware_aware,
+        )
     return final_plan, final_code
