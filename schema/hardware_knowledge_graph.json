@@ -494,7 +494,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -570,7 +569,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "prefer batch/seq/resolution reduction before activation checkpointing for compute-bound runs",
           "gradient accumulation instead of high physical batch",
           "sequence packing for padded transformer batches",
@@ -646,7 +644,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default for larger effective batch",
           "sequence packing default for transformer training",
@@ -717,7 +714,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for memory-bound training",
           "gradient accumulation default for larger effective batch",
           "sequence packing default for transformer training",
@@ -793,7 +789,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for memory-bound training",
           "gradient accumulation default for larger effective batch",
           "sequence packing default for transformer training",
@@ -874,7 +869,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default for larger effective batch",
           "sequence packing default for transformer training",
@@ -949,7 +943,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default for larger effective batch",
           "sequence packing for padded transformer batches",
@@ -1029,7 +1022,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing for long sequence or high resolution training",
           "gradient accumulation before raising physical batch",
           "sequence packing for padded transformer batches",
@@ -1105,7 +1097,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing for activation-dominated training",
           "gradient accumulation for larger effective batch",
           "sequence packing for padded transformer batches",
@@ -1185,7 +1176,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing for activation-dominated training",
           "gradient accumulation before raising physical batch",
           "sequence packing for padded transformer batches",
@@ -1260,7 +1250,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing for activation-dominated training",
           "gradient accumulation for larger effective batch",
           "sequence packing for padded transformer batches",
@@ -1339,7 +1328,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "continuous batching for inference serving",
           "KV-cache memory budget before autoregressive inference",
           "paged/block KV-cache layout for multi-request serving",
@@ -1422,7 +1410,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "continuous batching for inference serving",
           "KV-cache memory budget before autoregressive inference",
           "paged/block KV-cache layout for multi-request serving",
@@ -1506,7 +1493,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing for activation-dominated training",
           "gradient accumulation for larger effective batch",
           "sequence packing for padded transformer batches",
@@ -1588,7 +1574,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "fp8 via transformer_engine for validated transformer recipes",
           "prefer transformer_engine fp8 for matmul-heavy transformer training/inference",
           "continuous batching for LLM inference serving",
@@ -1673,7 +1658,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for memory-bound training",
           "gradient accumulation default before raising physical batch",
           "sequence packing default for padded transformer batches",
@@ -1749,7 +1733,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing for long sequence or high resolution training",
           "gradient accumulation before raising physical batch",
           "sequence packing default for padded transformer batches",
@@ -1825,7 +1808,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing for activation-dominated training",
           "gradient accumulation for larger effective batch",
           "sequence packing for padded transformer batches",
@@ -1900,7 +1882,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing only when activation memory dominates",
           "gradient accumulation for larger effective batch",
           "sequence packing for padded transformer batches",
@@ -1978,7 +1959,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing for activation-dominated training",
           "gradient accumulation for larger effective batch",
           "sequence packing for padded transformer batches",
@@ -2048,7 +2028,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -2122,7 +2101,6 @@
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
           "FP64 viable for HPC workloads (9.7 TFLOPS FP64)",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -2198,7 +2176,6 @@
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
           "FP64 viable for HPC workloads (9.7 TFLOPS FP64)",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -2274,7 +2251,6 @@
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
           "FP64 viable for HPC workloads (9.7 TFLOPS FP64)",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -2350,7 +2326,6 @@
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
           "FP64 viable for HPC workloads (9.7 TFLOPS FP64)",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -2421,7 +2396,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "treat each 16 GB GDDR6 die as independent GPU in multi-GPU setup",
           "activation checkpointing default for transformer/diffusion training",
           "KV-cache memory budget per die before autoregressive inference",
@@ -2489,7 +2463,6 @@
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
           "quantized inference (INT8/INT4) as primary path for edge deployment",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "KV-cache memory budget before autoregressive inference",
           "activation checkpointing default for transformer training",
           "gradient accumulation default with small physical batch",
@@ -2561,7 +2534,6 @@
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
           "FP64 viable for HPC workloads (10.3 TFLOPS FP64 Tensor Core)",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -2633,7 +2605,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -2704,7 +2675,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -2773,7 +2743,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -2842,7 +2811,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -2911,7 +2879,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -2980,7 +2947,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -3049,7 +3015,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -3118,7 +3083,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -3187,7 +3151,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -3256,7 +3219,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -3325,7 +3287,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -3394,7 +3355,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "KV-cache memory budget before autoregressive inference",
@@ -3461,7 +3421,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "KV-cache memory budget before autoregressive inference",
@@ -3528,7 +3487,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -3597,7 +3555,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -3667,7 +3624,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -3737,7 +3693,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -3807,7 +3762,6 @@
         "recommended_patterns": [
           "bf16 autocast default",
           "TF32 matmul via set_float32_matmul_precision('high')",
-          "flash-attn v2 for fp16/bf16 transformer attention",
           "activation checkpointing default for transformer/diffusion training",
           "gradient accumulation default with small physical batch",
           "sequence packing default for transformer training",
@@ -3887,7 +3841,6 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
           "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
           "sequence packing and KV-cache budget before longer context",
           "treat B100 as provisional until runtime and product-sheet validation [https://docs.nvidia.com/datacenter/dcgm/latest/user-guide/dcgm-diagnostics.html]",
@@ -3962,7 +3915,6 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
           "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
           "sequence packing and KV-cache budget before longer context",
           "use 180GB HBM3e and 8TB/s bandwidth for single-GPU model/KV sizing [https://docs.nvidia.com/enterprise-reference-architectures/hgx-ai-factory/latest/components.html]",
@@ -4054,7 +4006,6 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
           "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
           "sequence packing and KV-cache budget before longer context",
           "plan as 1 Grace CPU + 2 Blackwell GPUs with 372GB HBM3e [https://www.nvidia.com/en-us/data-center/gb200-nvl72/]",
@@ -4142,7 +4093,6 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
           "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
           "sequence packing and KV-cache budget before longer context",
           "plan as 2 Grace CPUs + 4 Blackwell GPUs for converged HPC/AI [https://www.nvidia.com/en-us/data-center/gb200-nvl72/]",
@@ -4223,7 +4173,6 @@
           "transformer_inference"
         ],
         "recommended_patterns": [
-          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
           "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
           "sequence packing and KV-cache budget before longer context",
           "plan as one 36-GPU NVLink rack member in GB200 36x2 topology [https://docs.nvidia.com/multi-node-nvlink-systems/multi-node-tuning-guide/system.html]",
@@ -4305,7 +4254,6 @@
           "transformer_inference"
         ],
         "recommended_patterns": [
-          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
           "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
           "sequence packing and KV-cache budget before longer context",
           "plan as 36 Grace CPUs + 72 Blackwell GPUs in one NVLink domain [https://www.nvidia.com/en-us/data-center/gb200-nvl72/]",
@@ -4394,7 +4342,6 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
           "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
           "sequence packing and KV-cache budget before longer context",
           "gradient accumulation before raising physical batch",
@@ -4474,7 +4421,6 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
           "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
           "sequence packing and KV-cache budget before longer context",
           "gradient accumulation before raising physical batch",
@@ -4554,7 +4500,6 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
           "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
           "sequence packing and KV-cache budget before longer context",
           "gradient accumulation before raising physical batch",
@@ -4635,7 +4580,6 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
           "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
           "sequence packing and KV-cache budget before longer context",
           "gradient accumulation before raising physical batch",
@@ -4719,7 +4663,6 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
           "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
           "sequence packing and KV-cache budget before longer context",
           "gradient accumulation before raising physical batch",
@@ -4734,7 +4677,6 @@
         ],
         "avoid_patterns": [
           "no hard-coded 15360 MiB job cap",
-          "no flash-attn assumption without selected sm_120 kernel package",
           "no NVLink/SLI multi-GPU plan on GeForce RTX 50",
           "no FP64-heavy ML on GeForce Blackwell",
           "no FP4/MXFP8 default without kernel and accuracy validation",
@@ -4805,7 +4747,6 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
           "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
           "sequence packing and KV-cache budget before longer context",
           "gradient accumulation before raising physical batch",
@@ -4891,7 +4832,6 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
           "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
           "sequence packing and KV-cache budget before longer context",
           "gradient accumulation before raising physical batch",
@@ -4906,7 +4846,6 @@
         ],
         "avoid_patterns": [
           "no hard-coded 31744 MiB job cap",
-          "no flash-attn assumption without selected sm_120 kernel package",
           "no NVLink/SLI multi-GPU plan on GeForce RTX 50",
           "no FP64-heavy ML on GeForce Blackwell",
           "no FP4/MXFP8 default without kernel and accuracy validation",
@@ -4978,7 +4917,6 @@
           "vision_inference"
         ],
         "recommended_patterns": [
-          "use PyTorch SDPA before hard-coded flash-attn dependency [https://docs.pytorch.org/docs/2.12/generated/torch.nn.functional.scaled_dot_product_attention.html]",
           "activation checkpointing when activation memory dominates [https://docs.pytorch.org/docs/2.12/checkpoint.html]",
           "sequence packing and KV-cache budget before longer context",
           "gradient accumulation before raising physical batch",
@@ -5315,7 +5253,6 @@
           "FP64 acceptable for HPC kernels requiring precision",
           "use SXM/NVSwitch topology for tensor-parallel LLM training",
           "MIG up to 7 only for isolated inference tenants [https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-gpus.html]",
-          "Hopper attention kernels; pin flash-attn v3 only if selected",
           "derive VRAM cap from runtime total_memory, not fixed 80896 MiB",
           "target sm_90/TMA for custom CUDA attention or GEMM [https://docs.nvidia.com/cuda/hopper-tuning-guide/index.html]"
         ],
@@ -5404,7 +5341,6 @@
           "prefer H200 for KV-cache or HBM-bandwidth bottlenecks [https://www.nvidia.com/en-us/data-center/h200/]",
           "use SXM/NVSwitch/NCCL for tensor-parallel LLM training",
           "MIG up to 7 only for isolated inference tenants [https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-gpus.html]",
-          "Hopper attention kernels; pin flash-attn v3 only if selected",
           "derive VRAM cap from runtime total_memory, not fixed 143360 MiB",
           "target sm_90/TMA for custom CUDA attention or GEMM [https://docs.nvidia.com/cuda/hopper-tuning-guide/index.html]"
         ],
