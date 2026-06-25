@@ -73,6 +73,20 @@ with torch.amp.autocast("cuda", dtype=torch.bfloat16):
     assert normalized_mlevolve_script_signature(code) == normalized_mlevolve_script_signature(changed_batch)
 
 
+def test_script_introspection_prefers_explicit_model_family() -> None:
+    code = """
+MODEL_FAMILY = "swin_b_384"
+BATCH_SIZE = 16
+model = build_model()
+"""
+
+    candidate = introspect_training_script(code)
+
+    assert candidate["model_family"] == "swin_b_384"
+    assert candidate["model_family_source"] == "explicit"
+    assert candidate["model_key"] == "swin_b_384"
+
+
 def test_compact_context_formats_prompt_without_raw_bloat() -> None:
     raw = {
         "hardware_context": {

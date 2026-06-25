@@ -141,7 +141,11 @@ scheduler:
       batch_probe_min_batch_size: 1
       batch_probe_max_search_rounds: 12
       batch_probe_max_batch_size: null
-      batch_probe_search_mode: binary
+      batch_probe_search_mode: power_of_two
+      model_family_probe_enabled: true
+      model_family_probe_priority: 100
+      model_family_probe_timeout_seconds: 300
+      derivative_profile_safety_fraction: 0.85
       auto_pack:
         target_metric: vram
         target_sm_fraction: 0.9
@@ -163,10 +167,8 @@ scheduler:
         device_poll_ms: 500
         pair_recheck_every_steps: 20
       parallel_optimizer:
-        batch_search_mode: binary
+        batch_search_mode: power_of_two
         max_probe_jobs: 3
-        binary_range_up: 32
-        binary_range_down: 1
         power_of_two_range_up: 5
         power_of_two_range_down: 1
       submission_defaults:
@@ -182,7 +184,7 @@ scheduler:
         batch_probe_probe_timeout_seconds: 45
         batch_probe_poll_interval_seconds: 0.5
         batch_probe_max_multiplier: 32
-        batch_probe_search_mode: binary
+        batch_probe_search_mode: power_of_two
         runtime_probe_enabled: true
         runtime_probe_target: null
         runtime_probe_model_key: null

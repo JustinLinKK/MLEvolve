@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import re
+import logging
 from hashlib import sha1
 from typing import Any
+
+logger = logging.getLogger("MLEvolve")
 
 
 BATCH_PARAM_NAMES = (
@@ -73,6 +76,13 @@ MODEL_PARAM_NAMES = (
     "CHECKPOINT",
 )
 
+MODEL_FAMILY_PARAM_NAMES = (
+    "MODEL_FAMILY",
+    "model_family",
+    "SCHEDULER_MODEL_FAMILY",
+    "scheduler_model_family",
+)
+
 PRECISION_PARAM_NAMES = (
     "PRECISION",
     "PRECISION_MODE",
@@ -138,6 +148,9 @@ _TTA_PARAM_PATTERN = re.compile(
 _TTA_BOOL_PATTERN = re.compile(r"\b(?:USE_TTA|use_tta|tta)\b\s*=\s*True\b")
 _MODEL_PARAM_PATTERN = re.compile(
     rf"\b(?:{'|'.join(re.escape(name) for name in MODEL_PARAM_NAMES)})\b\s*=\s*['\"]([^'\"]+)['\"]"
+)
+_MODEL_FAMILY_PARAM_PATTERN = re.compile(
+    rf"\b(?:{'|'.join(re.escape(name) for name in MODEL_FAMILY_PARAM_NAMES)})\b\s*=\s*['\"]([^'\"]+)['\"]"
 )
 _PRECISION_STRING_PATTERN = re.compile(
     rf"\b(?:{'|'.join(re.escape(name) for name in PRECISION_PARAM_NAMES)})\b\s*=\s*['\"]([^'\"]+)['\"]",
@@ -247,7 +260,18 @@ def detect_model_key(code: str) -> str | None:
     if hf_match:
         return _clean_model_key(hf_match.group(1))
 
+    torch_hub_match = re.search(r"torch\.hub\.load\([^,]+,\s*['\"]([^'\"]+)['\"]", code or "")
+    if torch_hub_match:
+        return _clean_model_key(torch_hub_match.group(1))
+
     return None
+
+
+def detect_model_family(code: str) -> str | None:
+    match = _MODEL_FAMILY_PARAM_PATTERN.search(code or "")
+    if not match:
+        return None
+    return _clean_model_key(match.group(1))
 
 
 def detect_framework(code: str) -> str:
@@ -359,10 +383,22 @@ def infer_model_family(model_key: str | None, code: str = "") -> str | None:
 def introspect_training_script(code: str) -> dict[str, Any]:
     """Extract scheduler/MCP candidate hints from generated code."""
     code = code or ""
+    explicit_model_family = detect_model_family(code)
     model_key = detect_model_key(code)
+    if explicit_model_family and not model_key:
+        model_key = explicit_model_family
+    inferred_model_family = infer_model_family(model_key, code)
+    model_family = explicit_model_family or inferred_model_family
+    model_family_source = "explicit" if explicit_model_family else ("inferred" if inferred_model_family else None)
+    if not explicit_model_family and inferred_model_family:
+        logger.warning(
+            "Generated script is missing MODEL_FAMILY; inferred legacy model_family=%s from model key/code.",
+            inferred_model_family,
+        )
     candidate: dict[str, Any] = {
         "model_key": model_key,
-        "model_family": infer_model_family(model_key, code),
+        "model_family": model_family,
+        "model_family_source": model_family_source,
         "proposed_batch_size": detect_initial_batch_size(code),
         "proposed_epochs": detect_epoch_count(code),
         "input_resolution": detect_input_resolution(code),

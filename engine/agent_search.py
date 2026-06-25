@@ -291,6 +291,19 @@ class AgentSearch:
                             self.refresh_hardware_context(result_node)
                         else:
                             logger.info(f"Node {result_node.id} passed code review without changes")
+                    try:
+                        from engine.script_introspection import introspect_training_script
+                        from localml_scheduler.adapters.mlevolve import build_model_family_profile_key, normalize_model_family
+
+                        script_metadata = introspect_training_script(result_node.code)
+                        if script_metadata.get("model_family"):
+                            result_node.model_family = normalize_model_family(str(script_metadata["model_family"]))
+                            result_node.active_profile_key = build_model_family_profile_key(
+                                task_id=str(getattr(self.cfg, "exp_id", "mlevolve")),
+                                model_family=result_node.model_family,
+                            )
+                    except Exception as exc:
+                        logger.debug("Skipping node model-family metadata refresh: %s", exc)
 
                     if not execute_immediately:
                         logger.info(f"Node {result_node.id} code generated and reviewed, execution deferred")
@@ -302,7 +315,7 @@ class AgentSearch:
                     from utils.pipeline_logging import record_pipeline_node_action
 
                     record_pipeline_node_action(self, result_node, "execution_started")
-                    exe_res = exec_callback(result_node.code, result_node.id, True)
+                    exe_res = exec_callback(result_node.code, result_node.id, True, node_context=result_node)
                     result_node = result_parse_agent.run(self,
                         node=result_node,
                         exec_result=exe_res
@@ -410,7 +423,7 @@ class AgentSearch:
             from utils.pipeline_logging import record_pipeline_node_action
 
             record_pipeline_node_action(self, node, "execution_started")
-            exe_res = exec_callback(node.code, node.id, True)
+            exe_res = exec_callback(node.code, node.id, True, node_context=node)
             node = result_parse_agent.run(self,
                 node=node,
                 exec_result=exe_res
@@ -491,7 +504,20 @@ class AgentSearch:
         for node in runnable_nodes:
             record_pipeline_node_action(self, node, "execution_started")
 
-        results = exec_many_callback([(node.code, str(node.id)) for node in runnable_nodes])
+        results = exec_many_callback(
+            [
+                {
+                    "code": node.code,
+                    "id": str(node.id),
+                    "node": node,
+                    "branch_id": getattr(node, "branch_id", None),
+                    "model_family": getattr(node, "model_family", None),
+                    "active_profile_key": getattr(node, "active_profile_key", None),
+                    "parent_model_family": getattr(getattr(node, "parent", None), "model_family", None),
+                }
+                for node in runnable_nodes
+            ]
+        )
         executed_nodes: list[SearchNode] = []
 
         for node in runnable_nodes:
