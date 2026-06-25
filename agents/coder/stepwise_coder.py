@@ -415,7 +415,7 @@ class MetaAgent:
             else "data processing & feature engineering -> model design -> training & evaluation"
         )
         conflict_rule = (
-            "- Resolve conflicts between steps by following the earlier step's design: model_design defines the model/loss/interface, datatype_precision defines precision policy, and training_evaluation consumes both."
+            "- Resolve conflicts between steps by following the earlier step's design: model_design defines the model/loss/interface, datatype_precision defines precision policy and any precision-required model adapters, and training_evaluation consumes both."
             if has_datatype_step
             else "- Resolve conflicts between steps by following the earlier step's design (e.g., model_design defines the model, training_evaluation trains it)"
         )
@@ -431,7 +431,7 @@ class MetaAgent:
             "- The code should be a single-file Python program that can be executed as-is",
             "- Assume previous steps have NOT been executed; do not skip execution steps and only read files or outputs.",
             "- All parts must work together seamlessly",
-            "- Use hardware context only to preserve compatible precision, batch, dataloader, and runtime choices. Do not redesign the selected model or optimizer during merge.",
+            "- Use hardware context only to preserve compatible precision, precision-required model adapters, batch, dataloader, and runtime choices. Do not redesign the selected model family, loss/interface, or optimizer during merge.",
             "- Never emit merge-conflict markers such as <<<<<<<, =======, or >>>>>>>. Resolve conflicting snippets into ordinary Python before returning the final code.",
         ]
 
@@ -576,21 +576,22 @@ def create_default_step_agents(
             "Do not invent pretrained checkpoint paths, Kaggle input directories, torch hub directories, or dummy model weights to satisfy hardware advice. If a model source is not explicitly available, choose an available baseline-compatible model family.",
         ]
         datatype_guidelines = [
-            "Your responsibility: Stage 2 hardware-aware datatype and tensor precision policy. Define reusable precision settings such as DEVICE, USE_AMP, AMP_DTYPE, USE_TF32, GradScaler behavior, autocast helper/context, and full-precision fallback behavior.",
-            "Read the Cross-Stage Note Board first and preserve the Stage 1 candidate target; precision choices should support that target instead of changing the model/data design.",
-            "CRITICAL: Do NOT change model architecture, loss function, data features, preprocessing, optimizer, scheduler, batch size, epochs, learning rate, dataloader workers, gradient accumulation, checkpoint cadence, validation metric, or submission logic.",
-            "Use the Hardware/Profile Optimization Context to choose among fp32, tf32, fp16, bf16, or disabled AMP. Prefer bf16 only when hardware and framework evidence support it; use GradScaler for fp16 when needed; keep fp32 fallback for fragile losses or unsupported devices.",
+            "Your responsibility: Stage 2 hardware-aware datatype and tensor precision policy. Define reusable precision settings such as DEVICE, USE_AMP, AMP_DTYPE, USE_TF32, GradScaler behavior, Transformer Engine recipes/autocast helpers, precision-required model adapters, and full-precision fallback behavior.",
+            "Read the Cross-Stage Note Board first and preserve the Stage 1 candidate target; precision choices and adapters should support that target instead of changing the model/data design.",
+            "CRITICAL: Do NOT redesign model family, loss function, model output interface, data features, preprocessing, optimizer, scheduler, batch size, epochs, learning rate, dataloader workers, gradient accumulation, checkpoint cadence, validation metric, or submission logic.",
+            "Allowed precision-required model adaptations: wrap or replace compatible modules with Transformer Engine layers, add precision shape padding/config hooks, define TE FP8/MXFP8/NVFP4 autocast recipes, or keep selected layers in higher precision. These must preserve the Stage 1 model family, loss, data features, and output interface.",
+            "Use the Hardware/Profile Optimization Context to choose among fp32, tf32, fp16, bf16, TE FP8/MXFP8/NVFP4, or disabled AMP. Prefer low-precision TE modes only when hardware, framework/package availability, and model structure evidence support them; keep fp32 fallback for fragile losses or unsupported devices.",
             hardware_node_rule,
-            "Note board: record how the precision policy supports the Stage 1 target and which feature keys drove the choice.",
+            "Note board: record how the precision policy and any precision-required adapter support the Stage 1 target and which feature keys drove the choice.",
             "Keep precision configurable and backend-compatible. Do not hardcode scheduler backend choices, CUDA process modes, CUDA streams, or MPS behavior.",
-            "Expose simple variables/utilities that the training_evaluation step can consume directly, and include lightweight logging of selected precision without batch-level noise.",
+            "Expose simple variables/utilities and any adapted model object that the training_evaluation step can consume directly, and include lightweight logging of selected precision without batch-level noise.",
         ]
         training_guidelines = [
-            "Your responsibility: Stage 3 hardware-aware training hyperparameter optimization. Write the training loop using the data/features, model, loss/interface, and datatype_precision variables from previous steps. Define optimizer, learning rate, weight decay, scheduler, physical batch size, gradient accumulation, dataloader workers, checkpoint cadence, validation, test inference, and `submission.csv`.",
+            "Your responsibility: Stage 3 hardware-aware training hyperparameter optimization. Write the training loop using the data/features, model or precision-adapted model, loss/interface, and datatype_precision variables from previous steps. Define optimizer, learning rate, weight decay, scheduler, physical batch size, gradient accumulation, dataloader workers, checkpoint cadence, validation, test inference, and `submission.csv`.",
             "Read the Cross-Stage Note Board first and align optimizer, batch, dataloader, runtime, and fallback choices with the Stage 1 candidate target and Stage 2 precision policy.",
-            "CRITICAL: Assume all previous code steps have already been executed. Do NOT redefine or reload data/features, redesign the model/loss, or replace the datatype_precision policy. Consume those variables and utilities AS-IS.",
+            "CRITICAL: Assume all previous code steps have already been executed. Do NOT redefine or reload data/features, redesign the model/loss, undo precision-required model adapters, or replace the datatype_precision policy. Consume those variables and utilities AS-IS.",
             "CRITICAL: Own training hyperparameters in this step: batch size, effective batch size, accumulation steps, epochs, learning rate, weight decay, scheduler, early stopping, dataloader workers, pin_memory, persistent_workers, checkpointing, and runtime logging.",
-            "CRITICAL: Use the datatype_precision variables/utilities for autocast, GradScaler, TF32, and fallback handling. Do NOT choose a different dtype policy unless the previous precision settings are impossible to use, and then keep a safe fallback.",
+            "CRITICAL: Use the datatype_precision variables/utilities and any precision-adapted model object for autocast, GradScaler, TF32, TE recipes, and fallback handling. Do NOT choose a different dtype policy unless the previous precision settings are impossible to use, and then keep a safe fallback.",
             hardware_node_rule,
             "Note board: record how training/runtime choices preserve the Stage 1 target and use the Stage 2 precision policy.",
             "CRITICAL: Validation metric computation must use the same prediction method as test inference, using training data only as reference, to avoid data leakage and ensure the metric reflects true generalization performance.",
@@ -602,7 +603,7 @@ def create_default_step_agents(
         training_guidelines.extend(
             [
                 "Hardware-aware training: optimize runtime at fixed modeling intent. Do NOT increase epochs, folds, model size, input resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization unless the user explicitly asks for score improvement.",
-                "Allowed hardware optimizations in this stage: physical batch size, gradient accumulation while preserving effective batch size, dataloader workers, pin_memory, persistent_workers, channels_last, safe torch.compile, checkpointing, and runtime logging. Precision choices must consume the datatype_precision policy.",
+                "Allowed hardware optimizations in this stage: physical batch size, gradient accumulation while preserving effective batch size, dataloader workers, pin_memory, persistent_workers, channels_last, safe torch.compile, checkpointing, and runtime logging. Precision choices and precision-required model adapters must consume the datatype_precision policy.",
                 "Scheduler-aware training: adapt to the scheduler backend config in the Hardware/Profile Optimization Context. Do not hardcode CUDA process, CUDA stream, MPS, or backend selection in the script; keep code backend-compatible and configurable.",
                 "Hardware-aware training: use the hardware/profile context to choose physical batch size, accumulation, checkpoint cadence, and dataloader settings. If choosing a riskier setting for score reasons, include an explicit fallback path for OOM/timeout such as smaller batch size, accumulation, lower resolution, fewer epochs, or checkpoint resume.",
                 "When feasible, log resolved batch size, selected precision, elapsed time, throughput, and peak CUDA memory so later scheduler graph evidence can learn from this run.",
@@ -624,8 +625,8 @@ def create_default_step_agents(
             )
             datatype_guidelines.extend(
                 [
-                    "Pipeline decision: consume `tuning.precision_policy`, `evidence`, and the Hardware/Profile Optimization Context to define only dtype, AMP/TF32, GradScaler, autocast, and precision fallback behavior.",
-                    "Pipeline decision: do not change model family, loss, optimizer, scheduler, dataloader policy, batch size, or validation/submission behavior in this step.",
+                    "Pipeline decision: consume `tuning.precision_policy`, `tuning.precision_model_adaptation`, `evidence`, and the Hardware/Profile Optimization Context to define dtype, AMP/TF32, GradScaler, TE recipes/autocast, precision-required model adapters, and precision fallback behavior.",
+                    "Pipeline decision: do not change model family, loss, task output interface, optimizer, scheduler, dataloader policy, batch size, or validation/submission behavior in this step.",
                 ]
             )
             training_guidelines.extend(

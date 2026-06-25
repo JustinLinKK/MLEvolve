@@ -22,7 +22,7 @@ PIPELINE_DECISION_HEADING = "# Pipeline Decision Contract"
 PIPELINE_DECISION_TRACE_HEADING = "# Pipeline Decision Trace"
 PIPELINE_STAGE_ORDER = ("model_design", "datatype_precision", "training_evaluation")
 BATCH_SIZE_POLICIES = ("fixed", "scheduler_recommended", "adaptive")
-PRECISION_POLICIES = ("fp32", "tf32", "fp16_amp", "bf16_amp", "disabled")
+PRECISION_POLICIES = ("fp32", "tf32", "fp16_amp", "bf16_amp", "fp8_te", "mxfp8_te", "nvfp4_te", "disabled")
 
 PIPELINE_DECISION_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -80,6 +80,7 @@ PIPELINE_DECISION_JSON_SCHEMA: dict[str, Any] = {
             "properties": {
                 "batch_size_policy": {"type": "string", "enum": list(BATCH_SIZE_POLICIES)},
                 "precision_policy": {"type": "string", "enum": list(PRECISION_POLICIES)},
+                "precision_model_adaptation": {"type": "string"},
                 "dataloader_policy": {"type": "string"},
                 "fallbacks": {"type": "array", "items": {"type": "string"}},
                 "metrics_to_log": {"type": "array", "items": {"type": "string"}},
@@ -87,6 +88,7 @@ PIPELINE_DECISION_JSON_SCHEMA: dict[str, Any] = {
             "required": [
                 "batch_size_policy",
                 "precision_policy",
+                "precision_model_adaptation",
                 "dataloader_policy",
                 "fallbacks",
                 "metrics_to_log",
@@ -126,7 +128,8 @@ def pipeline_decision_instructions(
             "Use the Pipeline Decision Trace as the source of truth for code generation and planning.",
             "Follow the hardware-aware stepwise workflow: model_design -> datatype_precision -> training_evaluation.",
             "Do not jump directly to optimizer, precision, or batch-size choices before model family and output interface are decided.",
-            "The stored datatype field describes data modality and target shape. Numeric precision such as fp32, fp16, bf16, or tf32 belongs under datatype_precision and tuning.precision_policy unless the task explicitly requires a numeric type.",
+            "The stored datatype field describes data modality and target shape. Numeric precision such as fp32, fp16, bf16, tf32, or TE FP8/NVFP4 belongs under datatype_precision and tuning.precision_policy unless the task explicitly requires a numeric type.",
+            "The datatype_precision step may make narrow precision-required model adapters such as Transformer Engine layer wrappers/replacements, padding/config hooks, autocast recipes, or higher-precision islands, but it must preserve the Stage 1 model family, loss, data features, and output interface.",
             "Hardware/profile evidence may influence model fit and tuning only when it is compatible with the task, installed packages, and available model sources.",
             "Hardware tuning must not increase epochs, folds, model size, image resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization.",
             "If execution feedback contradicts an earlier decision, update only the relevant part of the decision and explain why in the plan.",
@@ -214,8 +217,9 @@ def _render_pipeline_decision_section(payload: str) -> str:
         "Before writing or modifying code, follow the hardware-aware stepwise workflow: "
         "model_design -> datatype_precision -> training_evaluation.\n\n"
         "1. Model design: choose architecture/model family, loss, and output interface first.\n"
-        "2. Datatype precision: choose dtype, AMP/TF32, GradScaler, autocast, and precision fallback policy.\n"
+        "2. Datatype precision: choose dtype, AMP/TF32, GradScaler, TE FP8/MXFP8/NVFP4 recipes, autocast, precision-required model adapters, and precision fallback policy.\n"
         "3. Training evaluation: choose optimizer, scheduler, batch size, dataloader settings, checkpointing, validation, submission, runtime fallbacks, and logging.\n"
+        "Datatype precision may include only precision-required model adapters that preserve the Stage 1 model family, loss, data features, and output interface.\n"
         "Hardware tuning must not increase epochs, folds, model size, image resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization.\n"
         "If evidence is missing, use the fallback recorded in the trace instead of inventing hardware claims.\n\n"
         f"{PIPELINE_DECISION_TRACE_HEADING}\n"
@@ -258,6 +262,7 @@ def normalize_pipeline_decision(
         normalized["model"]["hardware_fit"] = "none"
         normalized["optimizer"]["advanced_optimizer_used"] = False
         normalized["tuning"]["precision_policy"] = "disabled"
+        normalized["tuning"]["precision_model_adaptation"] = "none"
     if not evidence_state["has_predictor_or_graph_evidence"]:
         normalized["tuning"]["batch_size_policy"] = "fixed"
     return normalized
@@ -293,10 +298,11 @@ def _build_decision_prompt(
         f"Data preview:\n{data_preview}\n\n"
         "Pipeline contract:\n"
         "1. Model design: choose architecture/model family, loss, and output interface first.\n"
-        "2. Datatype precision: choose dtype, AMP/TF32, GradScaler, autocast, and precision fallback policy.\n"
+        "2. Datatype precision: choose dtype, AMP/TF32, GradScaler, TE FP8/MXFP8/NVFP4 recipes, autocast, precision-required model adapters, and precision fallback policy.\n"
         "3. Training evaluation: choose optimizer, scheduler, batch size, dataloader policy, checkpoint cadence, validation/submission behavior, and fallbacks.\n\n"
         "Rules:\n"
         "- Do not use hardware speed as a reason to violate task correctness, package availability, model-source availability, or submission format.\n"
+        "- datatype_precision may only adapt model structure when the selected precision backend requires it, e.g. TE-compatible layer wrappers/replacements, precision shape padding/config hooks, autocast recipes, or higher-precision islands. It must not redesign model family, loss, data features, or task I/O.\n"
         "- Hardware tuning must not increase epochs, folds, model size, input resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization.\n"
         "- If graph/predictor evidence is missing, record that in evidence.missing_evidence and use conservative tuning fallbacks.\n"
         "- evidence.evidence_refs must only contain refs listed in the hardware/profile evidence payload.\n\n"
@@ -349,6 +355,7 @@ def _fallback_decision(*, task_desc: Any, data_preview: str, evidence_state: dic
         "tuning": {
             "batch_size_policy": "fixed" if not evidence_state["has_predictor_or_graph_evidence"] else "scheduler_recommended",
             "precision_policy": "disabled",
+            "precision_model_adaptation": "none",
             "dataloader_policy": "safe defaults; enable workers and pinned memory only when compatible",
             "fallbacks": ["reduce physical batch size on OOM", "reduce epochs before changing model family on timeout"],
             "metrics_to_log": ["elapsed_seconds", "peak_vram_mb", "resolved_batch_size"],
@@ -478,6 +485,10 @@ def _normalize_tuning(value: Any, fallback: dict[str, Any]) -> dict[str, Any]:
             value.get("precision_policy"),
             set(PRECISION_POLICIES),
             fallback["precision_policy"],
+        ),
+        "precision_model_adaptation": _string(
+            value.get("precision_model_adaptation"),
+            fallback.get("precision_model_adaptation", "none"),
         ),
         "dataloader_policy": _string(value.get("dataloader_policy"), fallback["dataloader_policy"]),
         "fallbacks": _string_list(value.get("fallbacks")) or list(fallback["fallbacks"]),

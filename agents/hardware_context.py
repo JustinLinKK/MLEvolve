@@ -42,6 +42,12 @@ _PRECISION_KEYWORDS = (
     "bfloat16",
     "fp16",
     "float16",
+    "fp8",
+    "float8",
+    "fp4",
+    "nvfp4",
+    "mxfp4",
+    "mxfp8",
     "tf32",
     "float32",
     "fp32",
@@ -49,6 +55,11 @@ _PRECISION_KEYWORDS = (
     "grad scaler",
     "tensor core",
     "matmul",
+    "transformer_engine",
+    "transformer engine",
+    "te.autocast",
+    "te.linear",
+    "recipe",
 )
 _TRAINING_HPARAM_KEYWORDS = (
     "batch",
@@ -424,7 +435,8 @@ def build_stepwise_hardware_stage_sections(
         heading=HARDWARE_DATATYPE_HEADING,
         stage_label="Stage 2 datatype/precision",
         ownership=(
-            "device, dtype, AMP/autocast, TF32, GradScaler, precision fallback, and precision logging only."
+            "device, dtype, AMP/autocast, TF32, GradScaler, Transformer Engine recipes, precision-required "
+            "model adapters, precision fallback, and precision logging."
         ),
     )
     stage3_preamble = _stage_hardware_response_preamble(
@@ -1121,12 +1133,19 @@ def format_hardware_datatype_prompt_section(compact: dict[str, Any], *, max_char
         lines.append(f"- Evidence refs: {', '.join(refs[:8])}")
     lines.append(f"- Confidence: {compact.get('confidence', 0.0)}")
     lines.append(
-        "- Stage boundary: Choose only tensor datatype and precision policy here: DEVICE, USE_AMP, AMP_DTYPE, "
-        "USE_TF32, GradScaler, autocast helper, fallback behavior, and precision logging."
+        "- Stage boundary: Choose tensor datatype and precision policy here: DEVICE, USE_AMP, AMP_DTYPE, "
+        "USE_TF32, GradScaler, Transformer Engine FP8/MXFP8/NVFP4 recipes, autocast helper, "
+        "precision-required model adapters, fallback behavior, and precision logging."
     )
     lines.append(
-        "- Out of scope for this stage: model architecture, loss, features, batch size, epochs, learning rate, "
-        "dataloader workers, gradient accumulation, checkpoint cadence, validation metric, and submission logic."
+        "- Allowed model adaptation: only precision-required wrappers/replacements for compatible modules, "
+        "precision shape padding/config hooks, or higher-precision islands that preserve the Stage 1 model family, "
+        "loss, data features, and output interface."
+    )
+    lines.append(
+        "- Out of scope for this stage: general model redesign, loss changes, feature/preprocessing changes, "
+        "batch size, epochs, learning rate, dataloader workers, gradient accumulation, checkpoint cadence, "
+        "validation metric, and submission logic."
     )
     lines.append(f"- Rule: {EVIDENCE_NOT_LAW_RULE}")
     lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
@@ -1836,7 +1855,7 @@ def _stage_decision_rationale(stage: str) -> str:
     if stage == "model_design":
         return "Stage 1 selected the model design while deferring datatype and training hyperparameters."
     if stage == "datatype_precision":
-        return "Stage 2 selected the tensor datatype and precision policy before training hyperparameter tuning."
+        return "Stage 2 selected the tensor datatype, precision policy, and any precision-required model adapters before training hyperparameter tuning."
     if stage == "training_evaluation":
         return "Stage 3 selected training hyperparameters and evaluation/submission behavior after model and dtype decisions."
     return "Hardware-aware stepwise generation stage completed."
@@ -1846,7 +1865,7 @@ def _stage_chosen_params(stage: str, candidate: dict[str, Any]) -> dict[str, Any
     if stage == "model_design":
         keys = ("model_key", "model_family", "framework")
     elif stage == "datatype_precision":
-        keys = ("precision_mode", "uses_amp", "framework")
+        keys = ("precision_mode", "precision_backend", "precision_model_adaptation", "uses_amp", "framework")
     elif stage == "training_evaluation":
         keys = (
             "proposed_batch_size",

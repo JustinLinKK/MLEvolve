@@ -60,6 +60,7 @@ def _decision_payload(**evidence_overrides):
         "tuning": {
             "batch_size_policy": "scheduler_recommended",
             "precision_policy": "bf16_amp",
+            "precision_model_adaptation": "none",
             "dataloader_policy": "pin_memory and non_blocking on CUDA",
             "fallbacks": ["halve batch size on OOM"],
             "metrics_to_log": ["elapsed_seconds", "peak_vram_mb", "resolved_batch_size"],
@@ -109,6 +110,7 @@ def test_missing_graph_or_predictor_evidence_uses_safe_fallback(monkeypatch) -> 
     assert decision["optimizer"]["advanced_optimizer_used"] is False
     assert decision["tuning"]["batch_size_policy"] == "fixed"
     assert decision["tuning"]["precision_policy"] == "disabled"
+    assert decision["tuning"]["precision_model_adaptation"] == "none"
 
 
 def test_pipeline_decision_persists_on_search_node_round_trip(monkeypatch) -> None:
@@ -199,7 +201,36 @@ def test_invalid_policy_values_and_string_boolean_are_normalized(monkeypatch) ->
     assert decision["optimizer"]["advanced_optimizer_used"] is False
     assert decision["tuning"]["batch_size_policy"] == "scheduler_recommended"
     assert decision["tuning"]["precision_policy"] == "disabled"
+    assert decision["tuning"]["precision_model_adaptation"] == "none"
     assert decision["evidence"]["confidence"] == 1.0
+
+
+def test_te_precision_policy_and_adapter_are_preserved_with_evidence(monkeypatch) -> None:
+    payload = _decision_payload()
+    payload["tuning"]["precision_policy"] = "nvfp4_te"
+    payload["tuning"]["precision_model_adaptation"] = "replace compatible Linear layers with TE modules"
+    monkeypatch.setattr(
+        "agents.prompts.pipeline_decision.generate",
+        lambda **_: json.dumps(payload),
+    )
+    graph_context = SimpleNamespace(
+        compact_context={
+            "hardware_context": {"found": True, "summary": "Blackwell GPU with Transformer Engine support"},
+            "graph_evidence": {"exact_profiles": [{"precision": "nvfp4_te", "ref": "graph:te:nvfp4"}]},
+            "evidence_refs": ["graph:te:nvfp4"],
+            "confidence": 0.8,
+        }
+    )
+
+    decision = build_pipeline_decision(
+        _agent("transformer training"),
+        stage="draft",
+        data_preview="tokenized sequences",
+        hardware_contexts=[graph_context],
+    )
+
+    assert decision["tuning"]["precision_policy"] == "nvfp4_te"
+    assert "TE modules" in decision["tuning"]["precision_model_adaptation"]
 
 
 def test_long_pipeline_trace_remains_valid_json() -> None:

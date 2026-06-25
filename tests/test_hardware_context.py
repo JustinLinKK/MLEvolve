@@ -73,6 +73,45 @@ with torch.amp.autocast("cuda", dtype=torch.bfloat16):
     assert normalized_mlevolve_script_signature(code) == normalized_mlevolve_script_signature(changed_batch)
 
 
+def test_script_introspection_detects_transformer_engine_fp8_adapter() -> None:
+    code = """
+import torch
+import transformer_engine.pytorch as te
+from transformer_engine.common.recipe import DelayedScaling, Format
+
+PRECISION_MODE = "fp8_te"
+fp8_recipe = DelayedScaling(fp8_format=Format.HYBRID)
+model.fc = te.Linear(model.fc.in_features, model.fc.out_features)
+with te.autocast(enabled=True, recipe=fp8_recipe):
+    out = model(x)
+"""
+
+    candidate = introspect_training_script(code)
+
+    assert candidate["precision_mode"] == "fp8_te"
+    assert candidate["precision_backend"] == "transformer_engine"
+    assert candidate["precision_model_adaptation"] == "te_module_replacement"
+    assert candidate["uses_amp"] is True
+
+
+def test_script_introspection_detects_transformer_engine_nvfp4_recipe() -> None:
+    code = """
+import transformer_engine.pytorch as te
+from transformer_engine.common.recipe import NVFP4BlockScaling
+
+recipe = NVFP4BlockScaling()
+model.block = te.TransformerLayer(hidden_size=768, ffn_hidden_size=3072, num_attention_heads=12)
+with te.autocast(enabled=True, recipe=recipe):
+    out = model(x)
+"""
+
+    candidate = introspect_training_script(code)
+
+    assert candidate["precision_mode"] == "nvfp4_te"
+    assert candidate["precision_backend"] == "transformer_engine"
+    assert candidate["precision_model_adaptation"] == "te_module_replacement"
+
+
 def test_script_introspection_prefers_explicit_model_family() -> None:
     code = """
 MODEL_FAMILY = "swin_b_384"
@@ -422,6 +461,47 @@ def test_stage_specific_hardware_prompts_split_precision_and_training_focus() ->
     assert "Training Hyperparameter" in sections["training_evaluation"]
 
 
+def test_datatype_prompt_surfaces_transformer_engine_low_precision_without_training_guidance() -> None:
+    compact = {
+        "hardware_context": {
+            "summary": "Blackwell GPU with Tensor Core and Transformer Engine low-precision support",
+        },
+        "derived_diagnosis": {
+            "profile_symptoms": ["precision_not_optimized"],
+            "optimization_targets": ["enable_tensor_core"],
+        },
+        "vector_evidence": {
+            "recipes": [
+                {
+                    "record_id": "te-fp8",
+                    "title": "Transformer Engine FP8/NVFP4",
+                    "recommended_patterns": [
+                        "Use transformer_engine.pytorch.Linear with te.autocast and an FP8 recipe.",
+                        "Use NVFP4BlockScaling recipe only when the model structure is compatible.",
+                    ],
+                },
+            ],
+        },
+        "recommendations": [
+            "Use Transformer Engine NVFP4BlockScaling recipe and te.autocast for FP8-capable modules.",
+            "Use graph-recommended physical batch size 16 as the starting point.",
+            "Tune learning rate after batch-size selection.",
+        ],
+        "risk_flags": ["Avoid fp8 without validation."],
+        "evidence_refs": ["graph:te:nvfp4"],
+        "confidence": 0.7,
+    }
+
+    prompt = format_hardware_datatype_prompt_section(compact, max_chars=3000)
+
+    assert "Transformer Engine" in prompt
+    assert "NVFP4BlockScaling" in prompt
+    assert "te.autocast" in prompt
+    assert "precision-required model adapters" in prompt
+    assert "physical batch size 16" not in prompt
+    assert "Tune learning rate after batch-size selection" not in prompt
+
+
 def test_hardware_aware_step_agents_split_stage_order_and_boundaries() -> None:
     hardware_agents = create_default_step_agents(hardware_aware=True)
     baseline_agents = create_default_step_agents(hardware_aware=False)
@@ -444,7 +524,9 @@ def test_hardware_aware_step_agents_split_stage_order_and_boundaries() -> None:
 
     assert "Do NOT choose AMP" in model_guidelines
     assert "datatype_precision step owns" in model_guidelines
-    assert "Do NOT change model architecture" in dtype_guidelines
+    assert "Do NOT redesign model family" in dtype_guidelines
+    assert "Allowed precision-required model adaptations" in dtype_guidelines
+    assert "preserve the Stage 1 model family" in dtype_guidelines
     assert "Do NOT redefine or reload data/features" in training_guidelines
     assert "Own training hyperparameters" in training_guidelines
 
