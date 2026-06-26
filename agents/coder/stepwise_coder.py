@@ -612,39 +612,39 @@ def create_default_step_agents(
     if pipeline_decision_aware:
         data_guidelines.extend(
             [
-                "Pipeline decision: consume `datatype.modality`, `datatype.target_type`, and `datatype.shape_constraints` before choosing preprocessing or feature engineering.",
-                "Pipeline decision: use `tuning.dataloader_policy` only for data loading mechanics; do not choose the model family or optimizer in this step.",
+                "Pipeline decision: consume `model_design.modality`, `model_design.target_type`, and `model_design.shape_constraints` before choosing preprocessing or feature engineering.",
+                "Pipeline decision: use `training_evaluation.dataloader_policy` only for data loading mechanics; do not choose the model family or optimizer in this step.",
             ]
         )
         if hardware_aware:
             model_guidelines.extend(
                 [
-                    "Pipeline decision: consume `datatype`, `model`, and `optimizer.loss` to define the model interface and criterion only; leave optimizer, scheduler, precision, and batch policy to later hardware-aware stages.",
+                    "Pipeline decision: consume `model_design` to define the data assumptions, model family, loss, output interface, and criterion only; leave optimizer, scheduler, precision, and batch policy to later hardware-aware stages.",
                     "Pipeline decision: do not use unavailable weights, packages, or hardware-only tricks to justify a model family.",
                 ]
             )
             datatype_guidelines.extend(
                 [
-                    "Pipeline decision: consume `tuning.precision_policy`, `tuning.precision_model_adaptation`, `evidence`, and the Hardware/Profile Optimization Context to define dtype, AMP/TF32, GradScaler, TE recipes/autocast, precision-required model adapters, and precision fallback behavior.",
+                    "Pipeline decision: consume `datatype_precision.precision_policy`, `datatype_precision.precision_model_adaptation`, `datatype_precision.fallback_policy`, `evidence`, and the Hardware/Profile Optimization Context to define dtype, AMP/TF32, GradScaler, TE recipes/autocast, precision-required model adapters, and precision fallback behavior.",
                     "Pipeline decision: do not change model family, loss, task output interface, optimizer, scheduler, dataloader policy, batch size, or validation/submission behavior in this step.",
                 ]
             )
             training_guidelines.extend(
                 [
-                    "Pipeline decision: consume `optimizer.optimizer`, `optimizer.scheduler`, `tuning.batch_size_policy`, `tuning.dataloader_policy`, `tuning.fallbacks`, and `evidence` for training, validation, checkpointing, submission generation, and runtime logging.",
+                    "Pipeline decision: consume `training_evaluation.optimizer`, `training_evaluation.scheduler`, `training_evaluation.batch_size_policy`, `training_evaluation.dataloader_policy`, `training_evaluation.fallbacks`, and `evidence` for training, validation, checkpointing, submission generation, and runtime logging.",
                     "Pipeline decision: when evidence is missing, implement the recorded safe fallbacks rather than inventing hardware claims.",
                 ]
             )
         else:
             model_guidelines.extend(
                 [
-                    "Pipeline decision: consume `datatype`, `model`, and `optimizer.loss`/`optimizer.optimizer` to define only the model, criterion, and optimizer.",
+                    "Pipeline decision: consume `model_design` and `training_evaluation.optimizer` to define only the model, criterion, and optimizer.",
                     "Pipeline decision: do not use unavailable weights, packages, or hardware-only tricks to justify a model family.",
                 ]
             )
             training_guidelines.extend(
                 [
-                    "Pipeline decision: consume `optimizer`, `tuning`, and `evidence` for training, validation, checkpointing, submission generation, and runtime logging.",
+                    "Pipeline decision: consume `training_evaluation` and `evidence` for training, validation, checkpointing, submission generation, and runtime logging.",
                     "Pipeline decision: when evidence is missing, implement the recorded safe fallbacks rather than inventing hardware claims.",
                 ]
             )

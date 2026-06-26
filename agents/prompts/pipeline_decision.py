@@ -1,10 +1,9 @@
 """Pipeline-stage decision contract for prompt generation.
 
-The decision contract stores datatype/model/optimizer/tuning choices, while
-hardware-aware stepwise generation follows the three-stage workflow:
+The decision contract stores one top-level decision object per workflow stage:
 model_design -> datatype_precision -> training_evaluation. Hardware/profile
-evidence can inform tuning, but missing evidence must be recorded as a fallback
-instead of invented claims.
+evidence can inform training/runtime choices, but missing evidence must be
+recorded as a fallback instead of invented claims.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ PRECISION_POLICIES = ("fp32", "tf32", "fp16_amp", "bf16_amp", "fp8_te", "mxfp8_t
 PIPELINE_DECISION_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "datatype": {
+        "model_design": {
             "type": "object",
             "properties": {
                 "modality": {
@@ -47,51 +46,58 @@ PIPELINE_DECISION_JSON_SCHEMA: dict[str, Any] = {
                     ],
                 },
                 "shape_constraints": {"type": "array", "items": {"type": "string"}},
-                "reason": {"type": "string"},
-            },
-            "required": ["modality", "target_type", "shape_constraints", "reason"],
-            "additionalProperties": False,
-        },
-        "model": {
-            "type": "object",
-            "properties": {
                 "family": {"type": "string"},
                 "alternatives_considered": {"type": "array", "items": {"type": "string"}},
+                "loss": {"type": "string"},
+                "output_interface": {"type": "string"},
                 "reason": {"type": "string"},
                 "hardware_fit": {"type": "string"},
             },
-            "required": ["family", "alternatives_considered", "reason", "hardware_fit"],
+            "required": [
+                "modality",
+                "target_type",
+                "shape_constraints",
+                "family",
+                "alternatives_considered",
+                "loss",
+                "output_interface",
+                "reason",
+                "hardware_fit",
+            ],
             "additionalProperties": False,
         },
-        "optimizer": {
+        "datatype_precision": {
             "type": "object",
             "properties": {
-                "loss": {"type": "string"},
-                "optimizer": {"type": "string"},
-                "scheduler": {"type": "string"},
-                "reason": {"type": "string"},
-                "advanced_optimizer_used": {"type": "boolean"},
-            },
-            "required": ["loss", "optimizer", "scheduler", "reason", "advanced_optimizer_used"],
-            "additionalProperties": False,
-        },
-        "tuning": {
-            "type": "object",
-            "properties": {
-                "batch_size_policy": {"type": "string", "enum": list(BATCH_SIZE_POLICIES)},
                 "precision_policy": {"type": "string", "enum": list(PRECISION_POLICIES)},
                 "precision_model_adaptation": {"type": "string"},
+                "fallback_policy": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+            "required": ["precision_policy", "precision_model_adaptation", "fallback_policy", "reason"],
+            "additionalProperties": False,
+        },
+        "training_evaluation": {
+            "type": "object",
+            "properties": {
+                "optimizer": {"type": "string"},
+                "scheduler": {"type": "string"},
+                "batch_size_policy": {"type": "string", "enum": list(BATCH_SIZE_POLICIES)},
                 "dataloader_policy": {"type": "string"},
                 "fallbacks": {"type": "array", "items": {"type": "string"}},
                 "metrics_to_log": {"type": "array", "items": {"type": "string"}},
+                "advanced_optimizer_used": {"type": "boolean"},
+                "reason": {"type": "string"},
             },
             "required": [
+                "optimizer",
+                "scheduler",
                 "batch_size_policy",
-                "precision_policy",
-                "precision_model_adaptation",
                 "dataloader_policy",
                 "fallbacks",
                 "metrics_to_log",
+                "advanced_optimizer_used",
+                "reason",
             ],
             "additionalProperties": False,
         },
@@ -107,7 +113,7 @@ PIPELINE_DECISION_JSON_SCHEMA: dict[str, Any] = {
             "additionalProperties": False,
         },
     },
-    "required": ["datatype", "model", "optimizer", "tuning", "evidence"],
+    "required": ["model_design", "datatype_precision", "training_evaluation", "evidence"],
     "additionalProperties": False,
 }
 
@@ -128,10 +134,11 @@ def pipeline_decision_instructions(
             "Use the Pipeline Decision Trace as the source of truth for code generation and planning.",
             "Follow the hardware-aware stepwise workflow: model-design -> datatype/quantization -> training (code keys: model_design -> datatype_precision -> training_evaluation).",
             "Do not jump directly to optimizer, precision, or batch-size choices before model family and output interface are decided.",
-            "The stored datatype field describes data modality and target shape. Numeric precision such as fp32, fp16, bf16, tf32, or TE FP8/NVFP4 belongs under datatype_precision and tuning.precision_policy unless the task explicitly requires a numeric type.",
+            "The model_design stage stores data modality, target shape, model family, loss, and output interface.",
+            "Numeric precision such as fp32, fp16, bf16, tf32, or TE FP8/NVFP4 belongs under datatype_precision.precision_policy unless the task explicitly requires a numeric type.",
             "The datatype_precision step may make narrow precision-required model adapters such as Transformer Engine layer wrappers/replacements, padding/config hooks, autocast recipes, or higher-precision islands, but it must preserve the Stage 1 model family, loss, data features, and output interface.",
             "Hardware/profile evidence may influence model fit and tuning only when it is compatible with the task, installed packages, and available model sources.",
-            "Hardware tuning must not increase epochs, folds, model size, image resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization.",
+            "Hardware-only training/runtime tuning must not increase epochs, folds, model size, image resolution, ensemble count, TTA, dataset size, or validation workload.",
             "If execution feedback contradicts an earlier decision, update only the relevant part of the decision and explain why in the plan.",
         ]
     }
@@ -198,6 +205,7 @@ def format_pipeline_decision_prompt_section(decision: dict[str, Any] | None, *, 
     """Render the contract and current structured trace for prompts."""
     if not decision:
         return ""
+    decision = _stage_decision_view(decision)
     compact_decision = _compact_prompt_value(decision, string_limit=240, list_limit=8)
     payload = json.dumps(compact_decision, ensure_ascii=False, indent=2)
     text = _render_pipeline_decision_section(payload)
@@ -221,7 +229,7 @@ def _render_pipeline_decision_section(payload: str) -> str:
         "2. Datatype/quantization: choose dtype, AMP/TF32, GradScaler, TE FP8/MXFP8/NVFP4 recipes, autocast, precision-required model adapters, and precision fallback policy.\n"
         "3. Training: choose optimizer, scheduler, batch size, dataloader settings, checkpointing, validation, submission, runtime fallbacks, and logging.\n"
         "Datatype precision may include only precision-required model adapters that preserve the Stage 1 model family, loss, data features, and output interface.\n"
-        "Hardware tuning must not increase epochs, folds, model size, image resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization.\n"
+        "Hardware-only training/runtime tuning must not increase epochs, folds, model size, image resolution, ensemble count, TTA, dataset size, or validation workload.\n"
         "If evidence is missing, use the fallback recorded in the trace instead of inventing hardware claims.\n\n"
         f"{PIPELINE_DECISION_TRACE_HEADING}\n"
         f"```json\n{payload}\n```\n"
@@ -253,20 +261,26 @@ def normalize_pipeline_decision(
 ) -> dict[str, Any]:
     """Normalize ordering and evidence fields, stripping hallucinated refs."""
     decision = decision if isinstance(decision, dict) else {}
+    stage_view = _stage_decision_view(decision)
     normalized = {
-        "datatype": _normalize_datatype(decision.get("datatype"), fallback["datatype"]),
-        "model": _normalize_model(decision.get("model"), fallback["model"]),
-        "optimizer": _normalize_optimizer(decision.get("optimizer"), fallback["optimizer"]),
-        "tuning": _normalize_tuning(decision.get("tuning"), fallback["tuning"]),
-        "evidence": _normalize_evidence(decision.get("evidence"), fallback["evidence"], evidence_state),
+        "model_design": _normalize_model_design(stage_view.get("model_design"), fallback["model_design"]),
+        "datatype_precision": _normalize_datatype_precision(
+            stage_view.get("datatype_precision"),
+            fallback["datatype_precision"],
+        ),
+        "training_evaluation": _normalize_training_evaluation(
+            stage_view.get("training_evaluation"),
+            fallback["training_evaluation"],
+        ),
+        "evidence": _normalize_evidence(stage_view.get("evidence"), fallback["evidence"], evidence_state),
     }
     if not evidence_state["has_any_hardware_evidence"]:
-        normalized["model"]["hardware_fit"] = "none"
-        normalized["optimizer"]["advanced_optimizer_used"] = False
-        normalized["tuning"]["precision_policy"] = "disabled"
-        normalized["tuning"]["precision_model_adaptation"] = "none"
+        normalized["model_design"]["hardware_fit"] = "none"
+        normalized["training_evaluation"]["advanced_optimizer_used"] = False
+        normalized["datatype_precision"]["precision_policy"] = "disabled"
+        normalized["datatype_precision"]["precision_model_adaptation"] = "none"
     if not evidence_state["has_predictor_or_graph_evidence"]:
-        normalized["tuning"]["batch_size_policy"] = "fixed"
+        normalized["training_evaluation"]["batch_size_policy"] = "fixed"
     return normalized
 
 
@@ -306,7 +320,8 @@ def _build_decision_prompt(
         "Rules:\n"
         "- Do not use hardware speed as a reason to violate task correctness, package availability, model-source availability, or submission format.\n"
         "- datatype_precision may only adapt model structure when the selected precision backend requires it, e.g. TE-compatible layer wrappers/replacements, precision shape padding/config hooks, autocast recipes, or higher-precision islands. It must not redesign model family, loss, data features, or task I/O.\n"
-        "- Hardware tuning must not increase epochs, folds, model size, input resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization.\n"
+        "- Hardware-only training/runtime tuning must not increase epochs, folds, model size, input resolution, ensemble count, TTA, dataset size, or validation workload.\n"
+        "- Return exactly these top-level keys: model_design, datatype_precision, training_evaluation, evidence. Do not return datatype, model, optimizer, or tuning as top-level keys.\n"
         "- If graph/predictor evidence is missing, record that in evidence.missing_evidence and use conservative tuning fallbacks.\n"
         "- evidence.evidence_refs must only contain refs listed in the hardware/profile evidence payload.\n\n"
         f"Hardware/profile evidence payload:\n{json.dumps(evidence_payload, ensure_ascii=False, indent=2, default=str)}\n\n"
@@ -314,7 +329,7 @@ def _build_decision_prompt(
     if parent_pipeline_decision:
         user += (
             "Parent pipeline decision. Preserve unaffected decisions; update only contradicted parts:\n"
-            f"{json.dumps(parent_pipeline_decision, ensure_ascii=False, indent=2, default=str)}\n\n"
+            f"{json.dumps(_stage_decision_view(parent_pipeline_decision), ensure_ascii=False, indent=2, default=str)}\n\n"
         )
     if previous_code:
         user += f"Previous code excerpt:\n{_short(previous_code, 1800)}\n\n"
@@ -336,32 +351,32 @@ def _fallback_decision(*, task_desc: Any, data_preview: str, evidence_state: dic
     if not evidence_state["has_predictor_or_graph_evidence"]:
         missing.append("predictor/graph evidence not available")
     return {
-        "datatype": {
+        "model_design": {
             "modality": modality,
             "target_type": target_type,
             "shape_constraints": _infer_shape_constraints(text, modality),
-            "reason": "Fallback decision inferred from the task description and data preview.",
-        },
-        "model": {
             "family": _fallback_model_family(modality, target_type),
             "alternatives_considered": [],
+            "loss": _fallback_loss(target_type),
+            "output_interface": "match the competition metric and required submission format",
             "reason": "Use a baseline-compatible model family until stronger task or evidence signals are available.",
             "hardware_fit": "none" if not evidence_state["has_any_hardware_evidence"] else "use only compatible evidence",
         },
-        "optimizer": {
-            "loss": _fallback_loss(target_type),
-            "optimizer": "AdamW for neural models or the library default for tree/linear baselines",
-            "scheduler": "none",
-            "reason": "Choose a stable default matched to the inferred target type and available model family.",
-            "advanced_optimizer_used": False,
-        },
-        "tuning": {
-            "batch_size_policy": "fixed" if not evidence_state["has_predictor_or_graph_evidence"] else "scheduler_recommended",
+        "datatype_precision": {
             "precision_policy": "disabled",
             "precision_model_adaptation": "none",
+            "fallback_policy": "fall back to fp32 or disabled AMP if the selected precision path is unsupported",
+            "reason": "Use conservative precision until hardware and package support are confirmed.",
+        },
+        "training_evaluation": {
+            "optimizer": "AdamW for neural models or the library default for tree/linear baselines",
+            "scheduler": "none",
+            "batch_size_policy": "fixed" if not evidence_state["has_predictor_or_graph_evidence"] else "scheduler_recommended",
             "dataloader_policy": "safe defaults; enable workers and pinned memory only when compatible",
             "fallbacks": ["reduce physical batch size on OOM", "reduce epochs before changing model family on timeout"],
             "metrics_to_log": ["elapsed_seconds", "peak_vram_mb", "resolved_batch_size"],
+            "advanced_optimizer_used": False,
+            "reason": "Choose stable training defaults matched to the inferred target type and available model family.",
         },
         "evidence": {
             "hardware_context_used": bool(evidence_state["has_any_hardware_evidence"]),
@@ -370,6 +385,55 @@ def _fallback_decision(*, task_desc: Any, data_preview: str, evidence_state: dic
             "missing_evidence": _unique_strings(missing),
         },
     }
+
+
+def _stage_decision_view(decision: dict[str, Any] | None) -> dict[str, Any]:
+    """Return a three-stage view, upgrading older four-bucket traces if needed."""
+    if not isinstance(decision, dict):
+        return {}
+
+    model_design = dict(decision.get("model_design") or {})
+    datatype_precision = dict(decision.get("datatype_precision") or {})
+    training_evaluation = dict(decision.get("training_evaluation") or decision.get("training") or {})
+
+    legacy_datatype = decision.get("datatype") if isinstance(decision.get("datatype"), dict) else {}
+    legacy_model = decision.get("model") if isinstance(decision.get("model"), dict) else {}
+    legacy_optimizer = decision.get("optimizer") if isinstance(decision.get("optimizer"), dict) else {}
+    legacy_tuning = decision.get("tuning") if isinstance(decision.get("tuning"), dict) else {}
+
+    _setdefault_from(model_design, "modality", legacy_datatype.get("modality"))
+    _setdefault_from(model_design, "target_type", legacy_datatype.get("target_type"))
+    _setdefault_from(model_design, "shape_constraints", legacy_datatype.get("shape_constraints"))
+    _setdefault_from(model_design, "family", legacy_model.get("family"))
+    _setdefault_from(model_design, "alternatives_considered", legacy_model.get("alternatives_considered"))
+    _setdefault_from(model_design, "loss", legacy_optimizer.get("loss"))
+    _setdefault_from(model_design, "reason", legacy_model.get("reason") or legacy_datatype.get("reason"))
+    _setdefault_from(model_design, "hardware_fit", legacy_model.get("hardware_fit"))
+
+    _setdefault_from(datatype_precision, "precision_policy", legacy_tuning.get("precision_policy"))
+    _setdefault_from(datatype_precision, "precision_model_adaptation", legacy_tuning.get("precision_model_adaptation"))
+    _setdefault_from(datatype_precision, "fallback_policy", "; ".join(_string_list(legacy_tuning.get("fallbacks"))))
+
+    _setdefault_from(training_evaluation, "optimizer", legacy_optimizer.get("optimizer"))
+    _setdefault_from(training_evaluation, "scheduler", legacy_optimizer.get("scheduler"))
+    _setdefault_from(training_evaluation, "batch_size_policy", legacy_tuning.get("batch_size_policy"))
+    _setdefault_from(training_evaluation, "dataloader_policy", legacy_tuning.get("dataloader_policy"))
+    _setdefault_from(training_evaluation, "fallbacks", legacy_tuning.get("fallbacks"))
+    _setdefault_from(training_evaluation, "metrics_to_log", legacy_tuning.get("metrics_to_log"))
+    _setdefault_from(training_evaluation, "advanced_optimizer_used", legacy_optimizer.get("advanced_optimizer_used"))
+    _setdefault_from(training_evaluation, "reason", legacy_optimizer.get("reason"))
+
+    return {
+        "model_design": model_design,
+        "datatype_precision": datatype_precision,
+        "training_evaluation": training_evaluation,
+        "evidence": dict(decision.get("evidence") or {}),
+    }
+
+
+def _setdefault_from(target: dict[str, Any], key: str, value: Any) -> None:
+    if key not in target and value not in (None, "", [], {}):
+        target[key] = value
 
 
 def _collect_evidence_state(hardware_contexts: list[Any]) -> dict[str, Any]:
@@ -436,7 +500,7 @@ def _has_predictor_graph_evidence(compact: dict[str, Any]) -> bool:
     return False
 
 
-def _normalize_datatype(value: Any, fallback: dict[str, Any]) -> dict[str, Any]:
+def _normalize_model_design(value: Any, fallback: dict[str, Any]) -> dict[str, Any]:
     value = value if isinstance(value, dict) else {}
     modality = _choice(value.get("modality"), {"image", "tabular", "text", "audio", "graph", "time_series", "mixed", "unknown"}, fallback["modality"])
     target_type = _choice(
@@ -448,42 +512,18 @@ def _normalize_datatype(value: Any, fallback: dict[str, Any]) -> dict[str, Any]:
         "modality": modality,
         "target_type": target_type,
         "shape_constraints": _string_list(value.get("shape_constraints")) or list(fallback["shape_constraints"]),
-        "reason": _string(value.get("reason"), fallback["reason"]),
-    }
-
-
-def _normalize_model(value: Any, fallback: dict[str, Any]) -> dict[str, Any]:
-    value = value if isinstance(value, dict) else {}
-    return {
         "family": _string(value.get("family"), fallback["family"]),
         "alternatives_considered": _string_list(value.get("alternatives_considered")) or list(fallback["alternatives_considered"]),
+        "loss": _string(value.get("loss"), fallback["loss"]),
+        "output_interface": _string(value.get("output_interface"), fallback["output_interface"]),
         "reason": _string(value.get("reason"), fallback["reason"]),
         "hardware_fit": _string(value.get("hardware_fit"), fallback["hardware_fit"]),
     }
 
 
-def _normalize_optimizer(value: Any, fallback: dict[str, Any]) -> dict[str, Any]:
+def _normalize_datatype_precision(value: Any, fallback: dict[str, Any]) -> dict[str, Any]:
     value = value if isinstance(value, dict) else {}
     return {
-        "loss": _string(value.get("loss"), fallback["loss"]),
-        "optimizer": _string(value.get("optimizer"), fallback["optimizer"]),
-        "scheduler": _string(value.get("scheduler"), fallback["scheduler"]),
-        "reason": _string(value.get("reason"), fallback["reason"]),
-        "advanced_optimizer_used": _safe_bool(
-            value.get("advanced_optimizer_used"),
-            default=bool(fallback["advanced_optimizer_used"]),
-        ),
-    }
-
-
-def _normalize_tuning(value: Any, fallback: dict[str, Any]) -> dict[str, Any]:
-    value = value if isinstance(value, dict) else {}
-    return {
-        "batch_size_policy": _choice(
-            value.get("batch_size_policy"),
-            set(BATCH_SIZE_POLICIES),
-            fallback["batch_size_policy"],
-        ),
         "precision_policy": _choice(
             value.get("precision_policy"),
             set(PRECISION_POLICIES),
@@ -493,9 +533,29 @@ def _normalize_tuning(value: Any, fallback: dict[str, Any]) -> dict[str, Any]:
             value.get("precision_model_adaptation"),
             fallback.get("precision_model_adaptation", "none"),
         ),
+        "fallback_policy": _string(value.get("fallback_policy"), fallback["fallback_policy"]),
+        "reason": _string(value.get("reason"), fallback["reason"]),
+    }
+
+
+def _normalize_training_evaluation(value: Any, fallback: dict[str, Any]) -> dict[str, Any]:
+    value = value if isinstance(value, dict) else {}
+    return {
+        "optimizer": _string(value.get("optimizer"), fallback["optimizer"]),
+        "scheduler": _string(value.get("scheduler"), fallback["scheduler"]),
+        "batch_size_policy": _choice(
+            value.get("batch_size_policy"),
+            set(BATCH_SIZE_POLICIES),
+            fallback["batch_size_policy"],
+        ),
         "dataloader_policy": _string(value.get("dataloader_policy"), fallback["dataloader_policy"]),
         "fallbacks": _string_list(value.get("fallbacks")) or list(fallback["fallbacks"]),
         "metrics_to_log": _string_list(value.get("metrics_to_log")) or list(fallback["metrics_to_log"]),
+        "advanced_optimizer_used": _safe_bool(
+            value.get("advanced_optimizer_used"),
+            default=bool(fallback["advanced_optimizer_used"]),
+        ),
+        "reason": _string(value.get("reason"), fallback["reason"]),
     }
 
 
