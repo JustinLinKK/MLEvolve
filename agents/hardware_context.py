@@ -15,6 +15,7 @@ logger = logging.getLogger("MLEvolve")
 
 HARDWARE_CONTEXT_HEADING = "# Hardware/Profile Optimization Context"
 HARDWARE_DESIGN_HEADING = "# Hardware-Aware Model Design Brief"
+HARDWARE_STAGE1_HEADING = "# Hardware-Aware Stage 1 Candidate Construction Context"
 HARDWARE_DATATYPE_HEADING = "# Hardware-Aware Datatype/Precision Context"
 HARDWARE_TRAINING_HEADING = "# Hardware-Aware Training Hyperparameter Context"
 EVIDENCE_NOT_LAW_RULE = (
@@ -41,6 +42,12 @@ _PRECISION_KEYWORDS = (
     "bfloat16",
     "fp16",
     "float16",
+    "fp8",
+    "float8",
+    "fp4",
+    "nvfp4",
+    "mxfp4",
+    "mxfp8",
     "tf32",
     "float32",
     "fp32",
@@ -48,6 +55,11 @@ _PRECISION_KEYWORDS = (
     "grad scaler",
     "tensor core",
     "matmul",
+    "transformer_engine",
+    "transformer engine",
+    "te.autocast",
+    "te.linear",
+    "recipe",
 )
 _TRAINING_HPARAM_KEYWORDS = (
     "batch",
@@ -83,34 +95,52 @@ _DATATYPE_EXCLUDE_KEYWORDS = (
 
 _STAGE_NODE_FIELD_LIMITS: dict[str, tuple[tuple[str, int], ...]] = {
     "datatype": (
-        ("software_features", 6),
-        ("recommended_patterns", 3),
-        ("avoid_patterns", 3),
+        ("stage_feature_keys", 8),
+        ("recommended_feature_keys", 6),
+        ("not_recommended_feature_keys", 6),
+        ("conditional_feature_keys", 6),
+        ("recommended_patterns", 4),
+        ("avoid_patterns", 4),
     ),
     "model": (
-        ("datatypes", 4),
-        ("software_features", 6),
-        ("recommended_patterns", 3),
-        ("avoid_patterns", 3),
+        ("stage_feature_keys", 8),
+        ("recommended_feature_keys", 6),
+        ("not_recommended_feature_keys", 6),
+        ("conditional_feature_keys", 6),
+        ("recommended_patterns", 6),
+        ("avoid_patterns", 6),
     ),
     "optimizer": (
-        ("recipes", 4),
-        ("recommended_patterns", 3),
-        ("avoid_patterns", 3),
+        ("stage_feature_keys", 8),
+        ("recommended_feature_keys", 6),
+        ("not_recommended_feature_keys", 6),
+        ("conditional_feature_keys", 6),
+        ("recommended_patterns", 4),
+        ("avoid_patterns", 4),
     ),
     "tuning": (
-        ("datatypes", 6),
-        ("software_features", 6),
-        ("recommended_patterns", 3),
-        ("avoid_patterns", 3),
+        ("stage_feature_keys", 12),
+        ("recommended_feature_keys", 8),
+        ("not_recommended_feature_keys", 6),
+        ("conditional_feature_keys", 8),
+        ("recommended_patterns", 8),
+        ("avoid_patterns", 6),
     ),
 }
 _DEFAULT_STAGE_NODE_FIELD_LIMITS: tuple[tuple[str, int], ...] = (
-    ("datatypes", 4),
-    ("software_features", 4),
-    ("recommended_patterns", 3),
-    ("avoid_patterns", 3),
+    ("stage_feature_keys", 8),
+    ("recommended_feature_keys", 6),
+    ("not_recommended_feature_keys", 6),
+    ("conditional_feature_keys", 6),
+    ("recommended_patterns", 4),
+    ("avoid_patterns", 4),
 )
+_FEATURE_KEY_PAIR_FIELDS = {
+    "stage_feature_keys",
+    "recommended_feature_keys",
+    "not_recommended_feature_keys",
+    "conditional_feature_keys",
+}
 _STAGE_DIRECT_VALUE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "datatype": (
         "data",
@@ -209,6 +239,8 @@ def hardware_context_instructions(context: HardwarePromptContext | None = None) 
             HARDWARE_BUDGET_GUARDRAIL_RULE,
             "Use the current scheduler backend config from the hardware context as the execution contract; do not hardcode CUDA process, CUDA stream, MPS, or any other backend in generated code.",
             "Prefer scheduler-compatible code with configurable batch size, precision, dataloader workers, checkpoints, and runtime logging when using GPU training.",
+            "The stage-specific hardware node response is already provided in the prompt. Do not query the hardware node again; query local feature-node details only for selected feature keys when deeper implementation guidance is needed.",
+            "Use the Cross-Stage Note Board to keep Stage 2 precision and Stage 3 training choices aligned with the Stage 1 candidate target.",
         ]
     }
 
@@ -391,16 +423,60 @@ def build_stepwise_hardware_stage_sections(
         ("optimizer", "tuning"),
         max_chars=max_chars,
     )
+    stage1_preamble = _stage_hardware_response_preamble(
+        heading=HARDWARE_STAGE1_HEADING,
+        stage_label="Stage 1 candidate construction",
+        ownership=(
+            "hardware context lookup, data processing, feature engineering, model architecture, loss, and output contract. "
+            "Do not choose dtype/AMP policy, optimizer, batch size, scheduler, or training loop here."
+        ),
+    )
+    stage2_preamble = _stage_hardware_response_preamble(
+        heading=HARDWARE_DATATYPE_HEADING,
+        stage_label="Stage 2 datatype/precision",
+        ownership=(
+            "device, dtype, AMP/autocast, TF32, GradScaler, Transformer Engine recipes, precision-required "
+            "model adapters, precision fallback, and precision logging."
+        ),
+    )
+    stage3_preamble = _stage_hardware_response_preamble(
+        heading=HARDWARE_TRAINING_HEADING,
+        stage_label="Stage 3 training/evaluation",
+        ownership=(
+            "optimizer, scheduler, batch policy, dataloader policy, memory/runtime policy, checkpointing, validation, and submission."
+        ),
+    )
+    stage1_section = _join_prompt_sections(
+        (stage1_preamble, design_section, data_feature_section, model_feature_section),
+        max_chars=max_chars,
+    )
+    stage2_section = _join_prompt_sections(
+        (stage2_preamble, datatype_section, data_feature_section, precision_feature_section),
+        max_chars=max_chars,
+    )
+    stage3_section = _join_prompt_sections(
+        (stage3_preamble, training_section, training_feature_section),
+        max_chars=max_chars,
+    )
     return {
-        "data_processing_and_feature_engineering": data_feature_section or generic_section,
-        "model_design": _join_prompt_sections((design_section, model_feature_section), max_chars=max_chars)
-        or design_section
-        or generic_section,
-        "datatype_precision": _join_prompt_sections((datatype_section, precision_feature_section), max_chars=max_chars)
-        or generic_section,
-        "training_evaluation": _join_prompt_sections((training_section, training_feature_section), max_chars=max_chars)
-        or generic_section,
+        "data_processing_and_feature_engineering": stage1_section or data_feature_section or generic_section,
+        "model_design": stage1_section or design_section or model_feature_section or generic_section,
+        "datatype_precision": stage2_section or generic_section,
+        "training_evaluation": stage3_section or generic_section,
     }
+
+
+def _stage_hardware_response_preamble(*, heading: str, stage_label: str, ownership: str) -> str:
+    return "\n".join(
+        [
+            heading,
+            f"- Workflow stage: {stage_label}.",
+            f"- Stage ownership: {ownership}",
+            "- Hardware node response rule: the current hardware node response and compact feature-key pairs are already attached below.",
+            "- Query rule: do not query the hardware node again; query local feature-node details only for selected feature keys when deeper implementation guidance is needed.",
+            "- Source rule: do not fetch external URLs or rely on source links in generated reasoning.",
+        ]
+    ) + "\n"
 
 
 def _join_prompt_sections(sections: tuple[str, ...], *, max_chars: int) -> str:
@@ -471,6 +547,9 @@ def apply_stepwise_hardware_decisions_to_node(
     """Store an ordered hardware-aware generation record on a search node."""
     if not metadata:
         return
+    stage_note_board = list(metadata.get("stage_note_board") or [])
+    if stage_note_board:
+        node.stage_note_board = stage_note_board
     step_decisions = list(metadata.get("decisions") or [])
     if not step_decisions:
         return
@@ -499,6 +578,8 @@ def apply_stepwise_hardware_decisions_to_node(
         pipeline.append(decision)
     if pipeline:
         _set_hardware_decision_pipeline(node, pipeline)
+        if stage_note_board and getattr(node, "hardware_decision", None):
+            node.hardware_decision["stage_note_board"] = stage_note_board
 
 
 def optimize_training_parameters_for_round(agent: Any, nodes: list[Any]) -> list[dict[str, Any]]:
@@ -903,8 +984,8 @@ def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 35
         "baseline-compatible architecture."
     )
     lines.append(
-        "- Feature-detail rule: The feature key list is only an index. Use detailed guidance only from the selected "
-        "hardware feature details above; do not assume unexpanded feature keys have undocumented behavior."
+        "- Feature-detail rule: The feature key list is an index. Use selected hardware feature details already shown "
+        "above, or query local feature-node details for chosen keys when deeper implementation guidance is needed."
     )
     lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
     lines.append(f"- Budget guardrail: {HARDWARE_BUDGET_GUARDRAIL_RULE}")
@@ -1052,12 +1133,19 @@ def format_hardware_datatype_prompt_section(compact: dict[str, Any], *, max_char
         lines.append(f"- Evidence refs: {', '.join(refs[:8])}")
     lines.append(f"- Confidence: {compact.get('confidence', 0.0)}")
     lines.append(
-        "- Stage boundary: Choose only tensor datatype and precision policy here: DEVICE, USE_AMP, AMP_DTYPE, "
-        "USE_TF32, GradScaler, autocast helper, fallback behavior, and precision logging."
+        "- Stage boundary: Choose tensor datatype and precision policy here: DEVICE, USE_AMP, AMP_DTYPE, "
+        "USE_TF32, GradScaler, Transformer Engine FP8/MXFP8/NVFP4 recipes, autocast helper, "
+        "precision-required model adapters, fallback behavior, and precision logging."
     )
     lines.append(
-        "- Out of scope for this stage: model architecture, loss, features, batch size, epochs, learning rate, "
-        "dataloader workers, gradient accumulation, checkpoint cadence, validation metric, and submission logic."
+        "- Allowed model adaptation: only precision-required wrappers/replacements for compatible modules, "
+        "precision shape padding/config hooks, or higher-precision islands that preserve the Stage 1 model family, "
+        "loss, data features, and output interface."
+    )
+    lines.append(
+        "- Out of scope for this stage: general model redesign, loss changes, feature/preprocessing changes, "
+        "batch size, epochs, learning rate, dataloader workers, gradient accumulation, checkpoint cadence, "
+        "validation metric, and submission logic."
     )
     lines.append(f"- Rule: {EVIDENCE_NOT_LAW_RULE}")
     lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
@@ -1323,16 +1411,17 @@ def _compact_diagnosis(diagnosis: dict[str, Any]) -> dict[str, list[str]]:
     }
 
 
-def _filter_stage_direct_values(stage_name: str, list_key: str, values: Any) -> list[str]:
-    cleaned = _clean_string_list(values or [], limit=32)
-    if not cleaned or list_key in {"recommended_patterns", "avoid_patterns"}:
-        return cleaned
+def _filter_stage_direct_values(stage_name: str, list_key: str, values: Any) -> list[Any]:
+    cleaned = list(values or [])[:32]
+    if not cleaned:
+        return []
     keywords = _STAGE_DIRECT_VALUE_KEYWORDS.get(stage_name)
     if not keywords:
         return cleaned
-    filtered: list[str] = []
+    filtered: list[Any] = []
     for value in cleaned:
-        text = value.lower().replace("-", "_").replace(" ", "_")
+        text = _feature_key_pair_search_text(value) if list_key in _FEATURE_KEY_PAIR_FIELDS else str(value)
+        text = text.lower().replace("-", "_").replace(" ", "_")
         if any(keyword.replace("-", "_").replace(" ", "_") in text for keyword in keywords):
             filtered.append(value)
     return filtered
@@ -1349,10 +1438,11 @@ def _compact_stage_hardware_features(stage_context: dict[str, Any]) -> dict[str,
         compact_node = {"stage_filter": node.get("stage_filter")} if node.get("stage_filter") else {}
         for list_key, item_limit in field_limits:
             if list_key in node:
-                compact_node[list_key] = _clean_string_list(
-                    _filter_stage_direct_values(stage_name, list_key, node.get(list_key) or []),
-                    limit=item_limit,
-                )
+                values = _filter_stage_direct_values(stage_name, list_key, node.get(list_key) or [])
+                if list_key in _FEATURE_KEY_PAIR_FIELDS:
+                    compact_node[list_key] = _clean_feature_key_pairs(values, limit=item_limit)
+                else:
+                    compact_node[list_key] = _clean_string_list(values, limit=item_limit)
 
         features: list[dict[str, Any]] = []
         omitted_not_recommended: list[str] = []
@@ -1382,7 +1472,7 @@ def _compact_stage_hardware_features(stage_context: dict[str, Any]) -> dict[str,
     compact = {
         "found": bool(stage_context.get("found")),
         "stage_filter": stage_context.get("stage_filter"),
-        "hardware": _pick(dict(stage_context.get("hardware") or {}), ("node_id", "gpu_name", "architecture", "vram_MB", "compute_capability")),
+        "hardware": _pick(dict(stage_context.get("hardware") or {}), ("gpu_name", "architecture", "vram_MB", "compute_capability")),
         "stages": stages,
         "feature_ids": feature_ids,
         "feature_count": stage_context.get("feature_count"),
@@ -1408,9 +1498,9 @@ def _compact_stage_hardware_feature(feature: dict[str, Any]) -> dict[str, Any]:
             "limitations",
             "notes",
             "usage",
+            "example_code",
             "recommended_patterns",
             "avoid_patterns",
-            "example_code",
         ),
     )
     feature_id = str(compact.get("feature_id") or feature.get("feature_id") or "").lower()
@@ -1546,6 +1636,10 @@ def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
                 "datatypes",
                 "software_features",
                 "recipes",
+                "stage_feature_keys",
+                "recommended_feature_keys",
+                "not_recommended_feature_keys",
+                "conditional_feature_keys",
                 "recommended_patterns",
                 "avoid_patterns",
             ),
@@ -1594,13 +1688,12 @@ def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
                         summary_parts.append(f"{key}: {text}")
             summary_text = f": {'; '.join(summary_parts[:3])}" if summary_parts else ""
             lines.append(f"    - {feature_id}: {name}{detail_text}{summary_text}")
-            if is_optimizer_stage:
-                for pattern in list(feature.get("recommended_patterns") or [])[:3]:
-                    lines.append(f"      recommended: {_short(pattern, 220)}")
-                for pattern in list(feature.get("avoid_patterns") or [])[:2]:
-                    lines.append(f"      avoid: {_short(pattern, 220)}")
-                if feature_id == "muon_optimizer" and feature.get("example_code"):
-                    lines.append(f"      example: {_short(feature['example_code'], 360)}")
+            for pattern in feature.get("recommended_patterns") or []:
+                lines.append(f"      recommended: {_short(pattern, 220)}")
+            for pattern in feature.get("avoid_patterns") or []:
+                lines.append(f"      avoid: {_short(pattern, 220)}")
+            if is_optimizer_stage and feature_id == "muon_optimizer" and feature.get("example_code"):
+                lines.append(f"      example: {_short(feature['example_code'], 360)}")
     source = stage_context.get("source")
     feature_count = stage_context.get("feature_count")
     if source or feature_count is not None:
@@ -1765,7 +1858,7 @@ def _stage_decision_rationale(stage: str) -> str:
     if stage == "model_design":
         return "Stage 1 selected the model design while deferring datatype and training hyperparameters."
     if stage == "datatype_precision":
-        return "Stage 2 selected the tensor datatype and precision policy before training hyperparameter tuning."
+        return "Stage 2 selected the tensor datatype, precision policy, and any precision-required model adapters before training hyperparameter tuning."
     if stage == "training_evaluation":
         return "Stage 3 selected training hyperparameters and evaluation/submission behavior after model and dtype decisions."
     return "Hardware-aware stepwise generation stage completed."
@@ -1775,7 +1868,7 @@ def _stage_chosen_params(stage: str, candidate: dict[str, Any]) -> dict[str, Any
     if stage == "model_design":
         keys = ("model_key", "model_family", "framework")
     elif stage == "datatype_precision":
-        keys = ("precision_mode", "uses_amp", "framework")
+        keys = ("precision_mode", "precision_backend", "precision_model_adaptation", "uses_amp", "framework")
     elif stage == "training_evaluation":
         keys = (
             "proposed_batch_size",
@@ -1923,8 +2016,58 @@ def _format_kv(payload: dict[str, Any], keys: tuple[str, ...]) -> str:
     for key in keys:
         value = payload.get(key)
         if value not in (None, "", [], {}):
+            if key in _FEATURE_KEY_PAIR_FIELDS:
+                value = _format_feature_key_pairs(value)
             parts.append(f"{key}={value}")
     return ", ".join(parts)
+
+
+def _clean_feature_key_pairs(values: Any, *, limit: int) -> list[list[str]]:
+    result: list[list[str]] = []
+    seen: set[str] = set()
+    for value in list(values or [])[:limit]:
+        feature_key = _feature_key_pair_key(value)
+        if not feature_key or feature_key in seen:
+            continue
+        description = _feature_key_pair_description(value)
+        result.append([_short(feature_key, 120), _short(description or _humanize_feature_key(feature_key), 160)])
+        seen.add(feature_key)
+    return result
+
+
+def _feature_key_pair_key(value: Any) -> str:
+    if isinstance(value, (list, tuple)) and value:
+        return str(value[0] or "").strip()
+    return str(value or "").strip()
+
+
+def _feature_key_pair_description(value: Any) -> str:
+    if isinstance(value, (list, tuple)) and len(value) > 1:
+        return str(value[1] or "").strip()
+    return ""
+
+
+def _feature_key_pair_search_text(value: Any) -> str:
+    return " ".join(part for part in (_feature_key_pair_key(value), _feature_key_pair_description(value)) if part)
+
+
+def _format_feature_key_pairs(values: Any) -> str:
+    entries: list[str] = []
+    for value in list(values or []):
+        feature_key = _feature_key_pair_key(value)
+        if not feature_key:
+            continue
+        description = _feature_key_pair_description(value)
+        entries.append(f"{feature_key}: {description}" if description else feature_key)
+    return "[" + "; ".join(entries) + "]"
+
+
+def _humanize_feature_key(feature_key: str) -> str:
+    words = [word for word in str(feature_key or "").replace("-", "_").split("_") if word]
+    if not words:
+        return "Hardware feature."
+    text = " ".join(word.upper() if word.lower() in {"fp8", "fp4", "fp16", "bf16", "tf32", "int8"} else word for word in words)
+    return text[:1].upper() + text[1:] + "."
 
 
 def _clean_string_list(values: Any, *, limit: int) -> list[str]:
@@ -1937,10 +2080,17 @@ def _clean_string_list(values: Any, *, limit: int) -> list[str]:
 
 
 def _short(value: Any, limit: int) -> str:
-    text = str(value or "").strip().replace("\n", " ")
+    text = _strip_public_urls(str(value or "").strip().replace("\n", " "))
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _strip_public_urls(value: str) -> str:
+    text = re.sub(r"\s*\[[^\]]*https?://[^\]]+\]", "", str(value or ""))
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"\s+([,.;:])", r"\1", text)
+    return re.sub(r"\s{2,}", " ", text).strip()
 
 
 def _safe_int(value: Any, default: int | None = 0) -> int | None:

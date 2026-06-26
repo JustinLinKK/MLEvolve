@@ -60,6 +60,12 @@ def get_impl_guideline(
         "• Score MUST be computed on hold-out validation set using proper metric formula",
         "• CRITICAL CONSISTENCY REQUIREMENT: Ensure that validation and test inference use IDENTICAL processing logic. Any differences in how validation and test data are handled (such as post-processing, reconstruction, or formatting) can cause large performance gaps between validation and test sets. Maintain consistency across all data processing steps for both validation and test phases.",
         "",
+        "**4. Scheduler Model Family Contract**",
+        "• MUST define a top-level constant `MODEL_FAMILY = \"family_name\"` near the top of the file.",
+        "• Use a stable, architecture-specific name, for example `resnet50_224`, `swin_b_384`, or `lightgbm_tabular_v1`.",
+        "• If you switch the model architecture or input geometry in an improvement/evolution, update `MODEL_FAMILY` to a new distinct value.",
+        "• If there is no more specific model/backbone name in the script, set the model name/key variable to the same value as `MODEL_FAMILY`.",
+        "",
         "📁 **Directories**: Input data in `./input/`, submission in `./submission/`, temp files in `./working/`",
         "",
         f"📦 **Packages & Internet**: numpy, pandas, sklearn, torch, transformers, timm, xgboost, lightgbm (all pre-installed). torch.hub.load(), HuggingFace, etc. available during development."

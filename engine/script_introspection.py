@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import re
+import logging
 from hashlib import sha1
 from typing import Any
+
+logger = logging.getLogger("MLEvolve")
 
 
 BATCH_PARAM_NAMES = (
@@ -73,6 +76,13 @@ MODEL_PARAM_NAMES = (
     "CHECKPOINT",
 )
 
+MODEL_FAMILY_PARAM_NAMES = (
+    "MODEL_FAMILY",
+    "model_family",
+    "SCHEDULER_MODEL_FAMILY",
+    "scheduler_model_family",
+)
+
 PRECISION_PARAM_NAMES = (
     "PRECISION",
     "PRECISION_MODE",
@@ -138,6 +148,9 @@ _TTA_PARAM_PATTERN = re.compile(
 _TTA_BOOL_PATTERN = re.compile(r"\b(?:USE_TTA|use_tta|tta)\b\s*=\s*True\b")
 _MODEL_PARAM_PATTERN = re.compile(
     rf"\b(?:{'|'.join(re.escape(name) for name in MODEL_PARAM_NAMES)})\b\s*=\s*['\"]([^'\"]+)['\"]"
+)
+_MODEL_FAMILY_PARAM_PATTERN = re.compile(
+    rf"\b(?:{'|'.join(re.escape(name) for name in MODEL_FAMILY_PARAM_NAMES)})\b\s*=\s*['\"]([^'\"]+)['\"]"
 )
 _PRECISION_STRING_PATTERN = re.compile(
     rf"\b(?:{'|'.join(re.escape(name) for name in PRECISION_PARAM_NAMES)})\b\s*=\s*['\"]([^'\"]+)['\"]",
@@ -247,7 +260,18 @@ def detect_model_key(code: str) -> str | None:
     if hf_match:
         return _clean_model_key(hf_match.group(1))
 
+    torch_hub_match = re.search(r"torch\.hub\.load\([^,]+,\s*['\"]([^'\"]+)['\"]", code or "")
+    if torch_hub_match:
+        return _clean_model_key(torch_hub_match.group(1))
+
     return None
+
+
+def detect_model_family(code: str) -> str | None:
+    match = _MODEL_FAMILY_PARAM_PATTERN.search(code or "")
+    if not match:
+        return None
+    return _clean_model_key(match.group(1))
 
 
 def detect_framework(code: str) -> str:
@@ -276,6 +300,8 @@ def detect_uses_amp(code: str) -> bool:
             "cuda.amp",
             "bfloat16",
             "float16",
+            "transformer_engine",
+            "te.autocast",
         )
     )
 
@@ -289,6 +315,17 @@ def detect_precision_mode(code: str) -> str | None:
             if precision:
                 return precision
     code_lower = code_text.lower()
+    if "nvfp4" in code_lower or "nvfp4blockscaling" in code_lower:
+        return "nvfp4_te"
+    if "mxfp8" in code_lower or "mxfp8blockscaling" in code_lower:
+        return "mxfp8_te"
+    if _uses_transformer_engine(code_text) and (
+        "fp8" in code_lower
+        or "delayedscaling" in code_lower
+        or "float8" in code_lower
+        or "format.hybrid" in code_lower
+    ):
+        return "fp8_te"
     if "torch.bfloat16" in code_lower or "bfloat16" in code_lower or "bf16" in code_lower:
         return "bf16"
     if "torch.float16" in code_lower or "float16" in code_lower or "fp16" in code_lower:
@@ -299,6 +336,33 @@ def detect_precision_mode(code: str) -> str | None:
         return "fp32"
     if "autocast" in code_lower:
         return "mixed"
+    return None
+
+
+def detect_precision_backend(code: str) -> str | None:
+    if _uses_transformer_engine(code):
+        return "transformer_engine"
+    return None
+
+
+def detect_precision_model_adaptation(code: str) -> str | None:
+    code_lower = (code or "").lower()
+    if not _uses_transformer_engine(code):
+        return None
+    adaptation_tokens = (
+        "te.linear",
+        "te.layernormlinear",
+        "te.transformerlayer",
+        "transformer_engine.pytorch.linear",
+        "transformer_engine.pytorch.layernormlinear",
+        "transformer_engine.pytorch.transformerlayer",
+        "replace_layers",
+        "replace_linear",
+        "convert_to_transformer_engine",
+        "te_module",
+    )
+    if any(token in code_lower for token in adaptation_tokens):
+        return "te_module_replacement"
     return None
 
 
@@ -359,10 +423,22 @@ def infer_model_family(model_key: str | None, code: str = "") -> str | None:
 def introspect_training_script(code: str) -> dict[str, Any]:
     """Extract scheduler/MCP candidate hints from generated code."""
     code = code or ""
+    explicit_model_family = detect_model_family(code)
     model_key = detect_model_key(code)
+    if explicit_model_family and not model_key:
+        model_key = explicit_model_family
+    inferred_model_family = infer_model_family(model_key, code)
+    model_family = explicit_model_family or inferred_model_family
+    model_family_source = "explicit" if explicit_model_family else ("inferred" if inferred_model_family else None)
+    if not explicit_model_family and inferred_model_family:
+        logger.warning(
+            "Generated script is missing MODEL_FAMILY; inferred legacy model_family=%s from model key/code.",
+            inferred_model_family,
+        )
     candidate: dict[str, Any] = {
         "model_key": model_key,
-        "model_family": infer_model_family(model_key, code),
+        "model_family": model_family,
+        "model_family_source": model_family_source,
         "proposed_batch_size": detect_initial_batch_size(code),
         "proposed_epochs": detect_epoch_count(code),
         "input_resolution": detect_input_resolution(code),
@@ -373,6 +449,8 @@ def introspect_training_script(code: str) -> dict[str, Any]:
         "script_signature": normalized_mlevolve_script_signature(code) if code.strip() else None,
         "uses_amp": detect_uses_amp(code),
         "precision_mode": detect_precision_mode(code),
+        "precision_backend": detect_precision_backend(code),
+        "precision_model_adaptation": detect_precision_model_adaptation(code),
         "learning_rate": detect_learning_rate(code),
         "weight_decay": detect_weight_decay(code),
         "gradient_accumulation_steps": detect_gradient_accumulation_steps(code),
@@ -398,6 +476,7 @@ def _safe_float(value: Any) -> float | None:
 
 def _normalize_precision_mode(value: str) -> str | None:
     normalized = str(value or "").strip().lower().replace("torch.", "")
+    normalized = normalized.replace("-", "_")
     if normalized in {"bf16", "bfloat16"}:
         return "bf16"
     if normalized in {"fp16", "float16", "half"}:
@@ -406,9 +485,31 @@ def _normalize_precision_mode(value: str) -> str | None:
         return "fp32"
     if normalized == "tf32":
         return "tf32"
+    if normalized in {"fp8", "float8", "fp8_te", "te_fp8"}:
+        return "fp8_te"
+    if normalized in {"mxfp8", "mx_fp8", "mxfp8_te", "te_mxfp8"}:
+        return "mxfp8_te"
+    if normalized in {"nvfp4", "fp4", "nvfp4_te", "te_nvfp4"}:
+        return "nvfp4_te"
     if normalized in {"amp", "mixed", "mixed_precision"}:
         return "mixed"
     return None
+
+
+def _uses_transformer_engine(code: str) -> bool:
+    code_lower = (code or "").lower()
+    return any(
+        token in code_lower
+        for token in (
+            "import transformer_engine",
+            "from transformer_engine",
+            "transformer_engine.",
+            "te.autocast",
+            "te.linear",
+            "te.layernormlinear",
+            "te.transformerlayer",
+        )
+    )
 
 
 def _clean_model_key(value: str) -> str | None:
