@@ -7,16 +7,20 @@ stage. The hardware-aware stepwise workflow follows this order:
 model_design -> datatype_precision -> training_evaluation
 ```
 
-The persisted decision still stores `datatype`, `model`, `optimizer`, and
-`tuning` fields. `datatype` means data modality and target shape, not
-floating-point precision. Numeric precision such as fp32, fp16, bf16, tf32, and
-Transformer Engine FP8/MXFP8/NVFP4 belongs to the `datatype_precision` step and
-the `tuning.precision_policy` field unless the task itself requires a specific
-numeric type. The `datatype_precision` step may also make narrow
-precision-required model adaptations, such as TE-compatible layer wrappers,
-precision shape padding/config hooks, autocast recipes, or higher-precision
-islands, while preserving the Stage 1 model family, loss, data features, and
-output interface.
+The persisted decision stores exactly these top-level stage keys:
+`model_design`, `datatype_precision`, `training_evaluation`, and `evidence`.
+Older traces with `datatype`, `model`, `optimizer`, and `tuning` are normalized
+into this three-stage view for compatibility, but new prompts and metadata must
+not emit the old four-stage contract.
+
+`model_design` owns data modality, target shape, preprocessing/features,
+model family, loss, criterion, and output interface. Numeric precision such as
+fp32, fp16, bf16, tf32, and Transformer Engine FP8/MXFP8/NVFP4 belongs to the
+`datatype_precision` stage unless the task itself requires a specific numeric
+type. The `datatype_precision` stage may also make narrow precision-required
+model adaptations, such as TE-compatible layer wrappers, precision shape
+padding/config hooks, autocast recipes, or higher-precision islands, while
+preserving the Stage 1 model family, loss, data features, and output interface.
 
 ## Decision Schema
 
@@ -24,32 +28,32 @@ Each generated node can store `SearchNode.pipeline_decision`:
 
 ```json
 {
-  "datatype": {
+  "model_design": {
     "modality": "image|tabular|text|audio|graph|time_series|mixed|unknown",
     "target_type": "classification|regression|segmentation|reconstruction|ranking|sequence|unknown",
     "shape_constraints": ["short concrete constraints"],
-    "reason": "why this datatype interpretation is correct"
-  },
-  "model": {
     "family": "chosen model family",
     "alternatives_considered": ["other reasonable families"],
+    "loss": "chosen loss or metric proxy",
+    "output_interface": "prediction/output shape required by the metric and submission",
     "reason": "why this model follows from the datatype and metric",
     "hardware_fit": "how hardware evidence affects the choice, or none"
   },
-  "optimizer": {
-    "loss": "chosen loss or metric proxy",
-    "optimizer": "chosen optimizer",
-    "scheduler": "optional scheduler",
-    "reason": "why this optimizer/loss is suitable",
-    "advanced_optimizer_used": false
-  },
-  "tuning": {
-    "batch_size_policy": "fixed|scheduler_recommended|adaptive",
+  "datatype_precision": {
     "precision_policy": "fp32|tf32|fp16_amp|bf16_amp|fp8_te|mxfp8_te|nvfp4_te|disabled",
     "precision_model_adaptation": "none|short description of precision-required adapter",
+    "fallback_policy": "safe fallback if precision path is unsupported",
+    "reason": "why the precision policy is suitable"
+  },
+  "training_evaluation": {
+    "optimizer": "chosen optimizer",
+    "scheduler": "optional scheduler",
+    "batch_size_policy": "fixed|scheduler_recommended|adaptive",
     "dataloader_policy": "num_workers/pin_memory/non_blocking choices",
     "fallbacks": ["OOM fallback", "timeout fallback"],
-    "metrics_to_log": ["elapsed_seconds", "peak_vram_mb", "resolved_batch_size"]
+    "metrics_to_log": ["elapsed_seconds", "peak_vram_mb", "resolved_batch_size"],
+    "advanced_optimizer_used": false,
+    "reason": "why this training plan is suitable"
   },
   "evidence": {
     "hardware_context_used": true,
@@ -72,15 +76,18 @@ The contract is injected into:
 - root-level aggregation prompts
 - direct diff planners
 - memory-enhanced planners
-- stepwise data, model, and training sub-agent prompts
+- stepwise model-design, datatype/quantization, and training sub-agent prompts
 
 Stepwise agents consume different parts of the same trace:
 
-- `data_processing_and_feature_engineering`: `datatype` and dataloader policy
-- `model_design`: `model` plus loss/output-interface choices
-- `datatype_precision`: `tuning.precision_policy`,
-  `tuning.precision_model_adaptation`, and precision evidence
-- `training_evaluation`: `optimizer`, remaining `tuning`, and `evidence`
+- `model_design`: `model_design.modality`, `target_type`,
+  `shape_constraints`, `family`, `loss`, `output_interface`, and compatible
+  data/feature implications
+- `datatype_precision`: `datatype_precision.precision_policy`,
+  `precision_model_adaptation`, `fallback_policy`, and precision evidence
+- `training_evaluation`: `training_evaluation.optimizer`, `scheduler`,
+  `batch_size_policy`, `dataloader_policy`, `fallbacks`, metrics, and
+  `evidence`
 
 ## Evidence Rules
 

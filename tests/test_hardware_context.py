@@ -507,21 +507,21 @@ def test_hardware_aware_step_agents_split_stage_order_and_boundaries() -> None:
     baseline_agents = create_default_step_agents(hardware_aware=False)
 
     assert [agent.name for agent in hardware_agents] == [
-        "data_processing_and_feature_engineering",
         "model_design",
         "datatype_precision",
         "training_evaluation",
     ]
     assert [agent.name for agent in baseline_agents] == [
-        "data_processing_and_feature_engineering",
         "model_design",
         "training_evaluation",
     ]
     assert "datatype_precision" in PLANNING_ALLOWED_MODULES
-    model_guidelines = "\n".join(hardware_agents[1].guidelines)
-    dtype_guidelines = "\n".join(hardware_agents[2].guidelines)
-    training_guidelines = "\n".join(hardware_agents[3].guidelines)
+    assert PLANNING_ALLOWED_MODULES == ["model_design", "datatype_precision", "training_evaluation"]
+    model_guidelines = "\n".join(hardware_agents[0].guidelines)
+    dtype_guidelines = "\n".join(hardware_agents[1].guidelines)
+    training_guidelines = "\n".join(hardware_agents[2].guidelines)
 
+    assert "owns both data preparation and model design" in model_guidelines
     assert "Do NOT choose AMP" in model_guidelines
     assert "datatype_precision step owns" in model_guidelines
     assert "Do NOT redesign model family" in dtype_guidelines
@@ -571,19 +571,20 @@ def test_stepwise_generation_can_return_stage_metadata(monkeypatch) -> None:
     assert plan
     assert "VALUE = 1" in code
     assert metadata["step_order"] == [
-        "data_processing_and_feature_engineering",
         "model_design",
         "datatype_precision",
         "training_evaluation",
     ]
-    assert metadata["decisions"][2]["stage"] == "datatype_precision"
+    assert metadata["decisions"][1]["stage"] == "datatype_precision"
     assert metadata["stage_note_board"]
-    assert metadata["stage_note_board"][0]["stage"] == "data_processing_and_feature_engineering"
-    assert metadata["stage_note_board"][0]["stage_group"] == "stage1_candidate_construction"
-    assert metadata["decisions"][1]["stage_group"] == "stage1_candidate_construction"
+    assert metadata["stage_note_board"][0]["stage"] == "model_design"
+    assert metadata["stage_note_board"][0]["stage_group"] == "model_design"
+    assert metadata["decisions"][0]["stage_group"] == "model_design"
     assert any("Datatype/Precision" in str(prompt) for prompt in responses)
     assert any("Cross-Stage Note Board" in str(prompt) for prompt in responses)
-    assert "Stage 1 model-design" in responses[2]
+    assert "Stage 1 model-design" in responses[1]
+    removed_stage = "data_processing" + "_and_feature_engineering"
+    assert all(removed_stage not in str(prompt) for prompt in responses)
 
 
 def test_stepwise_hardware_decisions_are_stored_as_ordered_pipeline() -> None:
@@ -620,7 +621,7 @@ def test_stepwise_hardware_decisions_are_stored_as_ordered_pipeline() -> None:
         "stage_note_board": [
             {
                 "stage": "model_design",
-                "stage_group": "stage1_candidate_construction",
+                "stage_group": "model_design",
                 "baseline_change": "Changed baseline CNN blocks to tensor-core-friendly channels.",
                 "purpose": "Give later precision and training stages a stable throughput target.",
                 "hardware_keys": ["tensor_cores"],
@@ -747,12 +748,13 @@ def test_stepwise_hardware_stage_sections_route_stage_filtered_features() -> Non
         max_chars=4000,
     )
 
-    data_section = sections["data_processing_and_feature_engineering"]
+    assert set(sections) == {"model_design", "datatype_precision", "training_evaluation"}
+    model_section = sections["model_design"]
     dtype_section = sections["datatype_precision"]
     training_section = sections["training_evaluation"]
 
-    assert "dataset_decomposition" in data_section
-    assert "bf16" not in data_section
+    assert "dataset_decomposition" in model_section
+    assert "bf16" not in model_section
     assert "muon_optimizer" in training_section
     assert "bf16" not in training_section
     assert "dataset_decomposition" not in training_section
@@ -1340,7 +1342,7 @@ def test_search_node_hardware_fields_round_trip_in_journal() -> None:
         stage_note_board=[
             {
                 "stage": "model_design",
-                "stage_group": "stage1_candidate_construction",
+                "stage_group": "model_design",
                 "baseline_change": "Changed the baseline model head.",
                 "purpose": "Match the task metric while preserving a stable training target.",
                 "hardware_keys": ["tensor_cores"],
@@ -1388,7 +1390,7 @@ def test_search_node_inherits_stage_note_board_from_parent() -> None:
         stage_note_board=[
             {
                 "stage": "model_design",
-                "stage_group": "stage1_candidate_construction",
+                "stage_group": "model_design",
                 "baseline_change": "Changed baseline channels.",
                 "purpose": "Create a tensor-core-friendly Stage 1 target.",
                 "hardware_keys": ["tensor_cores"],

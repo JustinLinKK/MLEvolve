@@ -20,11 +20,12 @@ Modes:
   db-neighborhood  Return loaded Neo4j features directly linked to hardware.
 
 Stages:
-  datatype, model, optimizer, tuning, all
+  model_design, datatype_precision, training_evaluation, all
+  Legacy low-level filters are still accepted: datatype, model, optimizer, tuning
 
 Examples:
-  ./hardware_graph_scripts/query_hardware_graph.sh node "GeForce RTX 5090" optimizer
-  ./hardware_graph_scripts/query_hardware_graph.sh features "GeForce RTX 5090" tuning 8
+  ./hardware_graph_scripts/query_hardware_graph.sh stage-context "GeForce RTX 5090" model_design 16
+  ./hardware_graph_scripts/query_hardware_graph.sh features "GeForce RTX 5090" training_evaluation 8
   ./hardware_graph_scripts/query_hardware_graph.sh db-neighborhood "GeForce RTX 5090" all 32
 EOF
 }

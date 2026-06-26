@@ -578,7 +578,6 @@ def build_stepwise_hardware_stage_sections(
         max_chars=max_chars,
     )
     return {
-        "data_processing_and_feature_engineering": stage1_section or stage1_feature_section or generic_section,
         "model_design": stage1_section or design_section or stage1_feature_section or generic_section,
         "datatype_precision": stage2_section or generic_section,
         "training_evaluation": stage3_section or generic_section,

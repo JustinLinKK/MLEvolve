@@ -33,8 +33,8 @@ Load the hardware graph:
 Query the stage-specific static query tool:
 
 ```bash
-./hardware_graph_scripts/query_hardware_graph.sh node "GeForce RTX 5090" model
-./hardware_graph_scripts/query_hardware_graph.sh features "GeForce RTX 5090" model 16
+./hardware_graph_scripts/query_hardware_graph.sh stage-context "GeForce RTX 5090" model_design 16
+./hardware_graph_scripts/query_hardware_graph.sh features "GeForce RTX 5090" training_evaluation 16
 ```
 
 Verify loaded Neo4j records:
@@ -49,8 +49,13 @@ Simulate the pre-integration agent flow:
 ./hardware_graph_scripts/simulate_3_stage_hardware_agent.sh "GeForce RTX 5090" --db-check
 ```
 
-The three simulated stages map onto the repo's existing low-level query filters:
+The three simulated stages use the same composite stage names as the active
+stepwise pipeline:
 
-1. `model_design`: `model`.
-2. `datatype_precision`: `datatype` plus precision-related `tuning`.
-3. `training_evaluation`: `optimizer` plus runtime/training-related `tuning`.
+1. `model_design`: data loading, feature engineering, model/loss/interface, and hardware-compatible model shape choices.
+2. `datatype_precision`: numeric dtype, AMP/autocast, TF32, Transformer Engine recipes, precision-required adapters, and fallbacks.
+3. `training_evaluation`: optimizer, scheduler, batch policy, dataloader policy, memory/runtime policy, validation, and submission.
+
+Legacy low-level filters (`datatype`, `model`, `optimizer`, `tuning`) remain
+accepted by `query_hardware_graph.sh` for manual inspection, but the simulation
+asserts only the three composite pipeline stages.

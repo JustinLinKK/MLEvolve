@@ -51,13 +51,14 @@ The relevant function is:
 create_default_step_agents(*, hardware_aware: bool = True)
 ```
 
-It creates three step agents:
+It creates two baseline step agents, with a third datatype/precision step added
+only in hardware-aware mode:
 
 | Step agent | Responsibility |
 | --- | --- |
-| `data_processing_and_feature_engineering` | Load data, clean it, build features, create splits |
-| `model_design` | Define model architecture, loss, optimizer |
-| `training_evaluation` | Implement training loop, validation metric, best model saving, test inference, submission generation |
+| `model_design` | Load data, clean it, build features, create splits, define model architecture, loss, criterion, and output interface |
+| `datatype_precision` | Hardware-aware mode only: define device, dtype, AMP/autocast, TF32, precision-required adapters, and fallback policy |
+| `training_evaluation` | Define optimizer/scheduler/batch/runtime policy, implement training loop, validation metric, best model saving, test inference, submission generation |
 
 The `training_evaluation` base prompt exists in all modes. In hardware-aware mode, additional hardware-specific guidance is appended.
 
@@ -65,7 +66,7 @@ The `training_evaluation` base prompt exists in all modes. In hardware-aware mod
 
 In baseline mode, the `training_evaluation` agent receives the normal training instructions:
 
-- Use data/features/model/loss/optimizer from earlier steps.
+- Use data/features/model/loss/criterion from earlier stages.
 - Do not redefine earlier components.
 - Implement validation and test inference consistently.
 - Prevent overfitting.

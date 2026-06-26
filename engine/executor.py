@@ -32,6 +32,17 @@ from engine.script_introspection import (
 
 logger = logging.getLogger("MLEvolve")
 
+
+def _request_subprocess_stop(proc: subprocess.Popen) -> None:
+    try:
+        if os.name == "nt":
+            proc.terminate()
+        else:
+            proc.send_signal(signal.SIGINT)
+    except (OSError, ValueError):
+        proc.terminate()
+
+
 _BATCH_PROBE_EVENT_TYPES = {
     "batch_probe_cache_hit",
     "batch_probe_cache_miss",
@@ -1889,12 +1900,12 @@ class Interpreter:
                                         exc_info["message"] = parts[1].strip()
                                     break
             except subprocess.TimeoutExpired:
-                logger.warning("Subprocess timeout, sending SIGINT...")
+                logger.warning("Subprocess timeout, requesting graceful stop...")
                 try:
-                    proc.send_signal(signal.SIGINT)
+                    _request_subprocess_stop(proc)
                     stdout, stderr = proc.communicate(timeout=2)
                 except subprocess.TimeoutExpired:
-                    logger.warning("Subprocess failed to terminate after SIGINT, killing...")
+                    logger.warning("Subprocess failed to terminate after graceful stop, killing...")
                     proc.kill()
                     stdout, stderr = proc.communicate()
                 

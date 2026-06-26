@@ -134,7 +134,7 @@ def pipeline_decision_instructions(
             "Use the Pipeline Decision Trace as the source of truth for code generation and planning.",
             "Follow the hardware-aware stepwise workflow: model-design -> datatype/quantization -> training (code keys: model_design -> datatype_precision -> training_evaluation).",
             "Do not jump directly to optimizer, precision, or batch-size choices before model family and output interface are decided.",
-            "The model_design stage stores data modality, target shape, model family, loss, and output interface.",
+            "The model_design stage stores data modality, target shape, preprocessing/features, model family, loss, criterion, and output interface.",
             "Numeric precision such as fp32, fp16, bf16, tf32, or TE FP8/NVFP4 belongs under datatype_precision.precision_policy unless the task explicitly requires a numeric type.",
             "The datatype_precision step may make narrow precision-required model adapters such as Transformer Engine layer wrappers/replacements, padding/config hooks, autocast recipes, or higher-precision islands, but it must preserve the Stage 1 model family, loss, data features, and output interface.",
             "Hardware/profile evidence may influence model fit and tuning only when it is compatible with the task, installed packages, and available model sources.",
@@ -225,7 +225,7 @@ def _render_pipeline_decision_section(payload: str) -> str:
         "Before writing or modifying code, follow the hardware-aware stepwise workflow: "
         "model-design -> datatype/quantization -> training "
         "(code keys: model_design -> datatype_precision -> training_evaluation).\n\n"
-        "1. Model design: choose architecture/model family, loss, and output interface first.\n"
+        "1. Model design: load/prepare data, create features/splits, and choose architecture/model family, loss, criterion, and output interface first.\n"
         "2. Datatype/quantization: choose dtype, AMP/TF32, GradScaler, TE FP8/MXFP8/NVFP4 recipes, autocast, precision-required model adapters, and precision fallback policy.\n"
         "3. Training: choose optimizer, scheduler, batch size, dataloader settings, checkpointing, validation, submission, runtime fallbacks, and logging.\n"
         "Datatype precision may include only precision-required model adapters that preserve the Stage 1 model family, loss, data features, and output interface.\n"
@@ -314,7 +314,7 @@ def _build_decision_prompt(
         f"Task description:\n{task_desc}\n\n"
         f"Data preview:\n{data_preview}\n\n"
         "Pipeline contract:\n"
-        "1. Model design: choose architecture/model family, loss, and output interface first.\n"
+        "1. Model design: load/prepare data, create features/splits, and choose architecture/model family, loss, criterion, and output interface first.\n"
         "2. Datatype/quantization: choose dtype, AMP/TF32, GradScaler, TE FP8/MXFP8/NVFP4 recipes, autocast, precision-required model adapters, and precision fallback policy.\n"
         "3. Training: choose optimizer, scheduler, batch size, dataloader policy, checkpoint cadence, validation/submission behavior, and fallbacks.\n\n"
         "Rules:\n"

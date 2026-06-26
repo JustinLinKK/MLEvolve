@@ -15,7 +15,7 @@ query_hardware_graph.sh for Hardware node and Feature node evidence, then
 asserts that the returned payloads contain the expected stage-specific facts.
 
 Three simulated stages:
-  1. candidate_construction (hardware_context_lookup + data_processing + model_design)
+  1. model_design
   2. datatype_precision
   3. training_evaluation
 
@@ -99,23 +99,15 @@ if (( db_check )); then
 fi
 
 calls=(
-  "stage1_candidate_construction node datatype"
-  "stage1_candidate_construction features datatype"
-  "stage1_candidate_construction node model"
-  "stage1_candidate_construction features model"
-  "stage2_datatype_precision node datatype"
-  "stage2_datatype_precision features datatype"
-  "stage2_datatype_precision node tuning"
-  "stage2_datatype_precision features tuning"
-  "stage3_training_evaluation node optimizer"
-  "stage3_training_evaluation features optimizer"
-  "stage3_training_evaluation node tuning"
-  "stage3_training_evaluation features tuning"
+  "model_design stage-context model_design"
+  "datatype_precision stage-context datatype_precision"
+  "training_evaluation stage-context training_evaluation"
 )
 
 for call in "${calls[@]}"; do
   read -r phase tool stage <<<"$call"
-  target="$out_dir/${phase}_${tool}_${stage}.json"
+  safe_tool="${tool//-/_}"
+  target="$out_dir/${phase}_${safe_tool}_${stage}.json"
   echo "agent:${phase} call:${tool} stage:${stage} -> $target"
   "$query_tool" "$tool" "$hardware_name" "$stage" "$limit" > "$target"
 done
@@ -130,54 +122,27 @@ out_dir = Path(sys.argv[1])
 hardware_name = sys.argv[2]
 strict = os.environ.get("HARDWARE_AGENT_STRICT_EXPECTED", "1") == "1"
 
-feature_expectations = {
-    "stage1_candidate_construction_features_datatype.json": [
-        "dataset_decomposition",
-        "nvimagecodec_gpu_decode",
-    ],
-    "stage1_candidate_construction_features_model.json": [
-        "tensor_cores",
-        "sm_120",
-        "tensor_cores_5gen",
-    ],
-    "stage2_datatype_precision_features_datatype.json": [
-        "dataset_decomposition",
-        "nvimagecodec_gpu_decode",
-    ],
-    "stage2_datatype_precision_features_tuning.json": [
-        "bf16",
-        "fp8_rowwise_scaling",
-    ],
-    "stage3_training_evaluation_features_optimizer.json": [
-        "muon_optimizer",
-        "gram_newton_schulz_symmetric_gemm",
-    ],
-    "stage3_training_evaluation_features_tuning.json": [
-        "bf16",
-        "fp8_rowwise_scaling",
-        "async_tensor_parallel",
-    ],
-}
-
-node_expectations = {
-    "stage1_candidate_construction_node_datatype.json": {
-        "stage_feature_keys": ["dataset_decomposition", "nvimagecodec_gpu_decode"],
+stage_expectations = {
+    "model_design_stage_context_model_design.json": {
+        "stage_filter": "model_design",
+        "stage_feature_keys": [
+            "dataset_decomposition",
+            "nvimagecodec_gpu_decode",
+            "tensor_cores",
+            "sm_120",
+            "tensor_cores_5gen",
+        ],
+        "not_recommended_feature_keys": [],
     },
-    "stage1_candidate_construction_node_model.json": {
-        "stage_feature_keys": ["tensor_cores", "sm_120", "tensor_cores_5gen"],
-    },
-    "stage2_datatype_precision_node_datatype.json": {
-        "stage_feature_keys": ["dataset_decomposition", "nvimagecodec_gpu_decode"],
-    },
-    "stage2_datatype_precision_node_tuning.json": {
+    "datatype_precision_stage_context_datatype_precision.json": {
+        "stage_filter": "datatype_precision",
         "stage_feature_keys": ["bf16", "fp8_rowwise_scaling"],
+        "not_recommended_feature_keys": [],
     },
-    "stage3_training_evaluation_node_optimizer.json": {
-        "stage_feature_keys": ["muon_optimizer", "gram_newton_schulz_symmetric_gemm"],
+    "training_evaluation_stage_context_training_evaluation.json": {
+        "stage_filter": "training_evaluation",
+        "stage_feature_keys": ["muon_optimizer", "gram_newton_schulz_symmetric_gemm", "async_tensor_parallel"],
         "not_recommended_feature_keys": ["soap_optimizer", "ademamix_optimizer"],
-    },
-    "stage3_training_evaluation_node_tuning.json": {
-        "stage_feature_keys": ["bf16", "fp8"],
     },
 }
 
@@ -224,9 +189,11 @@ def invalid_feature_key_pair(value) -> bool:
         or not value[1]
     )
 
-for name, required_feature_ids in feature_expectations.items():
+for name, expectations in stage_expectations.items():
     payload = load_json(name)
-    features = list(payload.get("features") or [])
+    node_payload = dict(payload.get("hardware_node") or {})
+    feature_payload = dict(payload.get("feature_result") or {})
+    features = list(feature_payload.get("features") or [])
     feature_ids = {
         str(feature.get("feature_id"))
         for feature in features
@@ -235,40 +202,27 @@ for name, required_feature_ids in feature_expectations.items():
     stage = str(payload.get("stage_filter") or "all")
     summary["stages"][name] = {
         "stage_filter": stage,
-        "found": bool(payload.get("found")),
+        "found": bool(node_payload.get("found")) and bool(feature_payload.get("found")),
         "feature_count": len(features),
         "feature_ids": sorted(feature_ids),
+        "gpu_name": node_payload.get("gpu_name"),
     }
-    if not payload.get("found"):
+    if stage != expectations["stage_filter"]:
+        failures.append(f"{name} expected stage_filter {expectations['stage_filter']}, got {stage}")
+    if not node_payload.get("found"):
+        failures.append(f"{name} did not find hardware node")
+    if not feature_payload.get("found"):
         failures.append(f"{name} did not find hardware/features")
     if not features:
         failures.append(f"{name} returned no features")
     if strict:
-        missing = sorted(set(required_feature_ids) - feature_ids)
+        missing = sorted(set(expectations["stage_feature_keys"]) - feature_ids)
         if missing:
             failures.append(f"{name} missing expected feature ids: {', '.join(missing)}")
-    if contains_url(payload):
-        failures.append(f"{name} contains an external URL")
-    if "node_id" in payload or "source_urls" in payload:
-        failures.append(f"{name} contains removed response fields")
-
-for name, required_by_field in node_expectations.items():
-    payload = load_json(name)
-    summary["stages"][name] = {
-        "stage_filter": payload.get("stage_filter"),
-        "found": bool(payload.get("found")),
-        "gpu_name": payload.get("gpu_name"),
-    }
-    if not payload.get("found"):
-        failures.append(f"{name} did not find hardware node")
-    for removed_key in ("node_id", "source_urls"):
-        if removed_key in payload:
-            failures.append(f"{name} contains removed field {removed_key}")
-    if contains_url(payload):
-        failures.append(f"{name} contains an external URL")
-    if strict:
-        for field, required_values in required_by_field.items():
-            field_values = list(payload.get(field) or [])
+        for field, required_values in expectations.items():
+            if field in {"stage_filter", "stage_feature_keys"}:
+                continue
+            field_values = list(node_payload.get(field) or [])
             bad_pairs = [item for item in field_values if invalid_feature_key_pair(item)]
             if bad_pairs:
                 failures.append(f"{name} field {field} contains non-2D feature-key rows")
@@ -276,8 +230,14 @@ for name, required_by_field in node_expectations.items():
             missing = sorted(set(required_values) - values)
             if missing:
                 failures.append(f"{name} field {field} missing: {', '.join(missing)}")
+    if contains_url(payload):
+        failures.append(f"{name} contains an external URL")
+    for removed_key in ("node_id", "source_urls"):
+        if removed_key in payload or removed_key in node_payload or removed_key in feature_payload:
+            failures.append(f"{name} contains removed field {removed_key}")
 
-optimizer_payload = load_json("stage3_training_evaluation_features_optimizer.json")
+training_payload = load_json("training_evaluation_stage_context_training_evaluation.json")
+optimizer_payload = dict(training_payload.get("feature_result") or {})
 optimizer_by_id = {
     str(feature.get("feature_id")): feature
     for feature in optimizer_payload.get("features") or []

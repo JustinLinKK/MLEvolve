@@ -150,6 +150,7 @@ def test_stage_hardware_database_query_is_pieced_into_filtered_prompt() -> None:
     training_ids = {feature["feature_id"] for feature in stage_by_name["training_evaluation"]["features"]}
     assert "dataset_decomposition" in prompt
     assert "tensor_cores" in model_design_ids
+    assert "gram_newton_schulz_symmetric_gemm" not in model_design_ids
     assert "bf16" in datatype_ids
     assert "muon_optimizer" in training_ids
     assert "soap_optimizer" not in training_ids

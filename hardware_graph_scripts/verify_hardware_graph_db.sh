@@ -47,9 +47,9 @@ from localml_scheduler.hardware_knowledge.store import HardwareKnowledgeGraphSto
 config_path, hardware_name = sys.argv[1:3]
 
 expected_by_stage = {
-    "stage1_model_design": ["tensor_cores", "sm_120", "tensor_cores_5gen"],
-    "stage2_datatype_precision": ["dataset_decomposition", "nvimagecodec_gpu_decode", "bf16", "fp8_rowwise_scaling"],
-    "stage3_training_evaluation": ["muon_optimizer", "gram_newton_schulz_symmetric_gemm", "async_tensor_parallel"],
+    "model_design": ["dataset_decomposition", "nvimagecodec_gpu_decode", "tensor_cores", "sm_120", "tensor_cores_5gen"],
+    "datatype_precision": ["bf16", "fp8_rowwise_scaling"],
+    "training_evaluation": ["muon_optimizer", "gram_newton_schulz_symmetric_gemm", "async_tensor_parallel"],
 }
 
 def hardware_terms(value: str) -> list[str]:

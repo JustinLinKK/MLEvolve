@@ -2,7 +2,6 @@
 
 Provides stepwise code generation using multi-agent collaboration where specialized
 agents handle different stages of the ML pipeline:
-  - data_processing_and_feature_engineering
   - model_design
   - datatype_precision (hardware-aware mode only)
   - training_evaluation
@@ -29,16 +28,15 @@ from agents.planner.base_planner import (
 logger = logging.getLogger("MLEvolve")
 
 STEP_LOGICAL_STAGE: Dict[str, str] = {
-    "data_processing_and_feature_engineering": "stage1_candidate_construction",
-    "model_design": "stage1_candidate_construction",
-    "datatype_precision": "stage2_datatype_precision",
-    "training_evaluation": "stage3_training_evaluation",
+    "model_design": "model_design",
+    "datatype_precision": "datatype_precision",
+    "training_evaluation": "training_evaluation",
 }
 
 STEP_LOGICAL_STAGE_LABEL: Dict[str, str] = {
-    "stage1_candidate_construction": "Stage 1 model-design",
-    "stage2_datatype_precision": "Stage 2 datatype/quantization",
-    "stage3_training_evaluation": "Stage 3 training",
+    "model_design": "Stage 1 model-design",
+    "datatype_precision": "Stage 2 datatype/quantization",
+    "training_evaluation": "Stage 3 training",
 }
 
 
@@ -209,13 +207,6 @@ class StepAgent:
                     "Only use custom architectures if the pretrained models are clearly unsuitable for this specific task."
                 ]
                 guidelines_to_use = pretrain_emphasis + guidelines_to_use
-            elif self.name == "data_processing_and_feature_engineering":
-                pretrain_awareness = [
-                    "**IMPORTANT: Be aware that pretrained models may be used in later steps. Consider the input requirements of common pretrained models (e.g., image size, normalization, data format) when preparing the data and engineering features.**",
-                    "For image tasks, ensure data is prepared in a format compatible with standard pretrained models (e.g., PIL Image, numpy arrays, proper image sizes).",
-                    "For text tasks, ensure text data is properly tokenized and formatted for potential transformer models.",
-                ]
-                guidelines_to_use = pretrain_awareness + guidelines_to_use
 
         guidelines_text = "\n".join([f"- {g}" for g in guidelines_to_use])
 
@@ -410,14 +401,14 @@ class MetaAgent:
 
         has_datatype_step = any(result.get("name") == "datatype_precision" for result in step_results)
         execution_flow = (
-            "data processing & feature engineering -> model design -> datatype/precision policy -> training & evaluation"
+            "model_design -> datatype_precision -> training_evaluation"
             if has_datatype_step
-            else "data processing & feature engineering -> model design -> training & evaluation"
+            else "model_design -> training_evaluation"
         )
         conflict_rule = (
-            "- Resolve conflicts between steps by following the earlier step's design: model_design defines the model/loss/interface, datatype_precision defines precision policy and any precision-required model adapters, and training_evaluation consumes both."
+            "- Resolve conflicts between steps by following the earlier stage's design: model_design defines data preparation, features, model/loss/interface, and criterion; datatype_precision defines precision policy and any precision-required model adapters; training_evaluation consumes both."
             if has_datatype_step
-            else "- Resolve conflicts between steps by following the earlier step's design (e.g., model_design defines the model, training_evaluation trains it)"
+            else "- Resolve conflicts between steps by following the earlier stage's design: model_design defines data preparation, features, model/loss/interface, and criterion; training_evaluation trains it."
         )
 
         prompt_instructions["Merge guidelines"] = [
@@ -520,23 +511,17 @@ def create_default_step_agents(
     hardware_aware: bool = True,
     pipeline_decision_aware: bool = True,
 ) -> List[StepAgent]:
-    data_guidelines = [
-        "Your responsibility: Stage 1 model-design candidate construction. Load data from `./input`, clean, create features (preprocessing, encoding, augmentation), and split dataset into train/validation/test.",
-        "Stage 1 flow: hardware context lookup, data processing, and model design together define this round's candidate before datatype and training stages refine execution details.",
-        "CRITICAL: This step MUST include BOTH data loading AND feature engineering. Do NOT only load the raw data. You must actively create, transform, and enhance features to improve model performance.",
-        "IMPORTANT: Apply feature engineering techniques such as feature scaling, encoding, transformation, and data augmentation methods appropriate for the task. Explore and implement feature engineering strategies that can enhance the model's ability to learn from the data.",
-        "CRITICAL: Do NOT build models, write training code, choose optimizer, choose batch size, choose AMP/dtype policy, or perform evaluation. Focus ONLY on data preparation and feature engineering.",
-        "Note board: record what changed from the baseline data path and why, so model_design can complete the Stage 1 candidate target.",
-    ]
     model_guidelines = [
-        "Your responsibility: Design the model architecture or choose reference pretrained model, loss function, and optimizer based on the task and the features from previous steps.",
-        "CRITICAL: Do NOT write the training loop, data processing, or feature engineering code. Only define the model, criterion, and optimizer objects.",
+        "Your responsibility: Stage 1 model-design candidate construction. Load data from `./input`, clean it, create features/preprocessing/augmentation, create train/validation/test splits, then define the model architecture or available pretrained model family, loss function, output interface, and criterion.",
+        "CRITICAL: This stage MUST include data loading, feature engineering, and model design together. Do NOT split them into a separate data-processing stage.",
+        "IMPORTANT: Apply feature engineering techniques such as feature scaling, encoding, transformation, and data augmentation methods appropriate for the task before defining the model interface.",
+        "CRITICAL: Do NOT write the training loop, choose optimizer, choose scheduler, choose batch size, choose epoch count, choose learning rate, choose AMP/dtype policy, run evaluation, or create submission files. The training_evaluation stage owns optimizer and runtime choices.",
         "IMPORTANT: Consider the task's evaluation metric (from the task description's Evaluation section) when designing the model. The model output format should be compatible with the required evaluation metric calculation.",
         "IMPORTANT: When designing custom model architectures, include appropriate regularization components (e.g., Dropout layers) to prevent overfitting.",
     ]
     training_guidelines = [
-        "Your responsibility: Write the training loop that uses the data, features, model, loss function, and optimizer from previous steps. Include validation, metric tracking, save the best model. Then load the best model, calculate validation metric (must match task's Evaluation section), perform test inference, and save `submission.csv` to `./submission/` directory.",
-        "CRITICAL: Assume that all previous code steps have already been executed. You should start directly from the training step. Do NOT redefine or reload the data, features, model, loss function, or optimizer. These components are already defined and available from the previous steps.",
+        "Your responsibility: Write the training loop that uses the data, features, model, loss function, and criterion from previous stages. Define optimizer, scheduler, batch policy, validation, metric tracking, best-model saving, test inference, and `submission.csv` generation.",
+        "CRITICAL: Assume that previous stages have already produced the data, features, model, loss function, criterion, and optional precision utilities. Do NOT redefine or reload data/features, redesign the model/loss/interface, or replace the datatype_precision policy.",
         "CRITICAL: You MUST use the variables and objects defined in previous steps AS-IS. Do NOT replace, redesign, or substitute them with different approaches. Your ONLY job is to write the training/evaluation code for what was already defined — not to introduce new models or pipelines.",
         "IMPORTANT: Your code should assume the data preprocessing, feature engineering, and model design steps have been completed. Simply use the existing variables without copying them.",
         "CRITICAL: Validation metric computation must use the same prediction method as test inference, using training data only as reference, to avoid data leakage and ensure the metric reflects true generalization performance.",
@@ -555,24 +540,21 @@ def create_default_step_agents(
     ]
     datatype_guidelines: List[str] = []
     if hardware_aware:
-        data_guidelines.append(
-            "Hardware-aware data pipeline: when using GPU training, keep input resolution/sequence length configurable, use DataLoader settings compatible with the hardware brief, and prefer pin_memory/non-blocking transfers when tensors move to CUDA."
-        )
         hardware_node_rule = (
             "Hardware graph contract: the stage-specific hardware node response is already attached in the Hardware/Profile Optimization Context. "
             "Do not query the hardware node again; query local feature-node details only for selected feature keys when deeper guidance is needed, and never fetch external URLs."
         )
-        data_guidelines.append(hardware_node_rule)
         model_guidelines = [
-            "Your responsibility: Stage 1 hardware-aware candidate construction. Complete the candidate target by choosing the model architecture or available pretrained model family, loss function, model output interface, and any model-local regularization needed for the task.",
-            "Stage 1 flow: consume the Stage 1 hardware context plus the data_processing notes; this model step finalizes the candidate that Stage 2 and Stage 3 must preserve.",
-            "CRITICAL: Do NOT write the training loop, data processing, feature engineering, optimizer, scheduler, batch size, epoch count, learning rate, dataloader worker settings, gradient accumulation, checkpoint cadence, or precision policy.",
+            "Your responsibility: Stage 1 hardware-aware model-design candidate construction. Load data from `./input`, clean it, create features/preprocessing/augmentation, create train/validation/test splits, then choose the model architecture or available pretrained model family, loss function, output interface, criterion, and model-local regularization.",
+            "CRITICAL: This is the only Stage 1 prompt. It owns both data preparation and model design; do not assume a separate data-preparation prompt exists.",
+            "CRITICAL: Do NOT write the training loop, optimizer, scheduler, batch size, epoch count, learning rate, final dataloader worker settings, gradient accumulation, checkpoint cadence, or precision policy.",
             "CRITICAL: Do NOT choose AMP, bf16, fp16, fp32, TF32, GradScaler, autocast, or tensor dtype settings in this step. The datatype_precision step owns those decisions.",
             "IMPORTANT: Consider the task's evaluation metric when designing the model. The model output format should be compatible with the required evaluation metric calculation.",
             "Hardware-aware model design: use the Hardware-Aware Model Design Brief to compare model families before choosing an architecture. Optimize for the task metric first, while treating lower training time and higher GPU utilization as persistent objectives.",
-            "Use the brief's compact hardware node, available feature keys, and selected feature details only when they are relevant to architecture, layer choice, tensor-core-friendly dimensions, or model-family feasibility.",
+            "Use the brief's compact hardware node, available feature keys, and selected feature details only when they are relevant to data shape, preprocessing, architecture, layer choice, tensor-core-friendly dimensions, or model-family feasibility.",
+            "Hardware-aware data pipeline: when using GPU training, keep input resolution/sequence length configurable, expose dataset/dataloader inputs that Stage 3 can batch safely, and prefer data representations compatible with non-blocking CUDA transfers when tensors move to CUDA.",
             hardware_node_rule,
-            "Note board: Stage 1 notes are mandatory. Record what changed from the baseline model/data design and the purpose, because later stages must align precision and training choices to this target.",
+            "Note board: Stage 1 notes are mandatory. Record what changed from the baseline data/model design and the purpose, because later stages must align precision and training choices to this target.",
             "Do not invent pretrained checkpoint paths, Kaggle input directories, torch hub directories, or dummy model weights to satisfy hardware advice. If a model source is not explicitly available, choose an available baseline-compatible model family.",
         ]
         datatype_guidelines = [
@@ -587,7 +569,7 @@ def create_default_step_agents(
             "Expose simple variables/utilities and any adapted model object that the training_evaluation step can consume directly, and include lightweight logging of selected precision without batch-level noise.",
         ]
         training_guidelines = [
-            "Your responsibility: Stage 3 hardware-aware training hyperparameter optimization. Write the training loop using the data/features, model or precision-adapted model, loss/interface, and datatype_precision variables from previous steps. Define optimizer, learning rate, weight decay, scheduler, physical batch size, gradient accumulation, dataloader workers, checkpoint cadence, validation, test inference, and `submission.csv`.",
+            "Your responsibility: Stage 3 hardware-aware training hyperparameter optimization. Write the training loop using the data/features, model or precision-adapted model, loss/interface, and datatype_precision variables from previous stages. Define optimizer, learning rate, weight decay, scheduler, physical batch size, gradient accumulation, dataloader workers, checkpoint cadence, validation, test inference, and `submission.csv`.",
             "Read the Cross-Stage Note Board first and align optimizer, batch, dataloader, runtime, and fallback choices with the Stage 1 candidate target and Stage 2 precision policy.",
             "CRITICAL: Assume all previous code steps have already been executed. Do NOT redefine or reload data/features, redesign the model/loss, undo precision-required model adapters, or replace the datatype_precision policy. Consume those variables and utilities AS-IS.",
             "CRITICAL: Own training hyperparameters in this step: batch size, effective batch size, accumulation steps, epochs, learning rate, weight decay, scheduler, early stopping, dataloader workers, pin_memory, persistent_workers, checkpointing, and runtime logging.",
@@ -610,16 +592,11 @@ def create_default_step_agents(
             ]
         )
     if pipeline_decision_aware:
-        data_guidelines.extend(
-            [
-                "Pipeline decision: consume `model_design.modality`, `model_design.target_type`, and `model_design.shape_constraints` before choosing preprocessing or feature engineering.",
-                "Pipeline decision: use `training_evaluation.dataloader_policy` only for data loading mechanics; do not choose the model family or optimizer in this step.",
-            ]
-        )
         if hardware_aware:
             model_guidelines.extend(
                 [
-                    "Pipeline decision: consume `model_design` to define the data assumptions, model family, loss, output interface, and criterion only; leave optimizer, scheduler, precision, and batch policy to later hardware-aware stages.",
+                    "Pipeline decision: consume `model_design.modality`, `model_design.target_type`, `model_design.shape_constraints`, `model_design.family`, and `model_design.output_interface` to define data assumptions, preprocessing/features, model family, loss, output interface, and criterion only; leave optimizer, scheduler, precision, and batch policy to later hardware-aware stages.",
+                    "Pipeline decision: use `training_evaluation.dataloader_policy` only to expose compatible dataset/dataloader hooks; do not choose final workers, batch size, optimizer, or scheduler in this stage.",
                     "Pipeline decision: do not use unavailable weights, packages, or hardware-only tricks to justify a model family.",
                 ]
             )
@@ -638,7 +615,7 @@ def create_default_step_agents(
         else:
             model_guidelines.extend(
                 [
-                    "Pipeline decision: consume `model_design` and `training_evaluation.optimizer` to define only the model, criterion, and optimizer.",
+                    "Pipeline decision: consume `model_design` to define data assumptions, preprocessing/features, model family, loss, output interface, and criterion. Leave optimizer, scheduler, batch, and runtime choices to training_evaluation.",
                     "Pipeline decision: do not use unavailable weights, packages, or hardware-only tricks to justify a model family.",
                 ]
             )
@@ -650,15 +627,9 @@ def create_default_step_agents(
             )
     step_agents = [
         StepAgent(
-            name="data_processing_and_feature_engineering",
-            introduction="You are a Data Preparation Specialist responsible for data loading, cleaning, and feature engineering.",
-            description="Load data from `./input` directory, perform cleaning, feature engineering, and create train/validation/test splits.",
-            guidelines=data_guidelines,
-        ),
-        StepAgent(
             name="model_design",
-            introduction="You are a Model Architect responsible for designing the model architecture, loss function, and output interface.",
-            description="Design the model architecture (including pretrained models), loss function, and output interface.",
+            introduction="You are a Model Design Specialist responsible for data preparation, feature engineering, model architecture, loss function, and output interface.",
+            description="Load and prepare data, create features/splits, then define the model architecture, loss function, output interface, and criterion.",
             guidelines=model_guidelines,
         ),
     ]
@@ -818,7 +789,7 @@ def _first_sentence(text: str) -> str:
 
 
 def _default_note_purpose(step_name: str) -> str:
-    if step_name in {"data_processing_and_feature_engineering", "model_design"}:
+    if step_name == "model_design":
         return "Define the Stage 1 candidate target for later precision and training stages."
     if step_name == "datatype_precision":
         return "Support the Stage 1 candidate target with a compatible precision policy."
