@@ -1,7 +1,7 @@
 """Pipeline-stage decision contract for prompt generation.
 
 The decision contract stores datatype/model/optimizer/tuning choices, while
-hardware-aware stepwise generation follows the SVG workflow:
+hardware-aware stepwise generation follows the three-stage workflow:
 model_design -> datatype_precision -> training_evaluation. Hardware/profile
 evidence can inform tuning, but missing evidence must be recorded as a fallback
 instead of invented claims.
@@ -126,7 +126,7 @@ def pipeline_decision_instructions(
     return {
         "Pipeline Decision Contract": [
             "Use the Pipeline Decision Trace as the source of truth for code generation and planning.",
-            "Follow the hardware-aware stepwise workflow: model_design -> datatype_precision -> training_evaluation.",
+            "Follow the hardware-aware stepwise workflow: model-design -> datatype/quantization -> training (code keys: model_design -> datatype_precision -> training_evaluation).",
             "Do not jump directly to optimizer, precision, or batch-size choices before model family and output interface are decided.",
             "The stored datatype field describes data modality and target shape. Numeric precision such as fp32, fp16, bf16, tf32, or TE FP8/NVFP4 belongs under datatype_precision and tuning.precision_policy unless the task explicitly requires a numeric type.",
             "The datatype_precision step may make narrow precision-required model adapters such as Transformer Engine layer wrappers/replacements, padding/config hooks, autocast recipes, or higher-precision islands, but it must preserve the Stage 1 model family, loss, data features, and output interface.",
@@ -215,10 +215,11 @@ def _render_pipeline_decision_section(payload: str) -> str:
     return (
         f"{PIPELINE_DECISION_HEADING}\n"
         "Before writing or modifying code, follow the hardware-aware stepwise workflow: "
-        "model_design -> datatype_precision -> training_evaluation.\n\n"
+        "model-design -> datatype/quantization -> training "
+        "(code keys: model_design -> datatype_precision -> training_evaluation).\n\n"
         "1. Model design: choose architecture/model family, loss, and output interface first.\n"
-        "2. Datatype precision: choose dtype, AMP/TF32, GradScaler, TE FP8/MXFP8/NVFP4 recipes, autocast, precision-required model adapters, and precision fallback policy.\n"
-        "3. Training evaluation: choose optimizer, scheduler, batch size, dataloader settings, checkpointing, validation, submission, runtime fallbacks, and logging.\n"
+        "2. Datatype/quantization: choose dtype, AMP/TF32, GradScaler, TE FP8/MXFP8/NVFP4 recipes, autocast, precision-required model adapters, and precision fallback policy.\n"
+        "3. Training: choose optimizer, scheduler, batch size, dataloader settings, checkpointing, validation, submission, runtime fallbacks, and logging.\n"
         "Datatype precision may include only precision-required model adapters that preserve the Stage 1 model family, loss, data features, and output interface.\n"
         "Hardware tuning must not increase epochs, folds, model size, image resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization.\n"
         "If evidence is missing, use the fallback recorded in the trace instead of inventing hardware claims.\n\n"
@@ -230,7 +231,8 @@ def _render_pipeline_decision_section(payload: str) -> str:
 def _render_compact_pipeline_decision_section(payload: str) -> str:
     return (
         f"{PIPELINE_DECISION_HEADING}\n"
-        "Required hardware-aware step order: model_design -> datatype_precision -> training_evaluation. "
+        "Required hardware-aware step order: model-design -> datatype/quantization -> training "
+        "(model_design -> datatype_precision -> training_evaluation). "
         "Use the trace as the source of truth, apply hardware evidence only when compatible, "
         "and use recorded fallbacks when evidence is missing.\n\n"
         f"{PIPELINE_DECISION_TRACE_HEADING}\n"
@@ -290,7 +292,8 @@ def _build_decision_prompt(
     system = (
         "You are the MLEvolve pipeline-decision agent. "
         "Return one compact JSON object and no prose. "
-        "The required hardware-aware step order is model_design -> datatype_precision -> training_evaluation."
+        "The required hardware-aware step order is model-design -> datatype/quantization -> training "
+        "(model_design -> datatype_precision -> training_evaluation)."
     )
     user = (
         f"Stage: {stage}\n\n"
@@ -298,8 +301,8 @@ def _build_decision_prompt(
         f"Data preview:\n{data_preview}\n\n"
         "Pipeline contract:\n"
         "1. Model design: choose architecture/model family, loss, and output interface first.\n"
-        "2. Datatype precision: choose dtype, AMP/TF32, GradScaler, TE FP8/MXFP8/NVFP4 recipes, autocast, precision-required model adapters, and precision fallback policy.\n"
-        "3. Training evaluation: choose optimizer, scheduler, batch size, dataloader policy, checkpoint cadence, validation/submission behavior, and fallbacks.\n\n"
+        "2. Datatype/quantization: choose dtype, AMP/TF32, GradScaler, TE FP8/MXFP8/NVFP4 recipes, autocast, precision-required model adapters, and precision fallback policy.\n"
+        "3. Training: choose optimizer, scheduler, batch size, dataloader policy, checkpoint cadence, validation/submission behavior, and fallbacks.\n\n"
         "Rules:\n"
         "- Do not use hardware speed as a reason to violate task correctness, package availability, model-source availability, or submission format.\n"
         "- datatype_precision may only adapt model structure when the selected precision backend requires it, e.g. TE-compatible layer wrappers/replacements, precision shape padding/config hooks, autocast recipes, or higher-precision islands. It must not redesign model family, loss, data features, or task I/O.\n"

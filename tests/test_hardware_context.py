@@ -583,7 +583,7 @@ def test_stepwise_generation_can_return_stage_metadata(monkeypatch) -> None:
     assert metadata["decisions"][1]["stage_group"] == "stage1_candidate_construction"
     assert any("Datatype/Precision" in str(prompt) for prompt in responses)
     assert any("Cross-Stage Note Board" in str(prompt) for prompt in responses)
-    assert "Stage 1 candidate construction" in responses[2]
+    assert "Stage 1 model-design" in responses[2]
 
 
 def test_stepwise_hardware_decisions_are_stored_as_ordered_pipeline() -> None:
@@ -690,11 +690,11 @@ def test_stepwise_hardware_stage_sections_route_stage_filtered_features() -> Non
             },
             "stage_hardware_features": {
                 "found": True,
-                "stage_filter": ["datatype", "tuning"],
+                "stage_filter": ["model_design", "datatype_precision", "training_evaluation"],
                 "stages": [
                     {
-                        "stage": "datatype",
-                        "node": {"stage_filter": "datatype", "software_features": ["nvimagecodec_gpu_decode"]},
+                        "stage": "model_design",
+                        "node": {"stage_filter": "model_design", "stage_feature_keys": [["dataset_decomposition", "Dataset decomposition mainly used for data pipelines."]]},
                         "features": [
                             {
                                 "feature_id": "dataset_decomposition",
@@ -705,8 +705,20 @@ def test_stepwise_hardware_stage_sections_route_stage_filtered_features() -> Non
                         "feature_count": 1,
                     },
                     {
-                        "stage": "optimizer",
-                        "node": {"stage_filter": "optimizer", "recipes": ["muon_optimizer"]},
+                        "stage": "datatype_precision",
+                        "node": {"stage_filter": "datatype_precision", "stage_feature_keys": [["bf16", "BF16 mainly used for precision policy."]]},
+                        "features": [
+                            {
+                                "feature_id": "bf16",
+                                "name": "BF16",
+                                "category": "precision",
+                            }
+                        ],
+                        "feature_count": 1,
+                    },
+                    {
+                        "stage": "training_evaluation",
+                        "node": {"stage_filter": "training_evaluation", "stage_feature_keys": [["muon_optimizer", "Muon mainly used for optimizer selection."]]},
                         "features": [
                             {
                                 "feature_id": "muon_optimizer",
@@ -717,23 +729,11 @@ def test_stepwise_hardware_stage_sections_route_stage_filtered_features() -> Non
                         ],
                         "feature_count": 1,
                     },
-                    {
-                        "stage": "tuning",
-                        "node": {"stage_filter": "tuning", "datatypes": ["bf16", "fp8"]},
-                        "features": [
-                            {
-                                "feature_id": "bf16",
-                                "name": "BF16",
-                                "category": "precision",
-                            }
-                        ],
-                        "feature_count": 1,
-                    },
                 ],
                 "features": [
                     {"feature_id": "dataset_decomposition"},
-                    {"feature_id": "muon_optimizer"},
                     {"feature_id": "bf16"},
+                    {"feature_id": "muon_optimizer"},
                 ],
                 "feature_count": 3,
                 "source": "unit-test",
@@ -754,7 +754,7 @@ def test_stepwise_hardware_stage_sections_route_stage_filtered_features() -> Non
     assert "dataset_decomposition" in data_section
     assert "bf16" not in data_section
     assert "muon_optimizer" in training_section
-    assert "bf16" in training_section
+    assert "bf16" not in training_section
     assert "dataset_decomposition" not in training_section
     assert "Datatype/Precision" in dtype_section
     assert "bf16" in dtype_section

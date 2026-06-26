@@ -73,7 +73,7 @@ def test_pipeline_prompt_contract_preserves_required_order() -> None:
     section = format_pipeline_decision_prompt_section(_decision_payload())
 
     assert PIPELINE_STAGE_ORDER == ("model_design", "datatype_precision", "training_evaluation")
-    order_tokens = ["1. Model design", "2. Datatype precision", "3. Training evaluation"]
+    order_tokens = ["1. Model design", "2. Datatype/quantization", "3. Training"]
     positions = [section.index(token) for token in order_tokens]
     assert positions == sorted(positions)
     assert "model_design -> datatype_precision -> training_evaluation" in section

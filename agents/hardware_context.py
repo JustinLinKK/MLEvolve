@@ -94,6 +94,30 @@ _DATATYPE_EXCLUDE_KEYWORDS = (
 )
 
 _STAGE_NODE_FIELD_LIMITS: dict[str, tuple[tuple[str, int], ...]] = {
+    "model_design": (
+        ("stage_feature_keys", 8),
+        ("recommended_feature_keys", 5),
+        ("not_recommended_feature_keys", 4),
+        ("conditional_feature_keys", 5),
+        ("recommended_patterns", 4),
+        ("avoid_patterns", 4),
+    ),
+    "datatype_precision": (
+        ("stage_feature_keys", 8),
+        ("recommended_feature_keys", 5),
+        ("not_recommended_feature_keys", 4),
+        ("conditional_feature_keys", 5),
+        ("recommended_patterns", 4),
+        ("avoid_patterns", 4),
+    ),
+    "training_evaluation": (
+        ("stage_feature_keys", 8),
+        ("recommended_feature_keys", 5),
+        ("not_recommended_feature_keys", 5),
+        ("conditional_feature_keys", 5),
+        ("recommended_patterns", 5),
+        ("avoid_patterns", 5),
+    ),
     "datatype": (
         ("stage_feature_keys", 8),
         ("recommended_feature_keys", 6),
@@ -142,6 +166,78 @@ _FEATURE_KEY_PAIR_FIELDS = {
     "conditional_feature_keys",
 }
 _STAGE_DIRECT_VALUE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "model_design": (
+        "data",
+        "dataset",
+        "dataloader",
+        "decode",
+        "image",
+        "video",
+        "wsi",
+        "tile",
+        "chunk",
+        "sequence",
+        "packing",
+        "attention",
+        "sdpa",
+        "flash",
+        "tensor_core",
+        "kernel",
+        "compile",
+        "channels_last",
+        "unet",
+        "cnn",
+        "transformer",
+        "activation",
+        "sm_",
+        "nvlink",
+        "mig",
+        "topology",
+    ),
+    "datatype_precision": (
+        "bf16",
+        "fp16",
+        "fp8",
+        "fp4",
+        "fp64",
+        "tf32",
+        "int8",
+        "amp",
+        "precision",
+        "autocast",
+        "quant",
+        "gradscaler",
+        "tensor_core",
+        "transformer_engine",
+        "nvfp4",
+        "mxfp4",
+        "mxfp8",
+    ),
+    "training_evaluation": (
+        "optimizer",
+        "adam",
+        "muon",
+        "soap",
+        "ademamix",
+        "loss",
+        "cross_entropy",
+        "newton_schulz",
+        "scheduler",
+        "learning_rate",
+        "lr",
+        "weight_decay",
+        "momentum",
+        "grad",
+        "batch",
+        "vram",
+        "memory",
+        "throughput",
+        "parallel",
+        "tensor_parallel",
+        "dataloader",
+        "pin_memory",
+        "checkpoint",
+    ),
     "datatype": (
         "data",
         "dataset",
@@ -415,17 +511,40 @@ def build_stepwise_hardware_stage_sections(
     generic_section = format_hardware_prompt_section(compact, max_chars=max_chars) if compact else ""
     datatype_section = format_hardware_datatype_prompt_section(compact, max_chars=max_chars) if compact else ""
     training_section = format_hardware_training_prompt_section(compact, max_chars=max_chars) if compact else ""
-    data_feature_section = _format_stage_specific_hardware_features(compact, ("datatype",), max_chars=max_chars)
-    model_feature_section = _format_stage_specific_hardware_features(compact, ("model",), max_chars=max_chars)
-    precision_feature_section = _format_stage_specific_hardware_features(compact, ("tuning",), max_chars=max_chars)
-    training_feature_section = _format_stage_specific_hardware_features(
+    stage1_feature_section = _format_stage_specific_hardware_features(
         compact,
-        ("optimizer", "tuning"),
+        ("model_design",),
         max_chars=max_chars,
     )
+    if not stage1_feature_section:
+        stage1_feature_section = _join_prompt_sections(
+            (
+                _format_stage_specific_hardware_features(compact, ("datatype",), max_chars=max_chars),
+                _format_stage_specific_hardware_features(compact, ("model",), max_chars=max_chars),
+            ),
+            max_chars=max_chars,
+        )
+    precision_feature_section = _format_stage_specific_hardware_features(
+        compact,
+        ("datatype_precision",),
+        max_chars=max_chars,
+    )
+    if not precision_feature_section:
+        precision_feature_section = _format_stage_specific_hardware_features(compact, ("tuning",), max_chars=max_chars)
+    training_feature_section = _format_stage_specific_hardware_features(
+        compact,
+        ("training_evaluation",),
+        max_chars=max_chars,
+    )
+    if not training_feature_section:
+        training_feature_section = _format_stage_specific_hardware_features(
+            compact,
+            ("optimizer", "tuning"),
+            max_chars=max_chars,
+        )
     stage1_preamble = _stage_hardware_response_preamble(
         heading=HARDWARE_STAGE1_HEADING,
-        stage_label="Stage 1 candidate construction",
+        stage_label="Stage 1 model-design",
         ownership=(
             "hardware context lookup, data processing, feature engineering, model architecture, loss, and output contract. "
             "Do not choose dtype/AMP policy, optimizer, batch size, scheduler, or training loop here."
@@ -433,7 +552,7 @@ def build_stepwise_hardware_stage_sections(
     )
     stage2_preamble = _stage_hardware_response_preamble(
         heading=HARDWARE_DATATYPE_HEADING,
-        stage_label="Stage 2 datatype/precision",
+        stage_label="Stage 2 datatype/quantization",
         ownership=(
             "device, dtype, AMP/autocast, TF32, GradScaler, Transformer Engine recipes, precision-required "
             "model adapters, precision fallback, and precision logging."
@@ -441,17 +560,17 @@ def build_stepwise_hardware_stage_sections(
     )
     stage3_preamble = _stage_hardware_response_preamble(
         heading=HARDWARE_TRAINING_HEADING,
-        stage_label="Stage 3 training/evaluation",
+        stage_label="Stage 3 training",
         ownership=(
             "optimizer, scheduler, batch policy, dataloader policy, memory/runtime policy, checkpointing, validation, and submission."
         ),
     )
     stage1_section = _join_prompt_sections(
-        (stage1_preamble, design_section, data_feature_section, model_feature_section),
+        (stage1_preamble, design_section, stage1_feature_section),
         max_chars=max_chars,
     )
     stage2_section = _join_prompt_sections(
-        (stage2_preamble, datatype_section, data_feature_section, precision_feature_section),
+        (stage2_preamble, datatype_section, precision_feature_section),
         max_chars=max_chars,
     )
     stage3_section = _join_prompt_sections(
@@ -459,8 +578,8 @@ def build_stepwise_hardware_stage_sections(
         max_chars=max_chars,
     )
     return {
-        "data_processing_and_feature_engineering": stage1_section or data_feature_section or generic_section,
-        "model_design": stage1_section or design_section or model_feature_section or generic_section,
+        "data_processing_and_feature_engineering": stage1_section or stage1_feature_section or generic_section,
+        "model_design": stage1_section or design_section or stage1_feature_section or generic_section,
         "datatype_precision": stage2_section or generic_section,
         "training_evaluation": stage3_section or generic_section,
     }
@@ -483,8 +602,6 @@ def _join_prompt_sections(sections: tuple[str, ...], *, max_chars: int) -> str:
     text = "\n".join(section.strip() for section in sections if section and section.strip()).strip()
     if not text:
         return ""
-    if len(text) > max_chars:
-        text = text[: max(0, max_chars - 48)].rstrip() + "\n... [hardware context truncated]"
     return text + "\n"
 
 
@@ -502,8 +619,6 @@ def _format_stage_specific_hardware_features(
     if not lines:
         return ""
     text = "\n".join([HARDWARE_CONTEXT_HEADING, *lines]).strip()
-    if len(text) > max_chars:
-        text = text[: max(0, max_chars - 48)].rstrip() + "\n... [stage hardware context truncated]"
     return text + "\n"
 
 
@@ -926,7 +1041,7 @@ def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 35
     options = list(compact.get("model_options") or [])
     if options:
         lines.append("- Candidate model-family options:")
-        for option in options[:5]:
+        for option in options:
             family = option.get("model_family") or option.get("model_key") or "candidate"
             rationale = option.get("rationale") or option.get("summary") or ""
             benefits = option.get("expected_benefits") or option.get("hardware_features") or []
@@ -940,7 +1055,7 @@ def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 35
     feature_keys = list(feature_index.get("features") or [])
     if feature_keys:
         lines.append("- Available hardware feature keys linked to this hardware:")
-        for feature in feature_keys[:16]:
+        for feature in feature_keys:
             details = _format_kv(
                 feature,
                 ("category", "support_level", "performance_impact", "recommended", "confidence"),
@@ -953,7 +1068,7 @@ def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 35
     selected_features = list(compact.get("selected_hardware_features") or [])
     if selected_features:
         lines.append("- Selected hardware feature details for model_design:")
-        for feature in selected_features[:4]:
+        for feature in selected_features:
             feature_id = feature.get("feature_id") or "feature"
             name = feature.get("feature_name") or feature.get("title") or ""
             summary = feature.get("summary_text") or feature.get("detail_text") or ""
@@ -976,7 +1091,7 @@ def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 35
         lines.extend(f"  - {item}" for item in risks)
     refs = compact.get("evidence_refs") or []
     if refs:
-        lines.append(f"- Evidence refs: {', '.join(refs[:8])}")
+        lines.append(f"- Evidence refs: {', '.join(refs)}")
     lines.append(f"- Confidence: {compact.get('confidence', 0.0)}")
     lines.append(
         "- Decision rule: Choose the architecture that best satisfies the task metric while using hardware features "
@@ -990,8 +1105,6 @@ def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 35
     lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
     lines.append(f"- Budget guardrail: {HARDWARE_BUDGET_GUARDRAIL_RULE}")
     text = "\n".join(lines).strip()
-    if len(text) > max_chars:
-        text = text[: max(0, max_chars - 48)].rstrip() + "\n... [hardware design brief truncated]"
     return text + "\n"
 
 
@@ -1059,15 +1172,13 @@ def format_hardware_prompt_section(compact: dict[str, Any], *, max_chars: int = 
 
     refs = compact.get("evidence_refs") or []
     if refs:
-        lines.append(f"- Evidence refs: {', '.join(refs[:8])}")
+        lines.append(f"- Evidence refs: {', '.join(refs)}")
     lines.append(f"- Confidence: {compact.get('confidence', 0.0)}")
     lines.append(f"- Rule: {EVIDENCE_NOT_LAW_RULE}")
     lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
     lines.append(f"- Budget guardrail: {HARDWARE_BUDGET_GUARDRAIL_RULE}")
 
     text = "\n".join(lines).strip()
-    if len(text) > max_chars:
-        text = text[: max(0, max_chars - 40)].rstrip() + "\n... [hardware context truncated]"
     return text + "\n"
 
 
@@ -1130,7 +1241,7 @@ def format_hardware_datatype_prompt_section(compact: dict[str, Any], *, max_char
 
     refs = compact.get("evidence_refs") or []
     if refs:
-        lines.append(f"- Evidence refs: {', '.join(refs[:8])}")
+        lines.append(f"- Evidence refs: {', '.join(refs)}")
     lines.append(f"- Confidence: {compact.get('confidence', 0.0)}")
     lines.append(
         "- Stage boundary: Choose tensor datatype and precision policy here: DEVICE, USE_AMP, AMP_DTYPE, "
@@ -1150,8 +1261,6 @@ def format_hardware_datatype_prompt_section(compact: dict[str, Any], *, max_char
     lines.append(f"- Rule: {EVIDENCE_NOT_LAW_RULE}")
     lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
     text = "\n".join(lines).strip()
-    if len(text) > max_chars:
-        text = text[: max(0, max_chars - 48)].rstrip() + "\n... [datatype context truncated]"
     return text + "\n"
 
 
@@ -1205,7 +1314,7 @@ def format_hardware_training_prompt_section(compact: dict[str, Any], *, max_char
 
     refs = compact.get("evidence_refs") or []
     if refs:
-        lines.append(f"- Evidence refs: {', '.join(refs[:8])}")
+        lines.append(f"- Evidence refs: {', '.join(refs)}")
     lines.append(f"- Confidence: {compact.get('confidence', 0.0)}")
     lines.append(
         "- Stage boundary: Optimize training hyperparameters here: physical batch size, effective batch size, "
@@ -1220,8 +1329,6 @@ def format_hardware_training_prompt_section(compact: dict[str, Any], *, max_char
     lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
     lines.append(f"- Budget guardrail: {HARDWARE_BUDGET_GUARDRAIL_RULE}")
     text = "\n".join(lines).strip()
-    if len(text) > max_chars:
-        text = text[: max(0, max_chars - 48)].rstrip() + "\n... [training context truncated]"
     return text + "\n"
 
 
@@ -1364,9 +1471,9 @@ def _compact_hardware_context(context: dict[str, Any]) -> dict[str, Any]:
 
 def _compact_graph_evidence(graph: dict[str, Any]) -> dict[str, Any]:
     return {
-        "exact_profiles": [_compact_profile(item) for item in list(graph.get("exact_profiles") or [])[:2]],
-        "similar_profiles": [_compact_profile(item) for item in list(graph.get("similar_profiles") or [])[:2]],
-        "packed_profiles": [_compact_profile(item) for item in list(graph.get("packed_profiles") or [])[:2]],
+        "exact_profiles": [_compact_profile(item) for item in list(graph.get("exact_profiles") or [])],
+        "similar_profiles": [_compact_profile(item) for item in list(graph.get("similar_profiles") or [])],
+        "packed_profiles": [_compact_profile(item) for item in list(graph.get("packed_profiles") or [])],
     }
 
 
@@ -1412,7 +1519,7 @@ def _compact_diagnosis(diagnosis: dict[str, Any]) -> dict[str, list[str]]:
 
 
 def _filter_stage_direct_values(stage_name: str, list_key: str, values: Any) -> list[Any]:
-    cleaned = list(values or [])[:32]
+    cleaned = list(values or [])
     if not cleaned:
         return []
     keywords = _STAGE_DIRECT_VALUE_KEYWORDS.get(stage_name)
@@ -1431,7 +1538,7 @@ def _compact_stage_hardware_features(stage_context: dict[str, Any]) -> dict[str,
     if not stage_context:
         return {}
     stages: list[dict[str, Any]] = []
-    for item in list(stage_context.get("stages") or [])[:4]:
+    for item in list(stage_context.get("stages") or []):
         node = dict(item.get("node") or {})
         stage_name = str(item.get("stage") or node.get("stage_filter") or "").strip()
         field_limits = _STAGE_NODE_FIELD_LIMITS.get(stage_name, _DEFAULT_STAGE_NODE_FIELD_LIMITS)
@@ -1446,7 +1553,7 @@ def _compact_stage_hardware_features(stage_context: dict[str, Any]) -> dict[str,
 
         features: list[dict[str, Any]] = []
         omitted_not_recommended: list[str] = []
-        for raw_feature in list(item.get("features") or [])[:8]:
+        for raw_feature in list(item.get("features") or []):
             feature = _compact_stage_hardware_feature(feature=raw_feature)
             if not feature:
                 continue
@@ -1459,15 +1566,15 @@ def _compact_stage_hardware_features(stage_context: dict[str, Any]) -> dict[str,
         compact_stage = {
             "stage": stage_name or compact_node.get("stage_filter"),
             "node": {key: value for key, value in compact_node.items() if value not in (None, "", [], {})},
-            "features": features[:4],
+            "features": features,
             "feature_count": item.get("feature_count"),
-            "shown_feature_count": len(features[:4]),
-            "omitted_not_recommended": omitted_not_recommended[:6],
+            "shown_feature_count": len(features),
+            "omitted_not_recommended": omitted_not_recommended,
         }
         stages.append({key: value for key, value in compact_stage.items() if value not in (None, "", [], {})})
     feature_ids = _clean_string_list(
         [feature.get("feature_id") for feature in stage_context.get("features") or [] if feature.get("feature_id")],
-        limit=24,
+        limit=0,
     )
     compact = {
         "found": bool(stage_context.get("found")),
@@ -1523,8 +1630,7 @@ def _compact_stage_hardware_feature(feature: dict[str, Any]) -> dict[str, Any]:
             shortened[key] = _short(value, limit)
         elif isinstance(value, list):
             item_limit = 220 if is_optimizer and key in {"recommended_patterns", "avoid_patterns"} else 180
-            item_count = 4 if is_optimizer and key in {"recommended_patterns", "avoid_patterns"} else 3
-            shortened[key] = [_short(entry, item_limit) if isinstance(entry, str) else entry for entry in value[:item_count]]
+            shortened[key] = [_short(entry, item_limit) if isinstance(entry, str) else entry for entry in value]
         else:
             shortened[key] = value
     return shortened
@@ -1532,9 +1638,9 @@ def _compact_stage_hardware_feature(feature: dict[str, Any]) -> dict[str, Any]:
 
 def _compact_vector_evidence(vector: dict[str, Any]) -> dict[str, Any]:
     return {
-        "recipes": [_compact_code_knowledge(item) for item in list(vector.get("recipes") or [])[:2]],
-        "docs": [_compact_code_knowledge(item) for item in list(vector.get("docs") or [])[:2]],
-        "api_symbols": [_compact_code_knowledge(item) for item in list(vector.get("api_symbols") or [])[:2]],
+        "recipes": [_compact_code_knowledge(item) for item in list(vector.get("recipes") or [])],
+        "docs": [_compact_code_knowledge(item) for item in list(vector.get("docs") or [])],
+        "api_symbols": [_compact_code_knowledge(item) for item in list(vector.get("api_symbols") or [])],
     }
 
 
@@ -1589,7 +1695,7 @@ def _compact_hardware_feature_detail(item: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, str):
             shortened[key] = _short(value, 260 if key != "sample_code" else 400)
         elif isinstance(value, list):
-            shortened[key] = [_short(item, 220) if isinstance(item, str) else item for item in value[:4]]
+            shortened[key] = [_short(item, 220) if isinstance(item, str) else item for item in value]
         else:
             shortened[key] = value
     return shortened
@@ -1626,9 +1732,9 @@ def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
             f"  - stage={stage_context.get('stage_filter')}: feature_ids={stage_context.get('feature_ids')}"
         )
         return lines
-    for stage in stages[:4]:
+    for stage in stages:
         stage_name = stage.get("stage") or "pipeline"
-        is_optimizer_stage = str(stage_name).strip().lower() == "optimizer"
+        is_optimizer_stage = str(stage_name).strip().lower() in {"optimizer", "training_evaluation", "training"}
         node = stage.get("node") or {}
         direct_bits = _format_kv(
             node,
@@ -1658,7 +1764,7 @@ def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
             audit_bits.append(f"omitted_not_recommended={omitted}")
         if audit_bits:
             lines.append(f"    - filter_audit: {', '.join(audit_bits)}")
-        for feature in list(stage.get("features") or [])[:4]:
+        for feature in list(stage.get("features") or []):
             feature_id = feature.get("feature_id") or "feature"
             name = feature.get("name") or feature.get("feature_name") or ""
             details = _format_kv(
@@ -1709,7 +1815,7 @@ def _format_evidence_group(label: str, groups: dict[str, Any]) -> list[str]:
             continue
         if not lines:
             lines.append(f"- {label}:")
-        for entry in entries[:2]:
+        for entry in entries:
             summary = entry.get("summary_text") or entry.get("title") or entry.get("record_id") or entry.get("ref") or str(entry)
             details = _format_kv(entry, ("match_reason", "batch_size", "resolved_batch_size", "peak_vram_mb", "avg_sm_utilization_pct", "confidence"))
             suffix = f" ({details})" if details else ""
@@ -2025,7 +2131,7 @@ def _format_kv(payload: dict[str, Any], keys: tuple[str, ...]) -> str:
 def _clean_feature_key_pairs(values: Any, *, limit: int) -> list[list[str]]:
     result: list[list[str]] = []
     seen: set[str] = set()
-    for value in list(values or [])[:limit]:
+    for value in list(values or []):
         feature_key = _feature_key_pair_key(value)
         if not feature_key or feature_key in seen:
             continue
@@ -2057,7 +2163,7 @@ def _format_feature_key_pairs(values: Any) -> str:
         feature_key = _feature_key_pair_key(value)
         if not feature_key:
             continue
-        description = _feature_key_pair_description(value)
+        description = _short(_feature_key_pair_description(value), 80)
         entries.append(f"{feature_key}: {description}" if description else feature_key)
     return "[" + "; ".join(entries) + "]"
 
@@ -2072,7 +2178,7 @@ def _humanize_feature_key(feature_key: str) -> str:
 
 def _clean_string_list(values: Any, *, limit: int) -> list[str]:
     result = []
-    for value in list(values or [])[:limit]:
+    for value in list(values or []):
         text = _short(str(value), 240)
         if text and text not in result:
             result.append(text)
@@ -2081,9 +2187,7 @@ def _clean_string_list(values: Any, *, limit: int) -> list[str]:
 
 def _short(value: Any, limit: int) -> str:
     text = _strip_public_urls(str(value or "").strip().replace("\n", " "))
-    if len(text) <= limit:
-        return text
-    return text[: max(0, limit - 3)].rstrip() + "..."
+    return text
 
 
 def _strip_public_urls(value: str) -> str:

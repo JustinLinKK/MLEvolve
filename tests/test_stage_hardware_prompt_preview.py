@@ -13,14 +13,29 @@ if str(REPO_ROOT) not in sys.path:
 from agents.hardware_context import compact_optimization_context, format_hardware_prompt_section
 
 
-STAGES = ("datatype", "model", "optimizer", "tuning")
+STAGES = ("model_design", "datatype_precision", "training_evaluation")
+STAGE_ALIASES = {
+    "model_design": "model_design",
+    "model-design": "model_design",
+    "stage1": "model_design",
+    "datatype_precision": "datatype_precision",
+    "datatype": "datatype_precision",
+    "datatype_quantization": "datatype_precision",
+    "datatype-quantization": "datatype_precision",
+    "quantization": "datatype_precision",
+    "training_evaluation": "training_evaluation",
+    "optimizer": "training_evaluation",
+    "tuning": "training_evaluation",
+    "training": "training_evaluation",
+}
 
 
 def _selected_stages(stage: str | None) -> tuple[str, ...]:
     if stage is None or not stage.strip() or stage.strip().lower() == "all":
         return STAGES
 
-    normalized = stage.strip().lower()
+    normalized = stage.strip().lower().replace("-", "_")
+    normalized = STAGE_ALIASES.get(normalized, normalized)
     if normalized not in STAGES:
         raise ValueError(f"Unknown stage {stage!r}; expected one of {', '.join(STAGES)} or all")
     return (normalized,)
@@ -125,17 +140,20 @@ def test_stage_hardware_database_query_is_pieced_into_filtered_prompt() -> None:
     assert set(stage_by_name) == set(STAGES)
     assert "# Hardware/Profile Optimization Context" in prompt
     assert "- Stage-filtered hardware knowledge:" in prompt
-    assert "  - datatype" in prompt
-    assert "  - model" in prompt
-    assert "  - optimizer" in prompt
-    assert "  - tuning" in prompt
+    assert "  - model_design" in prompt
+    assert "  - datatype_precision" in prompt
+    assert "  - training_evaluation" in prompt
     assert "filter_audit" in prompt
 
-    optimizer = stage_by_name["optimizer"]
-    optimizer_ids = {feature["feature_id"] for feature in optimizer["features"]}
-    assert "muon_optimizer" in optimizer_ids
-    assert "soap_optimizer" not in optimizer_ids
-    assert "ademamix_optimizer" not in optimizer_ids
+    model_design_ids = {feature["feature_id"] for feature in stage_by_name["model_design"]["features"]}
+    datatype_ids = {feature["feature_id"] for feature in stage_by_name["datatype_precision"]["features"]}
+    training_ids = {feature["feature_id"] for feature in stage_by_name["training_evaluation"]["features"]}
+    assert "dataset_decomposition" in prompt
+    assert "tensor_cores" in model_design_ids
+    assert "bf16" in datatype_ids
+    assert "muon_optimizer" in training_ids
+    assert "soap_optimizer" not in training_ids
+    assert "ademamix_optimizer" not in training_ids
     assert "omitted_not_recommended=['soap_optimizer', 'ademamix_optimizer']" in prompt
 
     assert "ns_steps=5" in prompt
@@ -147,16 +165,16 @@ def test_stage_hardware_database_query_is_pieced_into_filtered_prompt() -> None:
 
 
 def test_single_stage_preview_only_contains_requested_stage() -> None:
-    compact, prompt = build_stage_hardware_prompt_preview(stage="optimizer")
+    compact, prompt = build_stage_hardware_prompt_preview(stage="training_evaluation")
     stages = compact["stage_hardware_features"]["stages"]
     stage_names = [stage["stage"] for stage in stages]
 
-    assert stage_names == ["optimizer"]
-    assert "  - optimizer" in prompt
-    assert "  - datatype" not in prompt
-    assert "  - model" not in prompt
-    assert "  - tuning" not in prompt
+    assert stage_names == ["training_evaluation"]
+    assert "  - training_evaluation" in prompt
+    assert "  - model_design" not in prompt
+    assert "  - datatype_precision" not in prompt
     assert "muon_optimizer" in prompt
+    assert "bf16" not in prompt
     assert "omitted_not_recommended=['soap_optimizer', 'ademamix_optimizer']" in prompt
 
 
@@ -164,21 +182,23 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Preview the stage-filtered hardware-aware prompt section generated from the hardware DB."
     )
-    parser.add_argument("stage_assignment", nargs="?", help="Optional shorthand like stage=optimizer.")
+    parser.add_argument("stage_assignment", nargs="?", help="Optional shorthand like stage=training_evaluation.")
     parser.add_argument("--hardware", default="GeForce RTX 5090", help="Hardware name to query in the knowledge graph.")
     parser.add_argument(
         "--stage",
-        choices=(*STAGES, "all"),
+        choices=(*STAGES, *STAGE_ALIASES.keys(), "all"),
         default="all",
         help="Single pipeline stage to preview, or all stages.",
     )
     args = parser.parse_args()
+    args.stage = STAGE_ALIASES.get(str(args.stage).strip().lower().replace("-", "_"), args.stage)
     if args.stage_assignment:
         key, separator, value = args.stage_assignment.partition("=")
         if key != "stage" or separator != "=":
-            parser.error("positional shorthand must use stage=<stage>, for example stage=optimizer")
+            parser.error("positional shorthand must use stage=<stage>, for example stage=training_evaluation")
         if args.stage != "all":
             parser.error("use either --stage <stage> or stage=<stage>, not both")
+        value = STAGE_ALIASES.get(value.strip().lower().replace("-", "_"), value)
         if value not in (*STAGES, "all"):
             parser.error(f"stage must be one of {', '.join((*STAGES, 'all'))}")
         args.stage = value

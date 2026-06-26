@@ -36,9 +36,9 @@ STEP_LOGICAL_STAGE: Dict[str, str] = {
 }
 
 STEP_LOGICAL_STAGE_LABEL: Dict[str, str] = {
-    "stage1_candidate_construction": "Stage 1 candidate construction",
-    "stage2_datatype_precision": "Stage 2 datatype/precision",
-    "stage3_training_evaluation": "Stage 3 training/evaluation",
+    "stage1_candidate_construction": "Stage 1 model-design",
+    "stage2_datatype_precision": "Stage 2 datatype/quantization",
+    "stage3_training_evaluation": "Stage 3 training",
 }
 
 
@@ -521,7 +521,7 @@ def create_default_step_agents(
     pipeline_decision_aware: bool = True,
 ) -> List[StepAgent]:
     data_guidelines = [
-        "Your responsibility: Stage 1 candidate construction. Load data from `./input`, clean, create features (preprocessing, encoding, augmentation), and split dataset into train/validation/test.",
+        "Your responsibility: Stage 1 model-design candidate construction. Load data from `./input`, clean, create features (preprocessing, encoding, augmentation), and split dataset into train/validation/test.",
         "Stage 1 flow: hardware context lookup, data processing, and model design together define this round's candidate before datatype and training stages refine execution details.",
         "CRITICAL: This step MUST include BOTH data loading AND feature engineering. Do NOT only load the raw data. You must actively create, transform, and enhance features to improve model performance.",
         "IMPORTANT: Apply feature engineering techniques such as feature scaling, encoding, transformation, and data augmentation methods appropriate for the task. Explore and implement feature engineering strategies that can enhance the model's ability to learn from the data.",
