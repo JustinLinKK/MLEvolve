@@ -8,16 +8,22 @@ from agents.hardware_context import (
     HARDWARE_BUDGET_GUARDRAIL_RULE,
     _scheduler_backend_config,
     apply_hardware_context_to_node,
+    apply_stepwise_hardware_decisions_to_node,
+    build_stepwise_hardware_stage_sections,
     build_hardware_candidate,
     compact_optimization_context,
+    format_hardware_datatype_prompt_section,
     format_hardware_design_brief,
     format_hardware_prompt_section,
+    format_hardware_training_prompt_section,
     get_hardware_design_brief,
     get_hardware_context_for_stage,
     hardware_context_instructions,
     optimize_training_parameters_for_round,
 )
-from agents.coder.stepwise_coder import _hardware_reasoning_enabled, create_default_step_agents
+from agents.coder.stepwise_coder import _hardware_reasoning_enabled, create_default_step_agents, stepwise_plan_and_code_query
+from agents.planner.base_planner import PLANNING_ALLOWED_MODULES
+from engine.agent_search import AgentSearch
 from engine.script_introspection import introspect_training_script, normalized_mlevolve_script_signature
 from engine.search_node import Journal, SearchNode
 from utils.serialize import dumps_json, loads_json
@@ -34,6 +40,11 @@ import timm
 	N_FOLDS = 5
 	ENSEMBLE_SIZE = 2
 	TTA_STEPS = 3
+	PRECISION_MODE = "bf16"
+	LR = 1e-3
+	WEIGHT_DECAY = 0.01
+	GRADIENT_ACCUMULATION_STEPS = 2
+	NUM_WORKERS = 4
 	model = timm.create_model(MODEL_NAME)
 with torch.amp.autocast("cuda", dtype=torch.bfloat16):
     pass
@@ -52,9 +63,67 @@ with torch.amp.autocast("cuda", dtype=torch.bfloat16):
     assert candidate["framework"] == "pytorch"
     assert candidate["uses_amp"] is True
     assert candidate["requires_gpu"] is True
+    assert candidate["precision_mode"] == "bf16"
+    assert candidate["learning_rate"] == 1e-3
+    assert candidate["weight_decay"] == 0.01
+    assert candidate["gradient_accumulation_steps"] == 2
+    assert candidate["num_workers"] == 4
 
     changed_batch = code.replace("BATCH_SIZE = 32", "BATCH_SIZE = 8")
     assert normalized_mlevolve_script_signature(code) == normalized_mlevolve_script_signature(changed_batch)
+
+
+def test_script_introspection_detects_transformer_engine_fp8_adapter() -> None:
+    code = """
+import torch
+import transformer_engine.pytorch as te
+from transformer_engine.common.recipe import DelayedScaling, Format
+
+PRECISION_MODE = "fp8_te"
+fp8_recipe = DelayedScaling(fp8_format=Format.HYBRID)
+model.fc = te.Linear(model.fc.in_features, model.fc.out_features)
+with te.autocast(enabled=True, recipe=fp8_recipe):
+    out = model(x)
+"""
+
+    candidate = introspect_training_script(code)
+
+    assert candidate["precision_mode"] == "fp8_te"
+    assert candidate["precision_backend"] == "transformer_engine"
+    assert candidate["precision_model_adaptation"] == "te_module_replacement"
+    assert candidate["uses_amp"] is True
+
+
+def test_script_introspection_detects_transformer_engine_nvfp4_recipe() -> None:
+    code = """
+import transformer_engine.pytorch as te
+from transformer_engine.common.recipe import NVFP4BlockScaling
+
+recipe = NVFP4BlockScaling()
+model.block = te.TransformerLayer(hidden_size=768, ffn_hidden_size=3072, num_attention_heads=12)
+with te.autocast(enabled=True, recipe=recipe):
+    out = model(x)
+"""
+
+    candidate = introspect_training_script(code)
+
+    assert candidate["precision_mode"] == "nvfp4_te"
+    assert candidate["precision_backend"] == "transformer_engine"
+    assert candidate["precision_model_adaptation"] == "te_module_replacement"
+
+
+def test_script_introspection_prefers_explicit_model_family() -> None:
+    code = """
+MODEL_FAMILY = "swin_b_384"
+BATCH_SIZE = 16
+model = build_model()
+"""
+
+    candidate = introspect_training_script(code)
+
+    assert candidate["model_family"] == "swin_b_384"
+    assert candidate["model_family_source"] == "explicit"
+    assert candidate["model_key"] == "swin_b_384"
 
 
 def test_compact_context_formats_prompt_without_raw_bloat() -> None:
@@ -128,6 +197,460 @@ def test_compact_context_formats_prompt_without_raw_bloat() -> None:
     assert "raw_context" not in prompt
 
 
+def test_stage_filtered_hardware_features_are_compacted_into_prompt() -> None:
+    raw = {
+        "hardware_context": {
+            "found": True,
+            "hardware": {"gpu_name": "RTX 5090", "summary_text": "RTX 5090"},
+        },
+        "stage_hardware_features": {
+            "found": True,
+            "stage_filter": ["training_parameters"],
+            "hardware": {"gpu_name": "RTX 5090", "architecture": "blackwell"},
+            "stages": [
+                {
+                    "stage": "training_parameters",
+                    "node": {
+                        "stage_filter": "training_parameters",
+                        "datatypes": ["bf16"],
+                        "software_features": ["amp"],
+                        "recipes": ["muon_optimizer"],
+                        "experimental_recipes": ["soap_optimizer", "ademamix_optimizer"],
+                    },
+                    "features": [
+                        {
+                            "feature_id": "muon_optimizer",
+                            "name": "Muon optimizer",
+                            "category": "optimizer",
+                            "support_level": "supported",
+                            "recommended": True,
+                            "verified": False,
+                            "limitations": "Use only for selected 2D hidden weights after a stable baseline.",
+                            "usage": "Hybrid Muon+AdamW optimizer with separate parameter groups.",
+                            "notes": "Use Muon on selected 2D hidden weights and AdamW on embedding/bias/norm/head/non-2D params; initial Muon settings: ns_steps=5, momentum=0.95, nesterov=True; prefer adjust_lr_fn='match_rms_adamw'.",
+                            "recommended_patterns": [
+                                "split params by dimensionality/name: Muon for hidden 2D matrices, AdamW for embeddings, heads, bias, norm, and non-2D params",
+                            ],
+                            "avoid_patterns": [
+                                "no Muon on embedding/bias/norm/head/non-2D params",
+                            ],
+                            "example_code": "optim_muon = torch.optim.Muon(muon_params, lr=0.02, weight_decay=0.1, momentum=0.95, nesterov=True, ns_steps=5, adjust_lr_fn='match_rms_adamw')",
+                        },
+                        {
+                            "feature_id": "soap_optimizer",
+                            "name": "SOAP optimizer",
+                            "category": "optimizer",
+                            "support_level": "experimental",
+                            "recommended": False,
+                            "verified": False,
+                            "limitations": "RTX 5090-specific benefit is not widely confirmed.",
+                        }
+                    ],
+                    "feature_count": 2,
+                }
+            ],
+            "features": [{"feature_id": "muon_optimizer"}, {"feature_id": "soap_optimizer"}],
+            "feature_count": 2,
+            "source": "hardware_knowledge_graph.json",
+        },
+        "confidence": 0.4,
+    }
+
+    compact = compact_optimization_context(raw)
+    prompt = format_hardware_prompt_section(compact, max_chars=2000)
+
+    assert "Stage-filtered hardware knowledge" in prompt
+    assert "optimizer" in prompt
+    assert "muon_optimizer" in prompt
+    assert "soap_optimizer" in prompt
+    assert "ns_steps=5" in prompt
+    assert "momentum=0.95" in prompt
+    assert "nesterov=True" in prompt
+    assert "match_rms_adamw" in prompt
+    assert "AdamW on embedding/bias/norm/head/non-2D params" in prompt
+    assert "omitted_not_recommended" in prompt
+    assert "not widely confirmed" not in prompt
+    assert "experimental_recipes" not in prompt
+    assert "bf16" not in prompt
+    assert "software_features" not in prompt
+    assert "hardware_knowledge_graph.json" in prompt
+
+
+def test_stage_node_direct_fields_are_pruned_by_pipeline_stage() -> None:
+    raw = {
+        "hardware_context": {
+            "found": True,
+            "hardware": {"gpu_name": "RTX 5090", "summary_text": "RTX 5090"},
+        },
+        "stage_hardware_features": {
+            "found": True,
+            "stage_filter": ["datatype", "training_parameters"],
+            "stages": [
+                    {
+                        "stage": "datatype",
+                        "node": {
+                            "stage_filter": "datatype",
+                            "stage_feature_keys": [
+                                ["bf16", "BFloat16 precision path."],
+                                ["nvimagecodec_gpu_decode", "GPU image decode for data loading."],
+                                ["dataset_decomposition", "Split large datasets into shardable chunks."],
+                                ["muon_optimizer", "Optimizer-only feature."],
+                                ["soap_optimizer", "Experimental optimizer candidate."],
+                            ],
+                            "recommended_feature_keys": [
+                                ["dataset_decomposition", "Split large datasets into shardable chunks."]
+                            ],
+                            "not_recommended_feature_keys": [
+                                ["soap_optimizer", "Experimental optimizer candidate."]
+                            ],
+                            "recommended_patterns": [
+                                "Use nvimagecodec_gpu_decode for image decode [https://example.invalid/doc]."
+                            ],
+                            "avoid_patterns": [
+                                "Avoid optimizer-only tricks during data processing [https://example.invalid/avoid]."
+                            ],
+                        },
+                        "features": [
+                            {
+                                "feature_id": "dataset_decomposition",
+                            "name": "Dataset decomposition",
+                            "category": "data_pipeline",
+                        }
+                    ],
+                    "feature_count": 1,
+                },
+                    {
+                        "stage": "training_parameters",
+                        "node": {
+                            "stage_filter": "training_parameters",
+                            "stage_feature_keys": [
+                                ["bf16", "BFloat16 precision path."],
+                                ["amp", "Automatic mixed precision policy."],
+                                ["cut_cross_entropy", "Model-only loss fusion."],
+                                ["muon_optimizer", "Optimizer-only feature."],
+                                ["soap_optimizer", "Experimental optimizer candidate."],
+                            ],
+                            "recommended_feature_keys": [
+                                ["bf16", "BFloat16 precision path."],
+                                ["amp", "Automatic mixed precision policy."],
+                            ],
+                            "not_recommended_feature_keys": [
+                                ["soap_optimizer", "Experimental optimizer candidate."]
+                            ],
+                            "recommended_patterns": [
+                                "Use bf16 AMP when stable [https://example.invalid/bf16]."
+                            ],
+                            "avoid_patterns": [
+                                "Avoid fp8 without validation [https://example.invalid/fp8]."
+                            ],
+                        },
+                        "features": [
+                            {
+                                "feature_id": "bf16",
+                            "name": "BF16",
+                            "category": "precision",
+                        }
+                    ],
+                    "feature_count": 1,
+                },
+            ],
+            "feature_count": 2,
+            "source": "unit-test",
+        },
+    }
+
+    compact = compact_optimization_context(raw)
+    prompt = format_hardware_prompt_section(compact, max_chars=2400)
+
+    datatype_line = next(line for line in prompt.splitlines() if line.startswith("  - datatype"))
+    training_line = next(line for line in prompt.splitlines() if line.startswith("  - training_parameters"))
+    assert "nvimagecodec_gpu_decode" in datatype_line
+    assert "GPU image decode for data loading" in datatype_line
+    assert "dataset_decomposition" in datatype_line
+    assert "bf16" not in datatype_line
+    assert "amp" not in datatype_line
+    assert "muon_optimizer" not in datatype_line
+    assert "soap_optimizer" not in datatype_line
+    assert "bf16" in training_line
+    assert "BFloat16 precision path" in training_line
+    assert "amp" in training_line
+    assert "muon_optimizer" in training_line
+    assert "recommended_patterns" in prompt
+    assert "avoid_patterns" in prompt
+    assert "https://" not in prompt
+    assert "http://" not in prompt
+
+
+def test_stage_specific_hardware_prompts_split_precision_and_training_focus() -> None:
+    raw = {
+        "hardware_context": {
+            "found": True,
+            "hardware": {
+                "hardware_key": "hw-1",
+                "gpu_name": "RTX Test",
+                "summary_text": "RTX Test with tensor cores",
+            },
+            "backend_capabilities": {"effective_mode": "parallel_auto_pack"},
+            "scheduler_limits": {"safe_vram_budget_mb": 24000},
+        },
+        "graph_evidence": {
+            "exact_profiles": [
+                {
+                    "summary_text": "bf16 run succeeded",
+                    "resolved_batch_size": 16,
+                    "precision": "bf16",
+                    "runtime_seconds": 12.5,
+                    "ref": "graph:bf16",
+                }
+            ],
+            "similar_profiles": [],
+            "packed_profiles": [],
+        },
+        "derived_diagnosis": {
+            "profile_symptoms": ["precision_not_optimized", "batch_too_small"],
+            "optimization_targets": ["enable_tensor_core", "increase_batch_size"],
+        },
+        "vector_evidence": {
+            "recipes": [
+                {
+                    "record_id": "amp-recipe",
+                    "record_type": "optimization_recipe_chunks",
+                    "title": "Use BF16 autocast",
+                    "recommended_patterns": ["Use torch.amp.autocast with bf16."],
+                    "confidence": 0.8,
+                },
+                {
+                    "record_id": "batch-recipe",
+                    "record_type": "optimization_recipe_chunks",
+                    "title": "Tune batch size",
+                    "recommended_patterns": ["Use graph-recommended physical batch size 16."],
+                    "confidence": 0.8,
+                },
+            ],
+            "docs": [],
+            "api_symbols": [],
+        },
+        "recommendations": [
+            "Use torch.amp.autocast with bf16.",
+            "Use graph-recommended physical batch size 16 as the starting point.",
+        ],
+        "risk_flags": ["avoid fixed oversized batch size", "avoid fp16 without GradScaler"],
+        "evidence_refs": ["graph:bf16", "code_knowledge:amp-recipe"],
+        "confidence": 0.8,
+    }
+    compact = compact_optimization_context(raw)
+
+    dtype_prompt = format_hardware_datatype_prompt_section(compact, max_chars=3000)
+    training_prompt = format_hardware_training_prompt_section(compact, max_chars=3000)
+    sections = build_stepwise_hardware_stage_sections(
+        design_context=SimpleNamespace(prompt_section="# Hardware-Aware Model Design Brief\n", compact_context={}),
+        execution_context=SimpleNamespace(compact_context=compact),
+        max_chars=3000,
+    )
+
+    assert "Datatype/Precision" in dtype_prompt
+    assert "torch.amp.autocast with bf16" in dtype_prompt
+    assert "Use graph-recommended physical batch size 16 as the starting point" not in dtype_prompt
+    assert "learning rate" in dtype_prompt
+    assert "Training Hyperparameter" in training_prompt
+    assert "physical batch size 16" in training_prompt
+    assert "consume the datatype_precision" in training_prompt
+    assert "Model Design Brief" in sections["model_design"]
+    assert "Datatype/Precision" in sections["datatype_precision"]
+    assert "Training Hyperparameter" in sections["training_evaluation"]
+
+
+def test_datatype_prompt_surfaces_transformer_engine_low_precision_without_training_guidance() -> None:
+    compact = {
+        "hardware_context": {
+            "summary": "Blackwell GPU with Tensor Core and Transformer Engine low-precision support",
+        },
+        "derived_diagnosis": {
+            "profile_symptoms": ["precision_not_optimized"],
+            "optimization_targets": ["enable_tensor_core"],
+        },
+        "vector_evidence": {
+            "recipes": [
+                {
+                    "record_id": "te-fp8",
+                    "title": "Transformer Engine FP8/NVFP4",
+                    "recommended_patterns": [
+                        "Use transformer_engine.pytorch.Linear with te.autocast and an FP8 recipe.",
+                        "Use NVFP4BlockScaling recipe only when the model structure is compatible.",
+                    ],
+                },
+            ],
+        },
+        "recommendations": [
+            "Use Transformer Engine NVFP4BlockScaling recipe and te.autocast for FP8-capable modules.",
+            "Use graph-recommended physical batch size 16 as the starting point.",
+            "Tune learning rate after batch-size selection.",
+        ],
+        "risk_flags": ["Avoid fp8 without validation."],
+        "evidence_refs": ["graph:te:nvfp4"],
+        "confidence": 0.7,
+    }
+
+    prompt = format_hardware_datatype_prompt_section(compact, max_chars=3000)
+
+    assert "Transformer Engine" in prompt
+    assert "NVFP4BlockScaling" in prompt
+    assert "te.autocast" in prompt
+    assert "precision-required model adapters" in prompt
+    assert "physical batch size 16" not in prompt
+    assert "Tune learning rate after batch-size selection" not in prompt
+
+
+def test_hardware_aware_step_agents_split_stage_order_and_boundaries() -> None:
+    hardware_agents = create_default_step_agents(hardware_aware=True)
+    baseline_agents = create_default_step_agents(hardware_aware=False)
+
+    assert [agent.name for agent in hardware_agents] == [
+        "data_processing_and_feature_engineering",
+        "model_design",
+        "datatype_precision",
+        "training_evaluation",
+    ]
+    assert [agent.name for agent in baseline_agents] == [
+        "data_processing_and_feature_engineering",
+        "model_design",
+        "training_evaluation",
+    ]
+    assert "datatype_precision" in PLANNING_ALLOWED_MODULES
+    model_guidelines = "\n".join(hardware_agents[1].guidelines)
+    dtype_guidelines = "\n".join(hardware_agents[2].guidelines)
+    training_guidelines = "\n".join(hardware_agents[3].guidelines)
+
+    assert "Do NOT choose AMP" in model_guidelines
+    assert "datatype_precision step owns" in model_guidelines
+    assert "Do NOT redesign model family" in dtype_guidelines
+    assert "Allowed precision-required model adaptations" in dtype_guidelines
+    assert "preserve the Stage 1 model family" in dtype_guidelines
+    assert "Do NOT redefine or reload data/features" in training_guidelines
+    assert "Own training hyperparameters" in training_guidelines
+
+
+def test_stepwise_generation_can_return_stage_metadata(monkeypatch) -> None:
+    responses = []
+
+    def fake_generate(**kwargs):
+        responses.append(kwargs["prompt"])
+        return "Plan for this step.\n```python\nVALUE = 1\n```"
+
+    monkeypatch.setattr("agents.coder.stepwise_coder.generate", fake_generate)
+    agent = SimpleNamespace(
+        acfg=SimpleNamespace(
+            code=SimpleNamespace(temp=0.0, model="test-model"),
+            hardware_context_enabled=True,
+        ),
+        cfg=SimpleNamespace(experiment=SimpleNamespace(mode="hardware_aware")),
+    )
+
+    plan, code, metadata = stepwise_plan_and_code_query(
+        agent_instance=agent,
+        prompt_base={
+            "Introduction": "intro",
+            "Task description": "image classification",
+            "Memory": "",
+            "Instructions": {},
+        },
+        data_preview="train_images",
+        context={
+            "stage": "draft",
+            "hardware_prompt_section": "# Combined hardware context\n",
+            "hardware_stage_sections": {
+                "model_design": "# Hardware-Aware Model Design Brief\n",
+                "datatype_precision": "# Hardware-Aware Datatype/Precision Context\n",
+                "training_evaluation": "# Hardware-Aware Training Hyperparameter Context\n",
+            },
+        },
+        return_metadata=True,
+    )
+
+    assert plan
+    assert "VALUE = 1" in code
+    assert metadata["step_order"] == [
+        "data_processing_and_feature_engineering",
+        "model_design",
+        "datatype_precision",
+        "training_evaluation",
+    ]
+    assert metadata["decisions"][2]["stage"] == "datatype_precision"
+    assert metadata["stage_note_board"]
+    assert metadata["stage_note_board"][0]["stage"] == "data_processing_and_feature_engineering"
+    assert metadata["stage_note_board"][0]["stage_group"] == "stage1_candidate_construction"
+    assert metadata["decisions"][1]["stage_group"] == "stage1_candidate_construction"
+    assert any("Datatype/Precision" in str(prompt) for prompt in responses)
+    assert any("Cross-Stage Note Board" in str(prompt) for prompt in responses)
+    assert "Stage 1 candidate construction" in responses[2]
+
+
+def test_stepwise_hardware_decisions_are_stored_as_ordered_pipeline() -> None:
+    root = SearchNode(code="", plan="root", stage="root")
+    node = SearchNode(
+        code=(
+            "MODEL_NAME = 'vit_base_patch16_224'\n"
+            "PRECISION_MODE = 'bf16'\n"
+            "BATCH_SIZE = 16\n"
+            "EPOCHS = 2\n"
+            "LR = 1e-3\n"
+            "WEIGHT_DECAY = 0.01\n"
+            "GRADIENT_ACCUMULATION_STEPS = 2\n"
+            "NUM_WORKERS = 4\n"
+        ),
+        plan="draft",
+        parent=root,
+        stage="draft",
+    )
+    design_context = SimpleNamespace(
+        compact_context={
+            "model_options": [{"model_family": "vision_transformer"}],
+            "evidence_refs": ["design:1"],
+            "confidence": 0.7,
+        }
+    )
+    execution_context = SimpleNamespace(
+        compact_context={
+            "evidence_refs": ["exec:1"],
+            "confidence": 0.8,
+        }
+    )
+    metadata = {
+        "stage_note_board": [
+            {
+                "stage": "model_design",
+                "stage_group": "stage1_candidate_construction",
+                "baseline_change": "Changed baseline CNN blocks to tensor-core-friendly channels.",
+                "purpose": "Give later precision and training stages a stable throughput target.",
+                "hardware_keys": ["tensor_cores"],
+            }
+        ],
+        "decisions": [
+            {"stage": "model_design", "plan": "Use a ViT interface.", "hardware_context_used": True},
+            {"stage": "datatype_precision", "plan": "Use bf16 autocast.", "hardware_context_used": True},
+            {"stage": "training_evaluation", "plan": "Tune batch and LR.", "hardware_context_used": True},
+        ]
+    }
+
+    apply_stepwise_hardware_decisions_to_node(
+        node,
+        metadata,
+        design_context=design_context,
+        execution_context=execution_context,
+    )
+
+    pipeline = node.hardware_decision["pipeline"]
+    assert [decision["stage"] for decision in pipeline] == [
+        "model_design",
+        "datatype_precision",
+        "training_evaluation",
+    ]
+    assert node.stage_note_board[0]["baseline_change"].startswith("Changed baseline CNN")
+    assert node.hardware_decision["stage_note_board"][0]["hardware_keys"] == ["tensor_cores"]
+    assert pipeline[1]["chosen_params"]["precision_mode"] == "bf16"
+    assert pipeline[2]["chosen_params"]["learning_rate"] == 1e-3
+
+
 def test_hardware_design_brief_ranks_model_options_without_overriding_constraints() -> None:
     compact = {
         "hardware_context": {
@@ -155,6 +678,83 @@ def test_hardware_design_brief_ranks_model_options_without_overriding_constraint
     assert "tensor-core-friendly" in prompt
     assert CONSTRAINT_PRECEDENCE_RULE in prompt
     assert HARDWARE_BUDGET_GUARDRAIL_RULE in prompt
+
+
+def test_stepwise_hardware_stage_sections_route_stage_filtered_features() -> None:
+    execution_context = compact_optimization_context(
+        {
+            "hardware_context": {
+                "found": True,
+                "hardware": {"gpu_name": "RTX 5090", "summary_text": "RTX 5090"},
+            },
+            "stage_hardware_features": {
+                "found": True,
+                "stage_filter": ["datatype", "training_parameters"],
+                "stages": [
+                    {
+                        "stage": "datatype",
+                        "node": {"stage_filter": "datatype", "software_features": ["nvimagecodec_gpu_decode"]},
+                        "features": [
+                            {
+                                "feature_id": "dataset_decomposition",
+                                "name": "Dataset decomposition",
+                                "category": "data_pipeline",
+                            }
+                        ],
+                        "feature_count": 1,
+                    },
+                    {
+                        "stage": "training_parameters",
+                        "node": {
+                            "stage_filter": "training_parameters",
+                            "recipes": ["muon_optimizer"],
+                            "datatypes": ["bf16", "fp8"],
+                        },
+                        "features": [
+                            {
+                                "feature_id": "muon_optimizer",
+                                "name": "Muon optimizer",
+                                "category": "optimizer",
+                                "recommended": True,
+                            },
+                            {
+                                "feature_id": "bf16",
+                                "name": "BF16",
+                                "category": "precision",
+                            }
+                        ],
+                        "feature_count": 2,
+                    },
+                ],
+                "features": [
+                    {"feature_id": "dataset_decomposition"},
+                    {"feature_id": "muon_optimizer"},
+                    {"feature_id": "bf16"},
+                ],
+                "feature_count": 3,
+                "source": "unit-test",
+            },
+            "confidence": 0.5,
+        }
+    )
+    sections = build_stepwise_hardware_stage_sections(
+        design_context=SimpleNamespace(prompt_section="# Hardware-Aware Model Design Brief\n", compact_context={}),
+        execution_context=SimpleNamespace(compact_context=execution_context),
+        max_chars=4000,
+    )
+
+    data_section = sections["data_processing_and_feature_engineering"]
+    dtype_section = sections["datatype_precision"]
+    training_section = sections["training_evaluation"]
+
+    assert "dataset_decomposition" in data_section
+    assert "bf16" not in data_section
+    assert "muon_optimizer" in training_section
+    assert "bf16" in training_section
+    assert "dataset_decomposition" not in training_section
+    assert "Datatype/Precision" in dtype_section
+    assert "bf16" in dtype_section
+    assert "muon_optimizer" not in dtype_section
 
 
 def test_hardware_design_brief_fetches_only_selected_feature_details(monkeypatch) -> None:
@@ -573,9 +1173,58 @@ def test_hardware_prompt_text_forbids_budget_increases() -> None:
     assert "Do not increase epochs" in text
     assert "current scheduler backend config" in text
     assert "model size" in text
+    assert "Do not query the hardware node again" in text
+    assert "Cross-Stage Note Board" in text
     assert "Do NOT increase epochs" in all_guidelines
     assert "Allowed hardware optimizations" in all_guidelines
     assert "Scheduler-aware training" in all_guidelines
+    assert "the stage-specific hardware node response is already attached" in all_guidelines
+
+
+def test_agent_search_attach_scheduler_prewarms_current_hardware() -> None:
+    class FakeScheduler:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def prewarm_current_hardware_neighborhood(self, *, hardware_id, limit):
+            self.calls.append({"hardware_id": hardware_id, "limit": limit})
+            return {
+                "ok": True,
+                "hardware_id": "gpu:rtx5090",
+                "hardware_name": "NVIDIA GeForce RTX 5090",
+                "feature_count": 18,
+                "source": "neo4j",
+                "cache_namespace": "hardware:neighborhood",
+            }
+
+    search = AgentSearch.__new__(AgentSearch)
+    search.cfg = SimpleNamespace(experiment=SimpleNamespace(mode="hardware_aware"))
+    search.acfg = SimpleNamespace(hardware_context_enabled=True, hardware_context_limit=4)
+
+    scheduler = FakeScheduler()
+    AgentSearch.attach_scheduler(search, scheduler)
+
+    assert search.scheduler_client is scheduler
+    assert scheduler.calls == [{"hardware_id": "current", "limit": 256}]
+    assert search.hardware_cache_status["ok"] is True
+    assert search.hardware_cache_status["hardware_name"] == "NVIDIA GeForce RTX 5090"
+
+
+def test_agent_search_hardware_prewarm_failure_is_nonfatal() -> None:
+    class FailingScheduler:
+        def prewarm_current_hardware_neighborhood(self, *, hardware_id, limit):
+            raise RuntimeError("redis unavailable")
+
+    search = AgentSearch.__new__(AgentSearch)
+    search.cfg = SimpleNamespace(experiment=SimpleNamespace(mode="hardware_aware"))
+    search.acfg = SimpleNamespace(hardware_context_enabled=True, hardware_context_limit=4)
+
+    scheduler = FailingScheduler()
+    AgentSearch.attach_scheduler(search, scheduler)
+
+    assert search.scheduler_client is scheduler
+    assert search.hardware_cache_status["ok"] is False
+    assert "redis unavailable" in search.hardware_cache_status["reason"]
 
 
 def test_hardware_context_handles_unexecuted_root_parent() -> None:
@@ -679,7 +1328,21 @@ def test_origin_mode_disables_hardware_context_and_static_guidance() -> None:
 
 def test_search_node_hardware_fields_round_trip_in_journal() -> None:
     root = SearchNode(code="", plan="root", stage="root")
-    node = SearchNode(code="BATCH_SIZE = 16", plan="draft", parent=root, stage="draft")
+    node = SearchNode(
+        code="BATCH_SIZE = 16",
+        plan="draft",
+        parent=root,
+        stage="draft",
+        stage_note_board=[
+            {
+                "stage": "model_design",
+                "stage_group": "stage1_candidate_construction",
+                "baseline_change": "Changed the baseline model head.",
+                "purpose": "Match the task metric while preserving a stable training target.",
+                "hardware_keys": ["tensor_cores"],
+            }
+        ],
+    )
     apply_hardware_context_to_node(
         node,
         SimpleNamespace(
@@ -707,4 +1370,29 @@ def test_search_node_hardware_fields_round_trip_in_journal() -> None:
     assert loaded_node.scheduler_risk_flags == ["avoid_oom"]
     assert loaded_node.scheduler_confidence == 0.6
     assert loaded_node.hardware_evidence_refs == ["graph:job:1"]
+    assert loaded_node.stage_note_board[0]["baseline_change"] == "Changed the baseline model head."
     assert loaded_node.parent.id == root.id
+
+
+def test_search_node_inherits_stage_note_board_from_parent() -> None:
+    root = SearchNode(code="", plan="root", stage="root")
+    parent = SearchNode(
+        code="x = 1",
+        plan="draft",
+        parent=root,
+        stage="draft",
+        stage_note_board=[
+            {
+                "stage": "model_design",
+                "stage_group": "stage1_candidate_construction",
+                "baseline_change": "Changed baseline channels.",
+                "purpose": "Create a tensor-core-friendly Stage 1 target.",
+                "hardware_keys": ["tensor_cores"],
+            }
+        ],
+    )
+    child = SearchNode(code="x = 2", plan="debug", parent=parent, stage="debug")
+
+    assert child.stage_note_board == parent.stage_note_board
+    child.stage_note_board[0]["baseline_change"] = "child edit"
+    assert parent.stage_note_board[0]["baseline_change"] == "Changed baseline channels."
