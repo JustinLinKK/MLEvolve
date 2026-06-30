@@ -720,6 +720,20 @@ def test_stepwise_hardware_stage_sections_route_stage_filtered_features() -> Non
                             "stage_filter": "training_parameters",
                             "recipes": ["muon_optimizer"],
                             "datatypes": ["bf16", "fp8"],
+                            "stage_feature_keys": [
+                                ["muon_optimizer", "Muon optimizer supports matmul-heavy training."],
+                                ["bf16", "BF16 precision path."],
+                                ["fp8", "FP8 precision recipe without a shown detail row."],
+                            ],
+                            "recommended_feature_keys": [
+                                ["muon_optimizer", "Muon optimizer supports matmul-heavy training."],
+                                ["bf16", "BF16 precision path."],
+                                ["fp8", "FP8 precision recipe without a shown detail row."],
+                            ],
+                            "conditional_feature_keys": [
+                                ["muon_optimizer", "Muon optimizer supports matmul-heavy training."],
+                                ["fp8", "FP8 precision recipe without a shown detail row."],
+                            ],
                         },
                         "features": [
                             {
@@ -765,7 +779,11 @@ def test_stepwise_hardware_stage_sections_route_stage_filtered_features() -> Non
     assert "dataset_decomposition" not in training_section
     assert "Datatype/Precision" in dtype_section
     assert "bf16" in dtype_section
+    assert "fp8" in dtype_section
     assert "muon_optimizer" not in dtype_section
+    assert "matmul-heavy" not in dtype_section
+    assert "features_shown=1/1" in dtype_section
+    assert "features_shown=2/1" not in dtype_section
 
 
 def test_hardware_design_brief_fetches_only_selected_feature_details(monkeypatch) -> None:

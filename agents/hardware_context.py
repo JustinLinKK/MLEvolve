@@ -542,9 +542,11 @@ def _filter_stage_hardware_features(
             continue
         stage = dict(raw_stage)
         if allowed_categories or include_keywords or exclude_keywords:
+            raw_features = [dict(feature) for feature in list(stage.get("features") or [])]
+            feature_categories = _feature_category_index(raw_features)
             features = [
-                dict(feature)
-                for feature in list(stage.get("features") or [])
+                feature
+                for feature in raw_features
                 if _stage_feature_matches_focus(
                     feature,
                     allowed_categories=allowed_categories,
@@ -554,8 +556,17 @@ def _filter_stage_hardware_features(
             ]
             stage["features"] = features
             stage["feature_count"] = len(features)
+            stage["shown_feature_count"] = len(features[:4])
+            if allowed_categories and stage.get("omitted_not_recommended"):
+                stage["omitted_not_recommended"] = _focused_feature_ids_by_category(
+                    stage.get("omitted_not_recommended") or [],
+                    allowed_categories=allowed_categories,
+                    feature_categories=feature_categories,
+                )
             node = _focused_stage_node(
                 dict(stage.get("node") or {}),
+                allowed_categories=allowed_categories,
+                feature_categories=feature_categories,
                 include_keywords=include_keywords,
                 exclude_keywords=exclude_keywords,
             )
@@ -582,6 +593,32 @@ def _filter_stage_hardware_features(
     return {key: value for key, value in filtered.items() if value not in (None, "", [], {})}
 
 
+def _feature_category_index(features: list[dict[str, Any]]) -> dict[str, str]:
+    categories: dict[str, str] = {}
+    for feature in features:
+        feature_id = str(feature.get("feature_id") or "").strip()
+        category = str(feature.get("category") or "").strip()
+        if feature_id and category and feature_id not in categories:
+            categories[feature_id] = category
+    return categories
+
+
+def _focused_feature_ids_by_category(
+    values: Any,
+    *,
+    allowed_categories: set[str],
+    feature_categories: dict[str, str],
+) -> list[Any]:
+    focused: list[Any] = []
+    for value in list(values or []):
+        feature_id = str(value or "").strip()
+        category = feature_categories.get(feature_id)
+        if category and category not in allowed_categories:
+            continue
+        focused.append(value)
+    return focused
+
+
 def _stage_feature_matches_focus(
     feature: dict[str, Any],
     *,
@@ -603,10 +640,12 @@ def _stage_feature_matches_focus(
 def _focused_stage_node(
     node: dict[str, Any],
     *,
+    allowed_categories: set[str] | None,
+    feature_categories: dict[str, str],
     include_keywords: tuple[str, ...],
     exclude_keywords: tuple[str, ...],
 ) -> dict[str, Any]:
-    if not node or not (include_keywords or exclude_keywords):
+    if not node or not (allowed_categories or include_keywords or exclude_keywords):
         return node
     focused = {"stage_filter": node.get("stage_filter")} if node.get("stage_filter") else {}
     for key, value in node.items():
@@ -616,8 +655,10 @@ def _focused_stage_node(
             focused_values = [
                 item
                 for item in list(value or [])
-                if _stage_text_matches_focus(
-                    _feature_key_pair_search_text(item),
+                if _feature_key_pair_matches_focus(
+                    item,
+                    allowed_categories=allowed_categories,
+                    feature_categories=feature_categories,
                     include_keywords=include_keywords,
                     exclude_keywords=exclude_keywords,
                 )
@@ -644,6 +685,26 @@ def _focused_stage_node(
             ):
                 focused[key] = value
     return {key: value for key, value in focused.items() if value not in (None, "", [], {})}
+
+
+def _feature_key_pair_matches_focus(
+    item: Any,
+    *,
+    allowed_categories: set[str] | None,
+    feature_categories: dict[str, str],
+    include_keywords: tuple[str, ...],
+    exclude_keywords: tuple[str, ...],
+) -> bool:
+    if allowed_categories:
+        feature_id = _feature_key_pair_key(item)
+        category = feature_categories.get(feature_id)
+        if category and category not in allowed_categories:
+            return False
+    return _stage_text_matches_focus(
+        _feature_key_pair_search_text(item),
+        include_keywords=include_keywords,
+        exclude_keywords=exclude_keywords,
+    )
 
 
 def _stage_feature_search_text(feature: dict[str, Any]) -> str:
