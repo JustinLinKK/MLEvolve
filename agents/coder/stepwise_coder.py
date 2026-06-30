@@ -471,6 +471,7 @@ class MetaAgent:
 
         prompt: Dict[str, Any] = {
             "Introduction": introduction,
+            "Task description": task_desc,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
             "Hardware/Profile Optimization Context": context.hardware_section_for_merge(),
             "Pipeline Decision Contract": context.pipeline_decision_section,
@@ -502,6 +503,9 @@ class MetaAgent:
         pipeline_decision_section = prompt.get("Pipeline Decision Contract", "")
         stage_receipt_section = prompt.get("Previous Stage Receipt", "")
         note_board_section = prompt.get("Cross-Stage Note Board", "")
+        task_description_section = ""
+        if prompt.get("Task description", "").strip():
+            task_description_section = f"\n# Task description\n{prompt['Task description']}\n\n"
 
         okay_text = "Let me approach this systematically.\nFirst, I'll examine the dataset:"
 
@@ -522,6 +526,7 @@ class MetaAgent:
             assistant_suffix = ""
 
         user_prompt = (
+            f"{task_description_section}"
             f"{memory_section}\n\n"
             f"{hardware_section}\n"
             f"{pipeline_decision_section}\n"

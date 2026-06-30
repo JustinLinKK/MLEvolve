@@ -546,11 +546,17 @@ def test_stepwise_generation_can_return_stage_metadata(monkeypatch) -> None:
         cfg=SimpleNamespace(experiment=SimpleNamespace(mode="hardware_aware")),
     )
 
+    task_description = (
+        "image classification\n\n"
+        "Evaluation: report macro F1 on validation.\n"
+        "Submission: save submission.csv with id,label columns."
+    )
+
     plan, code, metadata = stepwise_plan_and_code_query(
         agent_instance=agent,
         prompt_base={
             "Introduction": "intro",
-            "Task description": "image classification",
+            "Task description": task_description,
             "Memory": "",
             "Instructions": {},
         },
@@ -583,8 +589,9 @@ def test_stepwise_generation_can_return_stage_metadata(monkeypatch) -> None:
     assert metadata["decisions"][1]["stage_group"] == "stage1_candidate_construction"
     assert any("Datatype/Precision" in str(prompt) for prompt in responses)
     assert any("Cross-Stage Note Board" in str(prompt) for prompt in responses)
-    assert "# Task description\nimage classification" in responses[0]
-    assert all("# Task description\nimage classification" not in prompt for prompt in responses[1:])
+    assert f"# Task description\n{task_description}" in responses[0]
+    assert f"# Task description\n{task_description}" in responses[-1]
+    assert all(f"# Task description\n{task_description}" not in prompt for prompt in responses[1:-1])
     assert all("Previous Stage Receipt" in prompt for prompt in responses[1:])
     assert "Stage 1 candidate construction" in responses[2]
 
