@@ -17,12 +17,14 @@ from utils.seed import set_global_seed
 from engine.coldstart import build_guidance_description
 from utils.logging_config import setup_logging
 from utils.hardware_monitor import HardwareMonitor
+from utils.experiment_metrics import build_comparison_metrics, write_comparison_metrics
 import torch
 from localml_scheduler.client import SchedulerClient
 from localml_scheduler.config import SchedulerSettings
 
 
 def run():
+    run_started_at = time.time()
     cfg = load_cfg()
     if cfg.torch_hub_dir:
         torch.hub.set_dir(cfg.torch_hub_dir)
@@ -32,6 +34,7 @@ def run():
     hardware_monitor = HardwareMonitor(cfg, logger)
     hardware_monitor.start()
     scheduler_service = None
+    scheduler_client = None
     previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
 
     def handle_sigterm(signum, frame):
@@ -210,6 +213,19 @@ def run():
 
         interpreter.cleanup_session(-1)
     finally:
+        if "journal" in locals():
+            try:
+                metrics = build_comparison_metrics(
+                    cfg,
+                    journal,
+                    started_at=run_started_at,
+                    finished_at=time.time(),
+                    scheduler_client=scheduler_client,
+                    metric_maximize=getattr(locals().get("agent", None), "metric_maximize", None),
+                )
+                write_comparison_metrics(metrics, cfg.log_dir)
+            except Exception as exc:
+                logger.warning("Failed to write comparison metrics: %s", exc)
         signal.signal(signal.SIGTERM, previous_sigterm_handler)
         if "interpreter" in locals():
             interpreter.cleanup_session(-1)
