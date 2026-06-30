@@ -11,52 +11,37 @@ from typing import Any
 # Pipeline stage keyword definitions
 # ---------------------------------------------------------------------------
 
-PIPELINE_STAGES = ("datatype", "model", "optimizer", "tuning")
-
-_STAGE_ALIASES = {
-    "data_type": "datatype",
-    "data_processing": "datatype",
-    "data_processing_and_feature_engineering": "datatype",
-    "feature_engineering": "datatype",
-    "model_design": "model",
-    "model_structure": "model",
-    "datatype_precision": "tuning",
-    "training": "tuning",
-    "training_evaluation": "tuning",
-    "training_parameters": "tuning",
-    "training_params": "tuning",
-    "precision": "tuning",
-}
+PIPELINE_STAGES = ("model_structure", "datatype", "training_parameters")
 
 _STAGE_KEYWORDS: dict[str, list[str]] = {
+    "model_structure": [
+        "attention", "flash-attn", "sdpa", "channels_last", "cnn", "unet",
+        "transformer", "activation checkpointing", "sequence packing",
+        "kv-cache", "tiled", "chunked", "image", "video", "wsi",
+        "model", "architecture", "layer", "kernel", "extension", "sm_",
+        "mig", "topology", "nvlink", "tensor core",
+    ],
     "datatype": [
         "data", "dataset", "dataloader", "modality", "shape",
         "sequence", "packing", "bucket", "decomposition", "decode",
         "image", "video", "wsi", "token", "tiled", "chunked",
         "channels_last",
     ],
-    "model": [
-        "attention", "flash-attn", "sdpa", "channels_last", "cnn", "unet",
-        "transformer", "activation checkpointing", "sequence packing",
-        "kv-cache", "tiled", "chunked", "image", "video", "wsi",
-        "model", "architecture", "layer", "kernel", "extension", "sm_",
-        "mig", "topology", "nvlink",
-    ],
-    "optimizer": [
+    "training_parameters": [
         "optimizer", "adamw", "muon", "soap", "ademamix", "loss",
         "cross-entropy", "cross entropy", "learning rate", "lr",
         "weight_decay", "momentum", "ns_steps", "nesterov",
         "adjust_lr_fn", "scheduler",
-    ],
-    "tuning": [
         "bf16", "fp16", "fp8", "fp4", "fp64", "tf32", "int8",
         "precision", "autocast", "mixed precision", "quantiz",
         "mxfp4", "mxfp8", "nvfp4", "gradscaler",
         "transformer engine", "tensor core",
         "batch_size", "batch size", "batch", "grad_accum",
-        "gradient accumulation", "epoch",
-        "vram", "memory budget", "memory plan",
-        "throughput", "configurable",
+        "gradient accumulation", "epoch", "dataloader", "num_workers",
+        "pin_memory", "persistent_workers", "checkpoint", "runtime",
+        "vram", "memory budget", "memory plan", "throughput",
+        "parallel", "tensor_parallel", "interconnect", "nvlink", "pcie",
+        "configurable",
     ],
 }
 
@@ -80,9 +65,10 @@ def query_hardware_node(
     hardware_name:
         GPU name to search, e.g. ``"rtx 4090"``.
     agent_stage:
-        ``"datatype"`` / ``"model"`` / ``"optimizer"`` / ``"tuning"``
-        or ``None`` for all patterns. Legacy stage names are accepted.
+        ``"model_structure"`` / ``"datatype"`` / ``"training_parameters"``
+        or ``None`` for all patterns.
     """
+    stage = _normalize_stage(agent_stage)
     graph = _load_graph(graph_path)
     node, edges = _lookup_node(graph, hardware_name)
     if node is None:
@@ -90,9 +76,9 @@ def query_hardware_node(
 
     props = node.get("properties", node)
     raw_cap = _first_list_entry(props.get("compute_capabilities"))
-    stage = _normalize_stage(agent_stage)
-
     feature_index = _stage_feature_key_index(graph, edges, stage)
+    recommended = _filter_patterns_by_stage(_as_str_list(props.get("recommended_patterns")), stage)
+    avoid = _filter_patterns_by_stage(_as_str_list(props.get("avoid_patterns")), stage)
 
     return _compact_dict({
         "found": True,
@@ -106,8 +92,8 @@ def query_hardware_node(
         "compute_capability": raw_cap,
         "stage_filter": stage,
         **feature_index,
-        "recommended_patterns": props.get("recommended_patterns", []),
-        "avoid_patterns": props.get("avoid_patterns", []),
+        "recommended_patterns": recommended,
+        "avoid_patterns": avoid,
         "feature_query": {
             "tool": "query_hardware_features",
             "hardware_name": _as_str(props.get("name")) or hardware_name,
@@ -121,14 +107,20 @@ def query_hardware_node(
 # ---------------------------------------------------------------------------
 
 _STAGE_CATEGORIES: dict[str, set[str]] = {
+    "model_structure": {"compute_capability", "interconnect", "kernel_optimization", "tensor_core"},
     "datatype": {"data_pipeline"},
-    "model": {"compute_capability", "interconnect", "kernel_optimization", "tensor_core"},
-    "optimizer": {"optimizer"},
-    "tuning": {"data_pipeline", "interconnect", "kernel_optimization", "parallelism", "precision"},
+    "training_parameters": {
+        "data_pipeline",
+        "interconnect",
+        "kernel_optimization",
+        "optimizer",
+        "parallelism",
+        "precision",
+    },
 }
 
 _STAGE_FEATURE_IDS: dict[str, set[str]] = {
-    "optimizer": {"gram_newton_schulz_symmetric_gemm"},
+    "training_parameters": {"gram_newton_schulz_symmetric_gemm"},
 }
 
 
@@ -145,12 +137,13 @@ def query_hardware_features(
     hardware_name:
         GPU name to search, e.g. ``"rtx 4090"``.
     agent_stage:
+        ``"model_structure"`` returns architecture/kernel/tensor-core features;
         ``"datatype"`` returns data-pipeline/data-shape features;
-        ``"model"`` returns architecture/kernel/tensor-core features;
-        ``"optimizer"`` returns optimizer features and optimizer-adjacent kernels;
-        ``"tuning"`` returns precision, dataloader, parallelism, and runtime features;
+        ``"training_parameters"`` returns optimizer, precision, data-loader,
+        parallelism, runtime, and optimizer-adjacent kernel features;
         ``None`` returns all features.
     """
+    stage = _normalize_stage(agent_stage)
     graph = _load_graph(graph_path)
     node, edges = _lookup_node(graph, hardware_name)
     if node is None:
@@ -161,7 +154,6 @@ def query_hardware_features(
         for n in graph["nodes"] if n["label"] == "Feature"
     }
 
-    stage = _normalize_stage(agent_stage)
     categories = _STAGE_CATEGORIES.get(stage) if stage else None
     feature_ids = _STAGE_FEATURE_IDS.get(stage, set()) if stage else set()
 
@@ -228,7 +220,24 @@ def _normalize_stage(agent_stage: str | None) -> str | None:
     stage = str(agent_stage).strip().lower()
     if not stage or stage == "all":
         return None
-    return _STAGE_ALIASES.get(stage, stage)
+    if stage not in PIPELINE_STAGES:
+        allowed = ", ".join(PIPELINE_STAGES)
+        raise ValueError(f"unsupported hardware pipeline stage {stage!r}; expected one of: {allowed}, or all")
+    return stage
+
+
+def _filter_patterns_by_stage(patterns: list[str], stage: str | None) -> list[str]:
+    if not stage:
+        return patterns
+    keywords = _STAGE_KEYWORDS.get(stage, [])
+    if not keywords:
+        return []
+    filtered: list[str] = []
+    for pattern in patterns:
+        searchable = _strip_urls(pattern).lower()
+        if any(keyword in searchable for keyword in keywords):
+            filtered.append(pattern)
+    return filtered
 
 
 def _stage_feature_key_index(
@@ -412,11 +421,6 @@ def _humanize_feature_key(feature_id: str) -> str:
         return "Hardware feature."
     text = " ".join(word.upper() if word.lower() in {"fp8", "fp4", "fp16", "bf16", "tf32", "int8"} else word for word in words)
     return text[:1].upper() + text[1:] + "."
-
-
-def _append_unique(values: list[str], value: str) -> None:
-    if value and value not in values:
-        values.append(value)
 
 
 def _append_unique_feature_pair(values: list[list[str]], feature_id: str, description: str) -> None:

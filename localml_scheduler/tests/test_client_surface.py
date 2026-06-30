@@ -273,14 +273,16 @@ class SchedulerClientSurfaceTest(unittest.TestCase):
                 },
             }
 
-            context = client.get_stage_hardware_features(pipeline_stage="optimizer", limit=12)
+            context = client.get_stage_hardware_features(pipeline_stage="training_parameters", limit=8)
 
             self.assertTrue(context["found"])
-            self.assertEqual(context["stage_filter"], "optimizer")
+            self.assertEqual(context["stage_filter"], "training_parameters")
             feature_ids = [item["feature_id"] for item in context["features"]]
+            self.assertIn("muon_optimizer", feature_ids)
             self.assertIn("soap_optimizer", feature_ids)
             self.assertIn("ademamix_optimizer", feature_ids)
-            self.assertNotIn("bf16", feature_ids)
+            self.assertIn("gram_newton_schulz_symmetric_gemm", feature_ids)
+            self.assertIn("bf16", feature_ids)
             node = context["stages"][0]["node"]
             stage_keys = {item[0] for item in node["stage_feature_keys"]}
             not_recommended_keys = {item[0] for item in node["not_recommended_feature_keys"]}
@@ -296,6 +298,10 @@ class SchedulerClientSurfaceTest(unittest.TestCase):
             self.assertIn("avoid_patterns", node)
             self.assertNotIn("https://", str(node))
             self.assertNotIn("http://", str(node))
+
+            stale = client.get_stage_hardware_features(pipeline_stage="optimizer", limit=12)
+            self.assertFalse(stale["found"])
+            self.assertIn("unsupported hardware pipeline stage", stale["reason"])
 
     def test_stage_hardware_features_map_composite_workflow_stages(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -315,7 +321,7 @@ class SchedulerClientSurfaceTest(unittest.TestCase):
             )
             stage1_ids = {item["feature_id"] for item in stage1["features"]}
 
-            self.assertEqual(stage1["stage_filter"], ["datatype", "model"])
+            self.assertEqual(stage1["stage_filter"], ["datatype", "model_structure"])
             self.assertIn("dataset_decomposition", stage1_ids)
             self.assertIn("tensor_cores", stage1_ids)
             self.assertIn("sm_120", stage1_ids)
@@ -330,7 +336,7 @@ class SchedulerClientSurfaceTest(unittest.TestCase):
                 item["feature_id"] for item in datatype_precision["features"]
             }
 
-            self.assertEqual(datatype_precision["stage_filter"], ["datatype", "tuning"])
+            self.assertEqual(datatype_precision["stage_filter"], ["datatype", "training_parameters"])
             self.assertIn("dataset_decomposition", datatype_precision_ids)
             self.assertIn("nvimagecodec_gpu_decode", datatype_precision_ids)
             self.assertIn("bf16", datatype_precision_ids)
@@ -340,13 +346,58 @@ class SchedulerClientSurfaceTest(unittest.TestCase):
             self.assertNotIn("gram_newton_schulz_symmetric_gemm", datatype_precision_ids)
             self.assertNotIn("async_tensor_parallel", datatype_precision_ids)
 
+            precision_alias = client.get_stage_hardware_features(
+                pipeline_stage="precision",
+                limit=32,
+            )
+            precision_alias_ids = {
+                item["feature_id"] for item in precision_alias["features"]
+            }
+
+            self.assertEqual(precision_alias["stage_filter"], ["datatype", "training_parameters"])
+            self.assertEqual(precision_alias_ids, datatype_precision_ids)
+            self.assertIn("bf16", precision_alias_ids)
+            self.assertIn("fp8_rowwise_scaling", precision_alias_ids)
+            self.assertNotIn("muon_optimizer", precision_alias_ids)
+            self.assertNotIn("gram_newton_schulz_symmetric_gemm", precision_alias_ids)
+
+            training_default = client.get_stage_hardware_features(
+                pipeline_stage="training_evaluation",
+                limit=8,
+            )
+            training_default_ids = {
+                item["feature_id"] for item in training_default["features"]
+            }
+
+            self.assertEqual(training_default["stage_filter"], "training_parameters")
+            self.assertGreater(len(training_default["features"]), 8)
+            self.assertIn("muon_optimizer", training_default_ids)
+            self.assertIn("soap_optimizer", training_default_ids)
+            self.assertIn("ademamix_optimizer", training_default_ids)
+            self.assertIn("gram_newton_schulz_symmetric_gemm", training_default_ids)
+            self.assertIn("bf16", training_default_ids)
+
+            model_training = client.get_stage_hardware_features(
+                pipeline_stage=("model_structure", "training_parameters"),
+                limit=8,
+            )
+            model_training_ids = {
+                item["feature_id"] for item in model_training["features"]
+            }
+
+            self.assertEqual(model_training["stage_filter"], ["model_structure", "training_parameters"])
+            self.assertIn("tensor_cores", model_training_ids)
+            self.assertIn("muon_optimizer", model_training_ids)
+            self.assertIn("soap_optimizer", model_training_ids)
+            self.assertIn("bf16", model_training_ids)
+
             training = client.get_stage_hardware_features(
                 pipeline_stage="training_evaluation",
                 limit=32,
             )
             training_ids = {item["feature_id"] for item in training["features"]}
 
-            self.assertEqual(training["stage_filter"], ["optimizer", "tuning"])
+            self.assertEqual(training["stage_filter"], "training_parameters")
             self.assertIn("muon_optimizer", training_ids)
             self.assertIn("gram_newton_schulz_symmetric_gemm", training_ids)
             self.assertIn("bf16", training_ids)
@@ -375,7 +426,7 @@ class SchedulerClientSurfaceTest(unittest.TestCase):
                     "stage_filter": list(pipeline_stage),
                     "stages": [
                         {
-                            "stage": "tuning",
+                            "stage": "training_parameters",
                             "features": [{"feature_id": "bf16", "name": "BF16", "category": "precision"}],
                             "feature_count": 1,
                         }
@@ -397,8 +448,8 @@ class SchedulerClientSurfaceTest(unittest.TestCase):
                 limit=3,
             )
 
-            self.assertEqual(stage_calls, [("current", ["optimizer", "tuning"], 3)])
-            self.assertEqual(code_context_inputs[0][1]["stage_hardware_features"]["stage_filter"], ["optimizer", "tuning"])
+            self.assertEqual(stage_calls, [("current", ["training_parameters"], 3)])
+            self.assertEqual(code_context_inputs[0][1]["stage_hardware_features"]["stage_filter"], ["training_parameters"])
             self.assertEqual(context["stage_hardware_features"]["features"][0]["feature_id"], "bf16")
 
     def test_batch_resolution_apply_updates_runner_kwargs_and_metadata(self) -> None:

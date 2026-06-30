@@ -37,7 +37,7 @@ from .scheduler.service import SchedulerService
 from .storage.state_store import StateStore
 
 
-_PIPELINE_HARDWARE_STAGES = ("datatype", "model", "optimizer", "tuning")
+_PIPELINE_HARDWARE_STAGES = ("model_structure", "datatype", "training_parameters")
 
 _HARDWARE_STAGE_ALIASES = {
     "data": "datatype",
@@ -45,59 +45,57 @@ _HARDWARE_STAGE_ALIASES = {
     "data_processing": "datatype",
     "data_processing_and_feature_engineering": "datatype",
     "feature_engineering": "datatype",
-    "model_design": "model",
-    "model_structure": "model",
-    "architecture": "model",
-    "optimizer_selection": "optimizer",
-    "loss": "optimizer",
-    "training": "tuning",
-    "training_evaluation": "tuning",
-    "training_parameters": "tuning",
-    "training_params": "tuning",
-    "precision": "tuning",
-    "pre_submit_training_review": "tuning",
+    "model_design": "model_structure",
+    "architecture": "model_structure",
+    "optimizer_selection": "training_parameters",
+    "loss": "training_parameters",
+    "training": "training_parameters",
+    "training_evaluation": "training_parameters",
+    "training_parameters": "training_parameters",
+    "training_params": "training_parameters",
+    "pre_submit_training_review": "training_parameters",
 }
 
 _COMPOSITE_HARDWARE_STAGE_ALIASES = {
-    "stage1": ("datatype", "model"),
-    "stage_1": ("datatype", "model"),
-    "hardware_context_lookup": ("datatype", "model"),
-    "stage1_candidate_construction": ("datatype", "model"),
-    "candidate_construction": ("datatype", "model"),
-    "datatype_precision": ("datatype", "tuning"),
-    "training_evaluation": ("optimizer", "tuning"),
+    "stage1": ("datatype", "model_structure"),
+    "stage_1": ("datatype", "model_structure"),
+    "hardware_context_lookup": ("datatype", "model_structure"),
+    "stage1_candidate_construction": ("datatype", "model_structure"),
+    "candidate_construction": ("datatype", "model_structure"),
+    "datatype_precision": ("datatype", "training_parameters"),
+    "precision": ("datatype", "training_parameters"),
+    "training_evaluation": ("training_parameters",),
 }
 
 _COMPOSITE_STAGE_FEATURE_CATEGORIES = {
     "stage1_candidate_construction": {
         "datatype": {"data_pipeline"},
-        "model": {"compute_capability", "interconnect", "kernel_optimization", "tensor_core"},
+        "model_structure": {"compute_capability", "interconnect", "kernel_optimization", "tensor_core"},
     },
     "candidate_construction": {
         "datatype": {"data_pipeline"},
-        "model": {"compute_capability", "interconnect", "kernel_optimization", "tensor_core"},
+        "model_structure": {"compute_capability", "interconnect", "kernel_optimization", "tensor_core"},
     },
     "datatype_precision": {
         "datatype": {"data_pipeline"},
-        "tuning": {"data_pipeline", "precision"},
+        "training_parameters": {"data_pipeline", "precision"},
     },
     "training_evaluation": {
-        "optimizer": {"kernel_optimization", "optimizer"},
-        "tuning": {"data_pipeline", "kernel_optimization", "parallelism", "precision"},
+        "training_parameters": {"data_pipeline", "interconnect", "kernel_optimization", "optimizer", "parallelism", "precision"},
     },
 }
 
 _AGENT_STAGE_HARDWARE_STAGES = {
-    "draft": ("datatype", "model", "optimizer", "tuning"),
-    "improve": ("model", "optimizer", "tuning"),
-    "evolution": ("model", "optimizer", "tuning"),
-    "fusion": ("model", "optimizer", "tuning"),
-    "debug": ("optimizer", "tuning"),
-    "code_review": ("optimizer", "tuning"),
-    "aggregation": ("tuning",),
-    "model_design": ("model",),
-    "datatype_precision": ("datatype", "tuning"),
-    "training_evaluation": ("optimizer", "tuning"),
+    "draft": ("model_structure", "datatype", "training_parameters"),
+    "improve": ("model_structure", "training_parameters"),
+    "evolution": ("model_structure", "training_parameters"),
+    "fusion": ("model_structure", "training_parameters"),
+    "debug": ("training_parameters",),
+    "code_review": ("training_parameters",),
+    "aggregation": ("training_parameters",),
+    "model_design": ("model_structure",),
+    "datatype_precision": ("datatype", "training_parameters"),
+    "training_evaluation": ("training_parameters",),
 }
 
 
@@ -697,13 +695,36 @@ class SchedulerClient:
                 stages.append(stage)
         return stages
 
+    @classmethod
+    def _invalid_hardware_stage_names(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            raw_items = list(value)
+        else:
+            raw_items = [
+                item
+                for item in str(value).replace(";", ",").split(",")
+                if str(item).strip()
+            ]
+        invalid: list[str] = []
+        for item in raw_items:
+            normalized = str(item or "").strip().lower().replace("-", "_")
+            if not normalized or normalized == "all":
+                continue
+            if normalized in _COMPOSITE_HARDWARE_STAGE_ALIASES:
+                continue
+            if cls._normalize_hardware_stage_name(normalized) is None:
+                invalid.append(str(item))
+        return invalid
+
     @staticmethod
     def _composite_stage_scope(stages: list[str]) -> str | None:
-        if stages == ["datatype", "model"]:
+        if stages == ["datatype", "model_structure"]:
             return "stage1_candidate_construction"
-        if stages == ["datatype", "tuning"]:
+        if stages == ["datatype", "training_parameters"]:
             return "datatype_precision"
-        if stages == ["optimizer", "tuning"]:
+        if stages == ["training_parameters"]:
             return "training_evaluation"
         return None
 
@@ -757,6 +778,43 @@ class SchedulerClient:
         if isinstance(value, (list, tuple)) and value:
             return str(value[0])
         return str(value or "")
+
+    @staticmethod
+    def _is_training_optimizer_feature(feature: dict[str, Any]) -> bool:
+        feature_id = str(feature.get("feature_id") or "").lower()
+        category = str(feature.get("category") or "").lower()
+        scope = str(feature.get("recommendation_scope") or "").lower()
+        name = str(feature.get("name") or "").lower()
+        if category == "optimizer":
+            return True
+        if feature_id in {"cut_cross_entropy", "gram_newton_schulz_symmetric_gemm"}:
+            return True
+        return any(
+            token in feature_id or token in scope or token in name
+            for token in ("optimizer", "muon", "soap", "ademamix", "newton_schulz")
+        )
+
+    @staticmethod
+    def _select_static_stage_features(
+        *,
+        stage: str,
+        scope: str | None,
+        features: list[dict[str, Any]],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        per_stage_limit = max(1, int(limit))
+        if stage == "training_parameters" and scope != "datatype_precision":
+            # training_parameters merges the former optimizer and tuning stages;
+            # keep one compact budget for each so graph order cannot hide optimizers.
+            optimizer_features: list[dict[str, Any]] = []
+            tuning_features: list[dict[str, Any]] = []
+            for feature in features:
+                if SchedulerClient._is_training_optimizer_feature(feature):
+                    optimizer_features.append(feature)
+                else:
+                    tuning_features.append(feature)
+            return optimizer_features[:per_stage_limit] + tuning_features[:per_stage_limit]
+        return features[:per_stage_limit]
 
     @classmethod
     def _hardware_stages_for_candidate(cls, candidate: dict[str, Any]) -> list[str]:
@@ -830,7 +888,12 @@ class SchedulerClient:
                 }
                 hardware_payload = {key: value for key, value in hardware_payload.items() if value not in (None, "", [], {})}
 
-            stage_features = list(feature_payload.get("features") or [])[:per_stage_limit]
+            stage_features = SchedulerClient._select_static_stage_features(
+                stage=stage,
+                scope=stage_scope,
+                features=list(feature_payload.get("features") or []),
+                limit=per_stage_limit,
+            )
             for feature in stage_features:
                 feature_id = str(feature.get("feature_id") or "")
                 key = feature_id if feature_id else repr(feature)
@@ -852,7 +915,7 @@ class SchedulerClient:
             "hardware": hardware_payload,
             "stage_filter": stages[0] if len(stages) == 1 else list(stages),
             "stages": stage_payloads,
-            "features": merged_features[: max(1, int(limit)) * max(1, len(stages))],
+            "features": merged_features,
             "feature_count": sum(int(item.get("feature_count") or 0) for item in stage_payloads),
             "source": "hardware_knowledge_graph.json",
             "reason": None if stage_payloads else reason,
@@ -871,6 +934,22 @@ class SchedulerClient:
         filter so stage prompts do not need to load the full hardware graph or
         full feature neighborhood into the LLM context.
         """
+        invalid_stages = self._invalid_hardware_stage_names(pipeline_stage)
+        if invalid_stages:
+            return {
+                "found": False,
+                "hardware": None,
+                "stage_filter": pipeline_stage,
+                "stages": [],
+                "features": [],
+                "feature_count": 0,
+                "source": "hardware_knowledge_graph.json",
+                "reason": (
+                    "unsupported hardware pipeline stage(s): "
+                    + ", ".join(invalid_stages)
+                    + f"; expected one of: {', '.join(_PIPELINE_HARDWARE_STAGES)}, or all"
+                ),
+            }
         stages = self._normalize_hardware_stage_list(pipeline_stage)
         if not stages:
             stages = list(_PIPELINE_HARDWARE_STAGES)
@@ -1287,7 +1366,7 @@ class SchedulerClient:
         try:
             stage_feature_context = self.get_stage_hardware_features(
                 hardware_key,
-                pipeline_stage="model",
+                pipeline_stage="model_structure",
                 limit=max(16, int(limit) * 8),
             )
             if stage_feature_context.get("found"):

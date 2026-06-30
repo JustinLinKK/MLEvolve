@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import importlib.util
+import json
 from pathlib import Path
+
+import pytest
 
 
 def load_filter_module():
@@ -39,7 +41,7 @@ def _assert_feature_key_pairs(rows):
 def test_pipeline_stage_categories_align_with_contract():
     mod = load_filter_module()
 
-    assert mod.PIPELINE_STAGES == ("datatype", "model", "optimizer", "tuning")
+    assert mod.PIPELINE_STAGES == ("model_structure", "datatype", "training_parameters")
 
     datatype = mod.query_hardware_features("GeForce RTX 5090", "datatype")
     datatype_ids = {feature["feature_id"] for feature in datatype["features"]}
@@ -47,36 +49,33 @@ def test_pipeline_stage_categories_align_with_contract():
     assert "dataset_decomposition" in datatype_ids
     assert "nvimagecodec_gpu_decode" in datatype_ids
     assert "bf16" not in datatype_ids
+    assert "muon_optimizer" not in datatype_ids
 
-    tuning = mod.query_hardware_features("GeForce RTX 5090", "tuning")
-    tuning_ids = {feature["feature_id"] for feature in tuning["features"]}
-    assert "bf16" in tuning_ids
-    assert "fp8_rowwise_scaling" in tuning_ids
-    assert "async_tensor_parallel" in tuning_ids
+    training = mod.query_hardware_features("GeForce RTX 5090", "training_parameters")
+    training_ids = {feature["feature_id"] for feature in training["features"]}
+    assert training["stage_filter"] == "training_parameters"
+    assert {"muon_optimizer", "soap_optimizer", "ademamix_optimizer"} <= training_ids
+    assert "gram_newton_schulz_symmetric_gemm" in training_ids
+    assert {"bf16", "fp8_rowwise_scaling", "async_tensor_parallel"} <= training_ids
 
 
-def test_legacy_stage_aliases_still_work():
+def test_removed_stage_names_are_rejected():
     mod = load_filter_module()
 
-    model = mod.query_hardware_features("GeForce RTX 5090", "model")
-    legacy_model = mod.query_hardware_features("GeForce RTX 5090", "model_structure")
-    assert legacy_model["stage_filter"] == "model"
-    assert {f["feature_id"] for f in legacy_model["features"]} == {
-        f["feature_id"] for f in model["features"]
-    }
-
-    tuning = mod.query_hardware_features("GeForce RTX 5090", "training_parameters")
-    assert tuning["stage_filter"] == "tuning"
-    assert "bf16" in {feature["feature_id"] for feature in tuning["features"]}
+    for stage in ("model", "optimizer", "tuning"):
+        with pytest.raises(ValueError, match="unsupported hardware pipeline stage"):
+            mod.query_hardware_features("GeForce RTX 5090", stage)
+        with pytest.raises(ValueError, match="unsupported hardware pipeline stage"):
+            mod.query_hardware_node("GeForce RTX 5090", stage)
 
 
-def test_5090_optimizer_filter_marks_unconfirmed_candidates():
+def test_5090_training_filter_marks_unconfirmed_candidates():
     mod = load_filter_module()
 
-    result = mod.query_hardware_features("GeForce RTX 5090", "optimizer")
+    result = mod.query_hardware_features("GeForce RTX 5090", "training_parameters")
     by_id = {feature["feature_id"]: feature for feature in result["features"]}
 
-    assert result["stage_filter"] == "optimizer"
+    assert result["stage_filter"] == "training_parameters"
     assert "muon_optimizer" in by_id
     assert "gram_newton_schulz_symmetric_gemm" in by_id
     assert "ns_steps=5" in by_id["muon_optimizer"]["notes"]
@@ -90,17 +89,17 @@ def test_5090_optimizer_filter_marks_unconfirmed_candidates():
     assert "not widely confirmed" in by_id["ademamix_optimizer"]["limitations"]
 
 
-def test_5090_node_exposes_direct_feature_lists():
+def test_5090_model_structure_node_exposes_source_free_feature_lists():
     mod = load_filter_module()
 
-    result = mod.query_hardware_node("GeForce RTX 5090", "model")
+    result = mod.query_hardware_node("GeForce RTX 5090", "model_structure")
 
-    assert result["stage_filter"] == "model"
+    assert result["stage_filter"] == "model_structure"
     assert "node_id" not in result
     assert "source_urls" not in result
     assert "recommended_patterns" in result
     assert "avoid_patterns" in result
-    assert any("32GB/1.792TBps" in item for item in result["recommended_patterns"])
+    assert any("sm_120" in item for item in result["recommended_patterns"])
     assert any("sm_100 launch assumptions" in item for item in result["avoid_patterns"])
     _assert_feature_key_pairs(result["stage_feature_keys"])
     stage_keys = _feature_keys(result["stage_feature_keys"])
@@ -112,14 +111,13 @@ def test_5090_node_exposes_direct_feature_lists():
     assert "https://" not in json.dumps(result)
 
 
-def test_stage_two_and_three_feature_key_mapping_is_source_free():
+def test_training_parameters_feature_key_mapping_is_merged_and_source_free():
     mod = load_filter_module()
 
     datatype = mod.query_hardware_node("GeForce RTX 5090", "datatype")
-    tuning = mod.query_hardware_node("GeForce RTX 5090", "tuning")
-    optimizer = mod.query_hardware_node("GeForce RTX 5090", "optimizer")
+    training = mod.query_hardware_node("GeForce RTX 5090", "training_parameters")
 
-    for payload in (datatype, tuning, optimizer):
+    for payload in (datatype, training):
         for field in (
             "stage_feature_keys",
             "recommended_feature_keys",
@@ -129,16 +127,18 @@ def test_stage_two_and_three_feature_key_mapping_is_source_free():
             if payload.get(field):
                 _assert_feature_key_pairs(payload[field])
     datatype_keys = _feature_keys(datatype["stage_feature_keys"])
-    tuning_keys = _feature_keys(tuning["stage_feature_keys"])
-    optimizer_keys = _feature_keys(optimizer["stage_feature_keys"])
-    optimizer_not_recommended = _feature_keys(optimizer["not_recommended_feature_keys"])
+    training_keys = _feature_keys(training["stage_feature_keys"])
+    training_not_recommended = _feature_keys(training["not_recommended_feature_keys"])
     assert {"dataset_decomposition", "nvimagecodec_gpu_decode"} <= datatype_keys
     assert "tensor_cores" not in datatype_keys
     assert "muon_optimizer" not in datatype_keys
-    assert {"bf16", "fp8_rowwise_scaling"} <= tuning_keys
-    assert {"muon_optimizer", "gram_newton_schulz_symmetric_gemm"} <= optimizer_keys
-    assert {"soap_optimizer", "ademamix_optimizer"} <= optimizer_not_recommended
-    combined = json.dumps({"datatype": datatype, "tuning": tuning, "optimizer": optimizer})
+    assert {"bf16", "fp8_rowwise_scaling"} <= training_keys
+    assert {"muon_optimizer", "gram_newton_schulz_symmetric_gemm"} <= training_keys
+    assert {"soap_optimizer", "ademamix_optimizer"} <= training_not_recommended
+    assert any("gradient accumulation" in item.lower() for item in training["recommended_patterns"])
+    assert any("nvfp4" in item.lower() or "mxfp8" in item.lower() for item in training["recommended_patterns"])
+    assert any("fp4" in item.lower() or "mxfp8" in item.lower() for item in training["avoid_patterns"])
+    combined = json.dumps({"datatype": datatype, "training_parameters": training})
     assert "http://" not in combined
     assert "https://" not in combined
 
@@ -146,8 +146,8 @@ def test_stage_two_and_three_feature_key_mapping_is_source_free():
 def test_vendor_prefixed_hardware_names_resolve():
     mod = load_filter_module()
 
-    result = mod.query_hardware_features("NVIDIA GeForce RTX 5090", "optimizer")
-    by_key = mod.query_hardware_features("nvidia.blackwell.geforce_rtx_5090.spec", "optimizer")
+    result = mod.query_hardware_features("NVIDIA GeForce RTX 5090", "training_parameters")
+    by_key = mod.query_hardware_features("nvidia.blackwell.geforce_rtx_5090.spec", "training_parameters")
 
     assert result["found"] is True
     assert result["gpu_name"] == "GeForce RTX 5090"
@@ -197,7 +197,7 @@ def main():
 
     which = input("Which filter? (1 / 2): ").strip()
     gpu_name = input("Enter GPU name (e.g. rtx 4090): ").strip() or "rtx 4090"
-    stage = input("Pipeline stage (datatype / model / optimizer / tuning / all): ").strip()
+    stage = input("Pipeline stage (model_structure / datatype / training_parameters / all): ").strip()
     if not stage or stage == "all":
         stage = None
 

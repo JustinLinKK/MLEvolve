@@ -22,7 +22,7 @@ Three simulated stages:
 Options:
   --db-check        Also verify the loaded Neo4j graph before checking payloads.
   --generic         Only require non-empty stage outputs; skip RTX 5090 exact IDs.
-  --limit N         Feature limit passed to the query tool. Default: 16
+  --limit N         Feature limit passed to the query tool. Default: 24
   --out-dir PATH    Directory for captured query payloads. Default: temp dir.
   -h, --help        Show this help.
 
@@ -38,7 +38,7 @@ fi
 
 db_check=0
 strict_expected=1
-limit=16
+limit=24
 out_dir=""
 
 while (($#)); do
@@ -80,8 +80,8 @@ done
 
 cd "$HARDWARE_GRAPH_REPO_ROOT"
 
-if (( strict_expected && limit < 16 )); then
-  echo "Strict RTX 5090 checks require --limit 16 or higher so tuning-stage expected features are present." >&2
+if (( strict_expected && limit < 24 )); then
+  echo "Strict RTX 5090 checks require --limit 24 or higher so merged training_parameters expected features are present." >&2
   echo "Use --generic to run non-empty checks with a smaller limit." >&2
   exit 2
 fi
@@ -101,16 +101,14 @@ fi
 calls=(
   "stage1_candidate_construction node datatype"
   "stage1_candidate_construction features datatype"
-  "stage1_candidate_construction node model"
-  "stage1_candidate_construction features model"
+  "stage1_candidate_construction node model_structure"
+  "stage1_candidate_construction features model_structure"
   "stage2_datatype_precision node datatype"
   "stage2_datatype_precision features datatype"
-  "stage2_datatype_precision node tuning"
-  "stage2_datatype_precision features tuning"
-  "stage3_training_evaluation node optimizer"
-  "stage3_training_evaluation features optimizer"
-  "stage3_training_evaluation node tuning"
-  "stage3_training_evaluation features tuning"
+  "stage2_datatype_precision node training_parameters"
+  "stage2_datatype_precision features training_parameters"
+  "stage3_training_evaluation node training_parameters"
+  "stage3_training_evaluation features training_parameters"
 )
 
 for call in "${calls[@]}"; do
@@ -135,7 +133,7 @@ feature_expectations = {
         "dataset_decomposition",
         "nvimagecodec_gpu_decode",
     ],
-    "stage1_candidate_construction_features_model.json": [
+    "stage1_candidate_construction_features_model_structure.json": [
         "tensor_cores",
         "sm_120",
         "tensor_cores_5gen",
@@ -144,15 +142,13 @@ feature_expectations = {
         "dataset_decomposition",
         "nvimagecodec_gpu_decode",
     ],
-    "stage2_datatype_precision_features_tuning.json": [
+    "stage2_datatype_precision_features_training_parameters.json": [
         "bf16",
         "fp8_rowwise_scaling",
     ],
-    "stage3_training_evaluation_features_optimizer.json": [
+    "stage3_training_evaluation_features_training_parameters.json": [
         "muon_optimizer",
         "gram_newton_schulz_symmetric_gemm",
-    ],
-    "stage3_training_evaluation_features_tuning.json": [
         "bf16",
         "fp8_rowwise_scaling",
         "async_tensor_parallel",
@@ -163,21 +159,18 @@ node_expectations = {
     "stage1_candidate_construction_node_datatype.json": {
         "stage_feature_keys": ["dataset_decomposition", "nvimagecodec_gpu_decode"],
     },
-    "stage1_candidate_construction_node_model.json": {
+    "stage1_candidate_construction_node_model_structure.json": {
         "stage_feature_keys": ["tensor_cores", "sm_120", "tensor_cores_5gen"],
     },
     "stage2_datatype_precision_node_datatype.json": {
         "stage_feature_keys": ["dataset_decomposition", "nvimagecodec_gpu_decode"],
     },
-    "stage2_datatype_precision_node_tuning.json": {
+    "stage2_datatype_precision_node_training_parameters.json": {
         "stage_feature_keys": ["bf16", "fp8_rowwise_scaling"],
     },
-    "stage3_training_evaluation_node_optimizer.json": {
+    "stage3_training_evaluation_node_training_parameters.json": {
         "stage_feature_keys": ["muon_optimizer", "gram_newton_schulz_symmetric_gemm"],
         "not_recommended_feature_keys": ["soap_optimizer", "ademamix_optimizer"],
-    },
-    "stage3_training_evaluation_node_tuning.json": {
-        "stage_feature_keys": ["bf16", "fp8"],
     },
 }
 
@@ -277,7 +270,7 @@ for name, required_by_field in node_expectations.items():
             if missing:
                 failures.append(f"{name} field {field} missing: {', '.join(missing)}")
 
-optimizer_payload = load_json("stage3_training_evaluation_features_optimizer.json")
+optimizer_payload = load_json("stage3_training_evaluation_features_training_parameters.json")
 optimizer_by_id = {
     str(feature.get("feature_id")): feature
     for feature in optimizer_payload.get("features") or []

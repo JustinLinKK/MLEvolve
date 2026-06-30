@@ -102,7 +102,7 @@ _STAGE_NODE_FIELD_LIMITS: dict[str, tuple[tuple[str, int], ...]] = {
         ("recommended_patterns", 4),
         ("avoid_patterns", 4),
     ),
-    "model": (
+    "model_structure": (
         ("stage_feature_keys", 8),
         ("recommended_feature_keys", 6),
         ("not_recommended_feature_keys", 6),
@@ -110,21 +110,13 @@ _STAGE_NODE_FIELD_LIMITS: dict[str, tuple[tuple[str, int], ...]] = {
         ("recommended_patterns", 6),
         ("avoid_patterns", 6),
     ),
-    "optimizer": (
-        ("stage_feature_keys", 8),
-        ("recommended_feature_keys", 6),
-        ("not_recommended_feature_keys", 6),
-        ("conditional_feature_keys", 6),
-        ("recommended_patterns", 4),
-        ("avoid_patterns", 4),
-    ),
-    "tuning": (
+    "training_parameters": (
         ("stage_feature_keys", 12),
         ("recommended_feature_keys", 8),
         ("not_recommended_feature_keys", 6),
         ("conditional_feature_keys", 8),
-        ("recommended_patterns", 8),
-        ("avoid_patterns", 6),
+        ("recommended_patterns", 10),
+        ("avoid_patterns", 8),
     ),
 }
 _DEFAULT_STAGE_NODE_FIELD_LIMITS: tuple[tuple[str, int], ...] = (
@@ -158,7 +150,7 @@ _STAGE_DIRECT_VALUE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "packing",
         "channels_last",
     ),
-    "model": (
+    "model_structure": (
         "attention",
         "sdpa",
         "flash",
@@ -177,7 +169,7 @@ _STAGE_DIRECT_VALUE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "mig",
         "topology",
     ),
-    "optimizer": (
+    "training_parameters": (
         "optimizer",
         "adam",
         "muon",
@@ -193,8 +185,6 @@ _STAGE_DIRECT_VALUE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "lr",
         "weight_decay",
         "momentum",
-    ),
-    "tuning": (
         "bf16",
         "fp16",
         "fp8",
@@ -208,6 +198,13 @@ _STAGE_DIRECT_VALUE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "quant",
         "grad",
         "batch",
+        "dataloader",
+        "num_workers",
+        "worker",
+        "pin_memory",
+        "persistent_workers",
+        "checkpoint",
+        "runtime",
         "vram",
         "memory",
         "throughput",
@@ -416,11 +413,26 @@ def build_stepwise_hardware_stage_sections(
     datatype_section = format_hardware_datatype_prompt_section(compact, max_chars=max_chars) if compact else ""
     training_section = format_hardware_training_prompt_section(compact, max_chars=max_chars) if compact else ""
     data_feature_section = _format_stage_specific_hardware_features(compact, ("datatype",), max_chars=max_chars)
-    model_feature_section = _format_stage_specific_hardware_features(compact, ("model",), max_chars=max_chars)
-    precision_feature_section = _format_stage_specific_hardware_features(compact, ("tuning",), max_chars=max_chars)
+    model_feature_section = _format_stage_specific_hardware_features(compact, ("model_structure",), max_chars=max_chars)
+    precision_feature_section = _format_stage_specific_hardware_features(
+        compact,
+        ("training_parameters",),
+        allowed_categories={"data_pipeline", "precision"},
+        include_keywords=(
+            *_PRECISION_KEYWORDS,
+            "data",
+            "dataset",
+            "dataloader",
+            "decode",
+            "decomposition",
+            "image",
+            "shape",
+        ),
+        max_chars=max_chars,
+    )
     training_feature_section = _format_stage_specific_hardware_features(
         compact,
-        ("optimizer", "tuning"),
+        ("training_parameters",),
         max_chars=max_chars,
     )
     stage1_preamble = _stage_hardware_response_preamble(
@@ -492,11 +504,17 @@ def _format_stage_specific_hardware_features(
     compact: dict[str, Any],
     stage_filters: tuple[str, ...],
     *,
+    allowed_categories: set[str] | None = None,
+    include_keywords: tuple[str, ...] = (),
+    exclude_keywords: tuple[str, ...] = (),
     max_chars: int,
 ) -> str:
     stage_context = _filter_stage_hardware_features(
         compact.get("stage_hardware_features") or {},
         stage_filters,
+        allowed_categories=allowed_categories,
+        include_keywords=include_keywords,
+        exclude_keywords=exclude_keywords,
     )
     lines = _format_stage_hardware_features(stage_context)
     if not lines:
@@ -510,15 +528,53 @@ def _format_stage_specific_hardware_features(
 def _filter_stage_hardware_features(
     stage_context: dict[str, Any],
     stage_filters: tuple[str, ...],
+    *,
+    allowed_categories: set[str] | None = None,
+    include_keywords: tuple[str, ...] = (),
+    exclude_keywords: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     if not stage_context or not stage_context.get("found"):
         return {}
     allowed = {str(stage).strip().lower() for stage in stage_filters if str(stage).strip()}
-    stages = [
-        dict(stage)
-        for stage in list(stage_context.get("stages") or [])
-        if str(stage.get("stage") or "").strip().lower() in allowed
-    ]
+    stages: list[dict[str, Any]] = []
+    for raw_stage in list(stage_context.get("stages") or []):
+        if str(raw_stage.get("stage") or "").strip().lower() not in allowed:
+            continue
+        stage = dict(raw_stage)
+        if allowed_categories or include_keywords or exclude_keywords:
+            raw_features = [dict(feature) for feature in list(stage.get("features") or [])]
+            feature_categories = _feature_category_index(raw_features)
+            features = [
+                feature
+                for feature in raw_features
+                if _stage_feature_matches_focus(
+                    feature,
+                    allowed_categories=allowed_categories,
+                    include_keywords=include_keywords,
+                    exclude_keywords=exclude_keywords,
+                )
+            ]
+            stage["features"] = features
+            stage["feature_count"] = len(features)
+            stage["shown_feature_count"] = len(features[:4])
+            if allowed_categories and stage.get("omitted_not_recommended"):
+                stage["omitted_not_recommended"] = _focused_feature_ids_by_category(
+                    stage.get("omitted_not_recommended") or [],
+                    allowed_categories=allowed_categories,
+                    feature_categories=feature_categories,
+                )
+            node = _focused_stage_node(
+                dict(stage.get("node") or {}),
+                allowed_categories=allowed_categories,
+                feature_categories=feature_categories,
+                include_keywords=include_keywords,
+                exclude_keywords=exclude_keywords,
+            )
+            if node:
+                stage["node"] = node
+            else:
+                stage.pop("node", None)
+        stages.append(stage)
     if not stages:
         return {}
     feature_ids: list[str] = []
@@ -535,6 +591,159 @@ def _filter_stage_hardware_features(
     filtered["feature_ids"] = feature_ids
     filtered["feature_count"] = feature_count
     return {key: value for key, value in filtered.items() if value not in (None, "", [], {})}
+
+
+def _feature_category_index(features: list[dict[str, Any]]) -> dict[str, str]:
+    categories: dict[str, str] = {}
+    for feature in features:
+        feature_id = str(feature.get("feature_id") or "").strip()
+        category = str(feature.get("category") or "").strip()
+        if feature_id and category and feature_id not in categories:
+            categories[feature_id] = category
+    return categories
+
+
+def _focused_feature_ids_by_category(
+    values: Any,
+    *,
+    allowed_categories: set[str],
+    feature_categories: dict[str, str],
+) -> list[Any]:
+    focused: list[Any] = []
+    for value in list(values or []):
+        feature_id = str(value or "").strip()
+        category = feature_categories.get(feature_id)
+        if category and category not in allowed_categories:
+            continue
+        focused.append(value)
+    return focused
+
+
+def _stage_feature_matches_focus(
+    feature: dict[str, Any],
+    *,
+    allowed_categories: set[str] | None,
+    include_keywords: tuple[str, ...],
+    exclude_keywords: tuple[str, ...],
+) -> bool:
+    category = str(feature.get("category") or "")
+    if allowed_categories and category not in allowed_categories:
+        return False
+    text = _stage_feature_search_text(feature)
+    if include_keywords and not _text_matches_keywords(text, include_keywords):
+        return False
+    if exclude_keywords and _text_matches_keywords(text, exclude_keywords):
+        return False
+    return True
+
+
+def _focused_stage_node(
+    node: dict[str, Any],
+    *,
+    allowed_categories: set[str] | None,
+    feature_categories: dict[str, str],
+    include_keywords: tuple[str, ...],
+    exclude_keywords: tuple[str, ...],
+) -> dict[str, Any]:
+    if not node or not (allowed_categories or include_keywords or exclude_keywords):
+        return node
+    focused = {"stage_filter": node.get("stage_filter")} if node.get("stage_filter") else {}
+    for key, value in node.items():
+        if key == "stage_filter":
+            continue
+        if key in _FEATURE_KEY_PAIR_FIELDS:
+            focused_values = [
+                item
+                for item in list(value or [])
+                if _feature_key_pair_matches_focus(
+                    item,
+                    allowed_categories=allowed_categories,
+                    feature_categories=feature_categories,
+                    include_keywords=include_keywords,
+                    exclude_keywords=exclude_keywords,
+                )
+            ]
+            if focused_values:
+                focused[key] = focused_values
+        elif isinstance(value, list):
+            focused_values = [
+                item
+                for item in value
+                if _stage_text_matches_focus(
+                    str(item),
+                    include_keywords=include_keywords,
+                    exclude_keywords=exclude_keywords,
+                )
+            ]
+            if focused_values:
+                focused[key] = focused_values
+        else:
+            if _stage_text_matches_focus(
+                str(value),
+                include_keywords=include_keywords,
+                exclude_keywords=exclude_keywords,
+            ):
+                focused[key] = value
+    return {key: value for key, value in focused.items() if value not in (None, "", [], {})}
+
+
+def _feature_key_pair_matches_focus(
+    item: Any,
+    *,
+    allowed_categories: set[str] | None,
+    feature_categories: dict[str, str],
+    include_keywords: tuple[str, ...],
+    exclude_keywords: tuple[str, ...],
+) -> bool:
+    if allowed_categories:
+        feature_id = _feature_key_pair_key(item)
+        category = feature_categories.get(feature_id)
+        if category and category not in allowed_categories:
+            return False
+    return _stage_text_matches_focus(
+        _feature_key_pair_search_text(item),
+        include_keywords=include_keywords,
+        exclude_keywords=exclude_keywords,
+    )
+
+
+def _stage_feature_search_text(feature: dict[str, Any]) -> str:
+    values: list[str] = []
+    for key in (
+        "feature_id",
+        "name",
+        "feature_name",
+        "category",
+        "usage",
+        "notes",
+        "limitations",
+        "recommended_patterns",
+        "avoid_patterns",
+    ):
+        value = feature.get(key)
+        if isinstance(value, list):
+            values.extend(str(item) for item in value)
+        elif value is not None:
+            values.append(str(value))
+    return " ".join(values)
+
+
+def _stage_text_matches_focus(
+    text: str,
+    *,
+    include_keywords: tuple[str, ...],
+    exclude_keywords: tuple[str, ...],
+) -> bool:
+    if include_keywords and not _text_matches_keywords(text, include_keywords):
+        return False
+    if exclude_keywords and _text_matches_keywords(text, exclude_keywords):
+        return False
+    return True
+
+
+def _text_matches_keywords(text: str, keywords: tuple[str, ...]) -> bool:
+    normalized = str(text or "").lower().replace("-", "_").replace(" ", "_")
+    return any(str(keyword).lower().replace("-", "_").replace(" ", "_") in normalized for keyword in keywords)
 
 
 def apply_stepwise_hardware_decisions_to_node(
@@ -1626,7 +1835,7 @@ def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
         return lines
     for stage in stages[:4]:
         stage_name = stage.get("stage") or "pipeline"
-        is_optimizer_stage = str(stage_name).strip().lower() == "optimizer"
+        is_training_stage = str(stage_name).strip().lower() == "training_parameters"
         node = stage.get("node") or {}
         direct_bits = _format_kv(
             node,
@@ -1659,6 +1868,10 @@ def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
         for feature in list(stage.get("features") or [])[:4]:
             feature_id = feature.get("feature_id") or "feature"
             name = feature.get("name") or feature.get("feature_name") or ""
+            is_optimizer_feature = is_training_stage and (
+                feature.get("category") == "optimizer"
+                or any(token in str(feature_id).lower() for token in ("optimizer", "muon", "adamw", "soap", "ademamix"))
+            )
             details = _format_kv(
                 feature,
                 (
@@ -1673,14 +1886,14 @@ def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
             detail_text = f" ({details})" if details else ""
             summary_keys = (
                 ("usage", "notes", "limitations")
-                if is_optimizer_stage
+                if is_optimizer_feature
                 else ("limitations", "usage", "notes")
             )
             summary_parts: list[str] = []
             for key in summary_keys:
                 summary = feature.get(key)
                 if summary:
-                    text = _short(summary, 220 if is_optimizer_stage else 160)
+                    text = _short(summary, 220 if is_optimizer_feature else 160)
                     if text not in summary_parts:
                         summary_parts.append(f"{key}: {text}")
             summary_text = f": {'; '.join(summary_parts[:3])}" if summary_parts else ""
@@ -1689,7 +1902,7 @@ def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
                 lines.append(f"      recommended: {_short(pattern, 220)}")
             for pattern in feature.get("avoid_patterns") or []:
                 lines.append(f"      avoid: {_short(pattern, 220)}")
-            if is_optimizer_stage and feature_id == "muon_optimizer" and feature.get("example_code"):
+            if is_optimizer_feature and feature_id == "muon_optimizer" and feature.get("example_code"):
                 lines.append(f"      example: {_short(feature['example_code'], 360)}")
     source = stage_context.get("source")
     feature_count = stage_context.get("feature_count")

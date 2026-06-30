@@ -205,13 +205,13 @@ def test_stage_filtered_hardware_features_are_compacted_into_prompt() -> None:
         },
         "stage_hardware_features": {
             "found": True,
-            "stage_filter": ["optimizer"],
+            "stage_filter": ["training_parameters"],
             "hardware": {"gpu_name": "RTX 5090", "architecture": "blackwell"},
             "stages": [
                 {
-                    "stage": "optimizer",
+                    "stage": "training_parameters",
                     "node": {
-                        "stage_filter": "optimizer",
+                        "stage_filter": "training_parameters",
                         "datatypes": ["bf16"],
                         "software_features": ["amp"],
                         "recipes": ["muon_optimizer"],
@@ -284,7 +284,7 @@ def test_stage_node_direct_fields_are_pruned_by_pipeline_stage() -> None:
         },
         "stage_hardware_features": {
             "found": True,
-            "stage_filter": ["datatype", "tuning"],
+            "stage_filter": ["datatype", "training_parameters"],
             "stages": [
                     {
                         "stage": "datatype",
@@ -320,9 +320,9 @@ def test_stage_node_direct_fields_are_pruned_by_pipeline_stage() -> None:
                     "feature_count": 1,
                 },
                     {
-                        "stage": "tuning",
+                        "stage": "training_parameters",
                         "node": {
-                            "stage_filter": "tuning",
+                            "stage_filter": "training_parameters",
                             "stage_feature_keys": [
                                 ["bf16", "BFloat16 precision path."],
                                 ["amp", "Automatic mixed precision policy."],
@@ -363,7 +363,7 @@ def test_stage_node_direct_fields_are_pruned_by_pipeline_stage() -> None:
     prompt = format_hardware_prompt_section(compact, max_chars=2400)
 
     datatype_line = next(line for line in prompt.splitlines() if line.startswith("  - datatype"))
-    tuning_line = next(line for line in prompt.splitlines() if line.startswith("  - tuning"))
+    training_line = next(line for line in prompt.splitlines() if line.startswith("  - training_parameters"))
     assert "nvimagecodec_gpu_decode" in datatype_line
     assert "GPU image decode for data loading" in datatype_line
     assert "dataset_decomposition" in datatype_line
@@ -371,11 +371,10 @@ def test_stage_node_direct_fields_are_pruned_by_pipeline_stage() -> None:
     assert "amp" not in datatype_line
     assert "muon_optimizer" not in datatype_line
     assert "soap_optimizer" not in datatype_line
-    assert "bf16" in tuning_line
-    assert "BFloat16 precision path" in tuning_line
-    assert "amp" in tuning_line
-    assert "cut_cross_entropy" not in tuning_line
-    assert "muon_optimizer" not in tuning_line
+    assert "bf16" in training_line
+    assert "BFloat16 precision path" in training_line
+    assert "amp" in training_line
+    assert "muon_optimizer" in training_line
     assert "recommended_patterns" in prompt
     assert "avoid_patterns" in prompt
     assert "https://" not in prompt
@@ -547,11 +546,17 @@ def test_stepwise_generation_can_return_stage_metadata(monkeypatch) -> None:
         cfg=SimpleNamespace(experiment=SimpleNamespace(mode="hardware_aware")),
     )
 
+    task_description = (
+        "image classification\n\n"
+        "Evaluation: report macro F1 on validation.\n"
+        "Submission: save submission.csv with id,label columns."
+    )
+
     plan, code, metadata = stepwise_plan_and_code_query(
         agent_instance=agent,
         prompt_base={
             "Introduction": "intro",
-            "Task description": "image classification",
+            "Task description": task_description,
             "Memory": "",
             "Instructions": {},
         },
@@ -577,12 +582,17 @@ def test_stepwise_generation_can_return_stage_metadata(monkeypatch) -> None:
         "training_evaluation",
     ]
     assert metadata["decisions"][2]["stage"] == "datatype_precision"
+    assert metadata["stage_receipts"][0]["stage"] == "data_processing_and_feature_engineering"
     assert metadata["stage_note_board"]
     assert metadata["stage_note_board"][0]["stage"] == "data_processing_and_feature_engineering"
     assert metadata["stage_note_board"][0]["stage_group"] == "stage1_candidate_construction"
     assert metadata["decisions"][1]["stage_group"] == "stage1_candidate_construction"
     assert any("Datatype/Precision" in str(prompt) for prompt in responses)
     assert any("Cross-Stage Note Board" in str(prompt) for prompt in responses)
+    assert f"# Task description\n{task_description}" in responses[0]
+    assert f"# Task description\n{task_description}" in responses[-1]
+    assert all(f"# Task description\n{task_description}" not in prompt for prompt in responses[1:-1])
+    assert all("Previous Stage Receipt" in prompt for prompt in responses[1:])
     assert "Stage 1 candidate construction" in responses[2]
 
 
@@ -690,7 +700,7 @@ def test_stepwise_hardware_stage_sections_route_stage_filtered_features() -> Non
             },
             "stage_hardware_features": {
                 "found": True,
-                "stage_filter": ["datatype", "tuning"],
+                "stage_filter": ["datatype", "training_parameters"],
                 "stages": [
                     {
                         "stage": "datatype",
@@ -705,29 +715,40 @@ def test_stepwise_hardware_stage_sections_route_stage_filtered_features() -> Non
                         "feature_count": 1,
                     },
                     {
-                        "stage": "optimizer",
-                        "node": {"stage_filter": "optimizer", "recipes": ["muon_optimizer"]},
+                        "stage": "training_parameters",
+                        "node": {
+                            "stage_filter": "training_parameters",
+                            "recipes": ["muon_optimizer"],
+                            "datatypes": ["bf16", "fp8"],
+                            "stage_feature_keys": [
+                                ["muon_optimizer", "Muon optimizer supports matmul-heavy training."],
+                                ["bf16", "BF16 precision path."],
+                                ["fp8", "FP8 precision recipe without a shown detail row."],
+                            ],
+                            "recommended_feature_keys": [
+                                ["muon_optimizer", "Muon optimizer supports matmul-heavy training."],
+                                ["bf16", "BF16 precision path."],
+                                ["fp8", "FP8 precision recipe without a shown detail row."],
+                            ],
+                            "conditional_feature_keys": [
+                                ["muon_optimizer", "Muon optimizer supports matmul-heavy training."],
+                                ["fp8", "FP8 precision recipe without a shown detail row."],
+                            ],
+                        },
                         "features": [
                             {
                                 "feature_id": "muon_optimizer",
                                 "name": "Muon optimizer",
                                 "category": "optimizer",
                                 "recommended": True,
-                            }
-                        ],
-                        "feature_count": 1,
-                    },
-                    {
-                        "stage": "tuning",
-                        "node": {"stage_filter": "tuning", "datatypes": ["bf16", "fp8"]},
-                        "features": [
+                            },
                             {
                                 "feature_id": "bf16",
                                 "name": "BF16",
                                 "category": "precision",
                             }
                         ],
-                        "feature_count": 1,
+                        "feature_count": 2,
                     },
                 ],
                 "features": [
@@ -758,7 +779,11 @@ def test_stepwise_hardware_stage_sections_route_stage_filtered_features() -> Non
     assert "dataset_decomposition" not in training_section
     assert "Datatype/Precision" in dtype_section
     assert "bf16" in dtype_section
+    assert "fp8" in dtype_section
     assert "muon_optimizer" not in dtype_section
+    assert "matmul-heavy" not in dtype_section
+    assert "features_shown=1/1" in dtype_section
+    assert "features_shown=2/1" not in dtype_section
 
 
 def test_hardware_design_brief_fetches_only_selected_feature_details(monkeypatch) -> None:

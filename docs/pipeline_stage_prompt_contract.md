@@ -82,6 +82,12 @@ Stepwise agents consume different parts of the same trace:
   `tuning.precision_model_adaptation`, and precision evidence
 - `training_evaluation`: `optimizer`, remaining `tuning`, and `evidence`
 
+Only the first stepwise sub-agent receives the raw task description. Each
+subsequent sub-agent receives the accumulated `Previous Stage Receipt` plus the
+`Cross-Stage Note Board`, so task constraints, metric/output contract, public
+variables, and stage decisions are handed forward without re-injecting the full
+task text.
+
 ## Evidence Rules
 
 Hardware/profile context may influence tuning only when actual evidence is
