@@ -85,17 +85,51 @@ def register_node(agent, node: SearchNode, prompt, parent_node=None, new_branch:
         node.branch_id = parent_node.branch_id
         if node.branch_id in agent.branch_all_nodes:
             agent.branch_all_nodes[node.branch_id].append(node)
+    try:
+        from engine.script_introspection import introspect_training_script
+        from localml_scheduler.adapters.mlevolve import build_model_family_profile_key, normalize_model_family
+
+        script_metadata = introspect_training_script(node.code or "")
+        model_family = script_metadata.get("model_family")
+        if model_family is None and parent_node is not None:
+            model_family = getattr(parent_node, "model_family", None)
+        if model_family:
+            normalized_family = normalize_model_family(str(model_family))
+            node.model_family = normalized_family
+            task_id = str(getattr(getattr(agent, "cfg", None), "exp_id", None) or "mlevolve")
+            node.active_profile_key = build_model_family_profile_key(
+                task_id=task_id,
+                model_family=normalized_family,
+            )
+    except Exception:
+        pass
     prompt_text = node.prompt_input or ""
     try:
-        from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
+        from utils.pipeline_logging import (
+            log_pipeline_event,
+            record_pipeline_debug_report,
+            record_pipeline_node_action,
+            record_pipeline_prompt_snapshot,
+        )
 
+        prompt_snapshot = record_pipeline_prompt_snapshot(agent, node, prompt_text)
         payload = {
             "new_branch": new_branch,
             "branch_id": node.branch_id,
             "prompt_chars": len(prompt_text),
             "prompt_sha256": hashlib.sha256(prompt_text.encode("utf-8")).hexdigest() if prompt_text else None,
             "parent_node_id": getattr(parent_node or node.parent, "id", None),
+            "model_family": getattr(node, "model_family", None),
+            "active_profile_key": getattr(node, "active_profile_key", None),
         }
+        payload.update({key: value for key, value in prompt_snapshot.items() if value is not None})
+        if node.stage == "debug":
+            report_payload = {
+                "parent_exc_type": getattr(parent_node or node.parent, "exc_type", None),
+                "parent_analysis": getattr(parent_node or node.parent, "analysis", None),
+            }
+            debug_report_snapshot = record_pipeline_debug_report(agent, node, payload=report_payload)
+            payload.update({key: value for key, value in debug_report_snapshot.items() if value is not None})
         log_pipeline_event(agent, "node_created", node=node, payload=payload)
         record_pipeline_node_action(agent, node, "node_created", payload=payload)
     except Exception:

@@ -85,6 +85,12 @@ class GlobalMemoryLayer:
                 )
                 if parent_error:
                     metadata["parent_error"] = parent_error
+                bug_report = getattr(node, "bug_report", None)
+                fix_report = getattr(node, "fix_report", None)
+                if bug_report:
+                    metadata["bug_report"] = bug_report
+                if fix_report:
+                    metadata["fix_report"] = fix_report
 
             self.node_metadata_map[record.record_id] = metadata
 
@@ -325,7 +331,7 @@ class GlobalMemoryLayer:
 
             for item in records_data:
                 metadata = {}
-                for key in ("exec_time", "parent_metric", "current_metric", "parent_error"):
+                for key in ("exec_time", "parent_metric", "current_metric", "parent_error", "bug_report", "fix_report"):
                     if key in item:
                         metadata[key] = item.pop(key)
 
@@ -350,7 +356,7 @@ class GlobalMemoryLayer:
                 d = r.to_dict()
                 if r.record_id in self.node_metadata_map:
                     meta = self.node_metadata_map[r.record_id]
-                    for key in ("exec_time", "parent_metric", "current_metric", "parent_error"):
+                    for key in ("exec_time", "parent_metric", "current_metric", "parent_error", "bug_report", "fix_report"):
                         if meta.get(key) is not None:
                             d[key] = meta[key]
                 records_data.append(d)

@@ -35,6 +35,7 @@ logger = logging.getLogger("MLEvolve")
 _BATCH_PROBE_EVENT_TYPES = {
     "batch_probe_cache_hit",
     "batch_probe_cache_miss",
+    "batch_probe_reuse_miss",
     "batch_probe_started",
     "batch_probe_trial",
     "batch_probe_selected",
@@ -59,6 +60,22 @@ def _format_time_limit(seconds: float | None) -> str:
     if seconds is None:
         return "no time limit"
     return f"time limit is {humanize.naturaldelta(seconds)}"
+
+
+def _is_power_of_two(value: int) -> bool:
+    return value > 0 and (value & (value - 1)) == 0
+
+
+def _floor_power_of_two(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    if _is_power_of_two(parsed):
+        return parsed
+    return 1 << (parsed.bit_length() - 1)
 
 
 def _build_scheduler_preload_source(scheduler_cfg: Any) -> dict[str, str] | None:
@@ -104,6 +121,10 @@ class _PreparedSchedulerJob:
     detected_batch_size: int | None
     proposed_epochs: int | None
     model_key: str | None
+    model_family: str | None
+    model_family_source: str | None
+    model_family_profile_key: str | None
+    branch_id: int | str | None
     input_resolution: int | str | None
     fold_count: int | None
     ensemble_count: int | None
@@ -115,6 +136,22 @@ class _PreparedSchedulerJob:
     start_time: float
     job_id: str | None = None
     last_probe_event_id: int = 0
+
+
+class _ModelFamilyProbeError(RuntimeError):
+    def __init__(self, message: str, *, node_id: str, start_time: float):
+        super().__init__(message)
+        self.node_id = str(node_id)
+        self.start_time = start_time
+
+    def to_execution_result(self) -> ExecutionResult:
+        return ExecutionResult(
+            term_out=[f"Scheduler model-family probe failed: {self}\n"],
+            exec_time=time.time() - self.start_time,
+            exc_type="RuntimeError",
+            exc_info={"message": str(self), "node_id": self.node_id},
+            exc_stack=[],
+        )
 
 
 
@@ -167,6 +204,7 @@ class Interpreter:
         self._scheduler_job_ids: set[str] = set()
         self._scheduler_jobs_lock = threading.Lock()
         self._scheduler_submission_counter = 0
+        self.startpoint_model_specs: list[dict[str, Any]] = []
 
     def _format_scheduler_probe_event(self, event: dict[str, Any]) -> str | None:
         event_type = str(event.get("event_type", ""))
@@ -183,6 +221,8 @@ class Interpreter:
             )
         if event_type == "batch_probe_cache_miss":
             return f"{prefix} cache miss: device={payload.get('device_type')} key={payload.get('probe_key')}"
+        if event_type == "batch_probe_reuse_miss":
+            return f"{prefix} reuse miss: derivative probe skipped key={payload.get('probe_key')}"
         if event_type == "batch_probe_started":
             return (
                 f"{prefix} started: model={payload.get('model_key')} device={payload.get('device_type')} "
@@ -246,6 +286,305 @@ class Interpreter:
         """Route future executions through localml_scheduler."""
         self.scheduler_client = client
         self.scheduler_cfg = scheduler_cfg
+
+    def set_startpoint_model_specs(self, specs: list[dict[str, Any]] | None) -> None:
+        """Register ordered cold-start startpoints for derivative probe reuse."""
+        from localml_scheduler.adapters.mlevolve import build_startpoint_profile_key, build_startpoint_shape_signature
+
+        normalized: list[dict[str, Any]] = []
+        task_id = str(getattr(self.cfg, "exp_id", "mlevolve")) if self.cfg is not None else "mlevolve"
+        for index, raw_spec in enumerate(specs or []):
+            spec = dict(raw_spec or {})
+            model_key = str(spec.get("model_key") or spec.get("display_name") or f"startpoint-{index + 1}")
+            modality = str(spec.get("modality") or "generic")
+            shape_hints = dict(spec.get("shape_hints") or {})
+            spec.setdefault("rank", index + 1)
+            spec.setdefault("task_id", task_id)
+            spec["model_key"] = model_key
+            spec["modality"] = modality
+            spec["shape_hints"] = shape_hints
+            spec.setdefault(
+                "profile_key",
+                build_startpoint_profile_key(
+                    task_id=str(spec["task_id"]),
+                    model_key=model_key,
+                    modality=modality,
+                    shape_hints=shape_hints,
+                ),
+            )
+            spec.setdefault(
+                "shape_signature",
+                build_startpoint_shape_signature(
+                    task_id=str(spec["task_id"]),
+                    model_key=model_key,
+                    modality=modality,
+                    shape_hints=shape_hints,
+                ),
+            )
+            normalized.append(spec)
+        self.startpoint_model_specs = normalized
+
+    def _select_startpoint_spec(self, model_key: str | None) -> dict[str, Any] | None:
+        if not self.startpoint_model_specs:
+            return None
+        if model_key:
+            normalized_model_key = str(model_key).strip().lower()
+            for spec in self.startpoint_model_specs:
+                candidates = {
+                    str(spec.get("model_key") or "").strip().lower(),
+                    str(spec.get("display_name") or "").strip().lower(),
+                }
+                if normalized_model_key in candidates:
+                    return spec
+        return sorted(self.startpoint_model_specs, key=lambda item: int(item.get("rank") or 9999))[0]
+
+    def _startpoint_profile(self, profile_key: str | None):
+        if self.scheduler_client is None or not profile_key:
+            return None
+        getter = getattr(self.scheduler_client, "get_batch_probe_profile", None)
+        if not callable(getter):
+            return None
+        try:
+            return getter(str(profile_key))
+        except Exception:
+            return None
+
+    def _batch_from_startpoint_profile(self, profile: Any | None, detected_batch_size: int | None) -> tuple[int | None, str | None]:
+        upper = _floor_power_of_two(detected_batch_size) if detected_batch_size is not None else None
+        if profile is None:
+            return upper, "executor_power_of_two" if upper is not None else None
+
+        profile_batch = _floor_power_of_two(getattr(profile, "resolved_batch_size", None))
+        if profile_batch is not None:
+            upper = min(upper, profile_batch) if upper is not None else profile_batch
+        target_budget_mb = getattr(profile, "target_budget_mb", None)
+        if target_budget_mb is None and getattr(profile, "memory_total_mb", None) is not None and self.scheduler_client is not None:
+            target_budget_mb = self.scheduler_client.settings.gpu_scheduler.memory.budget_mb(profile.memory_total_mb)
+        peak_vram_mb = getattr(profile, "peak_vram_mb", None)
+        if upper is not None and peak_vram_mb is not None and target_budget_mb is not None and peak_vram_mb > 0:
+            safety = float(getattr(self.scheduler_client.settings.gpu_scheduler, "derivative_profile_safety_fraction", 0.85))
+            scaled_limit = int(float(getattr(profile, "resolved_batch_size", upper)) * ((float(target_budget_mb) * safety) / float(peak_vram_mb)))
+            scaled_power = _floor_power_of_two(max(1, scaled_limit))
+            if scaled_power is not None:
+                upper = min(upper, scaled_power)
+        return upper, "startpoint_profile"
+
+    def _batch_probe_profile(self, profile_key: str | None):
+        if self.scheduler_client is None or not profile_key:
+            return None
+        getter = getattr(self.scheduler_client, "get_batch_probe_profile", None)
+        if not callable(getter):
+            return None
+        try:
+            return getter(str(profile_key))
+        except Exception:
+            return None
+
+    def _batch_from_model_family_profile(self, profile: Any | None, detected_batch_size: int | None) -> tuple[int | None, str | None]:
+        adjusted, source = self._batch_from_startpoint_profile(profile, detected_batch_size)
+        if source == "startpoint_profile":
+            source = "model_family_profile"
+        return adjusted, source
+
+    def _script_shape_hints(self, *, script_metadata: dict[str, Any], task_id: str, script_signature: str) -> dict[str, Any]:
+        hints: dict[str, Any] = {
+            "task_id": task_id,
+            "script_signature": script_signature,
+        }
+        for key in (
+            "input_resolution",
+            "framework",
+            "precision_mode",
+            "fold_count",
+            "ensemble_count",
+            "tta_count",
+            "gradient_accumulation_steps",
+            "num_workers",
+        ):
+            if script_metadata.get(key) is not None:
+                hints[key] = script_metadata[key]
+        if script_metadata.get("model_family"):
+            hints["model_family"] = script_metadata["model_family"]
+        return hints
+
+    def _ensure_model_family_profile(
+        self,
+        *,
+        task_id: str,
+        workflow_id: str,
+        model_family: str | None,
+        script_path: Path,
+        working_dir: Path,
+        shape_hints: dict[str, Any],
+        detected_batch_size: int | None,
+        probe_max_batch_size: int | None,
+        submission_defaults: Any,
+        node_id: str,
+        start_time: float,
+    ) -> tuple[str | None, Any | None]:
+        from localml_scheduler.adapters.mlevolve import build_model_family_probe_job, build_model_family_profile_key, normalize_model_family
+
+        if self.scheduler_client is None or not model_family:
+            return None, None
+        settings = self.scheduler_client.settings
+        gpu_settings = settings.gpu_scheduler
+        if not bool(getattr(gpu_settings, "model_family_probe_enabled", True)):
+            return None, None
+        normalized_family = normalize_model_family(model_family)
+        profile_key = build_model_family_profile_key(task_id=task_id, model_family=normalized_family)
+        existing = self._batch_probe_profile(profile_key)
+        if existing is not None:
+            return profile_key, existing
+
+        probe_job = build_model_family_probe_job(
+            workflow_id=workflow_id,
+            task_id=task_id,
+            model_family=normalized_family,
+            script_path=str(script_path),
+            working_dir=str(working_dir),
+            shape_hints=shape_hints,
+            priority=int(getattr(gpu_settings, "model_family_probe_priority", 100)),
+            probe_timeout_seconds=int(getattr(submission_defaults, "batch_probe_probe_timeout_seconds", 45)),
+            probe_poll_interval_seconds=float(getattr(submission_defaults, "batch_probe_poll_interval_seconds", 0.5)),
+            start_batch_size=_floor_power_of_two(detected_batch_size) or 1,
+            probe_max_batch_size=probe_max_batch_size,
+        )
+        submitted = self.scheduler_client.submit(probe_job)
+        with self._scheduler_jobs_lock:
+            self._scheduler_job_ids.add(submitted.job_id)
+        self._pipeline_emit(
+            "scheduler_model_family_probe_submitted",
+            node_id=node_id,
+            job_id=submitted.job_id,
+            stage="execution",
+            payload={
+                "model_family": normalized_family,
+                "profile_key": profile_key,
+                "task_id": task_id,
+            },
+        )
+        logger.info(
+            "Submitted exclusive model-family probe %s for family=%s node=%s",
+            submitted.job_id,
+            normalized_family,
+            node_id,
+        )
+        timeout_seconds = _finite_timeout_seconds(getattr(gpu_settings, "model_family_probe_timeout_seconds", 300))
+        poll_interval = max(0.1, float(getattr(self.scheduler_cfg, "wait_poll_interval_seconds", 1.0)))
+        deadline = time.time() + timeout_seconds if timeout_seconds is not None else None
+        final_job = None
+        last_probe_event_id = 0
+        while deadline is None or time.time() < deadline:
+            final_job = self.scheduler_client.inspect(submitted.job_id)
+            last_probe_event_id = self._log_scheduler_probe_updates(submitted.job_id, last_probe_event_id)
+            profile = self._batch_probe_profile(profile_key)
+            if profile is not None:
+                self._pipeline_emit(
+                    "scheduler_model_family_probe_finished",
+                    node_id=node_id,
+                    job_id=submitted.job_id,
+                    stage="execution",
+                    payload={
+                        "model_family": normalized_family,
+                        "profile_key": profile_key,
+                        "status": "profile_ready",
+                    },
+                )
+                return profile_key, profile
+            if final_job is not None and final_job.status.is_terminal:
+                break
+            time.sleep(poll_interval)
+
+        try:
+            if final_job is None or not final_job.status.is_terminal:
+                self.scheduler_client.cancel(submitted.job_id)
+        except Exception:
+            pass
+        status = getattr(getattr(final_job, "status", None), "value", None) or str(getattr(final_job, "status", "unknown"))
+        reason = getattr(final_job, "status_reason", None) or "profile was not created"
+        raise _ModelFamilyProbeError(
+            f"family={normalized_family} profile_key={profile_key} probe_job={submitted.job_id} status={status}: {reason}",
+            node_id=node_id,
+            start_time=start_time,
+        )
+
+    def _build_scheduler_batch_probe(
+        self,
+        *,
+        submission_defaults: Any,
+        task_id: str,
+        script_signature: str,
+        model_key: str | None,
+        model_family: str | None,
+        model_family_profile_key: str | None,
+        shape_hints: dict[str, Any],
+        detected_batch_size: int | None,
+        batch_probe_enabled: bool,
+        runner_kwargs: dict[str, Any],
+    ) -> tuple[Any, dict[str, Any]]:
+        from localml_scheduler.domain import BatchProbeSpec
+
+        from localml_scheduler.adapters.mlevolve import build_model_family_shape_signature, normalize_model_family
+
+        normalized_family = normalize_model_family(model_family) if model_family else None
+        profile = self._batch_probe_profile(model_family_profile_key) if model_family_profile_key else None
+        adjusted_batch_size, batch_source = self._batch_from_model_family_profile(profile, detected_batch_size)
+        if adjusted_batch_size is not None:
+            runner_kwargs["batch_size"] = adjusted_batch_size
+            runner_kwargs["probe_max_batch_size"] = max(
+                adjusted_batch_size,
+                _floor_power_of_two(adjusted_batch_size * max(1, int(submission_defaults.batch_probe_max_multiplier))) or adjusted_batch_size,
+            )
+        elif detected_batch_size is not None:
+            runner_kwargs["batch_size"] = detected_batch_size
+            runner_kwargs["probe_max_batch_size"] = max(
+                detected_batch_size,
+                detected_batch_size * max(1, int(submission_defaults.batch_probe_max_multiplier)),
+            )
+
+        if normalized_family and model_family_profile_key:
+            shape_signature = build_model_family_shape_signature(
+                task_id=task_id,
+                model_family=normalized_family,
+                shape_hints=shape_hints,
+            )
+            batch_probe = BatchProbeSpec(
+                enabled=batch_probe_enabled,
+                probe_target="localml_scheduler.adapters.mlevolve_runner:probe_mlevolve_script_job" if batch_probe_enabled else None,
+                batch_param_name="batch_size",
+                model_key=normalized_family,
+                search_mode="power_of_two",
+                shape_hints=shape_hints,
+                profile_key=model_family_profile_key,
+                shape_signature_override=shape_signature,
+                reuse_only=True,
+            )
+            metadata = {
+                "model_family": normalized_family,
+                "model_family_profile_key": model_family_profile_key,
+                "model_family_shape_signature": shape_signature,
+                "model_family_reuse_only": True,
+                "startpoint_reuse_only": False,
+            }
+        else:
+            batch_probe = BatchProbeSpec(
+                enabled=batch_probe_enabled,
+                probe_target="localml_scheduler.adapters.mlevolve_runner:probe_mlevolve_script_job" if batch_probe_enabled else None,
+                batch_param_name="batch_size",
+                model_key=submission_defaults.batch_probe_model_key or f"mlevolve-task:{task_id}",
+                search_mode=submission_defaults.batch_probe_search_mode,
+                shape_hints={
+                    "task_id": task_id,
+                    "script_signature": script_signature,
+                },
+            )
+            metadata = {"model_family_reuse_only": False, "startpoint_reuse_only": False}
+
+        if adjusted_batch_size is not None:
+            metadata["resolved_batch_size"] = adjusted_batch_size
+            metadata["batch_probe_source"] = batch_source
+            metadata["proposed_batch_size"] = adjusted_batch_size
+        return batch_probe, metadata
 
     def _pipeline_emit(self, event_type: str, **kwargs: Any) -> None:
         if self.pipeline_logger is None:
@@ -398,7 +737,7 @@ class Interpreter:
         if process_id == -1:
             self._stop_managed_scheduler_service()
 
-    def run(self, code: str, id, reset_session=True, working_dir: str | None = None):
+    def run(self, code: str, id, reset_session=True, working_dir: str | None = None, node_context: Any | None = None):
         """
         Execute the provided Python command in a subprocess and return its output.
 
@@ -411,7 +750,7 @@ class Interpreter:
             ExecutionResult: output, exec_time, exc_type, exc_info, exc_stack.
         """
         if self.scheduler_client is not None:
-            return self._run_scheduler_job(code=code, id=id, working_dir=working_dir)
+            return self._run_scheduler_job(code=code, id=id, working_dir=working_dir, node_context=node_context)
         return self._run_subprocess(code=code, id=id, working_dir=working_dir)
 
     def run_many(
@@ -423,18 +762,33 @@ class Interpreter:
         """Execute a round of node codes, submitting scheduler jobs as one visible packet."""
         if not items:
             return {}
-        normalized_items: list[tuple[str, Any]] = []
+        normalized_items: list[dict[str, Any]] = []
         for item in items:
             if isinstance(item, dict):
-                normalized_items.append((str(item.get("code") or ""), item.get("id") or item.get("node_id")))
+                normalized_items.append(
+                    {
+                        "code": str(item.get("code") or ""),
+                        "node_id": item.get("id") or item.get("node_id"),
+                        "node_context": item.get("node"),
+                        "branch_id": item.get("branch_id"),
+                        "model_family": item.get("model_family"),
+                        "active_profile_key": item.get("active_profile_key"),
+                        "parent_model_family": item.get("parent_model_family"),
+                    }
+                )
             else:
                 code, node_id = item
-                normalized_items.append((code, node_id))
+                normalized_items.append({"code": code, "node_id": node_id})
 
         if self.scheduler_client is None:
             return {
-                str(node_id): self.run(code=code, id=node_id, working_dir=working_dir)
-                for code, node_id in normalized_items
+                str(item["node_id"]): self.run(
+                    code=item["code"],
+                    id=item["node_id"],
+                    working_dir=working_dir,
+                    node_context=item.get("node_context"),
+                )
+                for item in normalized_items
             }
 
         logger.info("REPL is submitting %s code candidates to localml_scheduler as one round", len(normalized_items))
@@ -442,15 +796,26 @@ class Interpreter:
         results: dict[str, ExecutionResult] = {}
         try:
             self._ensure_scheduler_service_available()
-            for process_id, (code, node_id) in enumerate(normalized_items):
-                prepared.append(
-                    self._prepare_scheduler_round_job(
-                        code=code,
-                        id=node_id,
-                        working_dir=working_dir,
-                        process_id=process_id,
+            for process_id, item in enumerate(normalized_items):
+                try:
+                    prepared.append(
+                        self._prepare_scheduler_round_job(
+                            code=item["code"],
+                            id=item["node_id"],
+                            working_dir=working_dir,
+                            process_id=process_id,
+                            node_context=item.get("node_context"),
+                            branch_id=item.get("branch_id"),
+                            model_family_hint=item.get("model_family"),
+                            active_profile_key=item.get("active_profile_key"),
+                            parent_model_family=item.get("parent_model_family"),
+                        )
                     )
-                )
+                except _ModelFamilyProbeError as exc:
+                    results[exc.node_id] = exc.to_execution_result()
+
+            if not prepared:
+                return results
 
             candidates = [dict(prepared_job.job_metadata) for prepared_job in prepared]
             packet_context: dict[str, Any] = {}
@@ -581,6 +946,10 @@ class Interpreter:
                 results[prepared_job.node_id] = self._scheduler_execution_result_from_final(prepared_job, final_job)
 
             return results
+        except _ModelFamilyProbeError as e:
+            logger.error("Model-family probe failed for scheduler job preparation: %s", e)
+            results.setdefault(e.node_id, e.to_execution_result())
+            return results
         except Exception as e:
             logger.error("Error in scheduler round execution: %s", e)
             error_trace = traceback.format_exc()
@@ -615,9 +984,14 @@ class Interpreter:
         working_dir: str | None = None,
         *,
         process_id: int,
+        node_context: Any | None = None,
+        branch_id: int | str | None = None,
+        model_family_hint: str | None = None,
+        active_profile_key: str | None = None,
+        parent_model_family: str | None = None,
     ) -> _PreparedSchedulerJob:
         from localml_scheduler.adapters.mlevolve import build_mlevolve_job
-        from localml_scheduler.domain import BatchProbeSpec, PreloadSource, ResourceRequirements, RuntimeProbeSpec
+        from localml_scheduler.domain import PreloadSource, ResourceRequirements, RuntimeProbeSpec
 
         start_time = time.time()
         logger.info("Prepared scheduler round submission slot: %s", process_id)
@@ -637,6 +1011,10 @@ class Interpreter:
         detected_batch_size = script_metadata.get("proposed_batch_size") or _detect_initial_batch_size(signature_code)
         proposed_epochs = script_metadata.get("proposed_epochs")
         model_key = script_metadata.get("model_key")
+        model_family = script_metadata.get("model_family") or model_family_hint or getattr(node_context, "model_family", None)
+        model_family_source = script_metadata.get("model_family_source") or ("node_context" if model_family_hint or getattr(node_context, "model_family", None) else None)
+        branch_id = branch_id if branch_id is not None else getattr(node_context, "branch_id", None)
+        parent_model_family = parent_model_family if parent_model_family is not None else getattr(getattr(node_context, "parent", None), "model_family", None)
         input_resolution = script_metadata.get("input_resolution")
         fold_count = script_metadata.get("fold_count")
         ensemble_count = script_metadata.get("ensemble_count")
@@ -644,6 +1022,11 @@ class Interpreter:
         framework = script_metadata.get("framework")
         uses_amp = script_metadata.get("uses_amp")
         requires_gpu = script_metadata.get("requires_gpu")
+        precision_mode = script_metadata.get("precision_mode")
+        learning_rate = script_metadata.get("learning_rate")
+        weight_decay = script_metadata.get("weight_decay")
+        gradient_accumulation_steps = script_metadata.get("gradient_accumulation_steps")
+        num_workers = script_metadata.get("num_workers")
         self._pipeline_emit(
             "job_script_created",
             node_id=node_id,
@@ -655,6 +1038,10 @@ class Interpreter:
                 "detected_batch_size": detected_batch_size,
                 "proposed_epochs": proposed_epochs,
                 "model_key": model_key,
+                "model_family": model_family,
+                "model_family_source": model_family_source,
+                "branch_id": branch_id,
+                "parent_model_family": parent_model_family,
                 "input_resolution": input_resolution,
                 "fold_count": fold_count,
                 "ensemble_count": ensemble_count,
@@ -662,6 +1049,11 @@ class Interpreter:
                 "framework": framework,
                 "uses_amp": uses_amp,
                 "requires_gpu": requires_gpu,
+                "precision_mode": precision_mode,
+                "learning_rate": learning_rate,
+                "weight_decay": weight_decay,
+                "gradient_accumulation_steps": gradient_accumulation_steps,
+                "num_workers": num_workers,
             },
         )
 
@@ -680,21 +1072,47 @@ class Interpreter:
         if self.timeout is not None:
             runner_kwargs["timeout"] = self.timeout
         batch_probe_enabled = bool(submission_defaults.batch_probe_enabled) and _code_supports_batch_probe(code)
-        if detected_batch_size is not None:
-            probe_max_multiplier = max(1, int(submission_defaults.batch_probe_max_multiplier))
-            runner_kwargs["batch_size"] = detected_batch_size
-            runner_kwargs["probe_max_batch_size"] = max(detected_batch_size, detected_batch_size * probe_max_multiplier)
         task_id = str(getattr(self.cfg, "exp_id", "mlevolve"))
-        batch_probe = BatchProbeSpec(
-            enabled=batch_probe_enabled,
-            probe_target="localml_scheduler.adapters.mlevolve_runner:probe_mlevolve_script_job" if batch_probe_enabled else None,
-            batch_param_name="batch_size",
-            model_key=submission_defaults.batch_probe_model_key or f"mlevolve-task:{task_id}",
-            search_mode=submission_defaults.batch_probe_search_mode,
-            shape_hints={
-                "task_id": task_id,
-                "script_signature": script_signature,
-            },
+        workflow_id = str(getattr(self.cfg, "exp_name", "mlevolve"))
+        script_shape_hints = self._script_shape_hints(
+            script_metadata=script_metadata,
+            task_id=task_id,
+            script_signature=script_signature,
+        )
+        if model_family:
+            script_shape_hints["model_family"] = model_family
+        proposed_probe_cap = None
+        if detected_batch_size is not None:
+            proposed_probe_cap = max(
+                _floor_power_of_two(detected_batch_size) or 1,
+                _floor_power_of_two(detected_batch_size * max(1, int(submission_defaults.batch_probe_max_multiplier))) or detected_batch_size,
+            )
+        model_family_profile_key = active_profile_key
+        if model_family:
+            model_family_profile_key, _profile = self._ensure_model_family_profile(
+                task_id=task_id,
+                workflow_id=workflow_id,
+                model_family=model_family,
+                script_path=runfile_path,
+                working_dir=run_wd,
+                shape_hints=script_shape_hints,
+                detected_batch_size=detected_batch_size,
+                probe_max_batch_size=proposed_probe_cap,
+                submission_defaults=submission_defaults,
+                node_id=node_id,
+                start_time=start_time,
+            )
+        batch_probe, batch_probe_metadata = self._build_scheduler_batch_probe(
+            submission_defaults=submission_defaults,
+            task_id=task_id,
+            script_signature=script_signature,
+            model_key=model_key,
+            model_family=model_family,
+            model_family_profile_key=model_family_profile_key,
+            shape_hints=script_shape_hints,
+            detected_batch_size=detected_batch_size,
+            batch_probe_enabled=batch_probe_enabled,
+            runner_kwargs=runner_kwargs,
         )
         runtime_probe = RuntimeProbeSpec(
             enabled=bool(getattr(submission_defaults, "runtime_probe_enabled", False)),
@@ -718,6 +1136,12 @@ class Interpreter:
             "proposed_batch_size": detected_batch_size,
             "proposed_epochs": proposed_epochs,
             "model_key": model_key,
+            "model_family": model_family,
+            "model_family_source": model_family_source,
+            "model_family_profile_key": model_family_profile_key,
+            "branch_id": branch_id,
+            "parent_model_family": parent_model_family,
+            "architecture_switch": bool(parent_model_family and model_family and str(parent_model_family) != str(model_family)),
             "input_resolution": input_resolution,
             "fold_count": fold_count,
             "ensemble_count": ensemble_count,
@@ -725,6 +1149,11 @@ class Interpreter:
             "framework": framework,
             "uses_amp": uses_amp,
             "requires_gpu": requires_gpu,
+            "precision_mode": precision_mode,
+            "learning_rate": learning_rate,
+            "weight_decay": weight_decay,
+            "gradient_accumulation_steps": gradient_accumulation_steps,
+            "num_workers": num_workers,
             "script_signature": script_signature,
             "scheduler_mode": getattr(scheduler_settings.gpu_scheduler, "mode", None),
             "batch_probe_enabled": batch_probe_enabled,
@@ -732,6 +1161,7 @@ class Interpreter:
             "packing_eligible": packing_eligible,
             "packing_backend_allowlist": packing_backend_allowlist,
         }
+        job_metadata.update(batch_probe_metadata)
         job = build_mlevolve_job(
             workflow_id=str(getattr(self.cfg, "exp_name", "mlevolve")),
             baseline_model_id=f"mlevolve-script-{id}",
@@ -743,7 +1173,7 @@ class Interpreter:
             batch_probe=batch_probe,
             runtime_probe=runtime_probe,
             resource_requirements=resource_requirements,
-            packing_family=submission_defaults.packing_family,
+            packing_family=model_family or submission_defaults.packing_family,
             packing_signature=script_signature,
             packing_eligible=packing_eligible,
             packing_max_slowdown_ratio=submission_defaults.packing_max_slowdown_ratio,
@@ -751,6 +1181,14 @@ class Interpreter:
             preload_source=PreloadSource.from_dict(preload_source_payload),
             metadata=job_metadata,
         )
+        if node_context is not None:
+            try:
+                if model_family:
+                    node_context.model_family = model_family
+                if model_family_profile_key:
+                    node_context.active_profile_key = model_family_profile_key
+            except Exception:
+                pass
         return _PreparedSchedulerJob(
             node_id=node_id,
             process_id=process_id,
@@ -763,6 +1201,10 @@ class Interpreter:
             detected_batch_size=detected_batch_size,
             proposed_epochs=proposed_epochs,
             model_key=model_key,
+            model_family=model_family,
+            model_family_source=model_family_source,
+            model_family_profile_key=model_family_profile_key,
+            branch_id=branch_id,
             input_resolution=input_resolution,
             fold_count=fold_count,
             ensemble_count=ensemble_count,
@@ -896,10 +1338,10 @@ class Interpreter:
         except Exception as exc:
             logger.debug("Skipping scheduler tuning outcome record for %s: %s", job_id, exc)
 
-    def _run_scheduler_job(self, code: str, id, working_dir: str | None = None) -> ExecutionResult:
+    def _run_scheduler_job(self, code: str, id, working_dir: str | None = None, node_context: Any | None = None) -> ExecutionResult:
         """Submit generated code as a localml_scheduler job and wait for its result."""
         from localml_scheduler.adapters.mlevolve import build_mlevolve_job
-        from localml_scheduler.domain import BatchProbeSpec, PreloadSource, ResourceRequirements, RuntimeProbeSpec
+        from localml_scheduler.domain import PreloadSource, ResourceRequirements, RuntimeProbeSpec
 
         if self.scheduler_client is None:
             return self._run_subprocess(code=code, id=id, working_dir=working_dir)
@@ -944,6 +1386,10 @@ class Interpreter:
             detected_batch_size = script_metadata.get("proposed_batch_size")
             proposed_epochs = script_metadata.get("proposed_epochs")
             model_key = script_metadata.get("model_key")
+            model_family = script_metadata.get("model_family") or getattr(node_context, "model_family", None)
+            model_family_source = script_metadata.get("model_family_source") or ("node_context" if getattr(node_context, "model_family", None) else None)
+            branch_id = getattr(node_context, "branch_id", None)
+            parent_model_family = getattr(getattr(node_context, "parent", None), "model_family", None)
             input_resolution = script_metadata.get("input_resolution")
             fold_count = script_metadata.get("fold_count")
             ensemble_count = script_metadata.get("ensemble_count")
@@ -951,6 +1397,11 @@ class Interpreter:
             framework = script_metadata.get("framework")
             uses_amp = script_metadata.get("uses_amp")
             requires_gpu = script_metadata.get("requires_gpu")
+            precision_mode = script_metadata.get("precision_mode")
+            learning_rate = script_metadata.get("learning_rate")
+            weight_decay = script_metadata.get("weight_decay")
+            gradient_accumulation_steps = script_metadata.get("gradient_accumulation_steps")
+            num_workers = script_metadata.get("num_workers")
             self._pipeline_emit(
                 "job_script_created",
                 node_id=str(id),
@@ -962,6 +1413,10 @@ class Interpreter:
                     "detected_batch_size": detected_batch_size,
                     "proposed_epochs": proposed_epochs,
                     "model_key": model_key,
+                    "model_family": model_family,
+                    "model_family_source": model_family_source,
+                    "branch_id": branch_id,
+                    "parent_model_family": parent_model_family,
                     "input_resolution": input_resolution,
                     "fold_count": fold_count,
                     "ensemble_count": ensemble_count,
@@ -969,6 +1424,11 @@ class Interpreter:
                     "framework": framework,
                     "uses_amp": uses_amp,
                     "requires_gpu": requires_gpu,
+                    "precision_mode": precision_mode,
+                    "learning_rate": learning_rate,
+                    "weight_decay": weight_decay,
+                    "gradient_accumulation_steps": gradient_accumulation_steps,
+                    "num_workers": num_workers,
                 },
             )
 
@@ -989,24 +1449,47 @@ class Interpreter:
                 runner_kwargs["timeout"] = self.timeout
             batch_probe_enabled = bool(submission_defaults.batch_probe_enabled) and _code_supports_batch_probe(code)
             detected_batch_size = detected_batch_size or _detect_initial_batch_size(signature_code)
-            if detected_batch_size is not None:
-                probe_max_multiplier = max(1, int(submission_defaults.batch_probe_max_multiplier))
-                runner_kwargs["batch_size"] = detected_batch_size
-                runner_kwargs["probe_max_batch_size"] = max(
-                    detected_batch_size,
-                    detected_batch_size * probe_max_multiplier,
-                )
             task_id = str(getattr(self.cfg, "exp_id", "mlevolve"))
-            batch_probe = BatchProbeSpec(
-                enabled=batch_probe_enabled,
-                probe_target="localml_scheduler.adapters.mlevolve_runner:probe_mlevolve_script_job" if batch_probe_enabled else None,
-                batch_param_name="batch_size",
-                model_key=submission_defaults.batch_probe_model_key or f"mlevolve-task:{task_id}",
-                search_mode=submission_defaults.batch_probe_search_mode,
-                shape_hints={
-                    "task_id": task_id,
-                    "script_signature": script_signature,
-                },
+            workflow_id = str(getattr(self.cfg, "exp_name", "mlevolve"))
+            script_shape_hints = self._script_shape_hints(
+                script_metadata=script_metadata,
+                task_id=task_id,
+                script_signature=script_signature,
+            )
+            if model_family:
+                script_shape_hints["model_family"] = model_family
+            proposed_probe_cap = None
+            if detected_batch_size is not None:
+                proposed_probe_cap = max(
+                    _floor_power_of_two(detected_batch_size) or 1,
+                    _floor_power_of_two(detected_batch_size * max(1, int(submission_defaults.batch_probe_max_multiplier))) or detected_batch_size,
+                )
+            model_family_profile_key = getattr(node_context, "active_profile_key", None)
+            if model_family:
+                model_family_profile_key, _profile = self._ensure_model_family_profile(
+                    task_id=task_id,
+                    workflow_id=workflow_id,
+                    model_family=model_family,
+                    script_path=runfile_path,
+                    working_dir=run_wd,
+                    shape_hints=script_shape_hints,
+                    detected_batch_size=detected_batch_size,
+                    probe_max_batch_size=proposed_probe_cap,
+                    submission_defaults=submission_defaults,
+                    node_id=str(id),
+                    start_time=start_time,
+                )
+            batch_probe, batch_probe_metadata = self._build_scheduler_batch_probe(
+                submission_defaults=submission_defaults,
+                task_id=task_id,
+                script_signature=script_signature,
+                model_key=model_key,
+                model_family=model_family,
+                model_family_profile_key=model_family_profile_key,
+                shape_hints=script_shape_hints,
+                detected_batch_size=detected_batch_size,
+                batch_probe_enabled=batch_probe_enabled,
+                runner_kwargs=runner_kwargs,
             )
             runtime_probe = RuntimeProbeSpec(
                 enabled=bool(getattr(submission_defaults, "runtime_probe_enabled", False)),
@@ -1028,6 +1511,12 @@ class Interpreter:
                 "detected_batch_size": detected_batch_size,
                 "proposed_epochs": proposed_epochs,
                 "model_key": model_key,
+                "model_family": model_family,
+                "model_family_source": model_family_source,
+                "model_family_profile_key": model_family_profile_key,
+                "branch_id": branch_id,
+                "parent_model_family": parent_model_family,
+                "architecture_switch": bool(parent_model_family and model_family and str(parent_model_family) != str(model_family)),
                 "input_resolution": input_resolution,
                 "fold_count": fold_count,
                 "ensemble_count": ensemble_count,
@@ -1035,6 +1524,11 @@ class Interpreter:
                 "framework": framework,
                 "uses_amp": uses_amp,
                 "requires_gpu": requires_gpu,
+                "precision_mode": precision_mode,
+                "learning_rate": learning_rate,
+                "weight_decay": weight_decay,
+                "gradient_accumulation_steps": gradient_accumulation_steps,
+                "num_workers": num_workers,
                 "script_signature": script_signature,
                 "scheduler_mode": getattr(scheduler_settings.gpu_scheduler, "mode", None),
                 "batch_probe_enabled": batch_probe_enabled,
@@ -1042,6 +1536,7 @@ class Interpreter:
                 "packing_eligible": packing_eligible,
                 "packing_backend_allowlist": packing_backend_allowlist,
             }
+            job_metadata.update(batch_probe_metadata)
             job = build_mlevolve_job(
                 workflow_id=str(getattr(self.cfg, "exp_name", "mlevolve")),
                 baseline_model_id=f"mlevolve-script-{id}",
@@ -1053,7 +1548,7 @@ class Interpreter:
                 batch_probe=batch_probe,
                 runtime_probe=runtime_probe,
                 resource_requirements=resource_requirements,
-                packing_family=submission_defaults.packing_family,
+                packing_family=model_family or submission_defaults.packing_family,
                 packing_signature=script_signature,
                 packing_eligible=packing_eligible,
                 packing_max_slowdown_ratio=submission_defaults.packing_max_slowdown_ratio,
@@ -1061,6 +1556,14 @@ class Interpreter:
                 preload_source=PreloadSource.from_dict(preload_source_payload),
                 metadata=job_metadata,
             )
+            if node_context is not None:
+                try:
+                    if model_family:
+                        node_context.model_family = model_family
+                    if model_family_profile_key:
+                        node_context.active_profile_key = model_family_profile_key
+                except Exception:
+                    pass
             submitted = self.scheduler_client.submit(job)
             job_id = submitted.job_id
             self._pipeline_upsert_job(
@@ -1211,6 +1714,9 @@ class Interpreter:
                 exc_info={"message": reason, "job_id": job_id},
                 exc_stack=[],
             )
+        except _ModelFamilyProbeError as e:
+            logger.error("Model-family probe failed for scheduler job preparation: %s", e)
+            return e.to_execution_result()
         except Exception as e:
             logger.error(f"Error in _run_scheduler_job: {e}")
             error_trace = traceback.format_exc()

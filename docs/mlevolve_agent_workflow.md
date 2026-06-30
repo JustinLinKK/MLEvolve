@@ -110,7 +110,7 @@ Its prompt is assembled from:
 - the task description
 - the current data preview
 - memory of earlier attempts from the root
-- a pipeline decision trace that locks the order `datatype -> model -> optimizer -> tuning`
+- a pipeline decision trace that supports the hardware-aware step order `model_design -> datatype_precision -> training_evaluation`
 - implementation guidelines
 - leakage-prevention instructions
 - optional cold-start model guidance

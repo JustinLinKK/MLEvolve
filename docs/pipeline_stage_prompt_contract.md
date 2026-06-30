@@ -1,15 +1,22 @@
 # Pipeline Stage Prompt Contract
 
 MLEvolve now creates a compact pipeline decision before every code-producing
-stage. The decision enforces this order:
+stage. The hardware-aware stepwise workflow follows this order:
 
 ```text
-datatype -> model -> optimizer -> tuning
+model_design -> datatype_precision -> training_evaluation
 ```
 
-`datatype` means data modality and target shape, not floating-point precision.
-Numeric precision such as fp32, fp16, bf16, and tf32 belongs under `tuning`
-unless the task itself requires a specific numeric type.
+The persisted decision still stores `datatype`, `model`, `optimizer`, and
+`tuning` fields. `datatype` means data modality and target shape, not
+floating-point precision. Numeric precision such as fp32, fp16, bf16, tf32, and
+Transformer Engine FP8/MXFP8/NVFP4 belongs to the `datatype_precision` step and
+the `tuning.precision_policy` field unless the task itself requires a specific
+numeric type. The `datatype_precision` step may also make narrow
+precision-required model adaptations, such as TE-compatible layer wrappers,
+precision shape padding/config hooks, autocast recipes, or higher-precision
+islands, while preserving the Stage 1 model family, loss, data features, and
+output interface.
 
 ## Decision Schema
 
@@ -38,7 +45,8 @@ Each generated node can store `SearchNode.pipeline_decision`:
   },
   "tuning": {
     "batch_size_policy": "fixed|scheduler_recommended|adaptive",
-    "precision_policy": "fp32|tf32|fp16_amp|bf16_amp|disabled",
+    "precision_policy": "fp32|tf32|fp16_amp|bf16_amp|fp8_te|mxfp8_te|nvfp4_te|disabled",
+    "precision_model_adaptation": "none|short description of precision-required adapter",
     "dataloader_policy": "num_workers/pin_memory/non_blocking choices",
     "fallbacks": ["OOM fallback", "timeout fallback"],
     "metrics_to_log": ["elapsed_seconds", "peak_vram_mb", "resolved_batch_size"]
@@ -69,8 +77,10 @@ The contract is injected into:
 Stepwise agents consume different parts of the same trace:
 
 - `data_processing_and_feature_engineering`: `datatype` and dataloader policy
-- `model_design`: `datatype`, `model`, and optimizer/loss choices
-- `training_evaluation`: `optimizer`, `tuning`, and `evidence`
+- `model_design`: `model` plus loss/output-interface choices
+- `datatype_precision`: `tuning.precision_policy`,
+  `tuning.precision_model_adaptation`, and precision evidence
+- `training_evaluation`: `optimizer`, remaining `tuning`, and `evidence`
 
 ## Evidence Rules
 

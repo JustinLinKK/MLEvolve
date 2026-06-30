@@ -15,7 +15,7 @@ from rich.status import Status
 from config import load_task_desc, prep_agent_workspace, save_run, load_cfg
 from utils.visualization import journal_to_string_tree
 from utils.seed import set_global_seed
-from engine.coldstart import build_guidance_description
+from engine.coldstart import build_guidance_description, collect_startpoint_model_specs
 from utils.logging_config import setup_logging
 from utils.hardware_monitor import HardwareMonitor
 from utils.experiment_metrics import build_comparison_metrics, write_comparison_metrics
@@ -56,6 +56,58 @@ def _scheduler_settings_from_cfg(cfg, scheduler_cfg) -> SchedulerSettings:
         )
 
     return SchedulerSettings(runtime_root=scheduler_runtime_root)
+
+
+def _submit_startpoint_probe_jobs(
+    *,
+    scheduler_client,
+    scheduler_settings: SchedulerSettings,
+    cfg,
+    startpoint_specs: list[dict],
+    pipeline_logger: PipelineActionLogger,
+    logger: logging.Logger,
+) -> list[str]:
+    gpu_settings = scheduler_settings.gpu_scheduler
+    if not bool(getattr(gpu_settings, "startpoint_probe_enabled", True)):
+        return []
+    if not startpoint_specs:
+        return []
+    from localml_scheduler.adapters.mlevolve import build_startpoint_probe_job
+
+    max_models = getattr(gpu_settings, "startpoint_probe_max_models", None)
+    selected_specs = list(startpoint_specs)
+    if max_models is not None:
+        selected_specs = selected_specs[: max(0, int(max_models))]
+    if not selected_specs:
+        return []
+    jobs = [
+        build_startpoint_probe_job(
+            workflow_id=str(getattr(cfg, "exp_name", "mlevolve")),
+            startpoint=spec,
+            priority=100,
+        )
+        for spec in selected_specs
+    ]
+    submitted = scheduler_client.submit_many(jobs) if hasattr(scheduler_client, "submit_many") else [scheduler_client.submit(job) for job in jobs]
+    job_ids = [job.job_id for job in submitted]
+    logger.info("🧭 Submitted %s startpoint probe job(s): %s", len(job_ids), ", ".join(job_ids))
+    pipeline_logger.emit(
+        "scheduler_startpoint_probes_submitted",
+        stage="scheduler",
+        payload={
+            "job_ids": job_ids,
+            "startpoints": [
+                {
+                    "model_key": spec.get("model_key"),
+                    "display_name": spec.get("display_name"),
+                    "modality": spec.get("modality"),
+                    "rank": spec.get("rank"),
+                }
+                for spec in selected_specs
+            ],
+        },
+    )
+    return job_ids
 
 
 def run():
@@ -99,9 +151,11 @@ def run():
     try:
         task_desc = load_task_desc(cfg)
 
+        startpoint_specs = []
         if cfg.coldstart.use_coldstart:
             logger.info("Loading guidance from knowledge base")
             cfg.coldstart.description = build_guidance_description(cfg)
+            startpoint_specs = collect_startpoint_model_specs(cfg)
             logger.info(f"Guidance description: {cfg.coldstart.description}")
 
         with Status("Preparing agent workspace (copying and extracting files) ..."):
