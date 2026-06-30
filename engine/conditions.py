@@ -38,6 +38,8 @@ def should_trigger_branch_fusion(agent) -> bool:
 
 def is_branch_stagnant(agent, branch_id: int, threshold: int = 3) -> bool:
     """True if branch has no improvement over branch best for the last threshold attempts."""
+    if not getattr(agent.scfg, "use_stagnation_detection", True):
+        return False
     if branch_id not in agent.branch_successful_nodes:
         return False
 
@@ -85,6 +87,8 @@ def is_branch_stagnant(agent, branch_id: int, threshold: int = 3) -> bool:
 
 def is_globally_stagnant(agent) -> bool:
     """True if no significant improvement in the last window_size nodes."""
+    if not getattr(agent.scfg, "use_stagnation_detection", True):
+        return False
     if not agent.best_node or not agent.best_node.metric:
         return False
 

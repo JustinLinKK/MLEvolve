@@ -82,7 +82,13 @@ agent:
   check_data_leakage: True
 
   # --- Code gen mode ---
-  use_diff_mode: True                # SEARCH/REPLACE patch
+  use_diff_mode: True                 # Multi-Mode Codegen
+  use_stepwise_generation: True       # Multi-Mode Codegen
+
+  # --- Triggered-action master switches (ablation use) ---
+  use_evolution: True                # intra-branch evolution on stagnation
+  use_fusion: True                   # cross-branch fusion on stagnation (>=6h)
+  use_aggregation: True              # multi-branch aggregation at root
 
   # --- Branch strategy ---
   fusion_vs_evolution_prob: 0.3
@@ -127,7 +133,7 @@ agent:
     # Explore-exploit soft switch
     explore_switch_start: 0.5
     explore_switch_end: 0.7
-    min_exploration_weight: 0.2
+    min_exploration_weight: 0.2       # Top-K enabled
 
     # Top-K node selection
     topk_early_k: 5
@@ -148,6 +154,9 @@ agent:
     fusion_min_successful_nodes: 2
     fusion_min_branches: 2
 
+    # Stagnation detection master switch (ablation: set False for vanilla MCTS baseline)
+    use_stagnation_detection: True
+
   # --------------------------------------------------------
   #  Exploration constant decay
   # --------------------------------------------------------
@@ -161,7 +170,7 @@ agent:
 #  Cold-start knowledge
 # ============================================================
 coldstart:
-  use_coldstart: True
+  use_coldstart: True                 # Cold-start KB enabled
   task_json_path: "engine/coldstart/competition_tag_classified.json"
   model_json_path: "engine/coldstart/models_guidance_classified.json"
   description: ""

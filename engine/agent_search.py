@@ -54,7 +54,7 @@ class AgentSearch:
         self.journal_lock = threading.Lock()
         self.save_node_lock = threading.Lock()
         self.start_time = time.time()
-        self.use_stepwise_generation = True
+        self.use_stepwise_generation = getattr(self.acfg, "use_stepwise_generation", True)
 
         self.next_branch_id = 1
         self.branch_all_nodes: Dict[int, List[SearchNode]] = {}
@@ -171,16 +171,24 @@ class AgentSearch:
                         logger.info(f"🎯 Exploitation mode: using relaxed stagnation threshold ({stagnation_threshold} attempts)")
 
                     if is_branch_stagnant(self, parent_node.branch_id, threshold=stagnation_threshold):
-                        if can_use_fusion:
+                        evo_ok = getattr(self.acfg, "use_evolution", True)
+                        fus_ok = getattr(self.acfg, "use_fusion", True) and can_use_fusion
+                        if evo_ok and fus_ok:
                             if random.random() < self.acfg.fusion_vs_evolution_prob:
                                 logger.info(f"🎯 Triggering fusion for stagnant node {parent_node.id} (after 6h)")
                                 result_node = fusion_agent.run(self, parent_node)
                             else:
                                 logger.info(f"🎯 Triggering intra-branch evolution for stagnant node {parent_node.id} (after 6h)")
                                 result_node = evolution_agent.run(self, parent_node)
-                        else:
-                            logger.info(f"🔄 Using evolution for stagnant node {parent_node.id} (before 6h)")
+                        elif fus_ok:
+                            logger.info(f"🎯 Triggering fusion for stagnant node {parent_node.id} (evolution disabled)")
+                            result_node = fusion_agent.run(self, parent_node)
+                        elif evo_ok:
+                            logger.info(f"🔄 Using evolution for stagnant node {parent_node.id}")
                             result_node = evolution_agent.run(self, parent_node)
+                        else:
+                            logger.info(f"🔄 Stagnant but evolution/fusion both disabled, falling back to improve for node {parent_node.id}")
+                            result_node = improve_agent.run(self, parent_node)
                     else:
                         logger.info(f"🔄 Using normal improve for node {parent_node.id}")
                         result_node = improve_agent.run(self, parent_node)

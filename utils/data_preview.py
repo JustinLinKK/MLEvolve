@@ -163,12 +163,46 @@ def generate(base_path, include_file_details=True, simple=False):
             elif fn.suffix == ".json":
                 out.append(preview_json(fn, file_name))
             elif fn.suffix in plaintext_files:
-                if get_file_len_size(fn)[0] < 30:
+                n_lines = get_file_len_size(fn)[0]
+                if n_lines < 30:
                     with open(fn) as f:
                         content = f.read()
                         if fn.suffix in code_files:
                             content = f"```\n{content}\n```"
                         out.append(f"-> {file_name} has content:\n\n{content}")
+                elif fn.suffix not in code_files:
+                    # Large non-code plaintext (.txt/.tsv/.csv-in-txt/.md-data): preview first 15 lines
+                    try:
+                        with open(fn) as f:
+                            head = []
+                            for _ in range(15):
+                                line = f.readline()
+                                if not line:
+                                    break
+                                if len(line) > 300:
+                                    line = line[:300] + "...(line truncated)\n"
+                                head.append(line)
+                        if not head:
+                            continue
+                        preview = "".join(head).rstrip()
+                        first = head[0].rstrip("\n")
+                        line2 = head[1].rstrip("\n") if len(head) > 1 else ""
+                        is_csv_like = fn.suffix == ".txt" and (
+                            (first.startswith('"') and '","' in first)
+                            or ("," in first and first.count('"') >= 2 and "," in line2)
+                        )
+                        if is_csv_like:
+                            out.append(
+                                f"-> ⚠️ {file_name} has extension `.txt` but its content is CSV-formatted. "
+                                f"First {len(head)} lines:\n{preview}\n"
+                                f"Parse it with `pd.read_csv('{fn.name}')` (NOT `open().splitlines()`) to correctly handle the header and quoted fields."
+                            )
+                        else:
+                            out.append(
+                                f"-> {file_name} ({n_lines} lines total) — first {len(head)} lines:\n{preview}"
+                            )
+                    except Exception:
+                        pass
 
     base_path_obj = Path(base_path)
     input_dir = base_path_obj / "input"
@@ -220,6 +254,20 @@ def clean_task_desc(task_desc: str, cfg) -> str:
     from llm import query
 
     acfg = cfg.agent
+    alignment_rule = (
+        "\n\n"
+        + "=" * 60 + "\n"
+        + "**TASK AND METRIC ALIGNMENT REQUIREMENT**\n"
+        + "=" * 60 + "\n"
+        + "Your solution must stay aligned with the official competition task and official evaluation metric.\n"
+        + "- Local validation must evaluate the same core task as the final submission.\n"
+        + "- The reported `Final Validation Score` must use the official metric definition, or a task-faithful implementation of that same metric.\n"
+        + "- Do NOT simplify the task into an easier proxy objective just to obtain a higher local score.\n"
+        + "- Do NOT use a proxy metric as the main score for comparing solutions, ranking candidates, or selecting the best solution.\n"
+        + "- The prediction target, output semantics, and post-processing used in validation must remain aligned with the required submission format.\n"
+        + "- In short: task goal and metric must match the official specification; lazy task redefinition is forbidden.\n"
+        + "=" * 60
+    )
 
     prompt = {
         "Task": "Remove ONLY useless environment information from the task description below. Keep all core task content.",
@@ -270,7 +318,7 @@ def clean_task_desc(task_desc: str, cfg) -> str:
                 submission_format = "\n\n" + "=" * 60 + "\n"
                 submission_format += "**REQUIRED SUBMISSION FORMAT**\n"
                 submission_format += "=" * 60 + "\n"
-                submission_format += f"The final submission file must match this format:\n\n"
+                submission_format += f"The final submission file must match this format (including column names and row order):\n\n"
                 submission_format += df.to_string(index=False)
                 submission_format += f"\n\n(Showing first {len(df)} rows as example)\n"
                 submission_format += "=" * 60
@@ -283,5 +331,6 @@ def clean_task_desc(task_desc: str, cfg) -> str:
             except Exception as e:
                 logger.warning(f"Failed to read {sample_path}: {e}")
                 continue
+    cleaned_desc += alignment_rule
     logger.info(f"Generating Task desc: \n  {cleaned_desc} \n")
     return cleaned_desc

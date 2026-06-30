@@ -6,6 +6,9 @@ Usage:
     #   temperature, top_p, presence_penalty  — standard OpenAI Chat params
     #   top_k, enable_thinking                — go into extra_body (Qwen-specific)
 
+    thinking_extra = get_thinking_extra_body(model_name)
+    # Returns model-specific extra_body params for enabling thinking mode
+
 To add a new model family, add an entry to _PROFILES below.
 Each entry has two modes: "thinking" and "non_thinking".
 Only include params that differ from provider defaults — missing keys are skipped.
@@ -32,13 +35,43 @@ _PROFILES: dict[str, dict] = {
     # ── GPT series ───
     "gpt": {
         "thinking": {
-            # Coding / agentic tasks — OpenAI default temp works well
             "temperature": 1.0,
         },
         "non_thinking": {
-            # Planner / structured-output calls
             "temperature": 0.7,
-            "presence_penalty": 0.1,
+        },
+    },
+
+    # ── Kimi series (K2.5, K2.6) ───
+    # Kimi reasoning models only allow temperature=1
+    "kimi": {
+        "thinking": {
+            "temperature": 1.0, "top_p": 0.95,
+        },
+        "non_thinking": {
+            "temperature": 1.0, "top_p": 0.95,
+        },
+    },
+
+    # ── DeepSeek series (V4-pro, V4-flash) ───
+    "deepseek": {
+        "thinking": {
+            "temperature": 1.0,
+        },
+        "non_thinking": {
+            "temperature": 1.0,
+        },
+    },
+
+    # ── Claude series (Opus 4.6/4.7, Sonnet 4.6) ───
+    # Adaptive thinking is the recommended mode on Opus 4.6+/Sonnet 4.6+;
+    # required on Opus 4.7. No budget_tokens needed.
+    "claude": {
+        "thinking": {
+            "temperature": 1.0,
+        },
+        "non_thinking": {
+            "temperature": 1.0,
         },
     },
 
@@ -49,6 +82,18 @@ _PROFILES: dict[str, dict] = {
     },
 }
 
+# Model-specific extra_body params for enabling thinking/reasoning mode.
+# Synced from agentic-mle llm_client.py _MODEL_CONFIGS.
+_THINKING_EXTRA_BODY: dict[str, dict] = {
+    "qwen":     {"enable_thinking": True},
+    "kimi":     {},                          # Kimi enables thinking by default
+    "deepseek": {"thinking": {"type": "enabled"}, "reasoning_effort": "high"},
+    "gpt":      {},
+    # Claude Opus 4.6/4.7 + Sonnet 4.6: adaptive thinking is the recommended
+    # mode (required on Opus 4.7). Auto-enables interleaved thinking.
+    "claude":   {"thinking": {"type": "adaptive"}},
+}
+
 # Models that only support {"type": "json_object"}, not json_schema + strict.
 _NO_JSON_SCHEMA_PREFIXES = ("deepseek",)
 
@@ -56,6 +101,11 @@ _NO_JSON_SCHEMA_PREFIXES = ("deepseek",)
 # generate() will drop json_schema for these models to keep thinking enabled,
 # relying on prompt instructions + post-processing for JSON extraction.
 _THINKING_JSON_INCOMPATIBLE = ("qwen",)
+
+# Models that don't support tool_choice="required" / specific function targeting.
+# Claude with extended thinking only supports tool_choice="auto" or "none";
+# specific tool name will return a 400 error.
+_NO_TOOL_CHOICE_REQUIRED_PREFIXES = ("kimi", "deepseek", "claude")
 
 
 def thinking_json_incompatible(model_name: str) -> bool:
@@ -68,6 +118,21 @@ def supports_json_schema(model_name: str) -> bool:
     """Return False for models that require json_object instead of json_schema+strict."""
     name = (model_name or "").lower()
     return not any(name.startswith(p) for p in _NO_JSON_SCHEMA_PREFIXES)
+
+
+def supports_tool_choice_required(model_name: str) -> bool:
+    """Return False for models that don't support tool_choice=required."""
+    name = (model_name or "").lower()
+    return not any(name.startswith(p) for p in _NO_TOOL_CHOICE_REQUIRED_PREFIXES)
+
+
+def get_thinking_extra_body(model_name: str) -> dict:
+    """Return model-specific extra_body params for thinking mode (synced from agentic-mle)."""
+    name = (model_name or "").lower()
+    for key in sorted(_THINKING_EXTRA_BODY, key=len, reverse=True):
+        if name.startswith(key):
+            return dict(_THINKING_EXTRA_BODY[key])
+    return {}
 
 
 def get_profile(model_name: str, use_thinking: bool = True) -> dict:
