@@ -54,6 +54,7 @@ class StepwiseContext:
     hardware_context: Dict[str, Any] = field(default_factory=dict)
     pipeline_decision: Dict[str, Any] = field(default_factory=dict)
     pipeline_decision_section: str = ""
+    stage_receipts: List[Dict[str, Any]] = field(default_factory=list)
     stage_note_board: List[Dict[str, Any]] = field(default_factory=list)
     used_prompts: List[Dict[str, str]] = field(default_factory=list)
 
@@ -84,6 +85,31 @@ class StepwiseContext:
         else:
             current_group = STEP_LOGICAL_STAGE_LABEL.get(self.logical_stage_for(step_name), step_name)
             lines.append(f"- No prior notes yet. This step is part of {current_group}; write concise notes for later stages.")
+        return "\n".join(lines) + "\n"
+
+    def stage_receipt_section(self, step_name: str, previous_steps: List[Dict[str, Any]]) -> str:
+        lines = [
+            "# Previous Stage Receipt",
+            "- Purpose: pass task constraints, output/metric requirements, public variables, and stage decisions forward without repeating the original task text.",
+        ]
+        if self.stage_receipts:
+            lines.append("- Receipts so far:")
+            for item in self.stage_receipts[-8:]:
+                stage = item.get("stage") or "stage"
+                stage_group = STEP_LOGICAL_STAGE_LABEL.get(str(item.get("stage_group") or ""), item.get("stage_group") or "")
+                receipt = item.get("receipt") or "No receipt recorded."
+                prefix = f"{stage_group} / {stage}" if stage_group else str(stage)
+                lines.append(f"  - {prefix}: {receipt}")
+        elif previous_steps:
+            lines.append("- Receipts so far:")
+            for step in previous_steps[-8:]:
+                stage = step.get("name") or "stage"
+                stage_group = STEP_LOGICAL_STAGE_LABEL.get(self.logical_stage_for(str(stage)), self.logical_stage_for(str(stage)))
+                summary = _compact_receipt_text(_first_sentence(step.get("plan", "")) or "Prior stage completed.")
+                lines.append(f"  - {stage_group} / {stage}: {summary}")
+        else:
+            current_group = STEP_LOGICAL_STAGE_LABEL.get(self.logical_stage_for(step_name), step_name)
+            lines.append(f"- No prior receipt yet. This first step is part of {current_group}; include a Stage receipt for later stages.")
         return "\n".join(lines) + "\n"
 
     def hardware_section_for_merge(self) -> str:
@@ -224,9 +250,11 @@ class StepAgent:
         prompt_instructions["Response format"] = (
             "Your response should be:\n"
             "1. A brief plan (2-3 sentences) describing what you will do in this step\n"
-            "2. A `Note board:` block with 1-3 bullets. Each bullet must use this exact shape: "
+            "2. A `Stage receipt:` block with 3-6 bullets. Carry forward the task goal, evaluation/output contract, "
+            "public variables produced or consumed, and this stage's decisions so the next agent can work without the original task text.\n"
+            "3. A `Note board:` block with 1-3 bullets. Each bullet must use this exact shape: "
             "`- baseline_change: <what changed from the baseline or prior step> | purpose: <why this supports the candidate target> | hardware_keys: <comma-separated local feature keys or none>`\n"
-            "3. A single markdown code block (wrapped in ```) containing ONLY the code for this step\n"
+            "4. A single markdown code block (wrapped in ```) containing ONLY the code for this step\n"
             "IMPORTANT: Do NOT write code for other steps. Only write code for the current step."
         )
 
@@ -252,6 +280,7 @@ class StepAgent:
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
             "Hardware/Profile Optimization Context": context.hardware_section_for(self.name),
             "Pipeline Decision Contract": context.pipeline_decision_section,
+            "Previous Stage Receipt": context.stage_receipt_section(self.name, previous_steps),
             "Cross-Stage Note Board": context.note_board_section(self.name),
             "Previous steps": prev_summary,
             "Current step": {
@@ -316,17 +345,22 @@ class StepAgent:
 
         hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
         pipeline_decision_section = prompt.get("Pipeline Decision Contract", "")
+        stage_receipt_section = prompt.get("Previous Stage Receipt", "")
         note_board_section = prompt.get("Cross-Stage Note Board", "")
+        task_description_section = ""
+        if not previous_steps:
+            task_description_section = f"\n# Task description\n{prompt['Task description']}\n\n"
 
         previous_solution_section = ""
         if context.stage == "improve" and "Previous solution" in prompt:
             previous_solution_section = f"\n# Previous solution\n{prompt['Previous solution']['Code']}\n"
 
         user_prompt = (
-            f"\n# Task description\n{prompt['Task description']}\n\n"
+            f"{task_description_section}"
             f"{memory_section}\n"
             f"{hardware_section}\n"
             f"{pipeline_decision_section}\n"
+            f"{stage_receipt_section}\n"
             f"{note_board_section}\n"
             f"{previous_solution_section}"
             f"# Previous steps\n{prompt['Previous steps']}\n\n"
@@ -437,10 +471,10 @@ class MetaAgent:
 
         prompt: Dict[str, Any] = {
             "Introduction": introduction,
-            "Task description": task_desc,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
             "Hardware/Profile Optimization Context": context.hardware_section_for_merge(),
             "Pipeline Decision Contract": context.pipeline_decision_section,
+            "Previous Stage Receipt": context.stage_receipt_section("merge", step_results),
             "Cross-Stage Note Board": context.note_board_section("merge"),
             "Data preview": data_preview_str,
             "Step results": "".join(steps_summary),
@@ -466,6 +500,7 @@ class MetaAgent:
                 memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
         hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
         pipeline_decision_section = prompt.get("Pipeline Decision Contract", "")
+        stage_receipt_section = prompt.get("Previous Stage Receipt", "")
         note_board_section = prompt.get("Cross-Stage Note Board", "")
 
         okay_text = "Let me approach this systematically.\nFirst, I'll examine the dataset:"
@@ -487,10 +522,10 @@ class MetaAgent:
             assistant_suffix = ""
 
         user_prompt = (
-            f"\n# Task description\n{prompt['Task description']}\n\n"
             f"{memory_section}\n\n"
             f"{hardware_section}\n"
             f"{pipeline_decision_section}\n"
+            f"{stage_receipt_section}\n"
             f"{note_board_section}\n"
             f"# Step results\n{prompt['Step results']}\n\n"
             f"{instructions}"
@@ -531,7 +566,7 @@ def create_default_step_agents(
     model_guidelines = [
         "Your responsibility: Design the model architecture or choose reference pretrained model, loss function, and optimizer based on the task and the features from previous steps.",
         "CRITICAL: Do NOT write the training loop, data processing, or feature engineering code. Only define the model, criterion, and optimizer objects.",
-        "IMPORTANT: Consider the task's evaluation metric (from the task description's Evaluation section) when designing the model. The model output format should be compatible with the required evaluation metric calculation.",
+        "IMPORTANT: Consider the evaluation metric and output contract carried forward in the Previous Stage Receipt or Pipeline Decision Contract when designing the model. The model output format should be compatible with the required evaluation metric calculation.",
         "IMPORTANT: When designing custom model architectures, include appropriate regularization components (e.g., Dropout layers) to prevent overfitting.",
     ]
     training_guidelines = [
@@ -547,7 +582,7 @@ def create_default_step_agents(
         "  - Regularization (weight decay, L1/L2 regularization)",
         "  - Dropout (if using neural networks)",
         "  - Other appropriate regularization techniques for the specific model type",
-        "CRITICAL: You MUST implement the exact evaluation metric as specified in the task description's 'Evaluation' section. Read the Evaluation section carefully and implement it precisely according to the exact formula, calculation steps, and aggregation method described.",
+        "CRITICAL: You MUST implement the exact evaluation metric carried forward in the Previous Stage Receipt or Pipeline Decision Contract. Preserve the exact formula, calculation steps, and aggregation method described there.",
         "CRITICAL: You MUST NOT use dummy, simplified, or approximate metrics. The validation metric must be a REAL and COMPLETE implementation of the task's evaluation metric as described in the Evaluation section, not an approximation, placeholder, or simplified version.",
         "CRITICAL: If the Evaluation section specifies multiple thresholds, components, or aggregation steps, you MUST implement ALL of them. Do not skip any required calculation steps or use shortcuts.",
         "CRITICAL: The metric calculation must match the Evaluation section exactly - use the same matching criteria, the same formula, the same thresholds (if any), and the same aggregation method as specified.",
@@ -568,7 +603,7 @@ def create_default_step_agents(
             "Stage 1 flow: consume the Stage 1 hardware context plus the data_processing notes; this model step finalizes the candidate that Stage 2 and Stage 3 must preserve.",
             "CRITICAL: Do NOT write the training loop, data processing, feature engineering, optimizer, scheduler, batch size, epoch count, learning rate, dataloader worker settings, gradient accumulation, checkpoint cadence, or precision policy.",
             "CRITICAL: Do NOT choose AMP, bf16, fp16, fp32, TF32, GradScaler, autocast, or tensor dtype settings in this step. The datatype_precision step owns those decisions.",
-            "IMPORTANT: Consider the task's evaluation metric when designing the model. The model output format should be compatible with the required evaluation metric calculation.",
+            "IMPORTANT: Consider the evaluation metric and output contract carried forward in the Previous Stage Receipt or Pipeline Decision Contract when designing the model. The model output format should be compatible with the required evaluation metric calculation.",
             "Hardware-aware model design: use the Hardware-Aware Model Design Brief to compare model families before choosing an architecture. Optimize for the task metric first, while treating lower training time and higher GPU utilization as persistent objectives.",
             "Use the brief's compact hardware node, available feature keys, and selected feature details only when they are relevant to architecture, layer choice, tensor-core-friendly dimensions, or model-family feasibility.",
             hardware_node_rule,
@@ -597,7 +632,7 @@ def create_default_step_agents(
             "CRITICAL: Validation metric computation must use the same prediction method as test inference, using training data only as reference, to avoid data leakage and ensure the metric reflects true generalization performance.",
             "CRITICAL CONSISTENCY REQUIREMENT: Ensure that validation and test inference use IDENTICAL processing logic. Any differences in how validation and test data are handled can cause large performance gaps between validation and test sets.",
             "CRITICAL: You MUST actively prevent overfitting. Use appropriate regularization, early stopping, and validation discipline without overfitting to the validation set.",
-            "CRITICAL: You MUST implement the exact evaluation metric as specified in the task description's 'Evaluation' section. Do not use dummy, simplified, or approximate metrics.",
+            "CRITICAL: You MUST implement the exact evaluation metric carried forward in the Previous Stage Receipt or Pipeline Decision Contract. Do not use dummy, simplified, or approximate metrics.",
             "CRITICAL: The final line must be: `print(f'Final Validation Score: {score}')`. This is required for the score parser.",
         ]
         training_guidelines.extend(
@@ -709,8 +744,93 @@ def _build_stepwise_metadata(
         "decisions": decisions,
         "hardware_candidate": dict(context.hardware_candidate or {}),
         "hardware_context_keys": sorted((context.hardware_context or {}).keys()),
+        "stage_receipts": list(context.stage_receipts or []),
         "stage_note_board": list(context.stage_note_board or []),
     }
+
+
+def _extract_stage_receipt(
+    *,
+    step_name: str,
+    plan_text: str,
+    code: str,
+    context: StepwiseContext,
+) -> Dict[str, Any] | None:
+    receipt = _stage_receipt_block_text(plan_text)
+    if not receipt:
+        receipt = _fallback_stage_receipt(step_name=step_name, plan_text=plan_text, code=code)
+    if not receipt:
+        return None
+    return {
+        "stage": step_name,
+        "stage_group": context.logical_stage_for(step_name),
+        "receipt": _compact_receipt_text(receipt),
+    }
+
+
+def _stage_receipt_block_text(plan_text: str) -> str:
+    lines = str(plan_text or "").splitlines()
+    collecting = False
+    block: List[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if re.match(r"^(?:\d+\.\s*)?(?:#{1,6}\s*)?(?:stage\s+)?receipt\s*:?\s*$", stripped, flags=re.IGNORECASE):
+            collecting = True
+            continue
+        if not collecting:
+            continue
+        if stripped.startswith("```"):
+            break
+        if re.match(r"^(?:\d+\.\s*)?(?:#{1,6}\s*)?note board\s*:?\s*$", stripped, flags=re.IGNORECASE):
+            break
+        if re.match(r"^#{1,6}\s+\S+", stripped):
+            break
+        if stripped:
+            block.append(stripped)
+        elif block:
+            break
+    return " ".join(block).strip()
+
+
+def _fallback_stage_receipt(*, step_name: str, plan_text: str, code: str) -> str:
+    summary = _first_sentence(plan_text)
+    variables = _infer_public_names_from_code(code)
+    parts = []
+    if summary:
+        parts.append(f"summary: {summary}")
+    if variables:
+        parts.append(f"public_variables: {', '.join(variables[:12])}")
+    if not parts:
+        return ""
+    return " | ".join(parts)
+
+
+def _infer_public_names_from_code(code: str) -> List[str]:
+    names: List[str] = []
+    patterns = (
+        r"(?m)^([A-Z][A-Z0-9_]{1,60})\s*=",
+        r"(?m)^([a-zA-Z_][a-zA-Z0-9_]{1,60})\s*=",
+        r"(?m)^def\s+([a-zA-Z_][a-zA-Z0-9_]{1,60})\s*\(",
+        r"(?m)^class\s+([a-zA-Z_][a-zA-Z0-9_]{1,60})\s*[:(]",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, str(code or "")):
+            name = match.group(1)
+            if name.startswith("_"):
+                continue
+            if name not in names:
+                names.append(name)
+            if len(names) >= 16:
+                return names
+    return names
+
+
+def _compact_receipt_text(text: str, *, limit: int = 900) -> str:
+    cleaned = re.sub(r"https?://\S+", "", str(text or "").strip())
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: max(0, limit - 3)].rstrip() + "..."
 
 
 def _extract_stage_note_board(
@@ -864,6 +984,7 @@ def stepwise_plan_and_code_query(
         hardware_context=context.get("hardware_context", {}) or {},
         pipeline_decision=context.get("pipeline_decision", {}) or {},
         pipeline_decision_section=context.get("pipeline_decision_section", ""),
+        stage_receipts=list(context.get("stage_receipts", []) or []),
         stage_note_board=list(context.get("stage_note_board", []) or []),
     )
 
@@ -892,6 +1013,15 @@ def stepwise_plan_and_code_query(
             "plan": plan,
             "code": code,
         })
+        stage_receipt = _extract_stage_receipt(
+            step_name=agent.name,
+            plan_text=plan,
+            code=code,
+            context=stepwise_context,
+        )
+        if stage_receipt:
+            stepwise_context.stage_receipts.append(stage_receipt)
+            step_results[-1]["stage_receipt"] = stage_receipt
         stage_notes = _extract_stage_note_board(
             step_name=agent.name,
             plan_text=plan,
@@ -915,6 +1045,7 @@ def stepwise_plan_and_code_query(
     logger.info("Stepwise generation completed.")
 
     context["used_prompt_sections"] = list(stepwise_context.used_prompts)
+    context["stage_receipts"] = list(stepwise_context.stage_receipts)
     if return_metadata:
         return final_plan, final_code, _build_stepwise_metadata(
             step_results=step_results,

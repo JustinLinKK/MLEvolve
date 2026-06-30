@@ -576,12 +576,16 @@ def test_stepwise_generation_can_return_stage_metadata(monkeypatch) -> None:
         "training_evaluation",
     ]
     assert metadata["decisions"][2]["stage"] == "datatype_precision"
+    assert metadata["stage_receipts"][0]["stage"] == "data_processing_and_feature_engineering"
     assert metadata["stage_note_board"]
     assert metadata["stage_note_board"][0]["stage"] == "data_processing_and_feature_engineering"
     assert metadata["stage_note_board"][0]["stage_group"] == "stage1_candidate_construction"
     assert metadata["decisions"][1]["stage_group"] == "stage1_candidate_construction"
     assert any("Datatype/Precision" in str(prompt) for prompt in responses)
     assert any("Cross-Stage Note Board" in str(prompt) for prompt in responses)
+    assert "# Task description\nimage classification" in responses[0]
+    assert all("# Task description\nimage classification" not in prompt for prompt in responses[1:])
+    assert all("Previous Stage Receipt" in prompt for prompt in responses[1:])
     assert "Stage 1 candidate construction" in responses[2]
 
 
