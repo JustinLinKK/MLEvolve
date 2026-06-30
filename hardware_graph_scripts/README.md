@@ -33,8 +33,8 @@ Load the hardware graph:
 Query the stage-specific static query tool:
 
 ```bash
-./hardware_graph_scripts/query_hardware_graph.sh node "GeForce RTX 5090" model
-./hardware_graph_scripts/query_hardware_graph.sh features "GeForce RTX 5090" model 16
+./hardware_graph_scripts/query_hardware_graph.sh node "GeForce RTX 5090" model_structure
+./hardware_graph_scripts/query_hardware_graph.sh features "GeForce RTX 5090" training_parameters 24
 ```
 
 Verify loaded Neo4j records:
@@ -49,8 +49,8 @@ Simulate the pre-integration agent flow:
 ./hardware_graph_scripts/simulate_3_stage_hardware_agent.sh "GeForce RTX 5090" --db-check
 ```
 
-The three simulated stages map onto the repo's existing low-level query filters:
+The three simulated stages map onto the canonical low-level hardware filters:
 
-1. `model_design`: `model`.
-2. `datatype_precision`: `datatype` plus precision-related `tuning`.
-3. `training_evaluation`: `optimizer` plus runtime/training-related `tuning`.
+1. `model_design`: `model_structure`.
+2. `datatype_precision`: `datatype` plus precision-related `training_parameters`.
+3. `training_evaluation`: merged optimizer and runtime/training-related `training_parameters`.

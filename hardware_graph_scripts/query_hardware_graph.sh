@@ -20,11 +20,14 @@ Modes:
   db-neighborhood  Return loaded Neo4j features directly linked to hardware.
 
 Stages:
-  datatype, model, optimizer, tuning, all
+  model_structure, datatype, training_parameters, all
+
+Legacy filter names model, optimizer, and tuning are intentionally rejected.
 
 Examples:
-  ./hardware_graph_scripts/query_hardware_graph.sh node "GeForce RTX 5090" optimizer
-  ./hardware_graph_scripts/query_hardware_graph.sh features "GeForce RTX 5090" tuning 8
+  ./hardware_graph_scripts/query_hardware_graph.sh node "GeForce RTX 5090" model_structure
+  ./hardware_graph_scripts/query_hardware_graph.sh features "GeForce RTX 5090" training_parameters 24
+  ./hardware_graph_scripts/query_hardware_graph.sh stage-context "GeForce RTX 5090" training_parameters 24
   ./hardware_graph_scripts/query_hardware_graph.sh db-neighborhood "GeForce RTX 5090" all 32
 EOF
 }
@@ -54,7 +57,14 @@ from localml_scheduler.hardware_knowledge.feature_filter import (
 
 mode, hardware_name, stage, limit_raw = sys.argv[1:5]
 limit = max(1, int(limit_raw))
-stage_value = None if stage.strip().lower() in {"", "all", "none", "null"} else stage
+stage_clean = stage.strip().lower()
+stage_value = None if stage_clean in {"", "all", "none", "null"} else stage_clean
+valid_stages = {"model_structure", "datatype", "training_parameters"}
+if stage_value is not None and stage_value not in valid_stages:
+    allowed = ", ".join(sorted(valid_stages))
+    raise SystemExit(
+        f"Unsupported static hardware stage {stage!r}; use one of: {allowed}, or all."
+    )
 
 def limit_features(payload: dict) -> dict:
     if "features" not in payload:
