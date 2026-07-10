@@ -8,6 +8,7 @@ from agents.hardware_context import (
     apply_hardware_context_to_node,
     get_hardware_context_for_stage,
     hardware_context_instructions,
+    training_curve_feedback_section,
 )
 from agents.coder import plan_and_code_query
 from utils.response import extract_plan_from_diff_response, trim_long_string, wrap_code
@@ -190,6 +191,9 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
     }
     hardware_ctx = get_hardware_context_for_stage(agent, "debug", parent_node=parent_node)
     hardware_section = hardware_ctx.prompt_section
+    curve_feedback_section = training_curve_feedback_section(parent_node)
+    if curve_feedback_section:
+        prompt["Training Curve Feedback"] = curve_feedback_section
     pipeline_decision = build_pipeline_decision(
         agent,
         stage="debug",
@@ -262,6 +266,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
         user_prompt = (
             f"\n# Task description\n{prompt['Task description']}\n"
             f"{hardware_section}\n"
+            f"{curve_feedback_section}\n"
             f"{pipeline_decision_section}\n"
             f"{instructions_with_format}"
         )

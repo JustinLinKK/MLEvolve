@@ -10,6 +10,7 @@ from agents.hardware_context import (
     apply_hardware_context_to_node,
     get_hardware_context_for_stage,
     hardware_context_instructions,
+    training_curve_feedback_section,
 )
 from agents.prompts import (
     apply_pipeline_decision_to_node,
@@ -72,6 +73,9 @@ def fuse_two_nodes(agent, source_node: SearchNode, target_node: SearchNode) -> S
     hardware_section = hardware_ctx.prompt_section
     if hardware_section:
         prompt["Hardware/Profile Optimization Context"] = hardware_section
+    curve_feedback_section = training_curve_feedback_section(source_node)
+    if curve_feedback_section:
+        prompt["Training Curve Feedback"] = curve_feedback_section
     pipeline_decision = build_pipeline_decision(
         agent,
         stage="fusion",
@@ -169,7 +173,7 @@ def fuse_two_nodes(agent, source_node: SearchNode, target_node: SearchNode) -> S
 
     user_prompt = (
         f"\n# Task description\n{prompt['Task description']}\n\n"
-        f"{hardware_section}{pipeline_decision_section}"
+        f"{hardware_section}{curve_feedback_section}{pipeline_decision_section}"
         f"# Reference Solution\n{prompt['Reference Solution']}\n\n{instructions}"
     )
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nMy current solution:\nPlan: {prompt['Current Solution']['Plan']}\nCode: {prompt['Current Solution']['Code']}\nPerformance: {prompt['Current Solution']['Performance']}\nAnalysis: {prompt['Current Solution']['Analysis']}\nI'll now analyze the reference solution and selectively incorporate its best ideas."
@@ -239,6 +243,9 @@ def _fuse_with_multiple_references(
     hardware_section = hardware_ctx.prompt_section
     if hardware_section:
         prompt["Hardware/Profile Optimization Context"] = hardware_section
+    curve_feedback_section = training_curve_feedback_section(parent_node)
+    if curve_feedback_section:
+        prompt["Training Curve Feedback"] = curve_feedback_section
     reference_decisions = [
         getattr(node, "pipeline_decision", None)
         for node in reference_nodes
@@ -341,7 +348,7 @@ def _fuse_with_multiple_references(
 
     user_prompt = (
         f"\n# Task description\n{prompt['Task description']}\n\n"
-        f"{hardware_section}{pipeline_decision_section}"
+        f"{hardware_section}{curve_feedback_section}{pipeline_decision_section}"
         f"# Reference Solutions\n{prompt['Reference Solutions']}\n\n{instructions}"
     )
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nMy current solution:\nPlan: {prompt['Current Solution']['Plan']}\nCode: {prompt['Current Solution']['Code']}\nPerformance: {prompt['Current Solution']['Performance']}\nAnalysis: {prompt['Current Solution']['Analysis']}\nI'll now analyze the reference solutions and selectively incorporate the best ideas."
@@ -482,6 +489,7 @@ def _diff_fusion(agent, prompt_base, data_preview, source_node):
         "current_analysis": source_node.analysis if source_node.analysis else 'N/A',
         "reference_solution": reference_solution,
         "hardware_prompt_section": prompt_base.get("Hardware/Profile Optimization Context", ""),
+        "training_curve_feedback": prompt_base.get("Training Curve Feedback", ""),
         "pipeline_decision_section": prompt_base.get("Pipeline Decision Contract", ""),
     }
 
@@ -542,6 +550,7 @@ def _diff_multi_fusion(agent, prompt_base, data_preview, parent_node):
         "current_analysis": parent_node.analysis if parent_node.analysis else 'N/A',
         "reference_solutions": reference_solutions,
         "hardware_prompt_section": prompt_base.get("Hardware/Profile Optimization Context", ""),
+        "training_curve_feedback": prompt_base.get("Training Curve Feedback", ""),
         "pipeline_decision_section": prompt_base.get("Pipeline Decision Contract", ""),
     }
 

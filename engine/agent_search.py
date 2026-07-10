@@ -66,7 +66,9 @@ class AgentSearch:
         self.use_coldstart = cfg.coldstart.use_coldstart
         self.coldstart_description = cfg.coldstart.description
         self.scheduler_client = None
+        self.hardware_knowledge_client = None
         self.hardware_cache_status: dict | None = None
+        self.pending_scheduler_nodes: Dict[str, SearchNode] = {}
 
         # Top-N candidates
         self.top_k = self.scfg.top_candidates_size
@@ -121,9 +123,15 @@ class AgentSearch:
             logger.info("[AgentSearch] Global memory is disabled by config")
 
     def attach_scheduler(self, scheduler_client) -> None:
-        """Expose the in-process scheduler client to stage agents for read-only context."""
+        """Attach the scheduler execution client."""
         self.scheduler_client = scheduler_client
-        self.hardware_cache_status = self._prewarm_current_hardware_context(scheduler_client)
+        if getattr(self, "hardware_knowledge_client", None) is None:
+            self.hardware_cache_status = self._prewarm_current_hardware_context(scheduler_client)
+
+    def attach_hardware_knowledge(self, hardware_knowledge_client) -> None:
+        """Expose hardware/profile knowledge to stage agents independently of scheduling."""
+        self.hardware_knowledge_client = hardware_knowledge_client
+        self.hardware_cache_status = self._prewarm_current_hardware_context(hardware_knowledge_client)
 
     def _hardware_context_enabled(self) -> bool:
         experiment = getattr(self.cfg, "experiment", None)
@@ -137,7 +145,7 @@ class AgentSearch:
             return {"ok": False, "reason": "hardware context disabled"}
         prewarm = getattr(scheduler_client, "prewarm_current_hardware_neighborhood", None)
         if not callable(prewarm):
-            return {"ok": False, "reason": "scheduler client has no hardware prewarm hook"}
+            return {"ok": False, "reason": "hardware knowledge client has no prewarm hook"}
         try:
             configured_limit = int(getattr(self.acfg, "hardware_context_limit", 8) or 8)
         except (TypeError, ValueError):
@@ -316,6 +324,28 @@ class AgentSearch:
 
                     record_pipeline_node_action(self, result_node, "execution_started")
                     exe_res = exec_callback(result_node.code, result_node.id, True, node_context=result_node)
+                    if getattr(exe_res, "is_scheduler_handle", False):
+                        result_node.pending_execution = True
+                        result_node.scheduler_submitted = True
+                        result_node.scheduler_job_id = getattr(exe_res, "job_id", None)
+                        result_node.scheduler_handle = exe_res
+                        result_node.lock = True
+                        self.pending_scheduler_nodes[str(result_node.id)] = result_node
+                        payload = {
+                            "job_id": result_node.scheduler_job_id,
+                            "submission_label": getattr(exe_res, "submission_label", None),
+                        }
+                        record_pipeline_node_action(self, result_node, "execution_submitted", payload=payload)
+                        from utils.pipeline_logging import log_pipeline_event
+
+                        log_pipeline_event(
+                            self,
+                            "execution_submitted",
+                            node=result_node,
+                            job_id=result_node.scheduler_job_id,
+                            payload=payload,
+                        )
+                        return _root, result_node
                     result_node = result_parse_agent.run(self,
                         node=result_node,
                         exec_result=exe_res
@@ -573,3 +603,68 @@ class AgentSearch:
                     self._discard_unfinished_node(node)
         self.current_step = len(self.journal)
         return executed_nodes
+
+    def finalize_scheduler_results(self, results: dict[str, ExecutionResult]) -> list[SearchNode]:
+        """Finalize previously submitted nonblocking scheduler jobs."""
+        executed_nodes: list[SearchNode] = []
+        for node_id, exe_res in results.items():
+            node = self.pending_scheduler_nodes.pop(str(node_id), None)
+            if node is None:
+                logger.warning("Scheduler returned result for unknown or already finalized node %s", node_id)
+                continue
+            finalized = self._finalize_submitted_scheduler_node(node, exe_res)
+            if finalized is not None:
+                executed_nodes.append(finalized)
+        self.current_step = len(self.journal)
+        return executed_nodes
+
+    def _finalize_submitted_scheduler_node(self, node: SearchNode, exe_res: ExecutionResult) -> SearchNode | None:
+        parent_node = node.parent
+        try:
+            from utils.pipeline_logging import record_pipeline_node_action
+
+            node = result_parse_agent.run(self, node=node, exec_result=exe_res)
+            if self.pipeline_logger is not None and node.metric is not None:
+                self.pipeline_logger.update_job_packet_for_node(
+                    str(node.id),
+                    metric=node.metric.value,
+                    duration_seconds=node.exec_time,
+                    status="parsed_buggy" if node.is_buggy else "parsed_valid",
+                )
+
+            execution.validate_executed_node(self, node)
+            logger.info("Scheduler node %s execution completed: metric=%s, is_buggy=%s", node.id, node.metric.value, node.is_buggy)
+
+            node.finish_time = time.strftime("%Y-%m-%dT%H:%M:%S")
+            record_pipeline_node_action(self, node, "execution_finished")
+
+            if parent_node and parent_node.is_buggy and node.is_buggy is False:
+                parent_node.is_debug_success = True
+
+            evaluation.check_improvement(self, node, parent_node)
+            node.lock = False
+
+            with self.journal_lock:
+                if self.best_node and node.metric.maximize and self.best_node.metric.maximize != node.metric.maximize:
+                    logger.warning("New node's metric is inconsistent with metrics in the journal")
+                    raise ValueError("New node's metric is inconsistent with metrics in the journal")
+                if node not in self.journal.nodes:
+                    self.journal.append(node)
+                    logger.info("Scheduler node %s added to journal", node.id)
+
+            node.pending_execution = False
+            node.scheduler_submitted = False
+            solution_manager.update_best_solution(self, node)
+            return node
+
+        except Exception as exc:
+            logger.exception("Exception while finalizing scheduler node %s: %s", node.id, exc)
+            if parent_node is not None:
+                evaluation.backpropagate(node=parent_node, value=0, add_to_tree=False)
+                parent_node.sub_expected_child_count()
+            node.pending_execution = False
+            node.scheduler_submitted = False
+            node.lock = False
+            if node not in self.journal.nodes:
+                self._discard_unfinished_node(node)
+            return None

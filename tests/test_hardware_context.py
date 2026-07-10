@@ -786,6 +786,76 @@ def test_stepwise_hardware_stage_sections_route_stage_filtered_features() -> Non
     assert "features_shown=2/1" not in dtype_section
 
 
+def test_scheduler_disabled_hardware_client_still_prompts_current_hardware() -> None:
+    class FakeHardwareKnowledge:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def get_optimization_context(self, *, candidate, limit):
+            self.calls.append((candidate, limit))
+            return {
+                "hardware_context": {
+                    "found": True,
+                    "hardware": {
+                        "hardware_key": "probe-hw",
+                        "gpu_name": "Probe GPU",
+                        "total_vram_mb": 32768,
+                        "summary_text": "Probe GPU with 32768 MiB VRAM",
+                    },
+                    "backend_capabilities": {},
+                    "scheduler_limits": {},
+                    "hardware_probe_source": "hardware_probe_subprocess",
+                    "hardware_probe_success": True,
+                },
+                "graph_evidence": {
+                    "exact_profiles": [],
+                    "similar_profiles": [
+                        {
+                            "summary_text": "Similar CNN profile used bf16 successfully.",
+                            "avg_sm_utilization_pct": 71,
+                            "peak_vram_mb": 12000,
+                            "ref": "graph:profile:1",
+                        }
+                    ],
+                    "packed_profiles": [],
+                },
+                "derived_diagnosis": {
+                    "profile_symptoms": ["precision_not_optimized"],
+                    "optimization_targets": ["enable_tensor_core"],
+                },
+                "recommendations": ["Use bf16 autocast when stable."],
+                "confidence": 0.7,
+            }
+
+    hardware_client = FakeHardwareKnowledge()
+    agent = SimpleNamespace(
+        hardware_knowledge_client=hardware_client,
+        scheduler_client=None,
+        acfg=SimpleNamespace(
+            hardware_context_enabled=True,
+            hardware_context_limit=4,
+            hardware_context_max_prompt_chars=4000,
+        ),
+        cfg=SimpleNamespace(
+            experiment=SimpleNamespace(mode="hardware_aware"),
+            exp_id="task-a",
+        ),
+        task_desc="image classification",
+        data_preview="train images and labels",
+    )
+
+    context = get_hardware_context_for_stage(agent, "draft", code="import torch\n")
+
+    assert hardware_client.calls
+    assert context.compact_context["hardware_context"]["summary"] == "Probe GPU with 32768 MiB VRAM"
+    assert "# Hardware/Profile Optimization Context" in context.prompt_section
+    assert "Probe GPU" in context.prompt_section
+    assert "Use bf16 autocast" in context.prompt_section
+    assert "precision_not_optimized" in context.prompt_section
+    assert "Scheduler backend config" not in context.prompt_section
+    assert "Scheduler limits" not in context.prompt_section
+
+
 def test_hardware_design_brief_fetches_only_selected_feature_details(monkeypatch) -> None:
     class FakeScheduler:
         def __init__(self) -> None:

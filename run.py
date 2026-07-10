@@ -19,10 +19,11 @@ from engine.coldstart import build_guidance_description, collect_startpoint_mode
 from utils.logging_config import setup_logging
 from utils.hardware_monitor import HardwareMonitor
 from utils.experiment_metrics import build_comparison_metrics, write_comparison_metrics
-from utils.pipeline_logging import PipelineActionLogger
+from utils.pipeline_logging import PipelineActionLogger, set_process_pipeline_logger
 import torch
 from localml_scheduler.client import SchedulerClient
 from localml_scheduler.config import SchedulerSettings
+from localml_scheduler.hardware_client import HardwareKnowledgeClient
 
 
 class SignalShutdown(BaseException):
@@ -56,6 +57,28 @@ def _scheduler_settings_from_cfg(cfg, scheduler_cfg) -> SchedulerSettings:
         )
 
     return SchedulerSettings(runtime_root=scheduler_runtime_root)
+
+
+def _hardware_knowledge_settings_from_cfg(cfg) -> SchedulerSettings:
+    hardware_cfg = getattr(cfg, "hardware_knowledge", None)
+    nested_settings = getattr(hardware_cfg, "settings", None) if hardware_cfg is not None else None
+    if nested_settings:
+        payload = OmegaConf.to_container(nested_settings, resolve=True) if not isinstance(nested_settings, dict) else dict(nested_settings)
+        if not payload.get("runtime_root"):
+            payload["runtime_root"] = str(cfg.workspace_dir / "hardware_knowledge_runtime")
+        return SchedulerSettings.from_dict(payload)
+
+    scheduler_cfg = getattr(cfg, "scheduler", None)
+    scheduler_nested = getattr(scheduler_cfg, "settings", None) if scheduler_cfg is not None else None
+    if scheduler_nested:
+        payload = OmegaConf.to_container(scheduler_nested, resolve=True) if not isinstance(scheduler_nested, dict) else dict(scheduler_nested)
+        return SchedulerSettings.from_dict(payload)
+
+    scheduler_settings_path = getattr(scheduler_cfg, "settings_path", None) if scheduler_cfg is not None else None
+    if scheduler_settings_path:
+        return SchedulerSettings.from_file(scheduler_settings_path)
+
+    return SchedulerSettings(runtime_root=str(cfg.workspace_dir / "hardware_knowledge_runtime"))
 
 
 def _submit_startpoint_probe_jobs(
@@ -122,11 +145,13 @@ def run():
     hardware_monitor.start()
     scheduler_service = None
     scheduler_client = None
+    hardware_knowledge_client = None
     pipeline_logger = PipelineActionLogger(
         cfg.log_dir / "pipeline.sqlite3",
         run_id=cfg.exp_name,
         mode=cfg.experiment.mode,
     )
+    set_process_pipeline_logger(pipeline_logger)
     pipeline_logger.emit(
         "run_started",
         payload={
@@ -183,12 +208,58 @@ def run():
             cfg=cfg,  # type: ignore
             pipeline_logger=pipeline_logger,
         )
+        hardware_knowledge_cfg = getattr(cfg, "hardware_knowledge", None)
+        hardware_knowledge_enabled = (
+            str(getattr(getattr(cfg, "experiment", None), "mode", "")).strip().lower().replace("-", "_") == "hardware_aware"
+            and bool(getattr(cfg.agent, "hardware_context_enabled", True))
+            and (hardware_knowledge_cfg is None or bool(getattr(hardware_knowledge_cfg, "enabled", True)))
+        )
+        if hardware_knowledge_enabled:
+            hardware_settings = _hardware_knowledge_settings_from_cfg(cfg)
+            hardware_knowledge_client = HardwareKnowledgeClient(
+                hardware_settings,
+                include_profile_evidence=(
+                    bool(getattr(hardware_knowledge_cfg, "include_profile_evidence", True))
+                    if hardware_knowledge_cfg is not None
+                    else True
+                ),
+                probe_timeout_seconds=(
+                    float(getattr(hardware_knowledge_cfg, "probe_timeout_seconds", 10.0))
+                    if hardware_knowledge_cfg is not None
+                    else 10.0
+                ),
+            )
+            probe_status = hardware_knowledge_client.probe_current_hardware()
+            if probe_status.get("ok"):
+                profile = probe_status.get("hardware_profile") or {}
+                logger.info(
+                    "🧭 Hardware knowledge enabled via %s for %s.",
+                    probe_status.get("source"),
+                    profile.get("gpu_name") or profile.get("hardware_key") or "current hardware",
+                )
+            else:
+                logger.warning("🧭 Hardware probe failed; hardware knowledge will use explicit missing context: %s", probe_status.get("reason"))
+            agent.attach_hardware_knowledge(hardware_knowledge_client)
+            pipeline_logger.emit(
+                "hardware_knowledge_attached",
+                payload={
+                    "settings_runtime_root": str(hardware_settings.runtime_root),
+                    "include_profile_evidence": hardware_knowledge_client.include_profile_evidence,
+                    "probe_status": probe_status,
+                },
+            )
         scheduler_cfg = getattr(cfg, "scheduler", None)
         if scheduler_cfg is not None and bool(getattr(scheduler_cfg, "enabled", False)):
             scheduler_settings = _scheduler_settings_from_cfg(cfg, scheduler_cfg)
-            scheduler_client = SchedulerClient(scheduler_settings)
+            scheduler_client = SchedulerClient(
+                scheduler_settings,
+                hardware_knowledge_client=hardware_knowledge_client,
+            )
+            if hardware_knowledge_client is not None:
+                hardware_knowledge_client.attach_scheduler_client(scheduler_client)
             try:
-                prewarm_result = scheduler_client.prewarm_current_hardware_neighborhood("current")
+                prewarm_source = hardware_knowledge_client or scheduler_client
+                prewarm_result = prewarm_source.prewarm_current_hardware_neighborhood("current")
                 if prewarm_result.get("ok"):
                     logger.info(
                         "🧭 Prewarmed hardware graph neighborhood for %s (%s features).",
@@ -224,6 +295,28 @@ def run():
         status = Status("[green]Generating code...")
 
         def exec_callback(*args, **kwargs):
+            if scheduler_client is not None:
+                status.update("[magenta]Submitting scheduler job...")
+                code = args[0]
+                node_id = args[1]
+                node_context = kwargs.get("node_context")
+                handles = interpreter.submit_scheduler(
+                    [
+                        {
+                            "code": code,
+                            "id": node_id,
+                            "node": node_context,
+                            "branch_id": getattr(node_context, "branch_id", None),
+                            "model_family": getattr(node_context, "model_family", None),
+                            "active_profile_key": getattr(node_context, "active_profile_key", None),
+                            "parent_model_family": getattr(getattr(node_context, "parent", None), "model_family", None),
+                        }
+                    ],
+                    working_dir=kwargs.get("working_dir"),
+                    submission_label="stream",
+                )
+                status.update("[green]Generating code...")
+                return handles.get(str(node_id)) or next(iter(handles.values()))
             status.update("[magenta]Executing code...")
             res = interpreter.run(*args, **kwargs)
             status.update("[green]Generating code...")
@@ -258,7 +351,7 @@ def run():
         completed = 0
 
         pending_draft_nodes = []
-        if initial_draft_count > 0 and total_steps > 0:
+        if not scheduler_enabled and initial_draft_count > 0 and total_steps > 0:
             logger.info(f"📝 Phase 1: Sequential draft generation (code only, {initial_draft_count} drafts)")
 
             def step_task_generate_only():
@@ -283,96 +376,118 @@ def run():
 
             logger.info(f"✅ Phase 1 complete: {len(pending_draft_nodes)} draft codes generated")
 
-        if scheduler_client is not None and (pending_draft_nodes or completed < total_steps):
-            logger.info("🚀 Phase 2: Batched scheduler execution")
-            logger.info("   - Pending draft executions: %s", len(pending_draft_nodes))
-            logger.info("   - Remaining steps: %s", total_steps - completed)
-
+        if scheduler_client is not None and completed < total_steps:
+            logger.info("🚀 Phase 2: Live scheduler streaming execution")
             candidate_window = int(getattr(scheduler_settings.gpu_scheduler, "candidate_window_size", 2))
-            scheduler_batch_size = min(
-                max(1, total_steps),
-                max(2 if total_steps > 1 else 1, min(4, max(1, candidate_window))),
-            )
-            pending_scheduler_nodes = list(pending_draft_nodes)
+            scheduler_queue_limit = min(max(1, total_steps), max(1, candidate_window))
+            poll_interval = max(0.1, float(getattr(scheduler_cfg, "wait_poll_interval_seconds", 1.0)))
+            draft_attempts_target = min(initial_draft_count, total_steps)
+            draft_attempts = 0
+            parent_hint = None
 
-            def collect_scheduler_batch(parent_hint=None):
-                batch = []
-                empty_generation_attempts = 0
-                next_parent = parent_hint
-                while len(batch) < scheduler_batch_size and (pending_scheduler_nodes or completed + len(batch) < total_steps):
-                    if pending_scheduler_nodes:
-                        batch.append(pending_scheduler_nodes.pop(0))
-                        continue
-                    if not agent.has_selectable_work():
-                        logger.warning("No selectable work available to fill scheduler batch.")
-                        break
-                    try:
-                        node = agent.step(exec_callback=exec_callback, node=next_parent, execute_immediately=False)
-                    except Exception as exc:
-                        logger.exception("Exception while generating scheduler batch node: %s", exc)
-                        node = None
-                    next_parent = None
-                    if node is None:
-                        if not agent.has_selectable_work():
-                            logger.warning("No selectable work remains after empty scheduler batch generation.")
-                            break
-                        empty_generation_attempts += 1
-                        if empty_generation_attempts >= 3:
-                            logger.warning("Scheduler batch generation produced no node repeatedly; executing available work.")
-                            break
-                        continue
-                    empty_generation_attempts = 0
-                    batch.append(node)
-                return batch
-
-            try:
-                parent_hint = None
-                empty_execution_attempts = 0
-                while completed < total_steps:
-                    batch_nodes = collect_scheduler_batch(parent_hint)
-                    if not batch_nodes:
-                        if not agent.has_selectable_work():
-                            logger.warning(
-                                "No scheduler batch work remains and no selectable work is available; stopping early at %s/%s completed steps.",
-                                completed,
-                                total_steps,
-                            )
-                            break
-                        continue
-
-                    logger.info(
-                        "📤 Submitting scheduler batch with %s node(s): %s",
-                        len(batch_nodes),
-                        ", ".join(str(node.id) for node in batch_nodes),
-                    )
-                    previous_completed = completed
-                    executed_nodes = agent.execute_deferred_nodes(batch_nodes, exec_many_callback)
-                    parent_hint = executed_nodes[-1] if executed_nodes else None
-
+            def collect_scheduler_results():
+                nonlocal completed, parent_hint
+                status.update("[magenta]Collecting scheduler results...")
+                results = interpreter.collect_scheduler(wait=False)
+                status.update("[green]Generating code...")
+                if not results:
+                    return []
+                executed_nodes = agent.finalize_scheduler_results(results)
+                if executed_nodes:
+                    parent_hint = executed_nodes[-1]
                     with lock:
                         save_run(cfg, journal)
                         completed = len(journal) - 1
                         if completed >= total_steps:
                             logger.info(journal_to_string_tree(journal))
-                            break
+                    logger.info(
+                        "📊 Progress: %s/%s steps completed, %s scheduler job(s) outstanding",
+                        completed,
+                        total_steps,
+                        interpreter.scheduler_outstanding_count(),
+                    )
+                return executed_nodes
 
-                    if completed == previous_completed and not executed_nodes:
-                        empty_execution_attempts += 1
-                        if empty_execution_attempts >= 3:
+            def submit_next_scheduler_node():
+                nonlocal draft_attempts, parent_hint
+                force_root_draft = draft_attempts < draft_attempts_target
+                node_arg = None
+                if force_root_draft:
+                    draft_attempts += 1
+                    logger.info("🔨 Generating and submitting draft %s/%s", draft_attempts, draft_attempts_target)
+                elif parent_hint is not None and parent_hint in journal.nodes and not parent_hint.is_terminal:
+                    node_arg = parent_hint
+                if not force_root_draft and not agent.has_selectable_work():
+                    return None
+                try:
+                    submitted_node = agent.step(exec_callback=exec_callback, node=node_arg)
+                except Exception as exc:
+                    logger.exception("Exception while generating live scheduler node: %s", exc)
+                    return None
+                parent_hint = None
+                if submitted_node is not None and getattr(submitted_node, "scheduler_submitted", False):
+                    logger.info(
+                        "📤 Submitted live scheduler node %s as job %s (%s outstanding)",
+                        submitted_node.id,
+                        getattr(submitted_node, "scheduler_job_id", None),
+                        interpreter.scheduler_outstanding_count(),
+                    )
+                return submitted_node
+
+            try:
+                empty_generation_attempts = 0
+                while completed < total_steps:
+                    collect_scheduler_results()
+                    if completed >= total_steps:
+                        break
+
+                    outstanding = interpreter.scheduler_outstanding_count()
+                    if completed + outstanding >= total_steps:
+                        if outstanding == 0:
+                            break
+                        time.sleep(poll_interval)
+                        continue
+
+                    if outstanding >= scheduler_queue_limit:
+                        time.sleep(poll_interval)
+                        continue
+
+                    if not agent.has_selectable_work() and outstanding > 0:
+                        time.sleep(poll_interval)
+                        continue
+                    if not agent.has_selectable_work() and outstanding == 0:
+                        logger.warning(
+                            "No selectable work and no scheduler jobs remain; stopping early at %s/%s completed steps.",
+                            completed,
+                            total_steps,
+                        )
+                        break
+
+                    submitted_node = submit_next_scheduler_node()
+                    collect_scheduler_results()
+                    if submitted_node is None:
+                        empty_generation_attempts += 1
+                        if empty_generation_attempts >= 3 and interpreter.scheduler_outstanding_count() == 0:
                             logger.warning(
-                                "Scheduler batches completed without adding journal nodes repeatedly; stopping at %s/%s completed steps.",
+                                "Live scheduler generation produced no node repeatedly; stopping at %s/%s completed steps.",
                                 completed,
                                 total_steps,
                             )
                             break
                     else:
-                        empty_execution_attempts = 0
+                        empty_generation_attempts = 0
 
                     logger.info(
-                        "📊 Progress: %s/%s steps completed after scheduler batch",
+                        "📊 Progress: %s/%s steps completed, %s scheduler job(s) outstanding",
                         completed,
                         total_steps,
+                        interpreter.scheduler_outstanding_count(),
                     )
+
+                while completed < total_steps and interpreter.scheduler_outstanding_count() > 0:
+                    executed_nodes = collect_scheduler_results()
+                    if not executed_nodes:
+                        time.sleep(poll_interval)
             except SignalShutdown as exc:
                 shutdown_exit_code = 128 + exc.signum
                 shutdown_handled = True
@@ -499,7 +614,9 @@ def run():
                     started_at=run_started_at,
                     finished_at=time.time(),
                     scheduler_client=scheduler_client,
+                    hardware_knowledge_client=hardware_knowledge_client,
                     metric_maximize=getattr(locals().get("agent", None), "metric_maximize", None),
+                    pipeline_logger=pipeline_logger,
                 )
                 write_comparison_metrics(metrics, cfg.log_dir)
                 pipeline_logger.record_run_metrics(metrics)
@@ -512,6 +629,7 @@ def run():
         if scheduler_service is not None:
             scheduler_service.stop()
         hardware_monitor.stop()
+        set_process_pipeline_logger(None)
         pipeline_logger.close()
     if shutdown_exit_code is not None:
         logging.shutdown()

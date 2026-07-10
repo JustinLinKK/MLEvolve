@@ -11,6 +11,7 @@ from agents.hardware_context import (
     apply_hardware_context_to_node,
     get_hardware_context_for_stage,
     hardware_context_instructions,
+    training_curve_feedback_section,
 )
 from agents.triggers import get_patience_counter, register_node
 from agents.prompts import (
@@ -56,6 +57,9 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
     hardware_section = hardware_ctx.prompt_section
     if hardware_section:
         prompt["Hardware/Profile Optimization Context"] = hardware_section
+    curve_feedback_section = training_curve_feedback_section(parent_node)
+    if curve_feedback_section:
+        prompt["Training Curve Feedback"] = curve_feedback_section
     pipeline_decision = build_pipeline_decision(
         agent,
         stage="improve",
@@ -258,7 +262,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
     if prompt.get("Memory", "").strip():
         memory_section = f"\n# Memory\nBelow is a record of previous improvement attempts and their outcomes:\n {prompt['Memory']}\n"
 
-    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{hardware_section}\n{pipeline_decision_section}\n{instructions}"
+    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{hardware_section}\n{curve_feedback_section}\n{pipeline_decision_section}\n{instructions}"
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nThe current solution uses the following code:\n{prompt['Previous solution']['Code']}\nIts output was:\n{output}\nBuilding on this, I'll develop an improved approach."
     prompt_complete = build_chat_prompt_for_model(agent.acfg.code.model, introduction, user_prompt, assistant_prefix)
 
@@ -327,6 +331,7 @@ def _diff_improve(agent, prompt_base, data_preview, parent_node):
         "execution_output": parent_node.term_out if hasattr(parent_node, 'term_out') else "",
         "parent_node": parent_node,
         "hardware_prompt_section": prompt_base.get("Hardware/Profile Optimization Context", ""),
+        "training_curve_feedback": prompt_base.get("Training Curve Feedback", ""),
         "pipeline_decision": prompt_base.get("Pipeline Decision"),
         "pipeline_decision_section": prompt_base.get("Pipeline Decision Contract", ""),
     }

@@ -10,6 +10,9 @@ import json
 import sqlite3
 import threading
 
+_PROCESS_PIPELINE_LOGGER: "PipelineActionLogger | None" = None
+_PROCESS_PIPELINE_LOCK = threading.Lock()
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -27,6 +30,18 @@ def _bool_int(value: Any) -> int | None:
     if value is None:
         return None
     return int(bool(value))
+
+
+def set_process_pipeline_logger(logger: "PipelineActionLogger | None") -> None:
+    """Expose the current run logger to process-wide helpers such as llm calls."""
+    global _PROCESS_PIPELINE_LOGGER
+    with _PROCESS_PIPELINE_LOCK:
+        _PROCESS_PIPELINE_LOGGER = logger
+
+
+def get_process_pipeline_logger() -> "PipelineActionLogger | None":
+    with _PROCESS_PIPELINE_LOCK:
+        return _PROCESS_PIPELINE_LOGGER
 
 
 class PipelineActionLogger:

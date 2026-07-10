@@ -104,6 +104,72 @@ def _extract_json_object(text: str) -> str:
                 return text[start : index + 1]
     raise ValueError("Unterminated JSON object in assistant content")
 
+
+def _structured_output_fallback_prompt(func_spec: FunctionSpec) -> str:
+    schema_text = json.dumps(func_spec.json_schema, indent=2, sort_keys=True)
+    return (
+        "The previous response did not include the required function call. "
+        "Return exactly one JSON object that matches this schema. "
+        "Do not include markdown fences, prose, or any surrounding text.\n\n"
+        f"Function name: {func_spec.name}\n"
+        f"Function description: {func_spec.description}\n"
+        f"JSON schema:\n{schema_text}"
+    )
+
+
+def _validate_structured_output(output: Any, func_spec: FunctionSpec) -> dict:
+    if not isinstance(output, dict):
+        raise ValueError(f"Structured response for {func_spec.name} must be a JSON object")
+    required = func_spec.json_schema.get("required") or []
+    missing = [field for field in required if field not in output]
+    if missing:
+        raise ValueError(f"Structured response for {func_spec.name} missing required fields: {missing}")
+    return output
+
+
+def _response_format_for_schema(model: str, schema: dict) -> dict[str, Any]:
+    if supports_json_schema(model):
+        return {
+            "type": "json_schema",
+            "json_schema": {"name": "structured_output", "strict": False, "schema": schema},
+        }
+    return {"type": "json_object"}
+
+
+def _query_structured_json_fallback(
+    *,
+    client: OpenAI,
+    base_params: dict[str, Any],
+    messages: list[dict[str, str]],
+    func_spec: FunctionSpec,
+    model: str,
+) -> tuple[dict, Any]:
+    fallback_messages = [
+        *messages,
+        {"role": "user", "content": _structured_output_fallback_prompt(func_spec)},
+    ]
+    fallback_params = {
+        key: value
+        for key, value in base_params.items()
+        if key not in {"tools", "tool_choice", "stream"}
+    }
+    fallback_params["messages"] = fallback_messages
+    fallback_params["response_format"] = _response_format_for_schema(model, func_spec.json_schema)
+
+    logger.info("Retrying structured response as direct JSON output")
+    try:
+        completion = client.chat.completions.create(**fallback_params)
+    except Exception as exc:
+        logger.warning("Structured JSON response_format retry failed: %s; retrying without response_format", exc)
+        fallback_params.pop("response_format", None)
+        completion = client.chat.completions.create(**fallback_params)
+
+    message = completion.choices[0].message
+    raw_content = message.content or ""
+    output = _validate_structured_output(_parse_json_args(_extract_json_object(raw_content)), func_spec)
+    logger.info(f"OpenAI direct JSON fallback response: {output}", extra={"verbose": True})
+    return output, completion
+
 # Return type aligned with gemini.query
 OutputType = str | dict
 
@@ -203,7 +269,7 @@ def query(
             if tc.function.name != func_spec.name:
                 raise ValueError(f"Function name mismatch: expected {func_spec.name}, got {tc.function.name}")
             try:
-                output = _parse_json_args(tc.function.arguments or "{}")
+                output = _validate_structured_output(_parse_json_args(tc.function.arguments or "{}"), func_spec)
             except json.JSONDecodeError as e:
                 logger.error(f"Invalid function arguments: {tc.function.arguments}")
                 raise e
@@ -211,9 +277,30 @@ def query(
         else:
             logger.warning("Expected function call, got no tool_calls; attempting JSON content fallback")
             raw_content = message.content or ""
-            json_payload = _extract_json_object(raw_content)
-            output = _parse_json_args(json_payload)
-            logger.info(f"OpenAI JSON content fallback response: {output}", extra={"verbose": True})
+            try:
+                json_payload = _extract_json_object(raw_content)
+                output = _validate_structured_output(_parse_json_args(json_payload), func_spec)
+                logger.info(f"OpenAI JSON content fallback response: {output}", extra={"verbose": True})
+            except Exception as exc:
+                logger.warning("JSON content fallback failed: %s", exc)
+                output, fallback_completion = _query_structured_json_fallback(
+                    client=client,
+                    base_params=params,
+                    messages=messages,
+                    func_spec=func_spec,
+                    model=model,
+                )
+                fallback_usage = getattr(fallback_completion, "usage", None)
+                if fallback_usage is not None:
+                    try:
+                        completion.usage.prompt_tokens = (getattr(completion.usage, "prompt_tokens", 0) or 0) + (
+                            getattr(fallback_usage, "prompt_tokens", 0) or 0
+                        )
+                        completion.usage.completion_tokens = (
+                            getattr(completion.usage, "completion_tokens", 0) or 0
+                        ) + (getattr(fallback_usage, "completion_tokens", 0) or 0)
+                    except Exception:
+                        pass
 
     in_tok = getattr(completion.usage, "prompt_tokens", 0) or 0
     out_tok = getattr(completion.usage, "completion_tokens", 0) or 0

@@ -32,6 +32,13 @@ pretrain_model_dir: ''
 exec:
   timeout: null
   agent_file_name: runfile.py
+hardware_knowledge:
+  enabled: true
+  include_profile_evidence: true
+  probe_timeout_seconds: 10
+  # When null, MLEvolve reuses scheduler.settings for graph/vector DB access
+  # without requiring scheduler.enabled=true.
+  settings: null
 scheduler:
   enabled: true
   runtime_root: null
@@ -166,6 +173,16 @@ scheduler:
       telemetry:
         device_poll_ms: 500
         pair_recheck_every_steps: 20
+      early_stop:
+        enabled: true
+        warmup_samples: 5
+        patience_samples: 5
+        min_delta: 0.0001
+        min_runtime_seconds: 60.0
+        min_global_step: 10
+        metric_key: null
+        direction: auto
+        plot_enabled: true
       parallel_optimizer:
         batch_search_mode: power_of_two
         max_probe_jobs: 3

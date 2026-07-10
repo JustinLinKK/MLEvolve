@@ -10,7 +10,7 @@ import yaml
 import config as mle_config
 from localml_scheduler.config import SchedulerConfig
 from localml_scheduler.hardware_knowledge.store import HardwareKnowledgeGraphStore
-from run import _scheduler_settings_from_cfg
+from run import _hardware_knowledge_settings_from_cfg, _scheduler_settings_from_cfg
 
 
 def _write_config(path: Path, *, marker: str, scheduler_runtime: str = "./runtime") -> None:
@@ -177,6 +177,45 @@ def test_scheduler_settings_prefer_nested_config(tmp_path: Path) -> None:
 
     assert settings.cache_socket_name == "nested.sock"
     assert settings.runtime_root == (tmp_path / "scheduler-runtime").resolve()
+
+
+def test_hardware_knowledge_settings_prefer_root_config(tmp_path: Path) -> None:
+    cfg = SimpleNamespace(
+        workspace_dir=tmp_path / "workspace",
+        hardware_knowledge=SimpleNamespace(
+            settings={
+                "runtime_root": str(tmp_path / "hardware-runtime"),
+                "cache_socket_name": "hardware.sock",
+                "graph_db": {"enabled": False, "mode": "off"},
+            }
+        ),
+        scheduler=SimpleNamespace(
+            settings={
+                "runtime_root": str(tmp_path / "scheduler-runtime"),
+                "cache_socket_name": "scheduler.sock",
+                "graph_db": {"enabled": False, "mode": "off"},
+            },
+            settings_path=None,
+        ),
+    )
+
+    settings = _hardware_knowledge_settings_from_cfg(cfg)
+
+    assert settings.cache_socket_name == "hardware.sock"
+    assert settings.runtime_root == (tmp_path / "hardware-runtime").resolve()
+
+
+def test_scheduler_disabled_keeps_hardware_knowledge_in_hardware_aware_mode(monkeypatch, tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    _write_config(path, marker="root")
+    monkeypatch.setattr(sys, "argv", ["prog", "scheduler.enabled=false"])
+
+    cfg = mle_config.prep_cfg(mle_config._load_cfg(path, use_cli_args=True))
+
+    assert cfg.experiment.mode == "hardware_aware"
+    assert cfg.scheduler.enabled is False
+    assert cfg.agent.hardware_context_enabled is True
+    assert cfg.hardware_knowledge.enabled is True
 
 
 def test_scheduler_config_from_dict_matches_file(tmp_path: Path) -> None:

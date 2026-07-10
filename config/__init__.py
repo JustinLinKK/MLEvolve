@@ -141,6 +141,14 @@ class SchedulerBridgeConfig:
 
 
 @dataclass
+class HardwareKnowledgeBridgeConfig:
+    enabled: bool = True
+    include_profile_evidence: bool = True
+    probe_timeout_seconds: float = 10.0
+    settings: dict | None = None
+
+
+@dataclass
 class ExperimentConfig:
     mode: str = EXPERIMENT_MODE_HARDWARE_AWARE
 
@@ -204,6 +212,7 @@ class Config(Hashable):
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     use_grading_server: bool = True
     init_solution: InitSolutionConfig = field(default_factory=InitSolutionConfig)
+    hardware_knowledge: HardwareKnowledgeBridgeConfig = field(default_factory=HardwareKnowledgeBridgeConfig)
 
 
 def _get_next_logindex(dir: Path) -> int:
@@ -308,6 +317,7 @@ def prep_cfg(cfg: Config):
     cfg.experiment.mode = normalize_experiment_mode(cfg.experiment.mode)
     if cfg.experiment.mode in {EXPERIMENT_MODE_ORIGIN, EXPERIMENT_MODE_BASELINE}:
         cfg.agent.hardware_context_enabled = False
+        cfg.hardware_knowledge.enabled = False
     if cfg.experiment.mode == EXPERIMENT_MODE_ORIGIN:
         cfg.scheduler.enabled = False
 

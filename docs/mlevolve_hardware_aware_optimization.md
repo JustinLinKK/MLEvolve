@@ -63,13 +63,20 @@ Shared ontology files live in `schema/ontology/` and connect graph evidence to v
 - `optimization_targets`
 - `api_symbols`
 
-## MCP Entry Point
+## Hardware Knowledge Entry Point
 
 Stage agents should prefer:
 
 ```python
-context = scheduler_client.get_optimization_context(candidate=candidate, limit=8)
+context = hardware_knowledge_client.get_optimization_context(candidate=candidate, limit=8)
 ```
+
+`hardware_knowledge_client` is independent from scheduler execution. It probes the
+current hardware in a lightweight subprocess, reads static hardware knowledge and
+code/vector guidance, and may read historical profile evidence without starting
+the scheduler service. `SchedulerClient` keeps compatibility wrappers for these
+methods, but scheduler execution is no longer required for hardware-aware
+prompting.
 
 Response shape:
 

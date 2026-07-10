@@ -1,0 +1,188 @@
+{
+  "aging_interval_seconds": 120,
+  "aging_priority_increment": 1,
+  "auto_resume_recoverable": false,
+  "baseline_cache": {
+    "entry_capacity": 0,
+    "max_ram_percent": 0,
+    "memory_budget_bytes": 0,
+    "warm_queue_policy": "budget_only",
+    "warm_queue_top_k": 0
+  },
+  "cache_server_host": "127.0.0.1",
+  "cache_server_port": 8765,
+  "cache_socket_name": "cache_server.sock",
+  "command_poll_limit": 100,
+  "enable_priority_aging": true,
+  "gpu_scheduler": {
+    "allow_three_way_packing": false,
+    "auto_pack": {
+      "runtime_skew_guardrail_ratio": 2.0,
+      "target_metric": "vram",
+      "target_sm_fraction": 0.9
+    },
+    "backend_priority": [
+      "stream",
+      "cuda_process",
+      "exclusive"
+    ],
+    "batch_probe_enabled": true,
+    "batch_probe_max_batch_size": null,
+    "batch_probe_max_search_rounds": 12,
+    "batch_probe_min_batch_size": 1,
+    "batch_probe_search_mode": "power_of_two",
+    "candidate_window_size": 8,
+    "checkpoint_preemption_cooldown_seconds": 60.0,
+    "checkpoint_preemption_enabled": true,
+    "checkpoint_preemption_max_per_job": 3,
+    "checkpoint_preemption_min_estimated_gain_seconds": 15.0,
+    "checkpoint_preemption_min_runtime_seconds": 15.0,
+    "checkpoint_preemption_overhead_multiplier": 2.0,
+    "checkpoint_preemption_pause_timeout_seconds": 60.0,
+    "concurrent_backend_allowlist": [
+      "stream"
+    ],
+    "concurrent_groups_enabled": false,
+    "cuda_process": {
+      "default_mkl_num_threads": 6,
+      "default_omp_num_threads": 6,
+      "enabled": true
+    },
+    "derivative_profile_safety_fraction": 0.85,
+    "device_index": 0,
+    "enabled": true,
+    "fallback_cooldown_seconds": 900,
+    "idle_coalescing_window_seconds": 2.0,
+    "max_packed_jobs_per_gpu": 10,
+    "memory": {
+      "vram_budget_fraction": 0.95
+    },
+    "mode": "parallel_auto_pack",
+    "model_family_probe_enabled": true,
+    "model_family_probe_priority": 100,
+    "model_family_probe_timeout_seconds": 300,
+    "mps": {
+      "compute_mode": "EXCLUSIVE_PROCESS",
+      "default_mkl_num_threads": 6,
+      "default_omp_num_threads": 6,
+      "default_primary_active_thread_pct": 60,
+      "default_secondary_active_thread_pct": 40,
+      "enabled": false,
+      "log_directory": "/tmp/nvidia-mps-log",
+      "pipe_directory": "/tmp/nvidia-mps"
+    },
+    "parallel_optimizer": {
+      "batch_search_mode": "power_of_two",
+      "max_probe_jobs": 3,
+      "power_of_two_range_down": 1,
+      "power_of_two_range_up": 5
+    },
+    "profiling": {
+      "pair_probe_steps": 60,
+      "reuse_profile_if_confidence_ge": 0.8,
+      "solo_probe_steps": 80,
+      "warmup_steps": 30
+    },
+    "stream": {
+      "enabled": true,
+      "host_join_timeout_seconds": 3.0,
+      "host_poll_interval_seconds": 0.1
+    },
+    "submission_defaults": {
+      "backend_allowlist": [
+        "stream",
+        "cuda_process"
+      ],
+      "batch_probe_enabled": true,
+      "batch_probe_max_multiplier": 32,
+      "batch_probe_model_key": null,
+      "batch_probe_poll_interval_seconds": 0.5,
+      "batch_probe_probe_timeout_seconds": 45,
+      "batch_probe_search_mode": "power_of_two",
+      "estimated_ram_mb": null,
+      "estimated_vram_mb": null,
+      "packing_eligible": true,
+      "packing_family": "mlevolve_script",
+      "packing_max_slowdown_ratio": null,
+      "requires_gpu": true,
+      "runtime_probe_enabled": true,
+      "runtime_probe_model_key": null,
+      "runtime_probe_strategy": "epoch_1",
+      "runtime_probe_target": null
+    },
+    "telemetry": {
+      "device_poll_ms": 500,
+      "pair_recheck_every_steps": 20
+    },
+    "thresholds": {
+      "latency_sensitive_max_slowdown": 1.15,
+      "min_aggregate_gain": 1.1,
+      "pack_prefer_sm_active_lt": 0.5,
+      "pack_reject_max_slowdown": 1.3,
+      "pack_reject_sm_active_ge": 0.8
+    }
+  },
+  "graph_db": {
+    "allow_legacy_fallback": true,
+    "auto_import_legacy_sqlite": true,
+    "bootstrap_constraints": true,
+    "database": "neo4j",
+    "enabled": false,
+    "legacy_sqlite_path": "/workspaces/MLEvolve/runs/profile_scheduler_compare_histopathologic-cancer-detection_20260704_212842/scheduler_on/scheduler_runtime/db/scheduler.sqlite3",
+    "mode": "off",
+    "password_env": "LOCALML_SCHEDULER_NEO4J_PASSWORD",
+    "provider": "neo4j",
+    "uri": "bolt://127.0.0.1:7687",
+    "username": "neo4j"
+  },
+  "hardware_feature_db": {
+    "api_key_env": "LOCALML_SCHEDULER_QDRANT_API_KEY",
+    "api_symbol_collection_name": "api_symbol_chunks",
+    "code_doc_collection_name": "code_doc_chunks",
+    "collection_name": "hardware_feature_knowledge",
+    "distance": "Cosine",
+    "embedding_api_key": "",
+    "embedding_api_key_env": "OPENROUTER_API_KEY",
+    "embedding_base_url": "https://openrouter.ai/api/v1",
+    "embedding_batch_size": 32,
+    "embedding_device": "cpu",
+    "embedding_dimension": 4096,
+    "embedding_max_retries": 4,
+    "embedding_model_name": "qwen/qwen3-embedding-8b",
+    "embedding_model_type": "openrouter",
+    "embedding_retry_delay_seconds": 1.0,
+    "enabled": false,
+    "optimization_recipe_collection_name": "optimization_recipe_chunks",
+    "provider": "qdrant",
+    "url": "http://127.0.0.1:6333"
+  },
+  "hardware_knowledge_graph": {
+    "database": "neo4j",
+    "enabled": false,
+    "password_env": "LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD",
+    "provider": "neo4j",
+    "uri": "bolt://127.0.0.1:7688",
+    "username": "neo4j"
+  },
+  "log_db": {
+    "dsn_env": "LOCALML_SCHEDULER_LOG_DSN",
+    "enabled": false,
+    "provider": "postgres",
+    "schema": "scheduler_logs"
+  },
+  "preempt_check_interval_seconds": 0.2,
+  "python_executable": "/opt/conda/bin/python",
+  "redis_cache": {
+    "cache_graph_queries": true,
+    "cache_vector_queries": true,
+    "enabled": false,
+    "key_prefix": "localml_scheduler",
+    "max_entries": 4096,
+    "socket_timeout_seconds": 0.2,
+    "ttl_seconds": 300,
+    "url": "redis://127.0.0.1:6379/0",
+    "url_env": "LOCALML_SCHEDULER_REDIS_URL"
+  },
+  "scheduler_poll_interval_seconds": 0.2,
+  "sqlite_busy_timeout_ms": 10000
+}

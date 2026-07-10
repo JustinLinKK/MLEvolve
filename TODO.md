@@ -10,6 +10,8 @@
 
 - Parallel Parameter Tune
 
+- [ ] Optimize root initial draft flow: the inherited root draft phase is intentionally sequential and uses `execute_immediately=False` to defer training, but this delays GPU execution and scheduler/profile evidence. Parallelize root draft/code-review generation with reservation-safe child slots, keep `AgentSearch.step(... execute_immediately=True)` as the method default, preserve `execute_immediately=False` only for explicit deferred batch/scheduler collection, and consider overlapping first draft execution with remaining draft generation for profiling-heavy comparisons.
+
 - SWE Bench Output results for fine-tuning GNN
 
 - [ ] Define model-structure features for prediction: backbone name, parameter count if available, framework, training mode, feature extractor vs end-to-end fine-tune, input shape, batch size, optimizer, epochs, folds, augmentation cost, and precision mode.

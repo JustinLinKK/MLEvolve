@@ -27,15 +27,44 @@ except ImportError as exc:  # pragma: no cover - exercised by runtime environmen
 DEFAULT_MODES = ("origin", "baseline", "hardware_aware")
 
 SUMMARY_METRICS = [
+    ("command_label", "Command label"),
+    ("experiment_mode", "Experiment mode"),
+    ("configured_scheduler_enabled", "Scheduler enabled"),
+    ("scheduler_client_attached", "Scheduler client attached"),
+    ("configured_hardware_knowledge_enabled", "Hardware knowledge enabled"),
+    ("hardware_knowledge_client_attached", "Hardware knowledge attached"),
+    ("hardware_probe_source", "Hardware probe source"),
+    ("hardware_probe_success", "Hardware probe success"),
+    ("hardware_knowledge_include_profile_evidence", "Hardware profile evidence enabled"),
+    ("hardware_profile_evidence_used", "Hardware profile evidence used"),
+    ("hardware_context_enabled", "Hardware context enabled"),
+    ("scheduler_runtime_root", "Scheduler runtime root"),
+    ("total_run_wall_time_seconds", "Run wall time (s)"),
     ("total_wall_time_seconds", "Total wall time (s)"),
+    ("total_llm_call_wall_time_seconds", "LLM call wall time (s)"),
+    ("total_candidate_execution_time_seconds", "Candidate exec total (s)"),
+    ("candidate_execution_makespan_seconds", "Candidate exec makespan (s)"),
+    ("candidate_execution_parallelism_ratio", "Candidate parallelism ratio"),
     ("total_job_execution_time_seconds", "Job exec total (s)"),
+    ("median_candidate_execution_time_seconds", "Median candidate time (s)"),
     ("median_job_execution_time_seconds", "Median job time (s)"),
+    ("non_candidate_overhead_wall_time_seconds", "Non-candidate overhead (s)"),
+    ("total_training_wall_time_seconds", "Training wall time (s)"),
+    ("total_inference_wall_time_seconds", "Inference wall time (s)"),
+    ("total_validation_wall_time_seconds", "Validation wall time (s)"),
+    ("total_other_candidate_wall_time_seconds", "Other candidate time (s)"),
     ("time_to_best_seconds", "Time to best (s)"),
+    ("total_scheduler_queue_wait_seconds", "Scheduler queue wait (s)"),
     ("queue_wait_seconds", "Queue wait (s)"),
+    ("total_scheduler_probe_time_seconds", "Scheduler probe time (s)"),
     ("probe_time_seconds", "Probe/calibration time (s)"),
     ("execution_time_seconds", "Execution time (s)"),
     ("concurrent_gpu_active_seconds", "Concurrent GPU-active time (s)"),
     ("jobs_per_hour", "Jobs per hour"),
+    ("llm_call_count", "LLM calls"),
+    ("llm_error_count", "LLM errors"),
+    ("phase_instrumented_node_count", "Phase-instrumented nodes"),
+    ("phase_instrumentation_miss_count", "Phase instrumentation misses"),
     ("best_metric", "Best metric"),
     ("packed_dispatch_count", "Packed dispatches"),
     ("batch_probe_trial_count", "Probe trials"),
@@ -65,9 +94,15 @@ BAR_GROUPS = [
     (
         "Runtime",
         [
-            ("total_wall_time_seconds", "Wall time"),
-            ("total_job_execution_time_seconds", "Job total"),
-            ("median_job_execution_time_seconds", "Median job"),
+            ("total_run_wall_time_seconds", "Run wall"),
+            ("total_llm_call_wall_time_seconds", "LLM wall"),
+            ("total_candidate_execution_time_seconds", "Candidate total"),
+            ("candidate_execution_makespan_seconds", "Candidate makespan"),
+            ("total_training_wall_time_seconds", "Training"),
+            ("total_inference_wall_time_seconds", "Inference"),
+            ("total_scheduler_queue_wait_seconds", "Queue wait"),
+            ("total_scheduler_probe_time_seconds", "Probe"),
+            ("median_candidate_execution_time_seconds", "Median candidate"),
             ("time_to_best_seconds", "Time to best"),
         ],
         "Seconds",
@@ -163,7 +198,9 @@ def load_mode_artifacts(run_root: Path, mode: str) -> ModeArtifacts:
 def write_summary(artifacts: list[ModeArtifacts], output_dir: Path) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     by_mode = {artifact.mode: artifact.combined_metrics for artifact in artifacts}
+    delta_pairs = _adjacent_delta_pairs([artifact.mode for artifact in artifacts])
     payload = {
+        "mode_order": [artifact.mode for artifact in artifacts],
         "modes": {
             artifact.mode: {
                 "mode_root": str(artifact.mode_root),
@@ -176,16 +213,10 @@ def write_summary(artifacts: list[ModeArtifacts], output_dir: Path) -> tuple[Pat
             }
             for artifact in artifacts
         },
-        "delta_definition": {
-            "baseline_minus_origin": "baseline - origin",
-            "hardware_aware_minus_baseline": "hardware_aware - baseline",
-        },
+        "delta_definition": {key: f"{right} - {left}" for key, left, right in delta_pairs},
         "deltas": {
-            "baseline_minus_origin": _metric_deltas(by_mode.get("origin", {}), by_mode.get("baseline", {})),
-            "hardware_aware_minus_baseline": _metric_deltas(
-                by_mode.get("baseline", {}),
-                by_mode.get("hardware_aware", {}),
-            ),
+            key: _metric_deltas(by_mode.get(left, {}), by_mode.get(right, {}))
+            for key, left, right in delta_pairs
         },
     }
     json_path = output_dir / "comparison_summary.json"
@@ -241,7 +272,7 @@ def plot_metric_dashboard(artifacts: list[ModeArtifacts], output_path: Path) -> 
         ax.margins(y=0.18)
         ax.legend(loc="best")
 
-    fig.suptitle("Origin vs Baseline vs Hardware-aware MLEvolve Metrics", fontsize=16)
+    fig.suptitle(f"{_comparison_title(artifacts)} Metrics", fontsize=16)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=160)
@@ -284,7 +315,7 @@ def plot_utilization_timeseries(artifacts: list[ModeArtifacts], output_path: Pat
         ax.legend(loc="best")
 
     axes[-1].set_xlabel("Elapsed seconds")
-    fig.suptitle("Hardware Utilization Over Time", fontsize=16)
+    fig.suptitle(f"{_comparison_title(artifacts)} Hardware Utilization Over Time", fontsize=16)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=160)
@@ -418,31 +449,29 @@ def _summarize_hardware_series(series: list[dict[str, float | None]]) -> dict[st
 
 def _summary_markdown(artifacts: list[ModeArtifacts]) -> str:
     by_mode = {artifact.mode: artifact.combined_metrics for artifact in artifacts}
-    origin = by_mode.get("origin", {})
-    baseline = by_mode.get("baseline", {})
-    hardware = by_mode.get("hardware_aware", {})
+    modes = [artifact.mode for artifact in artifacts]
+    delta_pairs = _adjacent_delta_pairs(modes)
+    delta_labels = [f"{_display_mode(right)} - {_display_mode(left)}" for _key, left, right in delta_pairs]
     lines = [
-        "# Hardware Awareness Comparison Summary",
+        f"# {_comparison_title(artifacts)} Summary",
         "",
-        "Deltas are `baseline - origin` and `hardware_aware - baseline`.",
+        "Deltas compare adjacent modes in the requested order.",
         "",
-        "| Metric | Origin | Baseline | Hardware-aware | Baseline - Origin | Hardware-aware - Baseline |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
+        "| Metric | " + " | ".join([_display_mode(mode) for mode in modes] + delta_labels) + " |",
+        "| --- | " + " | ".join(["---:"] * (len(modes) + len(delta_pairs))) + " |",
     ]
     for key, label in SUMMARY_METRICS:
-        first = origin.get(key)
-        left = baseline.get(key)
-        right = hardware.get(key)
-        if first is None and left is None and right is None:
+        values = [by_mode.get(mode, {}).get(key) for mode in modes]
+        if all(value is None for value in values):
             continue
+        deltas = [
+            _delta(by_mode.get(left, {}).get(key), by_mode.get(right, {}).get(key))
+            for _delta_key, left, right in delta_pairs
+        ]
         lines.append(
-            "| {label} | {origin} | {baseline} | {hardware} | {baseline_delta} | {hardware_delta} |".format(
+            "| {label} | {values} |".format(
                 label=label,
-                origin=_format_value(first),
-                baseline=_format_value(left),
-                hardware=_format_value(right),
-                baseline_delta=_format_value(_delta(first, left)),
-                hardware_delta=_format_value(_delta(left, right)),
+                values=" | ".join(_format_value(value) for value in [*values, *deltas]),
             )
         )
 
@@ -475,7 +504,7 @@ def _display_mode(mode: str) -> str:
 
 def _runtime_equivalence_warnings(artifacts: list[ModeArtifacts]) -> list[str]:
     by_mode = {artifact.mode: artifact.combined_metrics for artifact in artifacts}
-    modes = [mode for mode in DEFAULT_MODES if mode in by_mode]
+    modes = [artifact.mode for artifact in artifacts if artifact.mode in by_mode]
     fields = [
         ("model_key", "model key"),
         ("proposed_epochs", "epoch budget"),
@@ -492,6 +521,24 @@ def _runtime_equivalence_warnings(artifacts: list[ModeArtifacts]) -> list[str]:
             detail = ", ".join(f"{_display_mode(mode)}={value}" for mode, value in normalized.items())
             warnings.append(f"Runs are not runtime-equivalent for {label}: {detail}.")
     return warnings
+
+
+def _comparison_title(artifacts: list[ModeArtifacts]) -> str:
+    if not artifacts:
+        return "MLEvolve Comparison"
+    return " vs ".join(_display_mode(artifact.mode) for artifact in artifacts)
+
+
+def _adjacent_delta_pairs(modes: list[str]) -> list[tuple[str, str, str]]:
+    pairs: list[tuple[str, str, str]] = []
+    for left, right in zip(modes, modes[1:]):
+        pairs.append((f"{_slug(right)}_minus_{_slug(left)}", left, right))
+    return pairs
+
+
+def _slug(value: str) -> str:
+    cleaned = "".join(char.lower() if char.isalnum() else "_" for char in value)
+    return "_".join(part for part in cleaned.split("_") if part)
 
 
 def _apply_style() -> None:
@@ -596,9 +643,9 @@ def _short_number(value: float) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate matplotlib graphs for origin vs baseline vs hardware-aware MLEvolve runs."
+        description="Generate matplotlib graphs for MLEvolve comparison runs."
     )
-    parser.add_argument("--run-root", type=Path, required=True, help="Root produced by compare_hardware_awareness.sh.")
+    parser.add_argument("--run-root", type=Path, required=True, help="Root produced by a comparison script.")
     parser.add_argument(
         "--output-dir",
         type=Path,

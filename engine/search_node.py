@@ -41,6 +41,8 @@ class SearchNode(DataClassJsonMixin):
     exc_type: str | None = field(default=None, kw_only=True)
     exc_info: dict | None = field(default=None, kw_only=True)
     exc_stack: list[tuple] | None = field(default=None, kw_only=True)
+    phase_timings: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
+    instrumentation: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
 
     # ---- evaluation ----
     analysis: str = field(default=None, kw_only=True)  # type: ignore
@@ -90,6 +92,7 @@ class SearchNode(DataClassJsonMixin):
     backend_name: Optional[str] = field(default=None, kw_only=True)
     hardware_decision: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
     pipeline_decision: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
+    training_curve_feedback: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
     stage_note_board: List[Dict[str, Any]] = field(default_factory=list, kw_only=True)
     bug_report: Optional[str] = field(default=None, kw_only=True)
     fix_report: Optional[str] = field(default=None, kw_only=True)
@@ -120,6 +123,11 @@ class SearchNode(DataClassJsonMixin):
         self.exc_type = exec_result.exc_type
         self.exc_info = exec_result.exc_info
         self.exc_stack = exec_result.exc_stack
+        self.phase_timings = exec_result.phase_timings
+        self.instrumentation = exec_result.instrumentation
+        instrumentation = exec_result.instrumentation or {}
+        if isinstance(instrumentation, dict) and instrumentation.get("scheduler_early_stop"):
+            self.training_curve_feedback = dict(instrumentation.get("scheduler_early_stop") or {})
 
     @property
     def term_out(self) -> str:

@@ -8,6 +8,8 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 import json
+import os
+import sqlite3
 import time
 
 from engine.script_introspection import introspect_training_script
@@ -20,7 +22,9 @@ def build_comparison_metrics(
     started_at: float,
     finished_at: float | None = None,
     scheduler_client: Any | None = None,
+    hardware_knowledge_client: Any | None = None,
     metric_maximize: bool | None = None,
+    pipeline_logger: Any | None = None,
 ) -> dict[str, Any]:
     finished_at = finished_at or time.time()
     mode = str(getattr(getattr(cfg, "experiment", None), "mode", "hardware_aware"))
@@ -40,10 +44,18 @@ def build_comparison_metrics(
     ]
     scheduler_jobs = _scheduler_jobs(scheduler_client)
     scheduler_events = _scheduler_events(scheduler_client)
+    pipeline_events = _pipeline_rows(pipeline_logger, "pipeline_events")
+    pipeline_actions = _pipeline_rows(pipeline_logger, "node_actions")
     scheduler_job_times = [_job_duration_seconds(job) for job in scheduler_jobs]
     scheduler_job_times = [value for value in scheduler_job_times if value is not None]
-    job_times = scheduler_job_times or node_exec_times
+    candidate_times = scheduler_job_times or node_exec_times
+    candidate_intervals = _candidate_execution_intervals(scheduler_jobs, pipeline_actions)
+    candidate_makespan = _interval_makespan(candidate_intervals)
+    if candidate_makespan is None and candidate_times:
+        candidate_makespan = sum(candidate_times)
     best_training_intent = _training_intent(best_node)
+    phase_metrics = _phase_metrics(nodes)
+    llm_metrics = _llm_metrics(pipeline_events)
 
     batch_probe_hit_count = sum(1 for event in scheduler_events if event.get("event_type") == "batch_probe_cache_hit")
     batch_probe_trial_count = sum(1 for event in scheduler_events if event.get("event_type") == "batch_probe_trial")
@@ -52,14 +64,75 @@ def build_comparison_metrics(
     vram_values = _vram_values(nodes, scheduler_events)
     backend_distribution = _backend_distribution(scheduler_jobs, scheduler_events)
     total_wall_time = max(0.0, float(finished_at) - float(started_at))
+    candidate_total = sum(candidate_times)
+    scheduler_queue_wait = _queue_wait_seconds(scheduler_jobs)
+    scheduler_probe_time = _probe_time_seconds(scheduler_events)
+    candidate_parallelism_ratio = (
+        candidate_total / candidate_makespan
+        if candidate_makespan is not None and candidate_makespan > 0
+        else None
+    )
+    non_candidate_overhead = (
+        max(0.0, total_wall_time - candidate_makespan)
+        if candidate_makespan is not None
+        else None
+    )
+    scheduler_cfg = getattr(cfg, "scheduler", None)
+    hardware_knowledge_cfg = getattr(cfg, "hardware_knowledge", None)
+    scheduler_settings = getattr(scheduler_client, "settings", None) if scheduler_client is not None else None
+    scheduler_runtime_root = getattr(scheduler_settings, "runtime_root", None)
+    if scheduler_runtime_root is None and scheduler_cfg is not None:
+        scheduler_runtime_root = getattr(scheduler_cfg, "runtime_root", None)
+    agent_cfg = getattr(cfg, "agent", None)
 
-    return {
+    metrics = {
         "mode": mode,
+        "experiment_mode": mode,
+        "command_label": os.getenv("MLEVOLVE_COMMAND_LABEL") or None,
         "run_id": str(getattr(cfg, "exp_name", "")),
         "exp_id": str(getattr(cfg, "exp_id", "")),
+        "configured_scheduler_enabled": bool(getattr(scheduler_cfg, "enabled", False)) if scheduler_cfg is not None else False,
+        "scheduler_client_attached": scheduler_client is not None,
+        "configured_hardware_knowledge_enabled": (
+            bool(getattr(hardware_knowledge_cfg, "enabled"))
+            if hardware_knowledge_cfg is not None and getattr(hardware_knowledge_cfg, "enabled", None) is not None
+            else None
+        ),
+        "hardware_knowledge_client_attached": hardware_knowledge_client is not None,
+        "hardware_probe_source": _hardware_probe_field(hardware_knowledge_client, "source"),
+        "hardware_probe_success": _hardware_probe_field(hardware_knowledge_client, "ok"),
+        "hardware_knowledge_include_profile_evidence": (
+            bool(getattr(hardware_knowledge_client, "include_profile_evidence"))
+            if hardware_knowledge_client is not None and getattr(hardware_knowledge_client, "include_profile_evidence", None) is not None
+            else (
+                bool(getattr(hardware_knowledge_cfg, "include_profile_evidence"))
+                if hardware_knowledge_cfg is not None and getattr(hardware_knowledge_cfg, "include_profile_evidence", None) is not None
+                else None
+            )
+        ),
+        "hardware_profile_evidence_used": (
+            bool(getattr(hardware_knowledge_client, "profile_evidence_used"))
+            if hardware_knowledge_client is not None
+            else False
+        ),
+        "hardware_context_enabled": (
+            bool(getattr(agent_cfg, "hardware_context_enabled"))
+            if agent_cfg is not None and getattr(agent_cfg, "hardware_context_enabled", None) is not None
+            else None
+        ),
+        "scheduler_runtime_root": str(scheduler_runtime_root) if scheduler_runtime_root is not None else None,
+        "total_run_wall_time_seconds": total_wall_time,
         "total_wall_time_seconds": total_wall_time,
-        "total_job_execution_time_seconds": sum(job_times),
-        "median_job_execution_time_seconds": median(job_times) if job_times else None,
+        "total_candidate_execution_time_seconds": candidate_total,
+        "total_job_execution_time_seconds": candidate_total,
+        "execution_time_seconds": candidate_total,
+        "median_candidate_execution_time_seconds": median(candidate_times) if candidate_times else None,
+        "median_job_execution_time_seconds": median(candidate_times) if candidate_times else None,
+        "candidate_execution_makespan_seconds": candidate_makespan,
+        "candidate_execution_parallelism_ratio": candidate_parallelism_ratio,
+        "non_candidate_overhead_wall_time_seconds": non_candidate_overhead,
+        **llm_metrics,
+        **phase_metrics,
         "node_count": len(nodes),
         "valid_count": len(valid_nodes),
         "buggy_count": len(buggy_nodes),
@@ -69,9 +142,10 @@ def build_comparison_metrics(
         "time_to_best_seconds": _time_to_best(best_node, started_at) if best_node else None,
         "nodes_to_best": getattr(best_node, "step", None) if best_node else None,
         "jobs_per_hour": (len(nodes) / (total_wall_time / 3600.0)) if total_wall_time > 0 else None,
-        "queue_wait_seconds": _queue_wait_seconds(scheduler_jobs),
-        "probe_time_seconds": _probe_time_seconds(scheduler_events),
-        "execution_time_seconds": sum(job_times),
+        "total_scheduler_queue_wait_seconds": scheduler_queue_wait,
+        "queue_wait_seconds": scheduler_queue_wait,
+        "total_scheduler_probe_time_seconds": scheduler_probe_time,
+        "probe_time_seconds": scheduler_probe_time,
         "placement_backend": _dominant_placement_value(scheduler_jobs, scheduler_events, "backend"),
         "placement_mode": _dominant_placement_value(scheduler_jobs, scheduler_events, "mode"),
         "packed_dispatch_count": _packed_dispatch_count(scheduler_jobs, scheduler_events),
@@ -90,6 +164,21 @@ def build_comparison_metrics(
         "average_vram_mb": (sum(vram_values) / len(vram_values)) if vram_values else None,
         "scheduler_backend_distribution": dict(backend_distribution),
     }
+    return metrics
+
+
+def _hardware_probe_field(hardware_knowledge_client: Any | None, key: str) -> Any:
+    if hardware_knowledge_client is None:
+        return None
+    status = getattr(hardware_knowledge_client, "probe_status", None)
+    if callable(status):
+        try:
+            status = status()
+        except Exception:
+            status = None
+    if isinstance(status, dict):
+        return status.get(key)
+    return None
 
 
 def write_comparison_metrics(metrics: dict[str, Any], log_dir: str | Path) -> Path:
@@ -212,6 +301,165 @@ def _concurrent_gpu_active_seconds(jobs: list[dict[str, Any]]) -> float:
         active += delta
         previous = timestamp
     return total
+
+
+def _pipeline_rows(pipeline_logger: Any | None, table: str) -> list[dict[str, Any]]:
+    db_path = getattr(pipeline_logger, "db_path", None)
+    if db_path is None or not Path(db_path).exists():
+        return []
+    if table not in {"pipeline_events", "node_actions"}:
+        return []
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = [dict(row) for row in conn.execute(f"SELECT * FROM {table} WHERE run_id=?", (pipeline_logger.run_id,))]
+    except Exception:
+        return []
+    for row in rows:
+        payload_text = row.get("payload_json")
+        if isinstance(payload_text, str):
+            try:
+                row["payload"] = json.loads(payload_text)
+            except json.JSONDecodeError:
+                row["payload"] = {}
+    return rows
+
+
+def _llm_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
+    total = 0.0
+    count = 0
+    errors = 0
+    breakdown: dict[str, dict[str, Any]] = {}
+    for event in events:
+        event_type = event.get("event_type")
+        if event_type not in {"llm_call_completed", "llm_call_failed"}:
+            continue
+        payload = event.get("payload") or {}
+        try:
+            duration = float(payload.get("wall_time_seconds") or 0.0)
+        except (TypeError, ValueError):
+            duration = 0.0
+        provider = str(payload.get("provider") or "unknown")
+        model = str(payload.get("model") or "unknown")
+        interface = str(payload.get("interface") or "unknown")
+        key = f"{provider}:{model}:{interface}"
+        row = breakdown.setdefault(
+            key,
+            {
+                "provider": provider,
+                "model": model,
+                "interface": interface,
+                "count": 0,
+                "error_count": 0,
+                "wall_time_seconds": 0.0,
+            },
+        )
+        row["count"] += 1
+        row["wall_time_seconds"] += duration
+        count += 1
+        total += duration
+        if event_type == "llm_call_failed":
+            row["error_count"] += 1
+            errors += 1
+    return {
+        "total_llm_call_wall_time_seconds": total,
+        "llm_call_count": count,
+        "llm_error_count": errors,
+        "llm_call_breakdown": breakdown,
+    }
+
+
+def _candidate_execution_intervals(
+    scheduler_jobs: list[dict[str, Any]],
+    pipeline_actions: list[dict[str, Any]],
+) -> list[tuple[float, float]]:
+    intervals: list[tuple[float, float]] = []
+    for job in scheduler_jobs:
+        started = _timestamp_seconds(job.get("started_at") or (job.get("status_timestamps") or {}).get("running"))
+        finished = _timestamp_seconds(job.get("finished_at"))
+        if started is not None and finished is not None and finished >= started:
+            intervals.append((started, finished))
+    if intervals:
+        return intervals
+
+    starts: dict[str, list[float]] = {}
+    for action in sorted(pipeline_actions, key=lambda row: str(row.get("created_at") or "")):
+        node_id = str(action.get("node_id") or "")
+        timestamp = _timestamp_seconds(action.get("created_at"))
+        if not node_id or timestamp is None:
+            continue
+        action_type = action.get("action_type")
+        if action_type == "execution_started":
+            starts.setdefault(node_id, []).append(timestamp)
+        elif action_type == "execution_finished" and starts.get(node_id):
+            started = starts[node_id].pop(0)
+            if timestamp >= started:
+                intervals.append((started, timestamp))
+    return intervals
+
+
+def _interval_makespan(intervals: list[tuple[float, float]]) -> float | None:
+    if not intervals:
+        return None
+    start = min(item[0] for item in intervals)
+    end = max(item[1] for item in intervals)
+    return max(0.0, end - start)
+
+
+def _phase_metrics(nodes: list[Any]) -> dict[str, Any]:
+    phase_totals = {
+        "training": 0.0,
+        "inference": 0.0,
+        "validation": 0.0,
+        "other_candidate": 0.0,
+    }
+    phase_seen = {phase: False for phase in phase_totals}
+    instrumented_count = 0
+    timing_available_count = 0
+    coverage_seconds = 0.0
+    coverage_denominator = 0.0
+
+    for node in nodes:
+        instrumentation = getattr(node, "instrumentation", None) or {}
+        phase_timings = getattr(node, "phase_timings", None) or {}
+        if instrumentation.get("phase_instrumented") or phase_timings.get("phase_instrumented"):
+            instrumented_count += 1
+        if phase_timings.get("phase_timing_available"):
+            timing_available_count += 1
+        durations = phase_timings.get("phase_durations_seconds") or {}
+        for phase in phase_totals:
+            value = durations.get(phase)
+            if value is None:
+                continue
+            try:
+                phase_totals[phase] += float(value)
+                phase_seen[phase] = True
+            except (TypeError, ValueError):
+                pass
+        try:
+            coverage_seconds += float(phase_timings.get("phase_timing_coverage_seconds") or 0.0)
+        except (TypeError, ValueError):
+            pass
+        if phase_timings:
+            exec_time = getattr(node, "exec_time", None)
+            try:
+                coverage_denominator += max(0.0, float(exec_time or 0.0))
+            except (TypeError, ValueError):
+                pass
+
+    miss_count = max(0, len(nodes) - instrumented_count)
+    coverage_ratio = coverage_seconds / coverage_denominator if coverage_denominator > 0 else None
+    return {
+        "total_training_wall_time_seconds": phase_totals["training"] if phase_seen["training"] or instrumented_count else None,
+        "total_inference_wall_time_seconds": phase_totals["inference"] if phase_seen["inference"] or instrumented_count else None,
+        "total_validation_wall_time_seconds": phase_totals["validation"] if phase_seen["validation"] or instrumented_count else None,
+        "total_other_candidate_wall_time_seconds": phase_totals["other_candidate"] if phase_seen["other_candidate"] or instrumented_count else None,
+        "phase_instrumented_node_count": instrumented_count,
+        "phase_instrumentation_miss_count": miss_count,
+        "phase_timing_available_node_count": timing_available_count,
+        "phase_timing_coverage_seconds": coverage_seconds,
+        "phase_timing_coverage_ratio": coverage_ratio,
+    }
 
 
 def _count_failures(nodes: list[Any], jobs: list[dict[str, Any]], *needles: str) -> int:

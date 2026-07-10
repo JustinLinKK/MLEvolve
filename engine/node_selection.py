@@ -65,11 +65,12 @@ def select(agent, node: SearchNode) -> SearchNode | None:
                 selected_node.lock = True
             return selected_node
         else:
-            if not n.children:
-                logger.debug("[select] node %s has no children to descend into", n.id)
+            filtered_children = [child for child in n.children if not child.lock]
+            if not filtered_children:
+                logger.debug("[select] node %s has no unlocked children to descend into", n.id)
                 return None
             C = _compute_exploration_constant(agent)
-            return max(n.children, key=lambda child: child.uct_value(exploration_constant=C))
+            return max(filtered_children, key=lambda child: child.uct_value(exploration_constant=C))
 
     while node and not node.is_terminal:
         if not node.reached_child_limit(scfg=agent.scfg):

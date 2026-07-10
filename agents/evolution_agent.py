@@ -12,6 +12,7 @@ from agents.hardware_context import (
     apply_hardware_context_to_node,
     get_hardware_context_for_stage,
     hardware_context_instructions,
+    training_curve_feedback_section,
 )
 from agents.triggers import get_patience_counter
 from agents.prompts import (
@@ -74,6 +75,9 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
     hardware_section = hardware_ctx.prompt_section
     if hardware_section:
         prompt["Hardware/Profile Optimization Context"] = hardware_section
+    curve_feedback_section = training_curve_feedback_section(parent_node)
+    if curve_feedback_section:
+        prompt["Training Curve Feedback"] = curve_feedback_section
     pipeline_decision = build_pipeline_decision(
         agent,
         stage="evolution",
@@ -227,7 +231,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
 
     user_prompt = (
         f"\n# Task description\n{prompt['Task description']}{memory_section}"
-        f"{hardware_section}{pipeline_decision_section}"
+        f"{hardware_section}{curve_feedback_section}{pipeline_decision_section}"
         f"{prompt['Branch Evolution History']}\n\n{instructions}"
     )
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nThe current solution uses the following code:\n{prompt['Previous solution']['Code']}\nIts output was:\n{output}\nBuilding on this and my evolution trajectory, I'll develop an improved approach."
@@ -305,6 +309,7 @@ def _diff_evolution(agent, prompt_base, data_preview, parent_node):
         "execution_output": parent_node.term_out if hasattr(parent_node, 'term_out') else "",
         "branch_evolution_history": branch_history,
         "hardware_prompt_section": prompt_base.get("Hardware/Profile Optimization Context", ""),
+        "training_curve_feedback": prompt_base.get("Training Curve Feedback", ""),
         "pipeline_decision_section": prompt_base.get("Pipeline Decision Contract", ""),
     }
 

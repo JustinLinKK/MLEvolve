@@ -234,20 +234,52 @@ def hardware_context_instructions(context: HardwarePromptContext | None = None) 
             EVIDENCE_NOT_LAW_RULE,
             CONSTRAINT_PRECEDENCE_RULE,
             HARDWARE_BUDGET_GUARDRAIL_RULE,
-            "Use the current scheduler backend config from the hardware context as the execution contract; do not hardcode CUDA process, CUDA stream, MPS, or any other backend in generated code.",
-            "Prefer scheduler-compatible code with configurable batch size, precision, dataloader workers, checkpoints, and runtime logging when using GPU training.",
+            "Use the current scheduler backend config only when it is explicitly present in the hardware context; do not hardcode CUDA process, CUDA stream, MPS, or any other backend in generated code.",
+            "Prefer backend-compatible code with configurable batch size, precision, dataloader workers, checkpoints, and runtime logging when using GPU training.",
             "The stage-specific hardware node response is already provided in the prompt. Do not query the hardware node again; query local feature-node details only for selected feature keys when deeper implementation guidance is needed.",
             "Use the Cross-Stage Note Board to keep Stage 2 precision and Stage 3 training choices aligned with the Stage 1 candidate target.",
         ]
     }
 
 
+def training_curve_feedback_section(parent_node: Any | None) -> str:
+    if parent_node is None:
+        return ""
+    feedback = getattr(parent_node, "training_curve_feedback", None)
+    if not feedback:
+        instrumentation = getattr(parent_node, "instrumentation", None)
+        if isinstance(instrumentation, dict):
+            feedback = instrumentation.get("scheduler_early_stop")
+    if not isinstance(feedback, dict) or not feedback:
+        return ""
+    decision = feedback.get("decision") if isinstance(feedback.get("decision"), dict) else {}
+    lines = ["# Training Curve Feedback"]
+    reason = feedback.get("reason") or decision.get("reason")
+    if reason:
+        lines.append(f"- Scheduler early-stop reason: {reason}")
+    metric_key = decision.get("metric_key")
+    if metric_key:
+        lines.append(
+            f"- Plateau metric: {metric_key} ({decision.get('direction') or 'auto'}), "
+            f"best={decision.get('best_value')}, latest={decision.get('latest_value')}, "
+            f"samples_since_best={decision.get('samples_since_best')}"
+        )
+    if decision.get("best_global_step") is not None:
+        lines.append(f"- Best observed step: {decision.get('best_global_step')}")
+    if feedback.get("plot_path"):
+        lines.append(f"- Training plot: {feedback.get('plot_path')}")
+    if feedback.get("summary_path"):
+        lines.append(f"- Metrics summary: {feedback.get('summary_path')}")
+    lines.append("- Use this evidence to adjust training length, scheduler, learning rate, regularization, model capacity, or validation strategy.")
+    return "\n".join(lines) + "\n"
+
+
 def get_hardware_design_brief(agent: Any) -> HardwarePromptContext:
     """Build the architecture-selection hardware brief used before draft code is written."""
     if not _hardware_context_enabled(agent):
         return HardwarePromptContext()
-    scheduler_client = getattr(agent, "scheduler_client", None)
-    if scheduler_client is None:
+    hardware_client = _hardware_context_client(agent)
+    if hardware_client is None:
         return HardwarePromptContext()
 
     try:
@@ -268,8 +300,8 @@ def get_hardware_design_brief(agent: Any) -> HardwarePromptContext:
 
     try:
         limit = _safe_int(getattr(agent.acfg, "hardware_context_limit", 8), default=8)
-        if hasattr(scheduler_client, "get_model_design_hardware_context"):
-            raw_context = scheduler_client.get_model_design_hardware_context(
+        if hasattr(hardware_client, "get_model_design_hardware_context"):
+            raw_context = hardware_client.get_model_design_hardware_context(
                 workload_type=candidate.get("workload_type"),
                 task_type=candidate.get("task_type"),
                 candidate_families=list(candidate.get("candidate_families") or []),
@@ -277,7 +309,7 @@ def get_hardware_design_brief(agent: Any) -> HardwarePromptContext:
                 limit=limit,
             )
         else:
-            raw_context = scheduler_client.get_optimization_context(candidate=candidate, limit=limit)
+            raw_context = hardware_client.get_optimization_context(candidate=candidate, limit=limit)
     except Exception as exc:
         logger.debug("Hardware model-design context lookup failed: %s", exc)
         return HardwarePromptContext(candidate=candidate)
@@ -285,10 +317,10 @@ def get_hardware_design_brief(agent: Any) -> HardwarePromptContext:
     raw_context = dict(raw_context or {})
     initial_compact = compact_model_design_context(raw_context)
     selected_feature_ids = _select_hardware_feature_ids_for_design(agent, candidate, initial_compact)
-    if selected_feature_ids and hasattr(scheduler_client, "get_hardware_feature_details"):
+    if selected_feature_ids and hasattr(hardware_client, "get_hardware_feature_details"):
         try:
             raw_context["selected_hardware_feature_ids"] = selected_feature_ids
-            raw_context["selected_hardware_feature_details"] = scheduler_client.get_hardware_feature_details(
+            raw_context["selected_hardware_feature_details"] = hardware_client.get_hardware_feature_details(
                 hardware_id="current",
                 feature_ids=selected_feature_ids,
                 limit=max(1, len(selected_feature_ids)),
@@ -319,8 +351,8 @@ def get_hardware_context_for_stage(
     if not _hardware_context_enabled(agent):
         return HardwarePromptContext()
 
-    scheduler_client = getattr(agent, "scheduler_client", None)
-    if scheduler_client is None:
+    hardware_client = _hardware_context_client(agent)
+    if hardware_client is None:
         return HardwarePromptContext()
 
     try:
@@ -339,7 +371,7 @@ def get_hardware_context_for_stage(
 
     try:
         limit = _safe_int(getattr(agent.acfg, "hardware_context_limit", 8), default=8)
-        raw_context = scheduler_client.get_optimization_context(candidate=candidate, limit=limit)
+        raw_context = hardware_client.get_optimization_context(candidate=candidate, limit=limit)
     except Exception as exc:
         logger.debug("Hardware/profile context lookup failed for stage %s: %s", stage, exc)
         return HardwarePromptContext(candidate=candidate)
@@ -795,8 +827,8 @@ def optimize_training_parameters_for_round(agent: Any, nodes: list[Any]) -> list
     """Use scheduler evidence to safely tune generated training parameters before a round submission."""
     if not nodes or not _hardware_context_enabled(agent):
         return []
-    scheduler_client = getattr(agent, "scheduler_client", None)
-    if scheduler_client is None:
+    hardware_client = _hardware_context_client(agent)
+    if hardware_client is None:
         return []
 
     candidates: list[dict[str, Any]] = []
@@ -816,10 +848,11 @@ def optimize_training_parameters_for_round(agent: Any, nodes: list[Any]) -> list
             candidates.append({})
 
     packet_context: dict[str, Any] = {}
-    if hasattr(scheduler_client, "plan_job_packet"):
+    packet_client = getattr(agent, "scheduler_client", None)
+    if packet_client is not None and hasattr(packet_client, "plan_job_packet"):
         try:
             limit = _safe_int(getattr(agent.acfg, "hardware_context_limit", 8), default=8)
-            packet_context = scheduler_client.plan_job_packet(candidates=candidates, limit=limit)
+            packet_context = packet_client.plan_job_packet(candidates=candidates, limit=limit)
         except Exception as exc:
             logger.debug("Hardware packet planning failed; falling back to per-node context: %s", exc)
             packet_context = {}
@@ -834,7 +867,7 @@ def optimize_training_parameters_for_round(agent: Any, nodes: list[Any]) -> list
         if raw_context is None:
             try:
                 limit = _safe_int(getattr(agent.acfg, "hardware_context_limit", 8), default=8)
-                raw_context = scheduler_client.get_optimization_context(candidate=candidate, limit=limit)
+                raw_context = hardware_client.get_optimization_context(candidate=candidate, limit=limit)
             except Exception as exc:
                 logger.debug("Hardware training review lookup failed for node %s: %s", getattr(node, "id", ""), exc)
                 raw_context = {}
@@ -1455,6 +1488,10 @@ def _hardware_context_enabled(agent: Any) -> bool:
         return False
     acfg = getattr(agent, "acfg", None)
     return bool(getattr(acfg, "hardware_context_enabled", True))
+
+
+def _hardware_context_client(agent: Any) -> Any | None:
+    return getattr(agent, "hardware_knowledge_client", None) or getattr(agent, "scheduler_client", None)
 
 
 def _safe_node_term_out(node: Any | None) -> str:
