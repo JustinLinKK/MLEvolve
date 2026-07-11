@@ -173,7 +173,7 @@ class StepAgent:
 
             logger.debug(f"Extraction retry for {self.name}...")
         logger.warning(f"Code extraction failed after retries for {self.name}")
-        return "", completion_text  # type: ignore
+        return f"Code extraction failed for {self.name}: no valid Python code block was produced.", ""
 
     def _build_prompt(
         self,
@@ -408,7 +408,7 @@ class MetaAgent:
 
             logger.debug("Extraction retry for MetaAgent merge...")
         logger.warning("Code extraction failed after retries for MetaAgent merge")
-        return "", completion_text 
+        return "Code extraction failed during merge: no valid Python code block was produced.", ""
 
     def _build_merge_prompt(
         self,
@@ -463,6 +463,8 @@ class MetaAgent:
             f"- Ensure the execution flow is logical: {execution_flow}",
             "- Make sure the final code prints validation metric (must match task's Evaluation section) and saves submission.csv",
             "- The code should be a single-file Python program that can be executed as-is",
+            '- Prefer a `main()` function guarded by `if __name__ == "__main__": main()` for the executable portion, especially if PyTorch DataLoader workers or multiprocessing may be used.',
+            "- Preserve input safety: never create or extract files under `./input`; all generated, cached, or extracted files belong under `./working`.",
             "- Assume previous steps have NOT been executed; do not skip execution steps and only read files or outputs.",
             "- All parts must work together seamlessly",
             "- Use hardware context only to preserve compatible precision, precision-required model adapters, batch, dataloader, and runtime choices. Do not redesign the selected model family, loss/interface, or optimizer during merge.",
@@ -562,6 +564,8 @@ def create_default_step_agents(
 ) -> List[StepAgent]:
     data_guidelines = [
         "Your responsibility: Stage 1 candidate construction. Load data from `./input`, clean, create features (preprocessing, encoding, augmentation), and split dataset into train/validation/test.",
+        "Input layout safety: trust the Data preview. `./input` may contain files, directories, or zip archives; check `Path.is_dir()` / `Path.is_file()` before listing, globbing, splitting, or indexing paths.",
+        "Archive handling: if a needed split is in a `.zip` file, extract it with Python `zipfile` into `./working/<archive_name>/` and read from there. Never create, overwrite, unzip, or cache files inside `./input`.",
         "Stage 1 flow: hardware context lookup, data processing, and model design together define this round's candidate before datatype and training stages refine execution details.",
         "CRITICAL: This step MUST include BOTH data loading AND feature engineering. Do NOT only load the raw data. You must actively create, transform, and enhance features to improve model performance.",
         "IMPORTANT: Apply feature engineering techniques such as feature scaling, encoding, transformation, and data augmentation methods appropriate for the task. Explore and implement feature engineering strategies that can enhance the model's ability to learn from the data.",

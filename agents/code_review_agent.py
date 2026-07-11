@@ -70,6 +70,7 @@ def run(agent, node: SearchNode) -> str:
     prompt = get_code_review_prompt(
         task_desc=agent.task_desc,
         code=node.code,
+        data_preview=getattr(agent, "data_preview", "") or "",
     )
     hardware_ctx = get_hardware_context_for_stage(
         agent,

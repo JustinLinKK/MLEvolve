@@ -161,11 +161,13 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
             "- Your plan should be concise but comprehensive: Must address WHAT/WHY/HOW (2-4 sentences each). Avoid verbosity - every sentence should add new insight. Natural length: around 8-12 sentences for a complete reasoning process.\n",
             "- Propose an evaluation metric that is reasonable for this task.\n",
             "- Don't suggest to do EDA.\n",
-            "- The data is already prepared in `./input` directory. No need to unzip files.\n",
+            "- Inspect the data preview before coding. `./input` may contain files, directories, or archives; do not assume `./input/train` or `./input/test` is a directory unless the preview shows it.\n",
+            "- Treat `./input` as read-only. If the preview shows `.zip` archives, extract them with Python `zipfile` into `./working/<archive_name>/` and read from there.\n",
         ],
         "Coding & Execution Guidelines (CRITICAL)": [
             "- **NO PROGRESS BARS**: You MUST NOT use `tqdm`. Assume `tqdm` is not installed. Use standard Python loops only. Do not use `verbose=1`.",
             "- **MINIMAL LOGGING**: Print ONLY 1 line per epoch (e.g. loss/accuracy). Do NOT print batch-level logs.",
+            "- **WINDOWS-SAFE EXECUTION**: Prefer a `main()` function guarded by `if __name__ == \"__main__\": main()`. Use PyTorch DataLoader `num_workers=0` unless the script is guarded and worker processes are safe.",
             "- **FINAL OUTPUT**: The VERY LAST line of execution MUST be `print(f'Final Validation Score: {score}')`. This is required for the score parser."
         ]
     }
@@ -192,7 +194,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
             2. **Mixed Precision (MANDATORY for pretrained models)**: Use `torch.cuda.amp` (autocast + GradScaler) to save memory. DO NOT manually convert to .half().
 
             3. **Avoid Timeouts**: #1 cause is slow data loading, NOT GPU model.
-               • Use DataLoader with num_workers>=2, pin_memory=True (NOT raw for loops)
+               • Use DataLoader with pin_memory=True on CUDA. On Windows or unguarded scripts use num_workers=0; only use num_workers>=2 with a proper main guard.
                • For large datasets + heavy backbones: Extract & cache features to disk (.npy/.h5)
             """
         ]

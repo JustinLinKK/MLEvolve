@@ -8,6 +8,7 @@ from localml_scheduler.config import SchedulerSettings
 from localml_scheduler.domain import CheckpointPolicy, JobMetricSample, JobStatus, TrainingJob, utc_now
 from localml_scheduler.examples.toy_pytorch_runner import create_toy_baseline_checkpoint
 from localml_scheduler.client import SchedulerClient
+from localml_scheduler.examples.mock_early_stop_sample import run_mock_early_stop_check
 from localml_scheduler.scheduler.early_stop import analyze_metric_plateau
 from localml_scheduler.scheduler.training_plot import render_training_process
 from localml_scheduler.storage.state_store import StateStore
@@ -56,6 +57,18 @@ def test_plateau_detection_maximize_minimize_and_lr_only() -> None:
     )
     assert lr_only.should_stop is False
     assert lr_only.reason == "no objective metric available"
+
+
+def test_mock_early_stop_sample_covers_stop_and_continue_paths() -> None:
+    result = run_mock_early_stop_check()
+
+    assert result["plateau"]["should_stop"] is True
+    assert result["plateau"]["metric_key"] == "val_loss"
+    assert result["plateau"]["direction"] == "minimize"
+    assert result["plateau"]["samples_since_best"] == 3
+
+    assert result["improving"]["should_stop"] is False
+    assert result["improving"]["samples_since_best"] == 0
 
 
 def test_sqlite_metric_samples_and_plot_render(tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ Contains functions to manually generate a textual preview of some common file ty
 import json
 import os
 import logging
+import zipfile
 from pathlib import Path
 
 import humanize
@@ -16,6 +17,7 @@ from pandas.api.types import is_numeric_dtype
 code_files = {".py", ".sh", ".yaml", ".yml", ".md", ".html", ".xml", ".log", ".rst"}
 # we treat these files as text (rather than binary) files
 plaintext_files = {".txt", ".csv", ".json", ".tsv"} | code_files
+archive_files = {".zip"}
 
 
 def get_file_len_size(f: Path) -> tuple[int, str]:
@@ -149,10 +151,79 @@ def preview_json(p: Path, file_name: str):
     )
 
 
+def preview_zip(p: Path, file_name: str) -> str:
+    """Generate a lightweight preview of a zip archive without extracting it."""
+    try:
+        with zipfile.ZipFile(p, "r") as zip_ref:
+            infos = [info for info in zip_ref.infolist() if not info.is_dir()]
+            names = [info.filename for info in infos]
+    except Exception as exc:
+        return f"-> {file_name} is a zip archive but could not be inspected: {exc}"
+
+    sample_names = names[:12]
+    roots = []
+    for name in names:
+        root = name.split("/", 1)[0]
+        if root and root not in roots:
+            roots.append(root)
+        if len(roots) >= 8:
+            break
+
+    out = [f"-> {file_name} is a zip archive with {len(names)} files."]
+    if roots:
+        out.append(f"Top-level archive entries include: {', '.join(roots)}")
+    if sample_names:
+        out.append("Example files inside the archive:")
+        out.extend(f"  - {name}" for name in sample_names)
+    return "\n".join(out)
+
+
+def input_layout_guidance(base_path: Path) -> str:
+    """Describe top-level input path facts that generated code must respect."""
+    input_dir = base_path / "input"
+    if not input_dir.exists():
+        return ""
+
+    entries = sorted(input_dir.iterdir(), key=lambda item: item.name.lower())
+    if not entries:
+        return (
+            "**INPUT DATA LAYOUT FACTS**\n"
+            "- `./input/` exists but is currently empty. Do not assume task-specific files or directories exist."
+        )
+
+    lines = [
+        "**INPUT DATA LAYOUT FACTS - use these exact paths**",
+        "- `./input/` is read-only source data. Do not create, overwrite, or extract files inside `./input/`.",
+        "- Use `pathlib.Path` and check `.is_dir()` / `.is_file()` before calling `.iterdir()`, `.glob()`, or `os.listdir()`.",
+        "- If a needed dataset split is a zip archive, extract it with Python `zipfile` into `./working/<name>/` and read from there.",
+        "- Do not assume `./input/train`, `./input/test`, or `./input/train_cleaned` are directories unless the facts below say so.",
+        "- Top-level `./input/` entries:",
+    ]
+
+    for item in entries[:30]:
+        rel = f"./input/{item.name}"
+        if item.is_dir():
+            lines.append(f"  - `{rel}/` is a directory.")
+        elif item.suffix.lower() in archive_files:
+            stem_path = f"./input/{item.stem}"
+            lines.append(
+                f"  - `{rel}` is a zip archive, not a directory. Do not call `os.listdir('{stem_path}')` unless that directory exists; extract to `./working/{item.stem}/` if needed."
+            )
+        else:
+            lines.append(f"  - `{rel}` is a file, not a directory.")
+    if len(entries) > 30:
+        lines.append(f"  - ... and {len(entries) - 30} more top-level entries.")
+    return "\n".join(lines)
+
+
 def generate(base_path, include_file_details=True, simple=False):
     """Generate a textual preview of a directory (structure + file previews)."""
     tree = f"```\n{file_tree(base_path)}```"
     out = [tree]
+    base_path_obj = Path(base_path)
+    layout_guidance = input_layout_guidance(base_path_obj)
+    if layout_guidance:
+        out.append(layout_guidance)
 
     if include_file_details:
         for fn in _walk(base_path):
@@ -162,6 +233,8 @@ def generate(base_path, include_file_details=True, simple=False):
                 out.append(preview_csv(fn, file_name, simple=simple))
             elif fn.suffix == ".json":
                 out.append(preview_json(fn, file_name))
+            elif fn.suffix.lower() in archive_files:
+                out.append(preview_zip(fn, file_name))
             elif fn.suffix in plaintext_files:
                 if get_file_len_size(fn)[0] < 30:
                     with open(fn) as f:
@@ -170,7 +243,6 @@ def generate(base_path, include_file_details=True, simple=False):
                             content = f"```\n{content}\n```"
                         out.append(f"-> {file_name} has content:\n\n{content}")
 
-    base_path_obj = Path(base_path)
     input_dir = base_path_obj / "input"
 
     if input_dir.exists():

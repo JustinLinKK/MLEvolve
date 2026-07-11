@@ -175,11 +175,11 @@ scheduler:
         pair_recheck_every_steps: 20
       early_stop:
         enabled: true
-        warmup_samples: 5
-        patience_samples: 5
+        warmup_samples: 10
+        patience_samples: 10
         min_delta: 0.0001
-        min_runtime_seconds: 60.0
-        min_global_step: 10
+        min_runtime_seconds: 120.0
+        min_global_step: 20
         metric_key: null
         direction: auto
         plot_enabled: true

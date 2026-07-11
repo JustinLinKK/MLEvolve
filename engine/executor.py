@@ -176,6 +176,57 @@ class _ModelFamilyProbeError(RuntimeError):
         )
 
 
+def _generated_code_validation_result(
+    code: str,
+    *,
+    node_id: Any,
+    start_time: float,
+    source_label: str,
+) -> ExecutionResult | None:
+    """Return an ExecutionResult when generated code should not be executed."""
+    code_text = str(code or "")
+    exec_time = time.time() - start_time
+    filename = f"<{source_label}:{node_id}>"
+
+    if not code_text.strip():
+        return ExecutionResult(
+            term_out=[
+                "Generated script validation failed before execution: no Python code was produced.\n",
+                "Code extraction likely failed or the model returned prose without a valid code block.\n",
+            ],
+            exec_time=exec_time,
+            exc_type="ValueError",
+            exc_info={"message": "generated script is empty", "node_id": str(node_id)},
+            exc_stack=[],
+        )
+
+    try:
+        compile(code_text, filename, "exec")
+    except SyntaxError as exc:
+        lines = ["Generated script failed Python syntax validation before execution.\n"]
+        if exc.lineno is not None:
+            lines.append(f'  File "{filename}", line {exc.lineno}\n')
+        if exc.text:
+            text = exc.text if exc.text.endswith("\n") else f"{exc.text}\n"
+            lines.append(f"    {text}")
+            if exc.offset is not None and exc.offset > 0:
+                lines.append(f"    {' ' * (exc.offset - 1)}^\n")
+        lines.append(f"SyntaxError: {exc.msg}\n")
+        return ExecutionResult(
+            term_out=lines,
+            exec_time=exec_time,
+            exc_type="SyntaxError",
+            exc_info={
+                "message": exc.msg,
+                "node_id": str(node_id),
+                "lineno": exc.lineno,
+                "offset": exc.offset,
+                "text": exc.text,
+            },
+            exc_stack=[(filename, int(exc.lineno or 0), "<module>", (exc.text or "").strip())],
+        )
+    return None
+
 
 class Interpreter:
     def __init__(
@@ -849,6 +900,23 @@ class Interpreter:
         try:
             self._ensure_scheduler_service_available()
             for item in normalized_items:
+                node_id = str(item["node_id"])
+                validation_result = _generated_code_validation_result(
+                    item["code"],
+                    node_id=node_id,
+                    start_time=time.time(),
+                    source_label="scheduler-candidate",
+                )
+                if validation_result is not None:
+                    handle = SchedulerJobHandle(
+                        node_id=node_id,
+                        submission_label=submission_label,
+                        error_result=validation_result,
+                        completed=True,
+                    )
+                    self._register_scheduler_error_handle(handle)
+                    handles[node_id] = handle
+                    continue
                 with self.lock:
                     process_id = self._scheduler_submission_counter
                     self._scheduler_submission_counter += 1
@@ -1611,6 +1679,16 @@ class Interpreter:
         Execute code via subprocess (avoids CUDA fork issues).
         Aligned with multiprocessing mode for consistency.
         """
+        start_time = time.time()
+        validation_result = _generated_code_validation_result(
+            code,
+            node_id=id,
+            start_time=start_time,
+            source_label="subprocess-candidate",
+        )
+        if validation_result is not None:
+            return validation_result
+
         logger.info("REPL is executing code via subprocess")
         logger.info(f"Current running process: {self.current_parallel_run}")
         process_id = None
@@ -1627,7 +1705,6 @@ class Interpreter:
                     logger.info("reach max process parallel number")
                     raise ValueError("reach max process parallel number")
 
-        start_time = time.time()
         runfile_path = None
         phase_log_path = None
         phase_metadata: dict[str, Any] | None = None
