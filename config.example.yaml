@@ -126,6 +126,28 @@ scheduler:
       dsn_env: LOCALML_SCHEDULER_LOG_DSN
       schema: scheduler_logs
       enabled: false
+    prediction:
+      mode: branch_only
+      timeout_ms: 1000
+      unknown_value_policy: null
+      fallback_to_exclusive: true
+      branch:
+        enabled: true
+        fixed_confidence_if_uncalibrated: 0.55
+      ml:
+        enabled: false
+        shadow: false
+        hardware_key: rtx5090
+        checkpoint_path: null
+        calibration_path: null
+        device: cpu
+        cache_size: 1024
+      safety_margin:
+        branch: 1.2
+        ml_uncalibrated: 1.25
+        ml_calibrated: 1.0
+        explicit: 1.3
+        job_local_probe: 1.1
     gpu_scheduler:
       enabled: true
       mode: auto
