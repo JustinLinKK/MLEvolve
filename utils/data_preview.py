@@ -161,17 +161,26 @@ def preview_zip(p: Path, file_name: str) -> str:
         return f"-> {file_name} is a zip archive but could not be inspected: {exc}"
 
     sample_names = names[:12]
-    roots = []
+    root_file_count = 0
+    top_dirs = []
     for name in names:
+        if "/" not in name.rstrip("/"):
+            root_file_count += 1
+            continue
         root = name.split("/", 1)[0]
-        if root and root not in roots:
-            roots.append(root)
-        if len(roots) >= 8:
-            break
+        if root and root not in top_dirs and len(top_dirs) < 8:
+            top_dirs.append(root)
 
     out = [f"-> {file_name} is a zip archive with {len(names)} files."]
-    if roots:
-        out.append(f"Top-level archive entries include: {', '.join(roots)}")
+    archive_stem = Path(file_name).stem
+    if root_file_count:
+        out.append(
+            f"{root_file_count} file(s) are stored at the archive root. "
+            f"If extracting to `./working/{archive_stem}/`, read files directly from that directory "
+            "or use `Path.rglob(...)`; do not assume an extra nested split directory exists."
+        )
+    if top_dirs:
+        out.append(f"Top-level archive directories include: {', '.join(top_dirs)}")
     if sample_names:
         out.append("Example files inside the archive:")
         out.extend(f"  - {name}" for name in sample_names)
@@ -195,7 +204,7 @@ def input_layout_guidance(base_path: Path) -> str:
         "**INPUT DATA LAYOUT FACTS - use these exact paths**",
         "- `./input/` is read-only source data. Do not create, overwrite, or extract files inside `./input/`.",
         "- Use `pathlib.Path` and check `.is_dir()` / `.is_file()` before calling `.iterdir()`, `.glob()`, or `os.listdir()`.",
-        "- If a needed dataset split is a zip archive, extract it with Python `zipfile` into `./working/<name>/` and read from there.",
+        "- If a needed dataset split is a zip archive, extract it with Python `zipfile` into `./working/<name>/`, then inspect that extracted directory. Archive contents may be flat or nested; use `.exists()` plus `rglob`/fallback checks before assuming paths like `./working/<name>/<name>/`.",
         "- Do not assume `./input/train`, `./input/test`, or `./input/train_cleaned` are directories unless the facts below say so.",
         "- Top-level `./input/` entries:",
     ]
@@ -207,7 +216,7 @@ def input_layout_guidance(base_path: Path) -> str:
         elif item.suffix.lower() in archive_files:
             stem_path = f"./input/{item.stem}"
             lines.append(
-                f"  - `{rel}` is a zip archive, not a directory. Do not call `os.listdir('{stem_path}')` unless that directory exists; extract to `./working/{item.stem}/` if needed."
+                f"  - `{rel}` is a zip archive, not a directory. Do not call `os.listdir('{stem_path}')` unless that directory exists; extract to `./working/{item.stem}/` if needed, then inspect whether files are directly under `./working/{item.stem}/` or inside a nested folder."
             )
         else:
             lines.append(f"  - `{rel}` is a file, not a directory.")

@@ -65,6 +65,9 @@ def _extract_debug_reports(text: str) -> tuple[str, str]:
 
 
 def _fallback_bug_report(parent_node: SearchNode) -> str:
+    parent_report = str(getattr(parent_node, "bug_report", "") or "").strip()
+    if parent_report:
+        return parent_report
     parts = []
     if getattr(parent_node, "exc_type", None):
         parts.append(f"Exception type: {parent_node.exc_type}")
@@ -186,6 +189,8 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
         "Introduction": introduction,
         "Task description": agent.task_desc,
         "Previous (buggy) implementation": wrap_code(parent_node.code),
+        "Parent Bug Report": str(getattr(parent_node, "bug_report", "") or "").strip(),
+        "Parser Fix Hint": str(getattr(parent_node, "fix_report", "") or "").strip(),
         "Execution output": wrap_code(parent_node.term_out, lang=""),
         "Instructions": {},
     }
@@ -260,6 +265,18 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
 
     base_instructions = "\n# Instructions\n\n"
     base_instructions += compile_prompt_to_md(prompt["Instructions"], 2)
+    parent_bug_report_section = ""
+    if prompt["Parent Bug Report"]:
+        parent_bug_report_section = (
+            "\n# Parent Bug Report\n"
+            f"{trim_long_string(prompt['Parent Bug Report'], threshold=1800, k=850)}\n"
+        )
+    parser_fix_hint_section = ""
+    if prompt["Parser Fix Hint"]:
+        parser_fix_hint_section = (
+            "\n# Parser Fix Hint\n"
+            f"{trim_long_string(prompt['Parser Fix Hint'], threshold=1000, k=460)}\n"
+        )
 
     def build_prompt_complete(instructions_with_format, use_full_code_requirement=False):
         current_introduction = introduction_base + (full_code_requirement if use_full_code_requirement else "")
@@ -268,9 +285,12 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
             f"{hardware_section}\n"
             f"{curve_feedback_section}\n"
             f"{pipeline_decision_section}\n"
+            f"{parent_bug_report_section}"
+            f"{parser_fix_hint_section}"
             f"{instructions_with_format}"
         )
-        assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nThe code that needs fixing:\n{prompt['Previous (buggy) implementation']}\nThe error/issue encountered:\n{prompt['Execution output']}\nAnalyzing the root cause: {parent_node.analysis}\nI'll now fix this issue."
+        bug_report_text = prompt["Parent Bug Report"] or str(parent_node.analysis or "")
+        assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nThe code that needs fixing:\n{prompt['Previous (buggy) implementation']}\nThe structured bug report:\n{wrap_code(bug_report_text, lang='')}\nThe error/issue encountered:\n{prompt['Execution output']}\nAnalyzing the root cause: {parent_node.analysis}\nI'll now fix this issue."
         return build_chat_prompt_for_model(agent.acfg.code.model, current_introduction, user_prompt, assistant_prefix)
 
     if not parent_node.add_expected_child_count(agent.scfg):

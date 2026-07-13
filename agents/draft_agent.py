@@ -162,7 +162,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
             "- Propose an evaluation metric that is reasonable for this task.\n",
             "- Don't suggest to do EDA.\n",
             "- Inspect the data preview before coding. `./input` may contain files, directories, or archives; do not assume `./input/train` or `./input/test` is a directory unless the preview shows it.\n",
-            "- Treat `./input` as read-only. If the preview shows `.zip` archives, extract them with Python `zipfile` into `./working/<archive_name>/` and read from there.\n",
+            "- Treat `./input` as read-only. If the preview shows `.zip` archives, extract them with Python `zipfile` into `./working/<archive_name>/`, inspect whether files are flat or nested, and read from the actual extracted paths.\n",
         ],
         "Coding & Execution Guidelines (CRITICAL)": [
             "- **NO PROGRESS BARS**: You MUST NOT use `tqdm`. Assume `tqdm` is not installed. Use standard Python loops only. Do not use `verbose=1`.",

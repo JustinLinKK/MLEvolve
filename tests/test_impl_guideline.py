@@ -38,3 +38,13 @@ def test_impl_guideline_caps_configured_exec_timeout_by_remaining_time(monkeypat
 
     text = "\n".join(guideline["Implementation guideline"])
     assert "Max execution time per run = 5 seconds" in text
+
+
+def test_impl_guideline_requires_extracted_zip_layout_checks(monkeypatch) -> None:
+    monkeypatch.setattr(impl_guideline.time, "time", lambda: 110.0)
+
+    guideline = impl_guideline.get_impl_guideline_from_agent(_agent(exec_timeout=5))
+
+    text = "\n".join(guideline["Implementation guideline"])
+    assert "archives may store files directly at the root or inside a nested folder" in text
+    assert "`rglob`/fallback checks" in text

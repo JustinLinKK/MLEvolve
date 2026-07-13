@@ -203,6 +203,59 @@ def test_hardware_knowledge_settings_prefer_root_config(tmp_path: Path) -> None:
 
     assert settings.cache_socket_name == "hardware.sock"
     assert settings.runtime_root == (tmp_path / "hardware-runtime").resolve()
+    assert settings.graph_db.enabled is False
+    assert settings.graph_db.mode == "off"
+    assert settings.hardware_knowledge_graph.enabled is False
+
+
+def test_hardware_knowledge_settings_do_not_inherit_scheduler_graph_db(tmp_path: Path) -> None:
+    cfg = SimpleNamespace(
+        workspace_dir=tmp_path / "workspace",
+        hardware_knowledge=SimpleNamespace(settings=None),
+        scheduler=SimpleNamespace(
+            settings={
+                "runtime_root": str(tmp_path / "scheduler-runtime"),
+                "cache_socket_name": "scheduler.sock",
+                "graph_db": {
+                    "enabled": True,
+                    "mode": "primary",
+                    "uri": "bolt://127.0.0.1:7687",
+                },
+            },
+            settings_path=None,
+        ),
+    )
+
+    settings = _hardware_knowledge_settings_from_cfg(cfg)
+
+    assert settings.cache_socket_name == "scheduler.sock"
+    assert settings.graph_db.enabled is False
+    assert settings.graph_db.mode == "off"
+    assert settings.hardware_knowledge_graph.enabled is False
+
+
+def test_hardware_knowledge_settings_preserve_explicit_hardware_graph(tmp_path: Path) -> None:
+    cfg = SimpleNamespace(
+        workspace_dir=tmp_path / "workspace",
+        hardware_knowledge=SimpleNamespace(
+            settings={
+                "runtime_root": str(tmp_path / "hardware-runtime"),
+                "graph_db": {"enabled": True, "mode": "primary"},
+                "hardware_knowledge_graph": {
+                    "enabled": True,
+                    "uri": "bolt://hardware-neo4j:7687",
+                },
+            }
+        ),
+        scheduler=SimpleNamespace(settings=None, settings_path=None),
+    )
+
+    settings = _hardware_knowledge_settings_from_cfg(cfg)
+
+    assert settings.graph_db.enabled is False
+    assert settings.graph_db.mode == "off"
+    assert settings.hardware_knowledge_graph.enabled is True
+    assert settings.hardware_knowledge_graph.uri == "bolt://hardware-neo4j:7687"
 
 
 def test_scheduler_disabled_keeps_hardware_knowledge_in_hardware_aware_mode(monkeypatch, tmp_path: Path) -> None:

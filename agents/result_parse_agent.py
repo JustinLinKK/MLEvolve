@@ -1,12 +1,14 @@
 import logging
+import re
 import time
-from typing import cast
+from typing import Any, cast
 
 from llm import FunctionSpec, query
 from engine.search_node import SearchNode
 from engine.executor import ExecutionResult
+from localml_scheduler.runtime_environment import validate_generated_training_code
 from utils.metric import MetricValue, WorstMetricValue
-from utils.response import wrap_code
+from utils.response import trim_long_string, wrap_code
 from engine.validation import call_validate, _validate_submission_with_retry, validate_submission_content_quality
 from agents import data_leakage_agent
 from agents.triggers import should_check_data_leakage
@@ -224,7 +226,7 @@ def _save_code_summary(agent, node: SearchNode, response: dict):
         node.code_summary = None
 
 
-def _determine_buggy(node: SearchNode, response: dict, has_csv_submission: bool):
+def _determine_buggy(node: SearchNode, response: dict, has_csv_submission: bool) -> list[str]:
     failure_reasons = []
     if response["is_bug"]:
         failure_reasons.append("execution error detected")
@@ -238,6 +240,181 @@ def _determine_buggy(node: SearchNode, response: dict, has_csv_submission: bool)
     node.is_buggy = len(failure_reasons) > 0
     if node.is_buggy:
         logger.warning(f"Node {node.id} marked as buggy: {'; '.join(failure_reasons)}")
+    return failure_reasons
+
+
+def _post_validation_failure_reasons(node: SearchNode) -> list[str]:
+    analysis = str(getattr(node, "analysis", "") or "")
+    lowered = analysis.lower()
+    if "format_error" in lowered or "format validation" in lowered:
+        return ["submission format validation failed"]
+    if "content_quality_error" in lowered or "content quality check failed" in lowered:
+        return ["submission content quality validation failed"]
+    if "data leakage" in lowered:
+        return ["data leakage validation failed"]
+    if getattr(node, "is_buggy", False):
+        return ["post-execution validation failed"]
+    return []
+
+
+def _build_structured_bug_report(
+    node: SearchNode,
+    response: dict[str, Any],
+    failure_reasons: list[str],
+    *,
+    has_csv_submission: bool,
+) -> tuple[str, str]:
+    compatibility = validate_generated_training_code(node.code or "", stage="result_parse")
+    critical_issues = [
+        issue for issue in compatibility.get("issues", [])
+        if issue.get("severity") == "critical"
+    ]
+    category, root_cause, repair_hint = _diagnose_failure(
+        node=node,
+        response=response,
+        critical_issues=critical_issues,
+        has_csv_submission=has_csv_submission,
+    )
+    evidence = _failure_evidence(node, response, critical_issues)
+
+    lines = [
+        f"failure_category: {category}",
+        f"root_cause: {root_cause}",
+        f"missing_submission: {not has_csv_submission}",
+    ]
+    if not has_csv_submission and category != "missing_submission":
+        lines.append("missing_submission_role: consequence of the earlier runtime failure")
+    if node.exc_type:
+        lines.append(f"exception_type: {node.exc_type}")
+    if node.exc_info:
+        lines.append(f"exception_info: {trim_long_string(str(node.exc_info), threshold=500, k=240)}")
+    if failure_reasons:
+        lines.append("failure_reasons: " + "; ".join(failure_reasons))
+    if evidence:
+        lines.extend(["evidence:", evidence])
+    return "\n".join(lines).strip(), repair_hint
+
+
+def _diagnose_failure(
+    *,
+    node: SearchNode,
+    response: dict[str, Any],
+    critical_issues: list[dict[str, Any]],
+    has_csv_submission: bool,
+) -> tuple[str, str, str]:
+    combined = "\n".join(
+        str(part or "")
+        for part in (
+            response.get("summary"),
+            node.analysis,
+            node.term_out,
+            node.exc_type,
+            node.exc_info,
+        )
+    )
+    lowered = combined.lower()
+
+    for issue in critical_issues:
+        category = str(issue.get("category") or "")
+        if category == "bf16_numpy_conversion":
+            return (
+                "bf16_numpy_conversion",
+                "Validation or metric code converted BF16 tensors directly to NumPy, which this PyTorch/NumPy stack does not support.",
+                str(issue.get("repair_hint") or "Cast validation predictions to float32 before CPU/NumPy conversion."),
+            )
+        if category == "invalid_torch_scheduler_argument":
+            return (
+                "invalid_torch_scheduler_argument",
+                str(issue.get("message") or "A PyTorch scheduler was called with an unsupported keyword argument."),
+                str(issue.get("repair_hint") or "Use the installed PyTorch scheduler signature."),
+            )
+        if category == "syntax_error":
+            return (
+                "syntax_error",
+                str(issue.get("message") or "Generated code failed Python syntax validation."),
+                str(issue.get("repair_hint") or "Fix Python syntax before execution."),
+            )
+
+    if "unsupported scalartype bfloat16" in lowered or "got unsupported scalartype bfloat16" in lowered:
+        return (
+            "bf16_numpy_conversion",
+            "Validation failed because BF16 predictions/logits were converted to CPU/NumPy without first casting to float32.",
+            "Cast predictions/logits/probabilities to float32 before `.cpu().numpy()` and run metric/submission export outside autocast.",
+        )
+    if "cosineannealinglr" in lowered and ("unexpected keyword argument" in lowered or "t_eta" in lowered):
+        return (
+            "invalid_torch_scheduler_argument",
+            "The training script called torch.optim.lr_scheduler.CosineAnnealingLR with a keyword unsupported by the installed PyTorch signature.",
+            "Use `eta_min=...` and `T_max=...`; remove invalid keywords such as `T_eta_min` or `T_eta`.",
+        )
+    if "format_error" in lowered or "format validation" in lowered:
+        return (
+            "submission_format_validation",
+            "Execution completed, but the generated submission failed the post-run format validator.",
+            "Write the submission with exactly the expected sample-submission columns, row count, ID order, and parseable prediction values.",
+        )
+    if "content_quality_error" in lowered or "content quality check failed" in lowered:
+        return (
+            "submission_content_quality",
+            "Execution produced a correctly shaped submission, but the post-run content validator rejected it as low-quality or non-inference output.",
+            "Generate predictions from actual model inference on each test sample instead of constants, placeholders, shuffled rows, or dummy values.",
+        )
+    if "data leakage detected" in lowered:
+        return (
+            "data_leakage",
+            "Post-run validation marked the node buggy because the metric indicates likely validation/test leakage.",
+            "Fix the train/validation split and feature engineering so validation/test rows and statistics are not used during training.",
+        )
+    if node.exc_type:
+        return (
+            "runtime_exception",
+            f"Execution raised {node.exc_type} before a valid metric/submission was produced.",
+            "Use the traceback evidence to fix the first runtime exception before changing model design.",
+        )
+    if not has_csv_submission:
+        return (
+            "missing_submission",
+            "The script finished parsing without creating the required submission file.",
+            "Ensure the script writes `./submission/submission.csv` or the node-specific submission path with the required columns after test inference.",
+        )
+    return (
+        "execution_failed",
+        str(response.get("summary") or "Execution failed before a valid metric was produced."),
+        "Fix the concrete execution failure shown in the evidence before attempting score improvements.",
+    )
+
+
+def _failure_evidence(
+    node: SearchNode,
+    response: dict[str, Any],
+    critical_issues: list[dict[str, Any]],
+) -> str:
+    parts: list[str] = []
+    for issue in critical_issues[:3]:
+        if issue.get("evidence"):
+            parts.append(f"- compatibility: {issue['evidence']}")
+    traceback_excerpt = _traceback_excerpt(node.term_out)
+    if traceback_excerpt:
+        parts.append("- traceback/output:\n" + traceback_excerpt)
+    elif getattr(node, "analysis", None):
+        parts.append("- parser_analysis: " + str(node.analysis))
+    elif response.get("summary"):
+        parts.append("- parser_summary: " + str(response.get("summary")))
+    return trim_long_string("\n".join(parts), threshold=1800, k=850)
+
+
+def _traceback_excerpt(text: str) -> str:
+    text = str(text or "")
+    if not text.strip():
+        return ""
+    match = re.search(r"Traceback \(most recent call last\):.*?(?=\n\n|\Z)", text, re.DOTALL)
+    if match:
+        return trim_long_string(match.group(0), threshold=1300, k=620)
+    lines = [
+        line for line in text.splitlines()
+        if any(token in line for token in ("Error", "Exception", "Traceback", "TypeError", "RuntimeError"))
+    ]
+    return trim_long_string("\n".join(lines[-12:]), threshold=1300, k=620)
 
 
 def _validate_format_with_retry(agent, node: SearchNode):
@@ -453,16 +630,33 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
 
             node.analysis = response["summary"]
             _save_code_summary(agent, node, response)
-            _determine_buggy(node, response, has_csv_submission)
+            failure_reasons = _determine_buggy(node, response, has_csv_submission)
 
             if not node.is_buggy:
                 _validate_format_with_retry(agent, node)
 
             if node.is_buggy:
+                if not failure_reasons:
+                    failure_reasons.extend(_post_validation_failure_reasons(node))
+                node.bug_report, node.fix_report = _build_structured_bug_report(
+                    node,
+                    response,
+                    failure_reasons,
+                    has_csv_submission=has_csv_submission,
+                )
                 node.metric = WorstMetricValue()
             else:
                 _validate_metric_direction(agent, node, response)
                 _check_data_leakage(agent, node, response)
+                if node.is_buggy:
+                    if not failure_reasons:
+                        failure_reasons.extend(_post_validation_failure_reasons(node))
+                    node.bug_report, node.fix_report = _build_structured_bug_report(
+                        node,
+                        response,
+                        failure_reasons,
+                        has_csv_submission=has_csv_submission,
+                    )
 
             status = "FAIL" if node.is_buggy else "PASS"
             metric_val = node.metric.value if node.metric else None
@@ -478,6 +672,8 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
                     "exec_time": node.exec_time,
                     "exc_type": node.exc_type,
                     "summary": node.analysis,
+                    "bug_report": getattr(node, "bug_report", None),
+                    "fix_report": getattr(node, "fix_report", None),
                 }
                 log_pipeline_event(agent, "execution_result_parsed", node=node, payload=payload)
                 record_pipeline_node_action(agent, node, "execution_result_parsed", payload=payload)
@@ -495,4 +691,12 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
     node.is_buggy = True
     node.metric = WorstMetricValue()
     node.analysis = "Execution result parsing failed after multiple attempts."
+    node.bug_report = (
+        "failure_category: result_parse_failed\n"
+        "root_cause: Execution logs could not be parsed into structured feedback after multiple attempts.\n"
+        f"exception_type: {node.exc_type or ''}\n"
+        "evidence:\n"
+        f"{trim_long_string(node.term_out, threshold=1800, k=850)}"
+    ).strip()
+    node.fix_report = "Inspect the raw execution output and fix the first runtime error before changing the solution design."
     return node

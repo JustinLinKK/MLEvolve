@@ -68,7 +68,7 @@ def get_impl_guideline(
         "",
         "📁 **Directories**: Input data is read-only under `./input/`, submissions go in `./submission/`, and all temp/extracted/cache files go in `./working/`.",
         "• Inspect the data preview and actual path type before use: `train.zip` is an archive, not `train/`; `train.csv` is a file, not a directory.",
-        "• Never create, overwrite, or extract files inside `./input/`. If a split is zipped, use Python `zipfile` to extract it into `./working/<split_name>/` and read from there.",
+        "• Never create, overwrite, or extract files inside `./input/`. If a split is zipped, use Python `zipfile` to extract it into `./working/<split_name>/`, then inspect the extracted layout; archives may store files directly at the root or inside a nested folder. Use `.exists()` plus `rglob`/fallback checks before assuming `./working/<split_name>/<split_name>/` or any fixed child directory.",
         "• Use `pathlib.Path` plus `.exists()`, `.is_file()`, and `.is_dir()` checks before `glob`, `iterdir`, `os.listdir`, or train/validation splitting.",
         "",
         f"📦 **Packages & Internet**: Prefer numpy, pandas, sklearn, torch, torchvision, transformers, timm, xgboost, lightgbm, OpenCV, Pillow, and the Python standard library. Optional packages may be missing; do not rely on `pip install` from the solution script. torch.hub.load(), HuggingFace, etc. are available during development when configured."

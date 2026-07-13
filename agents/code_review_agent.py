@@ -12,10 +12,26 @@ from agents.hardware_context import (
 )
 from agents.prompts.validation_template_prompts import get_code_review_prompt
 from agents.prompts import get_internet_clarification
+from localml_scheduler.runtime_environment import validate_generated_training_code
 
 from agents.coder.diff_coder import SearchReplacePatcher
 
 logger = logging.getLogger("MLEvolve")
+
+
+def _format_runtime_compatibility_findings(result: dict) -> str:
+    issues = list((result or {}).get("issues") or [])
+    if not issues:
+        return ""
+    lines = ["# Runtime Compatibility Findings", ""]
+    for issue in issues:
+        severity = str(issue.get("severity") or "warning").upper()
+        lines.append(f"- {severity} [{issue.get('category', 'compatibility')}]: {issue.get('message', '')}")
+        if issue.get("evidence"):
+            lines.append(f"  Evidence: {issue['evidence']}")
+        if issue.get("repair_hint"):
+            lines.append(f"  Required fix: {issue['repair_hint']}")
+    return "\n".join(lines)
 
 CODE_REVIEW_SPEC = FunctionSpec(
     name="submit_code_review",
@@ -72,6 +88,18 @@ def run(agent, node: SearchNode) -> str:
         code=node.code,
         data_preview=getattr(agent, "data_preview", "") or "",
     )
+    compatibility_result = validate_generated_training_code(node.code, stage="code_review")
+    critical_compatibility_count = int(compatibility_result.get("critical_count", 0) or 0)
+    compatibility_section = _format_runtime_compatibility_findings(compatibility_result)
+    if compatibility_section:
+        prompt["Runtime Compatibility Findings"] = compatibility_section
+        if "Instructions" not in prompt:
+            prompt["Instructions"] = {}
+        prompt["Instructions"]["Runtime compatibility fixes"] = [
+            "The Runtime Compatibility Findings section is authoritative for this installed Python/PyTorch stack.",
+            "Every CRITICAL finding must be fixed with a targeted SEARCH/REPLACE patch before execution.",
+            "WARNING findings should be fixed when the change is local and does not alter the solution design.",
+        ]
     hardware_ctx = get_hardware_context_for_stage(
         agent,
         "code_review",
@@ -121,6 +149,27 @@ def run(agent, node: SearchNode) -> str:
             needs_revision = review_response.get("needs_revision", False)
             reasoning = review_response.get("reasoning", "")
             revised_code = review_response.get("revised_code")
+            if critical_compatibility_count and not needs_revision:
+                if revised_code and revised_code.strip():
+                    logger.warning(
+                        "Code review returned revised code while needs_revision=False; "
+                        "treating it as required because critical runtime compatibility findings exist."
+                    )
+                    needs_revision = True
+                elif attempt < max_retries - 1:
+                    logger.warning(
+                        "Code review approved code despite critical runtime compatibility findings; "
+                        "retrying with required-fix reminder."
+                    )
+                    prompt["Instructions"][f"Runtime compatibility retry {attempt + 1}"] = [
+                        "Do not approve this code until every CRITICAL Runtime Compatibility Finding has a concrete SEARCH/REPLACE fix.",
+                    ]
+                    continue
+                else:
+                    logger.error(
+                        "Code review approved code despite critical runtime compatibility findings after max retries; "
+                        "returning original code because no usable patch was produced."
+                    )
             logger.info(f"Code review for node {node.id}: needs_revision={needs_revision}")
             logger.info(f"Reasoning: {reasoning}", extra={"verbose": True})
             try:
@@ -131,6 +180,8 @@ def run(agent, node: SearchNode) -> str:
                     "needs_revision": bool(needs_revision),
                     "reasoning": reasoning,
                     "hardware_context_used": bool(hardware_section),
+                    "runtime_compatibility_critical_count": compatibility_result.get("critical_count", 0),
+                    "runtime_compatibility_warning_count": compatibility_result.get("warning_count", 0),
                     "revised_code_chars": len(revised_code or ""),
                 }
                 log_pipeline_event(agent, "code_review_completed", node=node, payload=payload)

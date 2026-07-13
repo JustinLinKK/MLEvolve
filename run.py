@@ -59,6 +59,17 @@ def _scheduler_settings_from_cfg(cfg, scheduler_cfg) -> SchedulerSettings:
     return SchedulerSettings(runtime_root=scheduler_runtime_root)
 
 
+def _sanitize_hardware_knowledge_settings(payload: dict) -> dict:
+    """Keep hardware-only knowledge clients from opening implicit Neo4j graphs."""
+    sanitized = dict(payload or {})
+    graph_db = dict(sanitized.get("graph_db") or {})
+    graph_db.update({"enabled": False, "mode": "off"})
+    sanitized["graph_db"] = graph_db
+    if "hardware_knowledge_graph" not in sanitized:
+        sanitized["hardware_knowledge_graph"] = {"enabled": False}
+    return sanitized
+
+
 def _hardware_knowledge_settings_from_cfg(cfg) -> SchedulerSettings:
     hardware_cfg = getattr(cfg, "hardware_knowledge", None)
     nested_settings = getattr(hardware_cfg, "settings", None) if hardware_cfg is not None else None
@@ -66,19 +77,26 @@ def _hardware_knowledge_settings_from_cfg(cfg) -> SchedulerSettings:
         payload = OmegaConf.to_container(nested_settings, resolve=True) if not isinstance(nested_settings, dict) else dict(nested_settings)
         if not payload.get("runtime_root"):
             payload["runtime_root"] = str(cfg.workspace_dir / "hardware_knowledge_runtime")
+        payload = _sanitize_hardware_knowledge_settings(payload)
         return SchedulerSettings.from_dict(payload)
 
     scheduler_cfg = getattr(cfg, "scheduler", None)
     scheduler_nested = getattr(scheduler_cfg, "settings", None) if scheduler_cfg is not None else None
     if scheduler_nested:
         payload = OmegaConf.to_container(scheduler_nested, resolve=True) if not isinstance(scheduler_nested, dict) else dict(scheduler_nested)
+        payload = _sanitize_hardware_knowledge_settings(payload)
         return SchedulerSettings.from_dict(payload)
 
     scheduler_settings_path = getattr(scheduler_cfg, "settings_path", None) if scheduler_cfg is not None else None
     if scheduler_settings_path:
-        return SchedulerSettings.from_file(scheduler_settings_path)
+        payload = OmegaConf.to_container(OmegaConf.load(scheduler_settings_path), resolve=True) or {}
+        return SchedulerSettings.from_dict(_sanitize_hardware_knowledge_settings(payload))
 
-    return SchedulerSettings(runtime_root=str(cfg.workspace_dir / "hardware_knowledge_runtime"))
+    return SchedulerSettings.from_dict(
+        _sanitize_hardware_knowledge_settings(
+            {"runtime_root": str(cfg.workspace_dir / "hardware_knowledge_runtime")}
+        )
+    )
 
 
 def _submit_startpoint_probe_jobs(

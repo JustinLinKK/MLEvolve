@@ -97,7 +97,7 @@ def get_code_review_guidelines() -> list:
         "",
         "### P1.5 Input Layout & Filesystem Safety",
         "  • Compare hard-coded `./input/...` paths with the Data preview. If code calls `os.listdir`, `Path.iterdir`, image globbing, or `train_test_split` on an input path that the preview shows is a file/archive/missing path, mark it for revision.",
-        "  • If code needs files from a zip archive, it must extract to `./working/<name>/` with `zipfile`, not create directories under `./input/`.",
+        "  • If code needs files from a zip archive, it must extract to `./working/<name>/` with `zipfile`, then inspect whether the files are flat or nested before globbing; do not create directories under `./input/`.",
         "  • Code should handle empty file lists before concatenation, split, DataLoader, or indexing; fail with a clear message or use the correct archive/file path.",
         '  • On Windows, DataLoader workers require a main guard. Flag `num_workers>0` when the script has top-level executable training code and no `if __name__ == "__main__"` guard.',
         "",

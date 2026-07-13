@@ -28,14 +28,32 @@ def validate_executed_node(agent, node: SearchNode):
     if not submission_path.exists():
         node.is_buggy = True
         node.metric = WorstMetricValue()
+        if not getattr(node, "bug_report", None):
+            node.bug_report = (
+                "failure_category: missing_submission\n"
+                "root_cause: The script did not create the required node-specific submission file after execution.\n"
+                f"missing_submission_path: {submission_path}"
+            )
+        if not getattr(node, "fix_report", None):
+            node.fix_report = (
+                "Ensure the script performs test inference and writes the required submission CSV "
+                "with the competition columns before exiting."
+            )
         logger.info(f"Node {node.id} did not produce a submission.csv")
         _log_validation(agent, node, "missing_submission")
         return
 
     if node.metric.maximize and node.metric.value == 0.0:
+        original_metric = node.metric.value
         node.is_buggy = True
         node.metric = WorstMetricValue()
         node.analysis = _ZERO_METRIC_ANALYSIS
+        node.bug_report = (
+            "failure_category: zero_metric\n"
+            "root_cause: The run produced a maximize-style metric of exactly 0.0, which is treated as a complete failure.\n"
+            f"metric: {original_metric}"
+        )
+        node.fix_report = "Debug data loading, target encoding, loss/metric computation, and weight updates before optimizing score."
         logger.warning(
             f"Node {node.id} has metric=0.0 (maximize=True), marking as buggy for debugging."
         )

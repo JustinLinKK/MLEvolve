@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import sqlite3
 
-from agents.debug_agent import _build_debug_reports, _extract_debug_reports
+from agents.debug_agent import _build_debug_reports, _extract_debug_reports, _fallback_bug_report
 from agents.triggers import register_node
 from engine.search_node import Journal, SearchNode
 from utils.pipeline_logging import PipelineActionLogger
@@ -50,6 +50,27 @@ def test_build_debug_reports_falls_back_to_parent_error() -> None:
     assert "RuntimeError" in bug_report
     assert "crashed before creating predictions" in bug_report
     assert "add prediction export" in fix_report
+
+
+def test_fallback_bug_report_prefers_structured_parent_report() -> None:
+    parent = SearchNode(code="raise RuntimeError()", plan="draft", stage="draft")
+    parent.analysis = "Generic missing submission."
+    parent.bug_report = "failure_category: bf16_numpy_conversion\nroot_cause: cast before numpy"
+
+    assert _fallback_bug_report(parent) == parent.bug_report
+
+
+def test_buggy_trajectory_includes_bug_report_and_fix_hint() -> None:
+    node = SearchNode(code="x = 1", plan="draft", stage="draft")
+    node.is_buggy = True
+    node.analysis = "Submission file not found."
+    node.bug_report = "failure_category: invalid_torch_scheduler_argument"
+    node.fix_report = "Replace T_eta_min with eta_min."
+
+    trajectory = node.generate_node_trajectory()
+
+    assert "Bug Report: failure_category: invalid_torch_scheduler_argument" in trajectory
+    assert "Fix Hint: Replace T_eta_min with eta_min." in trajectory
 
 
 def test_debug_reports_survive_journal_round_trip() -> None:

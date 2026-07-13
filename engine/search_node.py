@@ -443,6 +443,10 @@ class SearchNode(DataClassJsonMixin):
 
         if self.is_buggy is True:
             summary_part += f"Results: The implementation of this design has bugs.\n"
+            if self.bug_report:
+                summary_part += f"Bug Report: {self.bug_report}\n"
+            if self.fix_report:
+                summary_part += f"Fix Hint: {self.fix_report}\n"
             if self.analysis:
                 summary_part += f"Analysis: {self.analysis}\n"
         elif self.is_buggy is False:
