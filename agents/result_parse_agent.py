@@ -322,6 +322,12 @@ def _diagnose_failure(
                 "Validation or metric code converted BF16 tensors directly to NumPy, which this PyTorch/NumPy stack does not support.",
                 str(issue.get("repair_hint") or "Cast validation predictions to float32 before CPU/NumPy conversion."),
             )
+        if category == "low_precision_numpy_export":
+            return (
+                "low_precision_numpy_export",
+                "Validation, metric, or submission code converted low-precision predictions/logits directly to NumPy without a float32 export boundary.",
+                str(issue.get("repair_hint") or "Cast prediction/logit/probability tensors to float32 before CPU/NumPy conversion."),
+            )
         if category == "invalid_torch_scheduler_argument":
             return (
                 "invalid_torch_scheduler_argument",
@@ -340,6 +346,26 @@ def _diagnose_failure(
             "bf16_numpy_conversion",
             "Validation failed because BF16 predictions/logits were converted to CPU/NumPy without first casting to float32.",
             "Cast predictions/logits/probabilities to float32 before `.cpu().numpy()` and run metric/submission export outside autocast.",
+        )
+    low_precision_error_markers = (
+        "unsupported scalartype",
+        "unsupported dtype",
+        "unsupported scalar type",
+        "float8",
+        "fp8",
+        "nvfp4",
+        "mxfp4",
+        "mxfp8",
+        "low precision",
+        "dtype mismatch",
+    )
+    if any(marker in lowered for marker in low_precision_error_markers) and (
+        ".cpu().numpy" in lowered or "numpy" in lowered or "log_loss" in lowered or "sklearn" in lowered
+    ):
+        return (
+            "low_precision_numpy_export",
+            "Validation failed because low-precision predictions/logits were passed to NumPy/sklearn/submission export without first casting to float32.",
+            "Use `tensor.detach().to(torch.float32).cpu().numpy()` for prediction/logit/probability export and keep low precision limited to forward/loss computation.",
         )
     if "cosineannealinglr" in lowered and ("unexpected keyword argument" in lowered or "t_eta" in lowered):
         return (

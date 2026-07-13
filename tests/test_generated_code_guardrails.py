@@ -61,6 +61,8 @@ def test_code_review_prompt_uses_data_preview_and_real_dependency_boundary():
     assert "do not assume dynamic `pip install`" in guidelines.lower()
     assert "torch.cuda.get_device_capability()" in guidelines
     assert "XGBClassifier`/`XGBRegressor` construction" in guidelines
+    assert "Low-precision export" in guidelines
+    assert "tensor.detach().to(torch.float32).cpu().numpy()" in guidelines
 
 
 def test_interpreter_rejects_invalid_syntax_before_subprocess(tmp_path):
@@ -141,3 +143,38 @@ def test_code_review_retries_when_critical_runtime_finding_is_approved(monkeypat
     assert len(calls) == 2
     assert "Runtime Compatibility Findings" in calls[0]
     assert "Runtime compatibility retry 1" in calls[1]["Instructions"]
+
+
+def test_code_review_returns_deterministically_repaired_precision_export(monkeypatch):
+    monkeypatch.setattr(
+        code_review_agent,
+        "get_hardware_context_for_stage",
+        lambda *args, **kwargs: SimpleNamespace(prompt_section=""),
+    )
+    monkeypatch.setattr(code_review_agent, "get_internet_clarification", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        code_review_agent,
+        "query",
+        lambda **_: {"needs_revision": False, "reasoning": "No additional issues.", "revised_code": None},
+    )
+
+    agent = SimpleNamespace(
+        task_desc="Train a small PyTorch classifier.",
+        data_preview="",
+        cfg=SimpleNamespace(pretrain_model_dir=""),
+        acfg=SimpleNamespace(use_diff_mode=False, code=SimpleNamespace(model="test", temp=0.0)),
+    )
+    node = SearchNode(
+        code=(
+            "import torch\n"
+            "AMP_DTYPE = torch.bfloat16\n"
+            "preds_np = preds.cpu().numpy()\n"
+            "labels_np = labels.cpu().numpy()\n"
+        ),
+        stage="draft",
+    )
+
+    reviewed = code_review_agent.run(agent, node)
+
+    assert "preds.detach().to(torch.float32).cpu().numpy()" in reviewed
+    assert "labels.cpu().numpy()" in reviewed

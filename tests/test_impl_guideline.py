@@ -48,3 +48,13 @@ def test_impl_guideline_requires_extracted_zip_layout_checks(monkeypatch) -> Non
     text = "\n".join(guideline["Implementation guideline"])
     assert "archives may store files directly at the root or inside a nested folder" in text
     assert "`rglob`/fallback checks" in text
+
+
+def test_impl_guideline_requires_low_precision_export_boundary(monkeypatch) -> None:
+    monkeypatch.setattr(impl_guideline.time, "time", lambda: 110.0)
+
+    guideline = impl_guideline.get_impl_guideline_from_agent(_agent(exec_timeout=5))
+
+    text = "\n".join(guideline["Implementation guideline"])
+    assert "Low-precision metric/export boundary" in text
+    assert "tensor.detach().to(torch.float32).cpu().numpy()" in text

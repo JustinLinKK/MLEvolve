@@ -77,6 +77,7 @@ def get_impl_guideline(
         "⚠️ **API Compatibility**: LightGBM/XGBoost: ❌ `fit(..., early_stopping_rounds=...)` → ✅ LightGBM: `fit(..., callbacks=[lgb.early_stopping(...)])` ✅ XGBoost: set `early_stopping_rounds` on `XGBClassifier`/`XGBRegressor` construction and pass `eval_set` to `fit()`.",
         "• PyTorch CUDA capability: use `torch.cuda.get_device_capability()`, never `torch.cuda.get_ability()`.",
         "• AdamW: ❌ `from transformers import AdamW` (deprecated) → ✅ `from torch.optim import AdamW`",
+        "• Low-precision metric/export boundary: BF16/FP16/FP8/MXFP8/NVFP4/MXFP4/Transformer Engine outputs may be used for forward/loss, but prediction/logit/probability tensors must use `tensor.detach().to(torch.float32).cpu().numpy()` before NumPy, sklearn, pandas, or submission CSV export. Labels/IDs may remain integer CPU arrays.",
         "",
         "🚫 **Execution Guidelines**:",
         "• NO tqdm (not installed), NO verbose=1",

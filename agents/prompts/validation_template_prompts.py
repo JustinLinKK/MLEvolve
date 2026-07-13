@@ -93,6 +93,7 @@ def get_code_review_guidelines() -> list:
         "  • XGBoost: Set `early_stopping_rounds` in `XGBClassifier`/`XGBRegressor` construction and pass `eval_set` to `fit()`; do not pass `early_stopping_rounds` to `fit()`",
         "  • PyTorch CUDA: Use `torch.cuda.get_device_capability()`, not nonexistent `torch.cuda.get_ability()`",
         "  • AdamW: Use `from torch.optim import AdamW` (not from transformers)",
+        "  • Low-precision export: BF16/FP16/FP8/MXFP8/NVFP4/MXFP4/Transformer Engine outputs must not go directly through `.cpu().numpy()` for validation metrics, sklearn, pandas, or submission export. Cast prediction/logit/probability tensors with `tensor.detach().to(torch.float32).cpu().numpy()`; labels/IDs can remain integer arrays.",
         "  • NO tqdm, NO verbose=1 in training",
         "",
         "### P1.5 Input Layout & Filesystem Safety",

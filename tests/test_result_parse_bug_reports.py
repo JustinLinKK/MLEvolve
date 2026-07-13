@@ -108,6 +108,49 @@ scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_eta_min=1e-6, T_ma
     assert "eta_min" in parsed.fix_report
 
 
+def test_parser_builds_generic_low_precision_export_bug_report(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        result_parse_agent,
+        "query",
+        lambda **_: {
+            "is_bug": True,
+            "summary": "Validation failed with unsupported dtype during NumPy export.",
+            "metric": None,
+            "lower_is_better": True,
+        },
+    )
+    node = SearchNode(
+        code="""
+import transformer_engine.pytorch as te
+PRECISION = "nvfp4"
+def validate(logits):
+    return logits.cpu().numpy()
+""",
+        plan="draft",
+        stage="draft",
+    )
+    exec_result = ExecutionResult(
+        term_out=[
+            "Traceback (most recent call last):\n"
+            "  File \"run.py\", line 12, in validate\n"
+            "    return logits.cpu().numpy()\n"
+            "TypeError: Got unsupported ScalarType Float8_e4m3fn\n"
+        ],
+        exec_time=1.0,
+        exc_type="TypeError",
+        exc_info={"message": "Got unsupported ScalarType Float8_e4m3fn"},
+        exc_stack=[],
+    )
+
+    parsed = result_parse_agent.run(_agent(tmp_path), node, exec_result)
+
+    assert parsed.is_buggy is True
+    assert "failure_category: low_precision_numpy_export" in parsed.bug_report
+    assert "missing_submission_role: consequence" in parsed.bug_report
+    assert "Float8" in parsed.bug_report
+    assert "torch.float32" in parsed.fix_report
+
+
 def test_parser_builds_submission_validation_bug_report(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
         result_parse_agent,

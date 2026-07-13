@@ -12,7 +12,7 @@ from agents.hardware_context import (
 )
 from agents.prompts.validation_template_prompts import get_code_review_prompt
 from agents.prompts import get_internet_clarification
-from localml_scheduler.runtime_environment import validate_generated_training_code
+from localml_scheduler.runtime_environment import repair_generated_training_code, validate_generated_training_code
 
 from agents.coder.diff_coder import SearchReplacePatcher
 
@@ -83,12 +83,14 @@ CODE_REVIEW_SPEC = FunctionSpec(
 def run(agent, node: SearchNode) -> str:
     logger.debug(f"[review] node {node.id}")
 
+    repair_result = repair_generated_training_code(node.code, stage="code_review")
+    review_base_code = str(repair_result.get("code") or node.code)
     prompt = get_code_review_prompt(
         task_desc=agent.task_desc,
-        code=node.code,
+        code=review_base_code,
         data_preview=getattr(agent, "data_preview", "") or "",
     )
-    compatibility_result = validate_generated_training_code(node.code, stage="code_review")
+    compatibility_result = validate_generated_training_code(review_base_code, stage="code_review")
     critical_compatibility_count = int(compatibility_result.get("critical_count", 0) or 0)
     compatibility_section = _format_runtime_compatibility_findings(compatibility_result)
     if compatibility_section:
@@ -104,7 +106,7 @@ def run(agent, node: SearchNode) -> str:
         agent,
         "code_review",
         parent_node=getattr(node, "parent", None),
-        code=node.code,
+        code=review_base_code,
     )
     hardware_section = hardware_ctx.prompt_section
     if hardware_section:
@@ -180,6 +182,8 @@ def run(agent, node: SearchNode) -> str:
                     "needs_revision": bool(needs_revision),
                     "reasoning": reasoning,
                     "hardware_context_used": bool(hardware_section),
+                    "runtime_repair_changed": bool(repair_result.get("changed")),
+                    "runtime_repair_replacement_count": repair_result.get("replacement_count", 0),
                     "runtime_compatibility_critical_count": compatibility_result.get("critical_count", 0),
                     "runtime_compatibility_warning_count": compatibility_result.get("warning_count", 0),
                     "revised_code_chars": len(revised_code or ""),
@@ -198,24 +202,24 @@ def run(agent, node: SearchNode) -> str:
                             logger.info("Code review returned diff format, applying patch")
                             patcher = SearchReplacePatcher()
                             patched_code, count = patcher.apply_patch(
-                                revised_code, node.code, strict=False
+                                revised_code, review_base_code, strict=False
                             )
-                            if count > 0 and patched_code and patched_code != node.code:
+                            if count > 0 and patched_code and patched_code != review_base_code:
                                 logger.info(f"Successfully applied {count} review patch(es)")
                                 return patched_code.strip()
                             logger.warning(
                                 f"Diff patch failed (count={count}), keeping original code to avoid writing raw diff to runfile"
                             )
-                            return node.code
+                            return review_base_code
                         except Exception as e:
                             logger.warning(
                                 f"Failed to apply diff patch in code review: {e}, keeping original code to avoid writing raw diff to runfile"
                             )
-                            return node.code
+                            return review_base_code
                     else:
                         # Full code revision (original behavior)
                         if use_diff_for_review:
-                            return node.code
+                            return review_base_code
                         else:
                             logger.info("Using revised code from reviewer")
                             return revised_code.strip()
@@ -224,25 +228,25 @@ def run(agent, node: SearchNode) -> str:
                     logger.warning(f"Code review violation: needs_revision=True but revised_code is empty/None - Will retry ({attempt + 1}/{max_retries})")
                     logger.info(f"Reasoning detail: {reasoning}", extra={"verbose": True})
                     continue
-                logger.error(f"Code review violation: needs_revision=True but revised_code is empty/None - Max retries reached, returning original code")
+                logger.error(f"Code review violation: needs_revision=True but revised_code is empty/None - Max retries reached, returning reviewed base code")
                 logger.info(f"Reasoning detail: {reasoning}", extra={"verbose": True})
-                return node.code
+                return review_base_code
 
             if revised_code is not None and revised_code.strip():
                 logger.warning(
                     "Code review warning: needs_revision=False but revised_code was provided. "
-                    "Ignoring revised_code and using original code."
+                    "Ignoring revised_code and using reviewed base code."
                 )
-            logger.info("Code approved, using original code")
-            return node.code
+            logger.info("Code approved, using reviewed base code")
+            return review_base_code
 
         except Exception as e:
             error_msg = f"Code review failed with exception: {e}"
             if attempt < max_retries - 1:
                 logger.warning(f"{error_msg} - Will retry (attempt {attempt + 1}/{max_retries})")
                 continue
-            logger.error(f"{error_msg} - Max retries reached, returning original code")
-            return node.code
+            logger.error(f"{error_msg} - Max retries reached, returning reviewed base code")
+            return review_base_code
 
-    logger.error("Code review: Unexpected exit from retry loop, returning original code")
-    return node.code
+    logger.error("Code review: Unexpected exit from retry loop, returning reviewed base code")
+    return review_base_code
