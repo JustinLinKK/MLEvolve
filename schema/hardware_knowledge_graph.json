@@ -7,7 +7,7 @@
         "feature_id": "amp",
         "name": "amp",
         "category": "precision",
-        "description": "PyTorch Automatic Mixed Precision (torch.amp). Use low precision for forward/loss computation, then leave autocast/FP8/NVFP4-style contexts and cast validation or submission prediction tensors to float32 before NumPy, sklearn, pandas, or CSV export; do not call .cpu().numpy() directly on BF16, FP16, FP8, MXFP8, NVFP4, MXFP4, or Transformer Engine outputs.",
+        "description": "PyTorch Automatic Mixed Precision (torch.amp) for training. Use autocast for Tensor Core-friendly forward and loss computation with FP16 or BF16, keep numerically sensitive reductions/metrics/export in FP32, and use GradScaler for FP16 so small gradients remain representable.",
         "tensor_core_generation": "",
         "example_code": "import torch\nimport torch.nn as nn\ndevice = 'cuda' if torch.cuda.is_available() else 'cpu'\nmodel = nn.Linear(64, 32).to(device)\nopt = torch.optim.SGD(model.parameters(), lr=1e-3)\nx = torch.randn(8, 64, device=device)\ny = torch.randn(8, 32, device=device)\nopt.zero_grad(set_to_none=True)\nwith torch.autocast(device_type='cuda' if device == 'cuda' else 'cpu', dtype=torch.bfloat16):\n    out = model(x)\n    loss = (out - y).pow(2).mean()\nloss.backward()\nopt.step()",
         "example_code_source": "pytorch.amp.autocast.bf16.training.001",
@@ -16,7 +16,16 @@
           "torch.amp.autocast",
           "torch.autocast"
         ],
-        "source_url": "https://docs.pytorch.org/docs/stable/amp.html"
+        "source_url": "https://docs.nvidia.com/deeplearning/performance/mixed-precision-training/index.html",
+        "recommended_patterns": [
+          "Wrap forward and loss computation in torch.amp.autocast for FP16 or BF16 mixed precision.",
+          "Use GradScaler for FP16 training; keep it optional or disabled for BF16.",
+          "Keep validation metrics, sklearn/NumPy/pandas work, and submission exports in FP32."
+        ],
+        "avoid_patterns": [
+          "Do not treat FP8, FP4, INT8, or FP64 as the default AMP training-speed path.",
+          "Do not call .cpu().numpy() directly on low-precision prediction tensors; cast prediction/logit/probability tensors to float32 first."
+        ]
       }
     },
     {
@@ -26,7 +35,7 @@
         "feature_id": "bf16",
         "name": "bf16",
         "category": "precision",
-        "description": "CUDA C++ Programming Guide -- bfloat16 floating-point format. BF16 and other low-precision paths can accelerate training on supported GPUs, but validation metrics and submission/export paths should cast predictions/logits/probabilities to float32 before CPU/NumPy conversion; do not call .cpu().numpy() directly on low-precision prediction tensors.",
+        "description": "BF16 autocast training path for supported GPUs. Prefer BF16 when the hardware/framework supports it and the model is stable, because it keeps a wider exponent range than FP16 while still using Tensor Core-friendly low-precision math; keep metrics/export in FP32.",
         "tensor_core_generation": "",
         "example_code": "import torch\nimport torch.nn as nn\ndevice = 'cuda' if torch.cuda.is_available() else 'cpu'\nmodel = nn.Linear(64, 32).to(device)\nopt = torch.optim.SGD(model.parameters(), lr=1e-3)\nx = torch.randn(8, 64, device=device)\ny = torch.randn(8, 32, device=device)\nopt.zero_grad(set_to_none=True)\nwith torch.autocast(device_type='cuda' if device == 'cuda' else 'cpu', dtype=torch.bfloat16):\n    out = model(x)\n    loss = (out - y).pow(2).mean()\nloss.backward()\nopt.step()",
         "example_code_source": "pytorch.amp.autocast.bf16.training.001",
@@ -38,7 +47,16 @@
           "torch.cuda.get_device_capability",
           "torch.cuda.get_device_properties"
         ],
-        "source_url": "https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#bfloat16-floating-point-format"
+        "source_url": "https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#bfloat16-floating-point-format",
+        "recommended_patterns": [
+          "Use torch.amp.autocast with dtype=torch.bfloat16 for compatible CUDA training loops.",
+          "Keep validation metrics, NumPy/sklearn/pandas, and submission outputs in torch.float32.",
+          "Benchmark against FP32 and FP16 AMP for task accuracy and wall-clock speed."
+        ],
+        "avoid_patterns": [
+          "Do not add FP16 GradScaler solely for BF16 unless the framework path explicitly requires it.",
+          "Do not convert BF16 prediction tensors directly to NumPy; cast to float32 before CPU export."
+        ]
       }
     },
     {
@@ -66,7 +84,7 @@
         "feature_id": "fp16",
         "name": "fp16",
         "category": "precision",
-        "description": "CUDA C++ Programming Guide -- half-precision (FP16) floating-point format",
+        "description": "FP16 mixed precision training path from NVIDIA mixed precision guidance. Use FP16 where appropriate for Tensor Core-accelerated forward/backward math, keep FP32 master weights or framework-managed FP32 optimizer state, and use loss scaling/GradScaler to preserve small gradients.",
         "tensor_core_generation": "",
         "example_code": "import torch\ncc = torch.cuda.get_device_capability()\ngeneration = {\n    (7, 0): '1gen (Volta)',     (7, 5): '2gen (Turing)',\n    (8, 0): '3gen (Ampere DC)', (8, 6): '3gen (Ampere)',\n    (8, 9): '4gen (Ada)',       (9, 0): '4gen (Hopper)',\n    (10, 0): '5gen (Blackwell DC)', (12, 0): '5gen (Blackwell GeForce)',\n}.get(cc, f'unknown (CC {cc[0]}.{cc[1]})')\nprint(f'GPU CC={cc[0]}.{cc[1]}, tensor core {generation}')\nprint(f'compiled archs: {torch.cuda.get_arch_list()}')",
         "example_code_source": "nvidia.tensor_cores.generations.001",
@@ -77,7 +95,16 @@
           "torch.cuda.get_device_capability",
           "torch.cuda.get_device_properties"
         ],
-        "source_url": "https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#half-precision-floating-point-format"
+        "source_url": "https://docs.nvidia.com/deeplearning/performance/mixed-precision-training/index.html",
+        "recommended_patterns": [
+          "Use FP16 through AMP/autocast rather than manually converting the whole training loop to half precision.",
+          "Use GradScaler or framework automatic loss scaling for FP16 training.",
+          "Keep reductions, fragile losses, validation metrics, and export paths in FP32 when needed for accuracy."
+        ],
+        "avoid_patterns": [
+          "Do not run optimizer updates only on FP16 weights when FP32 master weights or optimizer state are needed for accuracy.",
+          "Do not skip loss scaling for FP16 networks that show underflow, NaNs, divergence, or accuracy loss."
+        ]
       }
     },
     {
@@ -87,7 +114,7 @@
         "feature_id": "fp4",
         "name": "fp4",
         "category": "precision",
-        "description": "NVIDIA GeForce RTX 5090 (FP4 + 5th-gen Tensor Cores)",
+        "description": "FP4/MXFP4 capability marker for Blackwell-era inference or specialized Transformer Engine/TensorRT workflows. It is not a drop-in PyTorch training dtype and is not part of the default NVIDIA mixed precision training recipe for shortening training time while maintaining accuracy.",
         "tensor_core_generation": "",
         "example_code": "import torch\ncc = torch.cuda.get_device_capability()\n# FP4 tensor cores live on sm_100 (Blackwell DC) and sm_120 (Blackwell GeForce).\nif cc < (10, 0):\n    raise SystemExit(\n        f'fp4 unsupported on CC {cc[0]}.{cc[1]} '\n        '(requires Blackwell sm_100 or sm_120)'\n    )\n# Inference-only example. Real call sites use NVIDIA Transformer Engine\n# or TensorRT-LLM with an MXFP4 recipe. PyTorch native fp4 autocast\n# does not exist (as of torch 2.12); MXFP4 is reached via te.fp8_autocast\n# with a Format.MXFP4 recipe in recent transformer_engine releases.\nprint(f'GPU CC={cc[0]}.{cc[1]} supports MXFP4 inference via Transformer Engine')",
         "example_code_source": "nvidia.fp4.blackwell.001",
@@ -96,7 +123,13 @@
           "torch.cuda.get_device_capability",
           "transformer_engine.pytorch.fp8_autocast"
         ],
-        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5090/"
+        "source_url": "https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5090/",
+        "default_recommendation_scope": "inference_or_specialized_te_only_not_default_training_speed",
+        "limitations": "PyTorch AMP does not provide a native FP4 training autocast path. Use FP4 only when the framework stack explicitly supports the exact training workflow and benchmarks show faster wall-clock time with acceptable accuracy.",
+        "avoid_patterns": [
+          "Do not use FP4 as a default training precision for generic PyTorch training loops.",
+          "Do not replace BF16/FP16 AMP with FP4 unless the model, framework, and validation metrics are explicitly proven compatible."
+        ]
       }
     },
     {
@@ -106,12 +139,17 @@
         "feature_id": "fp64",
         "name": "fp64",
         "category": "precision",
-        "description": "CUDA C++ Programming Guide -- double-precision (FP64) floating-point format",
+        "description": "FP64 double precision capability for scientific/reference workloads. It is not part of the default deep-learning mixed precision training speed path and is usually much slower than FP32, TF32, BF16, or FP16 Tensor Core training.",
         "tensor_core_generation": "",
         "example_code": "",
         "example_code_source": "",
         "api_symbols": [],
-        "source_url": "https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#double-precision-floating-point-format"
+        "source_url": "https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#double-precision-floating-point-format",
+        "default_recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "limitations": "Use FP64 only when the workload explicitly requires double precision; avoid it for generic neural-network training speed optimization.",
+        "avoid_patterns": [
+          "Do not use FP64 for generic deep-learning training when the goal is shorter wall-clock time with maintained task accuracy."
+        ]
       }
     },
     {
@@ -121,7 +159,7 @@
         "feature_id": "fp8",
         "name": "fp8",
         "category": "precision",
-        "description": "FP8 Formats for Deep Learning (Micikevicius et al., 2022)",
+        "description": "FP8 capability marker for specialized Transformer Engine or torchao float8 training recipes. It is not the default NVIDIA mixed precision training path; prefer AMP BF16/FP16/TF32 unless a long-running transformer recipe is validated faster and accuracy-safe on the target stack.",
         "tensor_core_generation": "",
         "example_code": "import torch\nif not torch.cuda.is_available():\n    raise SystemExit('SKIP: no CUDA')\ncc = torch.cuda.get_device_capability()\n# FP8 Tensor Cores require compute capability >= 8.9 (Ada / Hopper / Blackwell)\nif cc < (8, 9):\n    raise SystemExit(\n        f'SKIP: fp8 requires CC >= 8.9, got {cc[0]}.{cc[1]}'\n    )\ntry:\n    import transformer_engine.pytorch as te\n    from transformer_engine.common.recipe import DelayedScaling, Format\nexcept ImportError:\n    raise SystemExit('SKIP: transformer_engine not installed')\nrecipe = DelayedScaling(\n    margin=0,\n    fp8_format=Format.HYBRID,    # forward=E4M3, backward=E5M2\n    amax_history_len=16,\n    amax_compute_algo='max',\n)\nte_model = te.Linear(64, 32).cuda()\nx = torch.randn(8, 64, device='cuda')\nwith te.fp8_autocast(enabled=True, fp8_recipe=recipe):\n    out = te_model(x)",
         "example_code_source": "nvidia.fp8.e4m3_vs_e5m2.001",
@@ -135,9 +173,10 @@
         ],
         "source_url": "https://arxiv.org/abs/2209.05433",
         "default_recommendation_scope": "experimental_fp8_validated_long_transformer_only",
-        "limitations": "Not a default training-speed strategy. Treat this as a capability marker only; prefer BF16/FP16/TF32 AMP for default speed optimization, and use FP8 only after a validated long-running transformer recipe proves faster wall-clock time and acceptable accuracy on the target hardware/software stack.",
+        "limitations": "Not part of the default NVIDIA mixed-precision training path. Requires FP8-capable hardware, framework support, model adaptation, scaling recipe validation, and benchmark evidence against BF16/FP16/TF32.",
         "avoid_patterns": [
-          "avoid FP8 as a default speed path for short automated training runs; benchmark against BF16/FP16/TF32 first"
+          "Avoid FP8 as a default speed path for short automated training runs; benchmark against BF16/FP16/TF32 first.",
+          "Do not use FP8 recipes without validating accuracy, wall-clock speed, and framework support on the target hardware."
         ]
       }
     },
@@ -148,7 +187,7 @@
         "feature_id": "fp8_e4m3",
         "name": "fp8_e4m3",
         "category": "precision",
-        "description": "FP8 Formats for Deep Learning -- E4M3 variant (Micikevicius et al., 2022)",
+        "description": "FP8 E4M3 format capability marker. Keep it as an experimental/specialized recipe detail rather than a default training-speed instruction; use only through a validated FP8 training stack.",
         "tensor_core_generation": "",
         "example_code": "import torch\nif not torch.cuda.is_available():\n    raise SystemExit('SKIP: no CUDA')\ncc = torch.cuda.get_device_capability()\n# FP8 Tensor Cores require compute capability >= 8.9 (Ada / Hopper / Blackwell)\nif cc < (8, 9):\n    raise SystemExit(\n        f'SKIP: fp8 requires CC >= 8.9, got {cc[0]}.{cc[1]}'\n    )\ntry:\n    import transformer_engine.pytorch as te\n    from transformer_engine.common.recipe import DelayedScaling, Format\nexcept ImportError:\n    raise SystemExit('SKIP: transformer_engine not installed')\nrecipe = DelayedScaling(\n    margin=0,\n    fp8_format=Format.HYBRID,    # forward=E4M3, backward=E5M2\n    amax_history_len=16,\n    amax_compute_algo='max',\n)\nte_model = te.Linear(64, 32).cuda()\nx = torch.randn(8, 64, device='cuda')\nwith te.fp8_autocast(enabled=True, fp8_recipe=recipe):\n    out = te_model(x)",
         "example_code_source": "nvidia.fp8.e4m3_vs_e5m2.001",
@@ -162,9 +201,9 @@
         ],
         "source_url": "https://arxiv.org/abs/2209.05433",
         "default_recommendation_scope": "experimental_fp8_validated_long_transformer_only",
-        "limitations": "Not a default training-speed strategy. Treat this as a capability marker only; prefer BF16/FP16/TF32 AMP for default speed optimization, and use FP8 only after a validated long-running transformer recipe proves faster wall-clock time and acceptable accuracy on the target hardware/software stack.",
+        "limitations": "Capability marker only for validated FP8 recipes; not a default AMP replacement for generic training.",
         "avoid_patterns": [
-          "avoid FP8 as a default speed path for short automated training runs; benchmark against BF16/FP16/TF32 first"
+          "Do not select E4M3 directly as a generic training dtype."
         ]
       }
     },
@@ -175,7 +214,7 @@
         "feature_id": "fp8_e5m2",
         "name": "fp8_e5m2",
         "category": "precision",
-        "description": "FP8 Formats for Deep Learning -- E5M2 variant (Micikevicius et al., 2022)",
+        "description": "FP8 E5M2 format capability marker. Keep it as an experimental/specialized recipe detail rather than a default training-speed instruction; use only through a validated FP8 training stack.",
         "tensor_core_generation": "",
         "example_code": "import torch\nif not torch.cuda.is_available():\n    raise SystemExit('SKIP: no CUDA')\ncc = torch.cuda.get_device_capability()\n# FP8 Tensor Cores require compute capability >= 8.9 (Ada / Hopper / Blackwell)\nif cc < (8, 9):\n    raise SystemExit(\n        f'SKIP: fp8 requires CC >= 8.9, got {cc[0]}.{cc[1]}'\n    )\ntry:\n    import transformer_engine.pytorch as te\n    from transformer_engine.common.recipe import DelayedScaling, Format\nexcept ImportError:\n    raise SystemExit('SKIP: transformer_engine not installed')\nrecipe = DelayedScaling(\n    margin=0,\n    fp8_format=Format.HYBRID,    # forward=E4M3, backward=E5M2\n    amax_history_len=16,\n    amax_compute_algo='max',\n)\nte_model = te.Linear(64, 32).cuda()\nx = torch.randn(8, 64, device='cuda')\nwith te.fp8_autocast(enabled=True, fp8_recipe=recipe):\n    out = te_model(x)",
         "example_code_source": "nvidia.fp8.e4m3_vs_e5m2.001",
@@ -189,9 +228,9 @@
         ],
         "source_url": "https://arxiv.org/abs/2209.05433",
         "default_recommendation_scope": "experimental_fp8_validated_long_transformer_only",
-        "limitations": "Not a default training-speed strategy. Treat this as a capability marker only; prefer BF16/FP16/TF32 AMP for default speed optimization, and use FP8 only after a validated long-running transformer recipe proves faster wall-clock time and acceptable accuracy on the target hardware/software stack.",
+        "limitations": "Capability marker only for validated FP8 recipes; not a default AMP replacement for generic training.",
         "avoid_patterns": [
-          "avoid FP8 as a default speed path for short automated training runs; benchmark against BF16/FP16/TF32 first"
+          "Do not select E5M2 directly as a generic training dtype."
         ]
       }
     },
@@ -202,10 +241,10 @@
         "feature_id": "int8",
         "name": "int8",
         "category": "precision",
-        "description": "PyTorch Quantization (INT8 quantized inference)",
+        "description": "INT8 quantization capability, primarily for inference or explicit quantization-aware workflows. Dynamic INT8 quantization is not the NVIDIA mixed precision training speed path and should not replace AMP FP16/BF16/TF32 for generic training.",
         "tensor_core_generation": "",
         "example_code": "import torch\nimport torch.nn as nn\nfrom torch.ao.quantization import quantize_dynamic\nfp32_model = nn.Sequential(nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, 10))\nint8_model = quantize_dynamic(fp32_model, {nn.Linear}, dtype=torch.qint8)\nx = torch.randn(4, 128)\nout = int8_model(x)",
-        "example_code_source": "nvidia.int8.quantization.training.001",
+        "example_code_source": "pytorch.int8.quantization.inference.001",
         "api_symbols": [
           "torch.ao.quantization.prepare",
           "torch.ao.quantization.quantize_dynamic",
@@ -213,7 +252,13 @@
           "torch.cuda.get_device_capability",
           "torch.cuda.get_device_properties"
         ],
-        "source_url": "https://pytorch.org/docs/stable/quantization.html"
+        "source_url": "https://pytorch.org/docs/stable/quantization.html",
+        "default_recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "limitations": "Do not use dynamic INT8 quantization as a generic training-speed instruction; it can add conversion overhead, may run on CPU paths, and does not follow the FP16 AMP/loss-scaling training recipe.",
+        "avoid_patterns": [
+          "Do not apply INT8 dynamic quantization inside the training loop as a speed default.",
+          "Use INT8 only for inference or an explicitly validated QAT recipe."
+        ]
       }
     },
     {
@@ -443,7 +488,7 @@
         "feature_id": "tf32",
         "name": "tf32",
         "category": "precision",
-        "description": "NVIDIA TensorFloat-32 (TF32) precision format announcement",
+        "description": "TF32 Tensor Core math for FP32 matmul/convolution-heavy training on supported NVIDIA GPUs. Treat TF32 as a low-effort FP32-speed policy, not as a replacement for AMP FP16/BF16 mixed precision when memory reduction is needed.",
         "tensor_core_generation": "",
         "example_code": "import torch\ntorch.backends.cuda.matmul.allow_tf32 = True\ntorch.backends.cudnn.allow_tf32 = True\ndevice = 'cuda' if torch.cuda.is_available() else 'cpu'\na = torch.randn(256, 256, device=device)\nb = torch.randn(256, 256, device=device)\nc = a @ b",
         "example_code_source": "nvidia.tf32.matmul.policy.001",
@@ -454,7 +499,14 @@
           "torch.cuda.get_device_capability",
           "torch.cuda.get_device_properties"
         ],
-        "source_url": "https://blogs.nvidia.com/blog/tensorfloat-32-precision-format/"
+        "source_url": "https://blogs.nvidia.com/blog/tensorfloat-32-precision-format/",
+        "recommended_patterns": [
+          "Use torch.set_float32_matmul_precision('high') or equivalent TF32 backend flags for FP32 matmul-heavy training when accuracy is acceptable.",
+          "Benchmark task metrics against strict FP32 when the competition metric is numerically sensitive."
+        ],
+        "avoid_patterns": [
+          "Do not rely on TF32 to reduce activation or parameter memory; use AMP BF16/FP16 for that."
+        ]
       }
     },
     {
@@ -6792,7 +6844,7 @@
         "feature_id": "fp8_rowwise_scaling",
         "name": "fp8_rowwise_scaling",
         "category": "precision",
-        "description": "FP8 row-wise (per-token) scaling: one fp8 scale factor per row of each operand instead of per-tensor; a single outlier row no longer forces a coarse scale that underflows the rest. Strictly more accuracy-preserving than per-tensor fp8; loss parity with bf16. GEMMs still on fp8 Tensor Cores (~1.11x over bf16 H100). Available via torchao.",
+        "description": "Experimental FP8 row-wise scaling for specialized Linear-heavy training recipes. Row-wise scaling can improve FP8 numerical behavior, but it adds scaling/model-conversion complexity and should not be surfaced as a default datatype-speed instruction ahead of BF16/FP16/TF32 AMP.",
         "tensor_core_generation": "4th_generation_or_later_fp8_tensor_cores",
         "example_code": "import torch\nfrom torch import nn\nfrom torchao.float8 import Float8LinearConfig, Float8LinearRecipeName, convert_to_float8_training\n\nmodel = nn.Sequential(nn.Linear(2048, 4096), nn.GELU(), nn.Linear(4096, 2048)).bfloat16().cuda()\nconfig = Float8LinearConfig.from_recipe_name(Float8LinearRecipeName.ROWWISE)\nconvert_to_float8_training(model, config=config)\nmodel = torch.compile(model)\nx = torch.randn(16, 2048, device='cuda', dtype=torch.bfloat16)\ny = model(x)",
         "example_code_source": "torchao.0_17.float8_rowwise_training.001",
@@ -6802,7 +6854,13 @@
           "torchao.float8.Float8LinearConfig.from_recipe_name",
           "torchao.float8.Float8LinearRecipeName.ROWWISE"
         ],
-        "source_url": "https://docs.pytorch.org/ao/stable/eager_tutorials/pretraining.html"
+        "source_url": "https://docs.pytorch.org/ao/stable/eager_tutorials/pretraining.html",
+        "default_recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "limitations": "Opt-in only after benchmark validation. Row-wise scaling favors numerical stability over simpler tensorwise FP8 throughput and can slow short or unsupported training runs through conversion, compile, and scaling overhead.",
+        "avoid_patterns": [
+          "Do not use FP8 row-wise scaling as a default datatype choice for generic or short training runs.",
+          "Benchmark against BF16/FP16/TF32 before enabling torchao float8 conversion."
+        ]
       }
     },
     {
@@ -6812,7 +6870,7 @@
         "feature_id": "fp8_all_gather_fsdp2",
         "name": "fp8_all_gather_fsdp2",
         "category": "parallelism",
-        "description": "FP8 all-gather in FSDP2: shards and all-gathers parameters in fp8 instead of bf16, halving the sharded-parameter communication volume in distributed training. Multi-GPU only. Built on torchao float8 + FSDP2.",
+        "description": "Experimental FP8 all-gather in FSDP2 for distributed training where parameter all-gather communication is a measured bottleneck. This is not a single-GPU datatype-speed instruction and should stay outside the default mixed precision training path.",
         "tensor_core_generation": "4th_generation_or_later_fp8_tensor_cores",
         "example_code": "import torch\nfrom torch import nn\nfrom torchao.float8 import Float8LinearConfig, convert_to_float8_training\nfrom torchao.float8 import precompute_float8_dynamic_scale_for_fsdp\nfrom torch.distributed.fsdp import fully_shard\n\nmodel = nn.Sequential(nn.Linear(4096, 4096), nn.GELU(), nn.Linear(4096, 4096)).bfloat16().cuda()\nconfig = Float8LinearConfig(enable_fsdp_float8_all_gather=True)\nconvert_to_float8_training(model, config=config)\nfor layer in model:\n    if isinstance(layer, nn.Linear):\n        fully_shard(layer)\nfully_shard(model)\n# In the distributed training loop, call after optimizer.step():\nprecompute_float8_dynamic_scale_for_fsdp(model)",
         "example_code_source": "torchao.0_17.float8_config.fsdp_all_gather.001",
@@ -6823,7 +6881,12 @@
           "torchao.float8.convert_to_float8_training",
           "torch.distributed.fsdp.fully_shard"
         ],
-        "source_url": "https://docs.pytorch.org/ao/stable/api_reference/generated/torchao.float8.Float8LinearConfig.html"
+        "source_url": "https://docs.pytorch.org/ao/stable/api_reference/generated/torchao.float8.Float8LinearConfig.html",
+        "default_recommendation_scope": "experimental_distributed_fp8_communication_only",
+        "limitations": "Distributed FSDP2 only; can add conversion/scaling overhead and should be used only after benchmark validation against BF16 communication on the target stack.",
+        "avoid_patterns": [
+          "Do not use FP8 all-gather for single-GPU training or when communication is not the measured bottleneck."
+        ]
       }
     }
   ],
@@ -6880,7 +6943,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -6902,7 +6969,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -6935,7 +7006,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -6946,7 +7021,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7001,7 +7080,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -7023,7 +7106,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -7056,7 +7143,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7067,7 +7158,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7122,7 +7217,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -7144,7 +7243,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -7177,7 +7280,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7188,7 +7295,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7243,7 +7354,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -7265,7 +7380,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -7298,7 +7417,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7309,7 +7432,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7364,7 +7491,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -7386,7 +7517,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -7419,7 +7554,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7430,7 +7569,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7485,7 +7628,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -7507,7 +7654,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -7540,7 +7691,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7551,7 +7706,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7606,7 +7765,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -7628,7 +7791,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -7661,7 +7828,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7672,7 +7843,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7727,7 +7902,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -7749,7 +7928,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -7782,7 +7965,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7793,7 +7980,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7848,7 +8039,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -7870,7 +8065,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -7903,7 +8102,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7914,7 +8117,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -7969,7 +8176,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -7991,7 +8202,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -8024,7 +8239,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8035,7 +8254,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8090,7 +8313,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -8112,7 +8339,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -8145,7 +8376,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8156,7 +8391,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8211,7 +8450,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -8233,7 +8476,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -8266,7 +8513,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8277,7 +8528,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8332,7 +8587,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -8354,7 +8613,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -8387,7 +8650,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8398,7 +8665,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8453,7 +8724,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -8475,7 +8750,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -8508,7 +8787,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8519,7 +8802,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8574,7 +8861,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -8596,7 +8887,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -8629,7 +8924,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8640,7 +8939,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8695,7 +8998,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -8717,7 +9024,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -8750,7 +9061,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8761,7 +9076,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8816,7 +9135,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -8838,7 +9161,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -8871,7 +9198,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8882,7 +9213,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -8937,7 +9272,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -8959,7 +9298,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -8992,7 +9335,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -9003,7 +9350,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -9058,7 +9409,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -9080,7 +9435,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -9113,7 +9472,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -9124,7 +9487,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -9179,7 +9546,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -9201,7 +9572,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -9234,7 +9609,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -9245,7 +9624,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "8.9",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -9311,7 +9694,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -9388,7 +9775,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -9410,7 +9801,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -9487,7 +9882,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -9509,7 +9908,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -9586,7 +9989,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -9608,7 +10015,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -9685,7 +10096,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -9707,7 +10122,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -9795,7 +10214,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -9883,7 +10306,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -9960,7 +10387,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -9982,7 +10413,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -10070,7 +10505,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -10158,7 +10597,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -10246,7 +10689,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -10334,7 +10781,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -10422,7 +10873,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -10510,7 +10965,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -10598,7 +11057,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -10686,7 +11149,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -10774,7 +11241,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -10862,7 +11333,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -10950,7 +11425,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -11038,7 +11517,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -11126,7 +11609,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -11214,7 +11701,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -11302,7 +11793,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -11390,7 +11885,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -11478,7 +11977,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -11566,7 +12069,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "8.6",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -11643,7 +12150,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -11654,7 +12165,11 @@
         "support_level": "supported",
         "min_compute_capability": "10.0",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_specialized_te_only_not_default_training_speed",
+        "performance_impact": "not_a_default_training_speed_path",
+        "limitations": "FP4/MXFP4 is specialized or inference-oriented unless the selected framework explicitly supports the exact training workflow; prefer BF16/FP16/TF32 AMP for default training speed."
       }
     },
     {
@@ -11665,7 +12180,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -11687,7 +12206,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -11720,7 +12243,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -11731,7 +12258,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -11786,7 +12317,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -11797,7 +12332,11 @@
         "support_level": "supported",
         "min_compute_capability": "10.0",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_specialized_te_only_not_default_training_speed",
+        "performance_impact": "not_a_default_training_speed_path",
+        "limitations": "FP4/MXFP4 is specialized or inference-oriented unless the selected framework explicitly supports the exact training workflow; prefer BF16/FP16/TF32 AMP for default training speed."
       }
     },
     {
@@ -11808,7 +12347,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -11830,7 +12373,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -11863,7 +12410,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -11874,7 +12425,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -11929,7 +12484,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -11940,7 +12499,11 @@
         "support_level": "supported",
         "min_compute_capability": "10.0",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_specialized_te_only_not_default_training_speed",
+        "performance_impact": "not_a_default_training_speed_path",
+        "limitations": "FP4/MXFP4 is specialized or inference-oriented unless the selected framework explicitly supports the exact training workflow; prefer BF16/FP16/TF32 AMP for default training speed."
       }
     },
     {
@@ -11951,7 +12514,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -11973,7 +12540,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -12006,7 +12577,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -12017,7 +12592,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -12072,7 +12651,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -12083,7 +12666,11 @@
         "support_level": "supported",
         "min_compute_capability": "10.0",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_specialized_te_only_not_default_training_speed",
+        "performance_impact": "not_a_default_training_speed_path",
+        "limitations": "FP4/MXFP4 is specialized or inference-oriented unless the selected framework explicitly supports the exact training workflow; prefer BF16/FP16/TF32 AMP for default training speed."
       }
     },
     {
@@ -12094,7 +12681,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -12116,7 +12707,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -12149,7 +12744,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -12160,7 +12759,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -12215,7 +12818,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -12226,7 +12833,11 @@
         "support_level": "supported",
         "min_compute_capability": "10.0",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_specialized_te_only_not_default_training_speed",
+        "performance_impact": "not_a_default_training_speed_path",
+        "limitations": "FP4/MXFP4 is specialized or inference-oriented unless the selected framework explicitly supports the exact training workflow; prefer BF16/FP16/TF32 AMP for default training speed."
       }
     },
     {
@@ -12237,7 +12848,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -12259,7 +12874,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -12292,7 +12911,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -12303,7 +12926,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -12358,7 +12985,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -12369,7 +13000,11 @@
         "support_level": "supported",
         "min_compute_capability": "10.0",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_specialized_te_only_not_default_training_speed",
+        "performance_impact": "not_a_default_training_speed_path",
+        "limitations": "FP4/MXFP4 is specialized or inference-oriented unless the selected framework explicitly supports the exact training workflow; prefer BF16/FP16/TF32 AMP for default training speed."
       }
     },
     {
@@ -12380,7 +13015,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -12402,7 +13041,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -12435,7 +13078,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -12446,7 +13093,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "10.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -12501,7 +13152,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -12512,7 +13167,11 @@
         "support_level": "supported",
         "min_compute_capability": "10.0",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_specialized_te_only_not_default_training_speed",
+        "performance_impact": "not_a_default_training_speed_path",
+        "limitations": "FP4/MXFP4 is specialized or inference-oriented unless the selected framework explicitly supports the exact training workflow; prefer BF16/FP16/TF32 AMP for default training speed."
       }
     },
     {
@@ -12534,7 +13193,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -12567,7 +13230,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -12578,7 +13245,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -12633,7 +13304,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -12644,7 +13319,11 @@
         "support_level": "supported",
         "min_compute_capability": "10.0",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_specialized_te_only_not_default_training_speed",
+        "performance_impact": "not_a_default_training_speed_path",
+        "limitations": "FP4/MXFP4 is specialized or inference-oriented unless the selected framework explicitly supports the exact training workflow; prefer BF16/FP16/TF32 AMP for default training speed."
       }
     },
     {
@@ -12666,7 +13345,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -12699,7 +13382,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -12710,7 +13397,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -12765,7 +13456,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -12776,7 +13471,11 @@
         "support_level": "supported",
         "min_compute_capability": "10.0",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_specialized_te_only_not_default_training_speed",
+        "performance_impact": "not_a_default_training_speed_path",
+        "limitations": "FP4/MXFP4 is specialized or inference-oriented unless the selected framework explicitly supports the exact training workflow; prefer BF16/FP16/TF32 AMP for default training speed."
       }
     },
     {
@@ -12798,7 +13497,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -12831,7 +13534,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -12842,7 +13549,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -12897,7 +13608,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -12908,7 +13623,11 @@
         "support_level": "supported",
         "min_compute_capability": "10.0",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_specialized_te_only_not_default_training_speed",
+        "performance_impact": "not_a_default_training_speed_path",
+        "limitations": "FP4/MXFP4 is specialized or inference-oriented unless the selected framework explicitly supports the exact training workflow; prefer BF16/FP16/TF32 AMP for default training speed."
       }
     },
     {
@@ -12930,7 +13649,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -12963,7 +13686,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -12974,7 +13701,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -13029,7 +13760,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -13040,7 +13775,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -13051,7 +13790,11 @@
         "support_level": "supported",
         "min_compute_capability": "10.0",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_specialized_te_only_not_default_training_speed",
+        "performance_impact": "not_a_default_training_speed_path",
+        "limitations": "FP4/MXFP4 is specialized or inference-oriented unless the selected framework explicitly supports the exact training workflow; prefer BF16/FP16/TF32 AMP for default training speed."
       }
     },
     {
@@ -13073,7 +13816,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -13161,7 +13908,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -13172,7 +13923,11 @@
         "support_level": "supported",
         "min_compute_capability": "10.0",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_specialized_te_only_not_default_training_speed",
+        "performance_impact": "not_a_default_training_speed_path",
+        "limitations": "FP4/MXFP4 is specialized or inference-oriented unless the selected framework explicitly supports the exact training workflow; prefer BF16/FP16/TF32 AMP for default training speed."
       }
     },
     {
@@ -13194,7 +13949,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -13227,7 +13986,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -13238,7 +14001,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -13293,7 +14060,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -13304,7 +14075,11 @@
         "support_level": "supported",
         "min_compute_capability": "10.0",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_specialized_te_only_not_default_training_speed",
+        "performance_impact": "not_a_default_training_speed_path",
+        "limitations": "FP4/MXFP4 is specialized or inference-oriented unless the selected framework explicitly supports the exact training workflow; prefer BF16/FP16/TF32 AMP for default training speed."
       }
     },
     {
@@ -13326,7 +14101,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -13359,7 +14138,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -13370,7 +14153,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -13425,7 +14212,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -13436,7 +14227,11 @@
         "support_level": "supported",
         "min_compute_capability": "10.0",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_specialized_te_only_not_default_training_speed",
+        "performance_impact": "not_a_default_training_speed_path",
+        "limitations": "FP4/MXFP4 is specialized or inference-oriented unless the selected framework explicitly supports the exact training workflow; prefer BF16/FP16/TF32 AMP for default training speed."
       }
     },
     {
@@ -13458,7 +14253,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -13491,7 +14290,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -13502,7 +14305,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "12.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -13557,7 +14364,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -13568,7 +14379,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -13590,7 +14405,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -13623,7 +14442,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -13634,7 +14457,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -13689,7 +14516,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -13700,7 +14531,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -13722,7 +14557,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -13755,7 +14594,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -13766,7 +14609,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -13821,7 +14668,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -13832,7 +14683,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -13854,7 +14709,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -13887,7 +14746,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -13898,7 +14761,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -13953,7 +14820,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -13964,7 +14835,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -13986,7 +14861,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -14019,7 +14898,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -14030,7 +14913,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -14085,7 +14972,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_can_slow_short_or_unsupported_training",
+        "limitations": "FP8 is not the default NVIDIA mixed-precision training path; use only after a validated FP8 recipe proves faster wall-clock time and acceptable accuracy versus BF16/FP16/TF32 on the target stack."
       }
     },
     {
@@ -14096,7 +14987,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "accuracy_reference_only_not_training_speed",
+        "performance_impact": "slower_for_generic_deep_learning_training",
+        "limitations": "FP64 is a capability marker for double-precision workloads, not a mixed-precision training speed recommendation; prefer TF32/BF16/FP16 AMP for neural-network training unless double precision is explicitly required."
       }
     },
     {
@@ -14118,7 +15013,11 @@
         "support_level": "supported",
         "min_compute_capability": "",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "inference_or_explicit_qat_only_not_default_training_speed",
+        "performance_impact": "not_a_generic_training_speed_path",
+        "limitations": "INT8 quantization is primarily inference-oriented or for explicit QAT recipes; do not use dynamic INT8 quantization as a default training loop speed optimization."
       }
     },
     {
@@ -14151,7 +15050,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E4M3 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {
@@ -14162,7 +15065,11 @@
         "support_level": "supported",
         "min_compute_capability": "8.9",
         "device_compute_capability": "9.0",
-        "verified": false
+        "verified": false,
+        "recommended": false,
+        "recommendation_scope": "experimental_fp8_validated_long_transformer_only",
+        "performance_impact": "conditional_recipe_detail_not_default_dtype",
+        "limitations": "E5M2 is an FP8 recipe detail, not a generic training dtype recommendation; prefer BF16/FP16/TF32 AMP unless a validated FP8 stack requires it."
       }
     },
     {

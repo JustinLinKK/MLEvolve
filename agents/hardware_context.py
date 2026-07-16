@@ -1689,6 +1689,22 @@ def _compact_stage_hardware_features(stage_context: dict[str, Any]) -> dict[str,
                     compact_node[list_key] = _clean_feature_key_pairs(values, limit=item_limit)
                 else:
                     compact_node[list_key] = _clean_string_list(values, limit=item_limit)
+        not_recommended_ids = {
+            _feature_key_pair_key(item)
+            for item in compact_node.get("not_recommended_feature_keys") or []
+        }
+        if not_recommended_ids:
+            for list_key in (
+                "stage_feature_keys",
+                "recommended_feature_keys",
+                "conditional_feature_keys",
+            ):
+                if list_key in compact_node:
+                    compact_node[list_key] = [
+                        item
+                        for item in compact_node.get(list_key) or []
+                        if _feature_key_pair_key(item) not in not_recommended_ids
+                    ]
 
         features: list[dict[str, Any]] = []
         omitted_not_recommended: list[str] = []

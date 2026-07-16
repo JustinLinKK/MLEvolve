@@ -143,14 +143,15 @@ feature_expectations = {
         "nvimagecodec_gpu_decode",
     ],
     "stage2_datatype_precision_features_training_parameters.json": [
+        "amp",
         "bf16",
-        "fp8_rowwise_scaling",
+        "fp16",
+        "tf32",
     ],
     "stage3_training_evaluation_features_training_parameters.json": [
         "muon_optimizer",
         "gram_newton_schulz_symmetric_gemm",
         "bf16",
-        "fp8_rowwise_scaling",
         "async_tensor_parallel",
     ],
 }
@@ -166,11 +167,12 @@ node_expectations = {
         "stage_feature_keys": ["dataset_decomposition", "nvimagecodec_gpu_decode"],
     },
     "stage2_datatype_precision_node_training_parameters.json": {
-        "stage_feature_keys": ["bf16", "fp8_rowwise_scaling"],
+        "stage_feature_keys": ["amp", "bf16", "fp16", "tf32"],
+        "not_recommended_feature_keys": ["fp8_rowwise_scaling"],
     },
     "stage3_training_evaluation_node_training_parameters.json": {
         "stage_feature_keys": ["muon_optimizer", "gram_newton_schulz_symmetric_gemm"],
-        "not_recommended_feature_keys": ["soap_optimizer", "ademamix_optimizer"],
+        "not_recommended_feature_keys": ["soap_optimizer", "ademamix_optimizer", "fp8_rowwise_scaling"],
     },
 }
 

@@ -48,7 +48,7 @@ config_path, hardware_name = sys.argv[1:3]
 
 expected_by_stage = {
     "stage1_model_design": ["tensor_cores", "sm_120", "tensor_cores_5gen"],
-    "stage2_datatype_precision": ["dataset_decomposition", "nvimagecodec_gpu_decode", "bf16", "fp8_rowwise_scaling"],
+    "stage2_datatype_precision": ["dataset_decomposition", "nvimagecodec_gpu_decode", "amp", "bf16", "fp16", "tf32"],
     "stage3_training_evaluation": ["muon_optimizer", "gram_newton_schulz_symmetric_gemm", "async_tensor_parallel"],
 }
 
