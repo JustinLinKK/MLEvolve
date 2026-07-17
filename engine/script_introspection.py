@@ -83,6 +83,15 @@ MODEL_FAMILY_PARAM_NAMES = (
     "scheduler_model_family",
 )
 
+MODEL_BRANCH_PARAM_NAMES = (
+    "MODEL_BRANCH",
+    "model_branch",
+    "BRANCH_NAME",
+    "branch_name",
+    "SCHEDULER_BRANCH_NAME",
+    "scheduler_branch_name",
+)
+
 PRECISION_PARAM_NAMES = (
     "PRECISION",
     "PRECISION_MODE",
@@ -151,6 +160,9 @@ _MODEL_PARAM_PATTERN = re.compile(
 )
 _MODEL_FAMILY_PARAM_PATTERN = re.compile(
     rf"\b(?:{'|'.join(re.escape(name) for name in MODEL_FAMILY_PARAM_NAMES)})\b\s*=\s*['\"]([^'\"]+)['\"]"
+)
+_MODEL_BRANCH_PARAM_PATTERN = re.compile(
+    rf"\b(?:{'|'.join(re.escape(name) for name in MODEL_BRANCH_PARAM_NAMES)})\b\s*=\s*['\"]([^'\"]+)['\"]"
 )
 _PRECISION_STRING_PATTERN = re.compile(
     rf"\b(?:{'|'.join(re.escape(name) for name in PRECISION_PARAM_NAMES)})\b\s*=\s*['\"]([^'\"]+)['\"]",
@@ -272,6 +284,13 @@ def detect_model_family(code: str) -> str | None:
     if not match:
         return None
     return _clean_model_key(match.group(1))
+
+
+def detect_model_branch(code: str) -> str | None:
+    match = _MODEL_BRANCH_PARAM_PATTERN.search(code or "")
+    if not match:
+        return None
+    return _canonical_branch_name(match.group(1))
 
 
 def detect_framework(code: str) -> str:
@@ -405,7 +424,59 @@ def detect_requires_gpu(code: str) -> bool:
     return False
 
 
+def _canonical_branch_name(value: str | None) -> str | None:
+    cleaned = _clean_model_key(value)
+    if not cleaned:
+        return None
+    normalized = cleaned.lower().replace(":", "-").replace("/", "-")
+    normalized = re.sub(r"[_-]+", "-", normalized)
+    compact = normalized.replace("-", "_")
+    resnet = re.search(r"(?:^|_)resnet_?(\d+)(?:d|v\d+|_[a-z0-9]+)?(?:_|$)", compact)
+    if resnet:
+        return f"resnet{resnet.group(1)}"
+    efficientnet = re.search(r"(?:^|_)efficientnet[_-]?([a-z]\d+)", compact)
+    if efficientnet:
+        return f"efficientnet-{efficientnet.group(1)}"
+    convnext = re.search(r"(?:^|_)convnext[_-]?([a-z]+)", compact)
+    if convnext:
+        return f"convnext-{convnext.group(1)}"
+    swin = re.search(r"(?:^|_)swin[_-]?([a-z0-9]+)", compact)
+    if swin:
+        return f"swin-{swin.group(1)}"
+    vit = re.search(r"(?:^|_)(?:vit|vision-transformer)[_-]?([a-z0-9]+)?", compact)
+    if vit:
+        suffix = vit.group(1)
+        return f"vit-{suffix}" if suffix else "vit"
+    return normalized or None
+
+
+def infer_branch_name(model_key: str | None, code: str = "") -> str | None:
+    text = f"{model_key or ''} {code or ''}"
+    branch = _canonical_branch_name(model_key)
+    if branch:
+        return branch
+    for pattern in (
+        r"timm\.create_model\(\s*['\"]([^'\"]+)['\"]",
+        r"\.from_pretrained\(\s*['\"]([^'\"]+)['\"]",
+        r"torch\.hub\.load\([^,]+,\s*['\"]([^'\"]+)['\"]",
+        r"\b(resnet\d+[a-z]?(?:[_-]v\d+|[_-][a-z0-9]+)?)\b",
+        r"\b(efficientnet[_-]?[a-z]\d+)\b",
+        r"\b(convnext[_-]?[a-z]+)\b",
+        r"\b(swin[_-]?[a-z0-9]+)\b",
+        r"\b(vit[_-]?[a-z0-9]+)\b",
+    ):
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            branch = _canonical_branch_name(match.group(1))
+            if branch:
+                return branch
+    return None
+
+
 def infer_model_family(model_key: str | None, code: str = "") -> str | None:
+    branch = infer_branch_name(model_key, code)
+    if branch:
+        return branch
     text = f"{model_key or ''} {code or ''}".lower()
     if any(token in text for token in ("vit", "swin", "deit", "transformer", "bert", "roberta", "llama", "gpt")):
         return "transformer"
@@ -423,20 +494,29 @@ def infer_model_family(model_key: str | None, code: str = "") -> str | None:
 def introspect_training_script(code: str) -> dict[str, Any]:
     """Extract scheduler/MCP candidate hints from generated code."""
     code = code or ""
+    explicit_branch_name = detect_model_branch(code)
     explicit_model_family = detect_model_family(code)
     model_key = detect_model_key(code)
-    if explicit_model_family and not model_key:
-        model_key = explicit_model_family
-    inferred_model_family = infer_model_family(model_key, code)
-    model_family = explicit_model_family or inferred_model_family
-    model_family_source = "explicit" if explicit_model_family else ("inferred" if inferred_model_family else None)
-    if not explicit_model_family and inferred_model_family:
+    if (explicit_branch_name or explicit_model_family) and not model_key:
+        model_key = explicit_branch_name or explicit_model_family
+    inferred_branch_name = infer_branch_name(model_key, code)
+    branch_name = explicit_branch_name or _canonical_branch_name(explicit_model_family) or inferred_branch_name
+    branch_name_source = (
+        "explicit_model_branch"
+        if explicit_branch_name
+        else ("model_family_alias" if explicit_model_family else ("inferred" if inferred_branch_name else None))
+    )
+    model_family = branch_name
+    model_family_source = branch_name_source
+    if not explicit_branch_name and not explicit_model_family and inferred_branch_name:
         logger.warning(
-            "Generated script is missing MODEL_FAMILY; inferred legacy model_family=%s from model key/code.",
-            inferred_model_family,
+            "Generated script is missing MODEL_BRANCH; inferred branch_name=%s from model key/code.",
+            inferred_branch_name,
         )
     candidate: dict[str, Any] = {
         "model_key": model_key,
+        "branch_name": branch_name,
+        "branch_name_source": branch_name_source,
         "model_family": model_family,
         "model_family_source": model_family_source,
         "proposed_batch_size": detect_initial_batch_size(code),

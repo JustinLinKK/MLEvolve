@@ -110,7 +110,9 @@ agent:
     api_key: "your-openrouter-api-key"
 ```
 
-OpenRouter embedding ingestion is configured in the same local file under `scheduler.settings.hardware_feature_db` with `embedding_model_type`, `embedding_model_name`, `embedding_dimension`, and `embedding_api_key_env`. Other tunable fields (`agent.steps`, `agent.time_limit`, etc.) have sensible defaults in `config.example.yaml`.
+Hardware knowledge graph settings live under `hardware_knowledge.settings`.
+Other tunable fields (`agent.steps`, `agent.time_limit`, etc.) have sensible
+defaults in `config.example.yaml`.
 
 If `agent.use_global_memory: True`, you must also set `agent.memory_embedding_model_path` to a valid HuggingFace embedding model name or local model path. Set `agent.memory_embedding_device` to `cpu` if CUDA is unavailable.
 

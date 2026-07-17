@@ -61,9 +61,6 @@ def _make_runtime(tmp_path: Path) -> Path:
             "cuda_process": {"enabled": False},
             "mps": {"enabled": False},
         },
-        graph_db={"enabled": False, "mode": "off"},
-        hardware_feature_db={"enabled": False},
-        hardware_knowledge_graph={"enabled": False},
         log_db={"enabled": False},
         redis_cache={"enabled": False},
     )
@@ -161,7 +158,6 @@ def test_extract_fixture_resets_jobs_and_marks_final_cleanup(tmp_path: Path) -> 
     assert job1["config"]["runner_kwargs"]["script_path"].endswith("candidate.py")
     assert job1["batch_probe"]["enabled"] is True
     assert job1["packing"]["signature"] == "sig-job-1"
-    assert settings["graph_db"]["enabled"] is False
     assert settings["log_db"]["enabled"] is False
 
 
@@ -440,7 +436,7 @@ def test_validate_fixture_writes_clean_known_good_fixture(tmp_path: Path) -> Non
     assert baseline["job_count"] == 1
     assert baseline["submit_count"] == 1
     assert baseline["cancel_count"] == 0
-    assert settings["graph_db"]["enabled"] is False
+    assert settings.get("branch_profile_db_path") in (None, "db/branch_profile.sqlite3")
 
 
 def test_materialize_replay_sources_rewrites_fixtures_and_validates_smoke(tmp_path: Path) -> None:
@@ -476,9 +472,6 @@ def test_materialize_replay_sources_rewrites_fixtures_and_validates_smoke(tmp_pa
 
     settings = SchedulerSettings(
         runtime_root=tmp_path / "runtime",
-        graph_db={"enabled": False, "mode": "off"},
-        hardware_feature_db={"enabled": False},
-        hardware_knowledge_graph={"enabled": False},
         log_db={"enabled": False},
         redis_cache={"enabled": False},
     )
@@ -754,9 +747,6 @@ def test_scheduler_stop_terminates_raw_script_child_tree(tmp_path: Path) -> None
             "cuda_process": {"enabled": False},
             "mps": {"enabled": False},
         },
-        graph_db={"enabled": False, "mode": "off"},
-        hardware_feature_db={"enabled": False},
-        hardware_knowledge_graph={"enabled": False},
         log_db={"enabled": False},
         redis_cache={"enabled": False},
     )

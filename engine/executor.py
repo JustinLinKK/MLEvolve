@@ -124,6 +124,9 @@ class _PreparedSchedulerJob:
     detected_batch_size: int | None
     proposed_epochs: int | None
     model_key: str | None
+    branch_name: str | None
+    branch_name_source: str | None
+    branch_profile_key: str | None
     model_family: str | None
     model_family_source: str | None
     model_family_profile_key: str | None
@@ -458,7 +461,7 @@ class Interpreter:
     def _batch_from_model_family_profile(self, profile: Any | None, detected_batch_size: int | None) -> tuple[int | None, str | None]:
         adjusted, source = self._batch_from_startpoint_profile(profile, detected_batch_size)
         if source == "startpoint_profile":
-            source = "model_family_profile"
+            source = "branch_profile"
         return adjusted, source
 
     def _script_shape_hints(self, *, script_metadata: dict[str, Any], task_id: str, script_signature: str) -> dict[str, Any]:
@@ -478,7 +481,11 @@ class Interpreter:
         ):
             if script_metadata.get(key) is not None:
                 hints[key] = script_metadata[key]
-        if script_metadata.get("model_family"):
+        if script_metadata.get("branch_name"):
+            hints["branch_name"] = script_metadata["branch_name"]
+            hints["model_family"] = script_metadata["branch_name"]
+        elif script_metadata.get("model_family"):
+            hints["branch_name"] = script_metadata["model_family"]
             hints["model_family"] = script_metadata["model_family"]
         return hints
 
@@ -497,7 +504,7 @@ class Interpreter:
         node_id: str,
         start_time: float,
     ) -> tuple[str | None, Any | None]:
-        from localml_scheduler.adapters.mlevolve import build_model_family_probe_job, build_model_family_profile_key, normalize_model_family
+        from localml_scheduler.adapters.mlevolve import build_branch_profile_key, build_model_family_probe_job, normalize_branch_name
 
         if self.scheduler_client is None or not model_family:
             return None, None
@@ -505,8 +512,8 @@ class Interpreter:
         gpu_settings = settings.gpu_scheduler
         if not bool(getattr(gpu_settings, "model_family_probe_enabled", True)):
             return None, None
-        normalized_family = normalize_model_family(model_family)
-        profile_key = build_model_family_profile_key(task_id=task_id, model_family=normalized_family)
+        normalized_family = normalize_branch_name(model_family)
+        profile_key = build_branch_profile_key(normalized_family)
         existing = self._batch_probe_profile(profile_key)
         if existing is not None:
             return profile_key, existing
@@ -533,13 +540,15 @@ class Interpreter:
             job_id=submitted.job_id,
             stage="execution",
             payload={
+                "branch_name": normalized_family,
+                "branch_profile_key": profile_key,
                 "model_family": normalized_family,
                 "profile_key": profile_key,
                 "task_id": task_id,
             },
         )
         logger.info(
-            "Submitted exclusive model-family probe %s for family=%s node=%s",
+            "Submitted exclusive branch probe %s for branch=%s node=%s",
             submitted.job_id,
             normalized_family,
             node_id,
@@ -560,6 +569,8 @@ class Interpreter:
                     job_id=submitted.job_id,
                     stage="execution",
                     payload={
+                        "branch_name": normalized_family,
+                        "branch_profile_key": profile_key,
                         "model_family": normalized_family,
                         "profile_key": profile_key,
                         "status": "profile_ready",
@@ -578,7 +589,7 @@ class Interpreter:
         status = getattr(getattr(final_job, "status", None), "value", None) or str(getattr(final_job, "status", "unknown"))
         reason = getattr(final_job, "status_reason", None) or "profile was not created"
         raise _ModelFamilyProbeError(
-            f"family={normalized_family} profile_key={profile_key} probe_job={submitted.job_id} status={status}: {reason}",
+            f"branch={normalized_family} profile_key={profile_key} probe_job={submitted.job_id} status={status}: {reason}",
             node_id=node_id,
             start_time=start_time,
         )
@@ -599,9 +610,9 @@ class Interpreter:
     ) -> tuple[Any, dict[str, Any]]:
         from localml_scheduler.domain import BatchProbeSpec
 
-        from localml_scheduler.adapters.mlevolve import build_model_family_shape_signature, normalize_model_family
+        from localml_scheduler.adapters.mlevolve import build_branch_shape_signature, normalize_branch_name
 
-        normalized_family = normalize_model_family(model_family) if model_family else None
+        normalized_family = normalize_branch_name(model_family) if model_family else None
         profile = self._batch_probe_profile(model_family_profile_key) if model_family_profile_key else None
         if detected_batch_size is not None:
             runner_kwargs["batch_size"] = detected_batch_size
@@ -611,9 +622,8 @@ class Interpreter:
             )
 
         if normalized_family and model_family_profile_key:
-            shape_signature = build_model_family_shape_signature(
-                task_id=task_id,
-                model_family=normalized_family,
+            shape_signature = build_branch_shape_signature(
+                branch_name=normalized_family,
                 shape_hints=shape_hints,
             )
             batch_probe = BatchProbeSpec(
@@ -628,6 +638,11 @@ class Interpreter:
                 reuse_only=profile is not None,
             )
             metadata = {
+                "branch_name": normalized_family,
+                "branch_profile_key": model_family_profile_key,
+                "branch_shape_signature": shape_signature,
+                "branch_reuse_only": profile is not None,
+                "branch_profile_available": profile is not None,
                 "model_family": normalized_family,
                 "model_family_profile_key": model_family_profile_key,
                 "model_family_shape_signature": shape_signature,
@@ -647,7 +662,11 @@ class Interpreter:
                     "script_signature": script_signature,
                 },
             )
-            metadata = {"model_family_reuse_only": False, "startpoint_reuse_only": False}
+            metadata = {
+                "branch_reuse_only": False,
+                "model_family_reuse_only": False,
+                "startpoint_reuse_only": False,
+            }
 
         return batch_probe, metadata
 
@@ -865,6 +884,9 @@ class Interpreter:
                         "node_id": node_id,
                         "node_context": item.get("node") or item.get("node_context"),
                         "branch_id": item.get("branch_id"),
+                        "branch_name": item.get("branch_name") or item.get("model_family"),
+                        "branch_profile_key": item.get("branch_profile_key") or item.get("active_profile_key"),
+                        "parent_branch_name": item.get("parent_branch_name") or item.get("parent_model_family"),
                         "model_family": item.get("model_family"),
                         "active_profile_key": item.get("active_profile_key"),
                         "parent_model_family": item.get("parent_model_family"),
@@ -927,11 +949,11 @@ class Interpreter:
                             id=item["node_id"],
                             working_dir=working_dir,
                             process_id=process_id,
-                            node_context=item.get("node_context"),
-                            branch_id=item.get("branch_id"),
-                            model_family_hint=item.get("model_family"),
-                            active_profile_key=item.get("active_profile_key"),
-                            parent_model_family=item.get("parent_model_family"),
+	                            node_context=item.get("node_context"),
+	                            branch_id=item.get("branch_id"),
+	                            model_family_hint=item.get("branch_name") or item.get("model_family"),
+	                            active_profile_key=item.get("branch_profile_key") or item.get("active_profile_key"),
+	                            parent_model_family=item.get("parent_branch_name") or item.get("parent_model_family"),
                         )
                     )
                 except _ModelFamilyProbeError as exc:
@@ -1250,7 +1272,7 @@ class Interpreter:
         active_profile_key: str | None = None,
         parent_model_family: str | None = None,
     ) -> _PreparedSchedulerJob:
-        from localml_scheduler.adapters.mlevolve import build_mlevolve_job, build_model_family_profile_key, normalize_model_family
+        from localml_scheduler.adapters.mlevolve import build_branch_profile_key, build_mlevolve_job, normalize_branch_name
         from localml_scheduler.domain import PreloadSource, ResourceRequirements, RuntimeProbeSpec
 
         start_time = time.time()
@@ -1271,10 +1293,25 @@ class Interpreter:
         detected_batch_size = script_metadata.get("proposed_batch_size") or _detect_initial_batch_size(signature_code)
         proposed_epochs = script_metadata.get("proposed_epochs")
         model_key = script_metadata.get("model_key")
-        model_family = script_metadata.get("model_family") or model_family_hint or getattr(node_context, "model_family", None)
-        model_family_source = script_metadata.get("model_family_source") or ("node_context" if model_family_hint or getattr(node_context, "model_family", None) else None)
+        branch_name = (
+            script_metadata.get("branch_name")
+            or model_family_hint
+            or getattr(node_context, "branch_name", None)
+            or getattr(node_context, "model_family", None)
+        )
+        branch_name = normalize_branch_name(branch_name) if branch_name else None
+        branch_name_source = script_metadata.get("branch_name_source") or (
+            "node_context" if model_family_hint or getattr(node_context, "branch_name", None) or getattr(node_context, "model_family", None) else None
+        )
+        model_family = branch_name
+        model_family_source = branch_name_source
         branch_id = branch_id if branch_id is not None else getattr(node_context, "branch_id", None)
-        parent_model_family = parent_model_family if parent_model_family is not None else getattr(getattr(node_context, "parent", None), "model_family", None)
+        parent_branch_name = parent_model_family if parent_model_family is not None else (
+            getattr(getattr(node_context, "parent", None), "branch_name", None)
+            or getattr(getattr(node_context, "parent", None), "model_family", None)
+        )
+        parent_branch_name = normalize_branch_name(parent_branch_name) if parent_branch_name else None
+        parent_model_family = parent_branch_name
         input_resolution = script_metadata.get("input_resolution")
         fold_count = script_metadata.get("fold_count")
         ensemble_count = script_metadata.get("ensemble_count")
@@ -1298,9 +1335,12 @@ class Interpreter:
                 "detected_batch_size": detected_batch_size,
                 "proposed_epochs": proposed_epochs,
                 "model_key": model_key,
+                "branch_name": branch_name,
+                "branch_name_source": branch_name_source,
                 "model_family": model_family,
                 "model_family_source": model_family_source,
                 "branch_id": branch_id,
+                "parent_branch_name": parent_branch_name,
                 "parent_model_family": parent_model_family,
                 "input_resolution": input_resolution,
                 "fold_count": fold_count,
@@ -1339,14 +1379,17 @@ class Interpreter:
             task_id=task_id,
             script_signature=script_signature,
         )
-        if model_family:
-            script_shape_hints["model_family"] = model_family
-        model_family_profile_key = active_profile_key
-        normalized_family = normalize_model_family(model_family) if model_family else None
+        if branch_name:
+            script_shape_hints["branch_name"] = branch_name
+            script_shape_hints["model_family"] = branch_name
+        branch_profile_key = active_profile_key or getattr(node_context, "branch_profile_key", None)
+        model_family_profile_key = branch_profile_key
+        normalized_family = normalize_branch_name(branch_name) if branch_name else None
         model_family_profile = self._batch_probe_profile(model_family_profile_key) if model_family_profile_key else None
         if normalized_family and model_family_profile is None:
-            candidate_profile_key = build_model_family_profile_key(task_id=task_id, model_family=normalized_family)
+            candidate_profile_key = build_branch_profile_key(normalized_family)
             model_family_profile_key = candidate_profile_key
+            branch_profile_key = candidate_profile_key
             model_family_profile = self._batch_probe_profile(candidate_profile_key)
         batch_probe, batch_probe_metadata = self._build_scheduler_batch_probe(
             submission_defaults=submission_defaults,
@@ -1382,10 +1425,14 @@ class Interpreter:
             "proposed_batch_size": detected_batch_size,
             "proposed_epochs": proposed_epochs,
             "model_key": model_key,
+            "branch_name": branch_name,
+            "branch_name_source": branch_name_source,
+            "branch_profile_key": branch_profile_key,
             "model_family": model_family,
             "model_family_source": model_family_source,
             "model_family_profile_key": model_family_profile_key,
             "branch_id": branch_id,
+            "parent_branch_name": parent_branch_name,
             "parent_model_family": parent_model_family,
             "architecture_switch": bool(parent_model_family and model_family and str(parent_model_family) != str(model_family)),
             "input_resolution": input_resolution,
@@ -1419,7 +1466,7 @@ class Interpreter:
             batch_probe=batch_probe,
             runtime_probe=runtime_probe,
             resource_requirements=resource_requirements,
-            packing_family=model_family or submission_defaults.packing_family,
+            packing_family=branch_name or submission_defaults.packing_family,
             packing_signature=script_signature,
             packing_eligible=packing_eligible,
             packing_max_slowdown_ratio=submission_defaults.packing_max_slowdown_ratio,
@@ -1429,9 +1476,11 @@ class Interpreter:
         )
         if node_context is not None:
             try:
-                if model_family:
-                    node_context.model_family = model_family
+                if branch_name:
+                    node_context.branch_name = branch_name
+                    node_context.model_family = branch_name
                 if model_family_profile is not None and model_family_profile_key:
+                    node_context.branch_profile_key = model_family_profile_key
                     node_context.active_profile_key = model_family_profile_key
             except Exception:
                 pass
@@ -1447,6 +1496,9 @@ class Interpreter:
             detected_batch_size=detected_batch_size,
             proposed_epochs=proposed_epochs,
             model_key=model_key,
+            branch_name=branch_name,
+            branch_name_source=branch_name_source,
+            branch_profile_key=branch_profile_key,
             model_family=model_family,
             model_family_source=model_family_source,
             model_family_profile_key=model_family_profile_key,
@@ -1643,8 +1695,12 @@ class Interpreter:
                         "id": id,
                         "node": node_context,
                         "branch_id": getattr(node_context, "branch_id", None),
-                        "model_family": getattr(node_context, "model_family", None),
-                        "active_profile_key": getattr(node_context, "active_profile_key", None),
+                        "branch_name": getattr(node_context, "branch_name", None) or getattr(node_context, "model_family", None),
+                        "branch_profile_key": getattr(node_context, "branch_profile_key", None) or getattr(node_context, "active_profile_key", None),
+                        "parent_branch_name": getattr(getattr(node_context, "parent", None), "branch_name", None)
+                        or getattr(getattr(node_context, "parent", None), "model_family", None),
+	                        "model_family": getattr(node_context, "model_family", None),
+	                        "active_profile_key": getattr(node_context, "active_profile_key", None),
                         "parent_model_family": getattr(getattr(node_context, "parent", None), "model_family", None),
                     }
                 ],

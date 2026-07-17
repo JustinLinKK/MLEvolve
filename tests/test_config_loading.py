@@ -9,6 +9,7 @@ import yaml
 
 import config as mle_config
 from localml_scheduler.config import SchedulerConfig
+from localml_scheduler.hardware_knowledge import HardwareKnowledgeSettings
 from localml_scheduler.hardware_knowledge.store import HardwareKnowledgeGraphStore
 from run import _hardware_knowledge_settings_from_cfg, _scheduler_settings_from_cfg
 
@@ -45,7 +46,6 @@ def _write_config(path: Path, *, marker: str, scheduler_runtime: str = "./runtim
             "settings": {
                 "runtime_root": scheduler_runtime,
                 "cache_socket_name": f"{marker}.sock",
-                "graph_db": {"enabled": False, "mode": "off"},
             },
         },
         "agent": {
@@ -168,7 +168,6 @@ def test_scheduler_settings_prefer_nested_config(tmp_path: Path) -> None:
         settings={
             "runtime_root": "./ignored-by-bridge",
             "cache_socket_name": "nested.sock",
-            "graph_db": {"enabled": False, "mode": "off"},
         },
         settings_path=None,
     )
@@ -185,15 +184,13 @@ def test_hardware_knowledge_settings_prefer_root_config(tmp_path: Path) -> None:
         hardware_knowledge=SimpleNamespace(
             settings={
                 "runtime_root": str(tmp_path / "hardware-runtime"),
-                "cache_socket_name": "hardware.sock",
-                "graph_db": {"enabled": False, "mode": "off"},
+                "graph": {"enabled": True, "uri": "bolt://hardware-root:7687"},
             }
         ),
         scheduler=SimpleNamespace(
             settings={
                 "runtime_root": str(tmp_path / "scheduler-runtime"),
                 "cache_socket_name": "scheduler.sock",
-                "graph_db": {"enabled": False, "mode": "off"},
             },
             settings_path=None,
         ),
@@ -201,14 +198,13 @@ def test_hardware_knowledge_settings_prefer_root_config(tmp_path: Path) -> None:
 
     settings = _hardware_knowledge_settings_from_cfg(cfg)
 
-    assert settings.cache_socket_name == "hardware.sock"
     assert settings.runtime_root == (tmp_path / "hardware-runtime").resolve()
-    assert settings.graph_db.enabled is False
-    assert settings.graph_db.mode == "off"
-    assert settings.hardware_knowledge_graph.enabled is False
+    assert settings.graph.enabled is True
+    assert settings.graph.uri == "bolt://hardware-root:7687"
+    assert settings.branch_profile_db_path == (tmp_path / "workspace" / "scheduler_runtime" / "db" / "branch_profile.sqlite3").resolve()
 
 
-def test_hardware_knowledge_settings_do_not_inherit_scheduler_graph_db(tmp_path: Path) -> None:
+def test_hardware_knowledge_settings_do_not_inherit_scheduler_storage(tmp_path: Path) -> None:
     cfg = SimpleNamespace(
         workspace_dir=tmp_path / "workspace",
         hardware_knowledge=SimpleNamespace(settings=None),
@@ -216,11 +212,6 @@ def test_hardware_knowledge_settings_do_not_inherit_scheduler_graph_db(tmp_path:
             settings={
                 "runtime_root": str(tmp_path / "scheduler-runtime"),
                 "cache_socket_name": "scheduler.sock",
-                "graph_db": {
-                    "enabled": True,
-                    "mode": "primary",
-                    "uri": "bolt://127.0.0.1:7687",
-                },
             },
             settings_path=None,
         ),
@@ -228,10 +219,9 @@ def test_hardware_knowledge_settings_do_not_inherit_scheduler_graph_db(tmp_path:
 
     settings = _hardware_knowledge_settings_from_cfg(cfg)
 
-    assert settings.cache_socket_name == "scheduler.sock"
-    assert settings.graph_db.enabled is False
-    assert settings.graph_db.mode == "off"
-    assert settings.hardware_knowledge_graph.enabled is False
+    assert settings.runtime_root == (tmp_path / "workspace" / "hardware_knowledge_runtime").resolve()
+    assert settings.graph.uri == "bolt://127.0.0.1:7688"
+    assert settings.branch_profile_db_path == (tmp_path / "workspace" / "scheduler_runtime" / "db" / "branch_profile.sqlite3").resolve()
 
 
 def test_hardware_knowledge_settings_preserve_explicit_hardware_graph(tmp_path: Path) -> None:
@@ -240,8 +230,7 @@ def test_hardware_knowledge_settings_preserve_explicit_hardware_graph(tmp_path: 
         hardware_knowledge=SimpleNamespace(
             settings={
                 "runtime_root": str(tmp_path / "hardware-runtime"),
-                "graph_db": {"enabled": True, "mode": "primary"},
-                "hardware_knowledge_graph": {
+                "graph": {
                     "enabled": True,
                     "uri": "bolt://hardware-neo4j:7687",
                 },
@@ -252,10 +241,8 @@ def test_hardware_knowledge_settings_preserve_explicit_hardware_graph(tmp_path: 
 
     settings = _hardware_knowledge_settings_from_cfg(cfg)
 
-    assert settings.graph_db.enabled is False
-    assert settings.graph_db.mode == "off"
-    assert settings.hardware_knowledge_graph.enabled is True
-    assert settings.hardware_knowledge_graph.uri == "bolt://hardware-neo4j:7687"
+    assert settings.graph.enabled is True
+    assert settings.graph.uri == "bolt://hardware-neo4j:7687"
 
 
 def test_scheduler_disabled_keeps_hardware_knowledge_in_hardware_aware_mode(monkeypatch, tmp_path: Path) -> None:
@@ -289,7 +276,6 @@ def test_scheduler_config_accepts_redis_cache_settings(tmp_path: Path) -> None:
                 "ttl_seconds": 120,
                 "max_entries": 32,
                 "cache_graph_queries": True,
-                "cache_vector_queries": False,
             },
         }
     )
@@ -298,19 +284,18 @@ def test_scheduler_config_accepts_redis_cache_settings(tmp_path: Path) -> None:
     assert settings.redis_cache.url == "redis://cache:6379/1"
     assert settings.redis_cache.ttl_seconds == 120
     assert settings.redis_cache.max_entries == 32
-    assert settings.to_dict()["redis_cache"]["cache_vector_queries"] is False
 
 
 def test_scheduler_and_hardware_graph_configs_are_decoupled(tmp_path: Path) -> None:
-    settings = SchedulerConfig.from_dict(
+    scheduler_settings = SchedulerConfig.from_dict(
         {
             "runtime_root": str(tmp_path / "runtime"),
-            "graph_db": {
-                "enabled": True,
-                "uri": "bolt://profile-neo4j:7687",
-                "password_env": "LOCALML_SCHEDULER_NEO4J_PASSWORD",
-            },
-            "hardware_knowledge_graph": {
+        }
+    )
+    hardware_settings = HardwareKnowledgeSettings.from_dict(
+        {
+            "runtime_root": str(tmp_path / "hardware-runtime"),
+            "graph": {
                 "enabled": True,
                 "uri": "bolt://hardware-neo4j:7687",
                 "password_env": "LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD",
@@ -318,19 +303,16 @@ def test_scheduler_and_hardware_graph_configs_are_decoupled(tmp_path: Path) -> N
         }
     )
 
-    assert settings.graph_db.uri == "bolt://profile-neo4j:7687"
-    assert settings.hardware_knowledge_graph.uri == "bolt://hardware-neo4j:7687"
-    assert settings.hardware_knowledge_graph.password_env == "LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD"
-    assert HardwareKnowledgeGraphStore(settings, driver=object()).config.uri == "bolt://hardware-neo4j:7687"
+    assert scheduler_settings.branch_profile_db_path.name == "branch_profile.sqlite3"
+    assert hardware_settings.graph.uri == "bolt://hardware-neo4j:7687"
+    assert hardware_settings.graph.password_env == "LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD"
+    assert HardwareKnowledgeGraphStore(hardware_settings, driver=object()).config.uri == "bolt://hardware-neo4j:7687"
 
 
 def test_local_compose_defines_separate_profile_and_hardware_neo4j_services() -> None:
     compose = yaml.safe_load(Path("docker-compose.local.yml").read_text(encoding="utf-8"))
     services = compose["services"]
 
-    assert "neo4j-profile" in services
     assert "neo4j-hardware" in services
-    assert services["neo4j-profile"]["ports"] == ["${NEO4J_PROFILE_HTTP_PORT:-7474}:7474", "${NEO4J_PROFILE_BOLT_PORT:-7687}:7687"]
     assert services["neo4j-hardware"]["ports"] == ["${NEO4J_HARDWARE_HTTP_PORT:-7475}:7474", "${NEO4J_HARDWARE_BOLT_PORT:-7688}:7687"]
-    assert "neo4j_profile_data" in compose["volumes"]
     assert "neo4j_hardware_data" in compose["volumes"]

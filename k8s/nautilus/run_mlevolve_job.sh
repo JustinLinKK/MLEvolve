@@ -10,9 +10,7 @@ MEMORY_INDEX="${MEMORY_INDEX:-0}"
 START_CPU_ID="${START_CPU_ID:-0}"
 CPU_NUMBER="${CPU_NUMBER:-21}"
 SCHEDULER_RUNTIME_ROOT="${SCHEDULER_RUNTIME_ROOT:-/runtime/localml_scheduler}"
-ENABLE_GRAPH_DB="${ENABLE_GRAPH_DB:-false}"
-GRAPH_DB_URI="${GRAPH_DB_URI:-bolt://neo4j:7687}"
-QDRANT_URL="${QDRANT_URL:-http://qdrant:6333}"
+HARDWARE_GRAPH_URI="${HARDWARE_GRAPH_URI:-bolt://neo4j:7687}"
 if [ -z "${MLEVOLVE_CONFIG:-}" ]; then
     if [ -f "$ROOT/config.yaml" ]; then
         MLEVOLVE_CONFIG="$ROOT/config.yaml"
@@ -93,26 +91,11 @@ RUN_ARGS=(
     "scheduler.settings.gpu_scheduler.submission_defaults.backend_allowlist=[stream,cuda_process]"
     "scheduler.settings.gpu_scheduler.mps.enabled=false"
     "scheduler.settings.gpu_scheduler.stream.enabled=true"
-    "scheduler.settings.hardware_feature_db.url=$QDRANT_URL"
+    "hardware_knowledge.settings.graph.enabled=true"
+    "hardware_knowledge.settings.graph.uri=$HARDWARE_GRAPH_URI"
+    "hardware_knowledge.settings.branch_profile_db_path=$SCHEDULER_RUNTIME_ROOT/db/branch_profile.sqlite3"
     "scheduler.runtime_root=$SCHEDULER_RUNTIME_ROOT"
 )
-
-case "$ENABLE_GRAPH_DB" in
-    true|True|TRUE|1|yes|YES)
-        RUN_ARGS+=(
-            "scheduler.settings.graph_db.enabled=true"
-            "scheduler.settings.graph_db.mode=primary"
-            "scheduler.settings.graph_db.uri=$GRAPH_DB_URI"
-        )
-        ;;
-    *)
-        RUN_ARGS+=(
-            "scheduler.settings.graph_db.enabled=false"
-            "scheduler.settings.graph_db.mode=off"
-            "scheduler.settings.graph_db.uri=$GRAPH_DB_URI"
-        )
-        ;;
-esac
 
 CUDA_VISIBLE_DEVICES="$MEMORY_INDEX" \
 "$PYTHON_BIN" "${RUN_ARGS[@]}"

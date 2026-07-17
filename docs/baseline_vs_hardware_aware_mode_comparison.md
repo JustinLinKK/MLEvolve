@@ -136,8 +136,8 @@ This section can include:
 | Recommendations | Actionable hardware/profile suggestions |
 | Risk flags | OOM, timeout, batch-size, backend, or profile-risk notes |
 | Graph evidence | Runtime profiles, batch probes, solo profiles, packed profiles |
-| Code knowledge | Retrieved recipes, docs, and API guidance from vector search |
-| Evidence refs | Traceable references to graph/vector evidence |
+| Hardware knowledge | Stage-filtered hardware graph features and recommendations |
+| Evidence refs | Traceable references to profile and hardware evidence |
 | Confidence | Aggregate confidence score |
 
 The core rule injected into hardware-aware prompts is:

@@ -405,7 +405,6 @@ def apply_hardware_context_to_node(node: Any, context: HardwarePromptContext | N
     node.hardware_context = compact.get("hardware_context")
     node.graph_evidence = compact.get("graph_evidence")
     node.derived_diagnosis = compact.get("derived_diagnosis")
-    node.vector_evidence = compact.get("vector_evidence")
     node.scheduler_risk_flags = list(compact.get("risk_flags") or [])
     node.scheduler_confidence = float(compact.get("confidence") or 0.0)
     node.hardware_evidence_refs = list(compact.get("evidence_refs") or [])
@@ -983,7 +982,6 @@ def compact_optimization_context(raw_context: dict[str, Any] | None) -> dict[str
         "graph_evidence": _compact_graph_evidence(raw_context.get("graph_evidence") or {}),
         "derived_diagnosis": _compact_diagnosis(raw_context.get("derived_diagnosis") or {}),
         "stage_hardware_features": _compact_stage_hardware_features(raw_context.get("stage_hardware_features") or {}),
-        "vector_evidence": _compact_vector_evidence(raw_context.get("vector_evidence") or {}),
         "recommendations": _clean_string_list(raw_context.get("recommendations") or [], limit=8),
         "risk_flags": _clean_string_list(raw_context.get("risk_flags") or [], limit=8),
         "evidence_refs": _clean_string_list(raw_context.get("evidence_refs") or [], limit=16),
@@ -1294,11 +1292,6 @@ def format_hardware_prompt_section(compact: dict[str, Any], *, max_chars: int = 
     if graph_lines:
         lines.extend(graph_lines)
 
-    vector_evidence = compact.get("vector_evidence") or {}
-    vector_lines = _format_evidence_group("Code knowledge", vector_evidence)
-    if vector_lines:
-        lines.extend(vector_lines)
-
     refs = compact.get("evidence_refs") or []
     if refs:
         lines.append(f"- Evidence refs: {', '.join(refs[:8])}")
@@ -1360,15 +1353,6 @@ def format_hardware_datatype_prompt_section(compact: dict[str, Any], *, max_char
     if risks:
         lines.append("- Precision risk flags:")
         lines.extend(f"  - {item}" for item in risks)
-
-    vector_evidence = _filter_evidence_groups(
-        compact.get("vector_evidence") or {},
-        include_keywords=_PRECISION_KEYWORDS,
-        exclude_keywords=_DATATYPE_EXCLUDE_KEYWORDS,
-    )
-    vector_lines = _format_evidence_group("Precision code knowledge", vector_evidence)
-    if vector_lines:
-        lines.extend(vector_lines)
 
     refs = compact.get("evidence_refs") or []
     if refs:
@@ -1435,15 +1419,6 @@ def format_hardware_training_prompt_section(compact: dict[str, Any], *, max_char
     graph_lines = _format_evidence_group("Training graph evidence", graph_evidence)
     if graph_lines:
         lines.extend(graph_lines)
-
-    vector_evidence = _filter_evidence_groups(
-        compact.get("vector_evidence") or {},
-        include_keywords=_TRAINING_HPARAM_KEYWORDS,
-        exclude_keywords=(),
-    )
-    vector_lines = _format_evidence_group("Training code knowledge", vector_evidence)
-    if vector_lines:
-        lines.extend(vector_lines)
 
     refs = compact.get("evidence_refs") or []
     if refs:
@@ -1790,14 +1765,6 @@ def _compact_stage_hardware_feature(feature: dict[str, Any]) -> dict[str, Any]:
     return shortened
 
 
-def _compact_vector_evidence(vector: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "recipes": [_compact_code_knowledge(item) for item in list(vector.get("recipes") or [])[:2]],
-        "docs": [_compact_code_knowledge(item) for item in list(vector.get("docs") or [])[:2]],
-        "api_symbols": [_compact_code_knowledge(item) for item in list(vector.get("api_symbols") or [])[:2]],
-    }
-
-
 def _compact_hardware_feature_index_item(item: dict[str, Any]) -> dict[str, Any]:
     compact = _pick(
         dict(item),
@@ -1853,27 +1820,6 @@ def _compact_hardware_feature_detail(item: dict[str, Any]) -> dict[str, Any]:
         else:
             shortened[key] = value
     return shortened
-
-
-def _compact_code_knowledge(item: dict[str, Any]) -> dict[str, Any]:
-    compact = _pick(
-        item,
-        (
-            "record_id",
-            "record_type",
-            "title",
-            "summary_text",
-            "api_symbol",
-            "api_symbols",
-            "recommended_patterns",
-            "avoid_patterns",
-            "confidence",
-        ),
-    )
-    for key in ("summary_text", "title"):
-        if key in compact:
-            compact[key] = _short(compact[key], 220)
-    return {key: value for key, value in compact.items() if value not in (None, "", [], {})}
 
 
 def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:

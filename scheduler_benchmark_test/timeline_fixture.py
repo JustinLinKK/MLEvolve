@@ -252,11 +252,15 @@ def _load_replay_settings(runtime_root: Path) -> dict[str, Any]:
     payload.pop("runtime_root", None)
     payload.setdefault("gpu_scheduler", {})
     payload.setdefault("baseline_cache", {})
-    payload["graph_db"] = {**dict(payload.get("graph_db") or {}), "enabled": False, "mode": "off"}
-    payload["hardware_feature_db"] = {**dict(payload.get("hardware_feature_db") or {}), "enabled": False, "embedding_api_key": ""}
-    payload["hardware_knowledge_graph"] = {**dict(payload.get("hardware_knowledge_graph") or {}), "enabled": False}
+    for legacy_key in (
+        "graph" + "_db",
+        "hardware_feature" + "_db",
+        "hardware_knowledge" + "_graph",
+    ):
+        payload.pop(legacy_key, None)
     payload["log_db"] = {**dict(payload.get("log_db") or {}), "enabled": False}
     payload["redis_cache"] = {**dict(payload.get("redis_cache") or {}), "enabled": False}
+    payload["redis_cache"].pop("cache_" + "vector_queries", None)
     payload["baseline_cache"] = {
         **dict(payload.get("baseline_cache") or {}),
         "warm_queue_policy": "budget_only",

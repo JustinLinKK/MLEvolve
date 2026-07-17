@@ -8,13 +8,19 @@ HARDWARE_GRAPH_REPO_ROOT="$(cd "$HARDWARE_GRAPH_SCRIPT_DIR/.." && pwd)"
 
 export PYTHONPATH="$HARDWARE_GRAPH_REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD="${LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD:-test12345}"
-if [[ -z "${HARDWARE_GRAPH_DB_URI:-}" ]]; then
+if [[ -z "${HARDWARE_GRAPH_URI:-}" ]]; then
   if [[ -f /.dockerenv ]]; then
     HARDWARE_GRAPH_ACCESS_HOST="${HARDWARE_GRAPH_ACCESS_HOST:-host.docker.internal}"
   else
     HARDWARE_GRAPH_ACCESS_HOST="${HARDWARE_GRAPH_ACCESS_HOST:-127.0.0.1}"
   fi
-  export HARDWARE_GRAPH_DB_URI="bolt://${HARDWARE_GRAPH_ACCESS_HOST}:${NEO4J_HARDWARE_BOLT_PORT:-7688}"
+  if [[ -n "${HARDWARE_GRAPH_DB_URI:-}" ]]; then
+    export HARDWARE_GRAPH_URI="$HARDWARE_GRAPH_DB_URI"
+  else
+    export HARDWARE_GRAPH_URI="bolt://${HARDWARE_GRAPH_ACCESS_HOST}:${NEO4J_HARDWARE_BOLT_PORT:-7688}"
+  fi
+else
+  export HARDWARE_GRAPH_URI
 fi
 export HARDWARE_NEO4J_USERNAME="${HARDWARE_NEO4J_USERNAME:-neo4j}"
 export HARDWARE_NEO4J_DATABASE="${HARDWARE_NEO4J_DATABASE:-neo4j}"
@@ -71,21 +77,15 @@ source = Path(sys.argv[1])
 target = Path(sys.argv[2])
 data = yaml.safe_load(source.read_text(encoding="utf-8")) or {}
 
-settings = data.setdefault("scheduler", {}).setdefault("settings", {})
+hardware_settings = data.setdefault("hardware_knowledge", {}).setdefault("settings", {})
 
-# Keep these scripts focused on the static hardware knowledge graph. The
-# profile/evidence graph can be unavailable during pre-integration checks.
-graph_db = settings.setdefault("graph_db", {})
-graph_db["enabled"] = False
-graph_db["mode"] = "off"
-
-redis_cache = settings.setdefault("redis_cache", {})
+redis_cache = hardware_settings.setdefault("redis_cache", {})
 redis_cache["enabled"] = False
 
-hardware_graph = settings.setdefault("hardware_knowledge_graph", {})
+hardware_graph = hardware_settings.setdefault("graph", {})
 hardware_graph["enabled"] = True
 hardware_graph["provider"] = "neo4j"
-hardware_graph["uri"] = os.environ["HARDWARE_GRAPH_DB_URI"]
+hardware_graph["uri"] = os.environ["HARDWARE_GRAPH_URI"]
 hardware_graph["username"] = os.environ["HARDWARE_NEO4J_USERNAME"]
 hardware_graph["database"] = os.environ["HARDWARE_NEO4J_DATABASE"]
 hardware_graph["password_env"] = "LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD"
@@ -103,7 +103,7 @@ import os
 
 from neo4j import GraphDatabase
 
-uri = os.environ["HARDWARE_GRAPH_DB_URI"]
+uri = os.environ["HARDWARE_GRAPH_URI"]
 username = os.environ.get("HARDWARE_NEO4J_USERNAME", "")
 password = os.environ.get("LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD", "")
 database = os.environ.get("HARDWARE_NEO4J_DATABASE") or None
@@ -122,13 +122,13 @@ PY
       cat >&2 <<EOF
 Hardware Neo4j did not become reachable within ${max_wait}s.
 
-Tried: $HARDWARE_GRAPH_DB_URI
+Tried: $HARDWARE_GRAPH_URI
 User:  $HARDWARE_NEO4J_USERNAME
 
 Start local databases with:
   ./docker_host_databases.sh up
 
-Or point HARDWARE_GRAPH_DB_URI and LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD at
+Or point HARDWARE_GRAPH_URI and LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD at
 an existing Neo4j instance.
 EOF
       return 1

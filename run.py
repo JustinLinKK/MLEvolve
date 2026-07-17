@@ -6,6 +6,7 @@ import sys
 import shutil
 import time
 import threading
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from engine.agent_search import AgentSearch as Agent
 from engine.executor import Interpreter
@@ -24,6 +25,7 @@ import torch
 from localml_scheduler.client import SchedulerClient
 from localml_scheduler.config import SchedulerSettings
 from localml_scheduler.hardware_client import HardwareKnowledgeClient
+from localml_scheduler.hardware_knowledge import HardwareKnowledgeSettings
 
 
 class SignalShutdown(BaseException):
@@ -59,44 +61,30 @@ def _scheduler_settings_from_cfg(cfg, scheduler_cfg) -> SchedulerSettings:
     return SchedulerSettings(runtime_root=scheduler_runtime_root)
 
 
-def _sanitize_hardware_knowledge_settings(payload: dict) -> dict:
-    """Keep hardware-only knowledge clients from opening implicit Neo4j graphs."""
-    sanitized = dict(payload or {})
-    graph_db = dict(sanitized.get("graph_db") or {})
-    graph_db.update({"enabled": False, "mode": "off"})
-    sanitized["graph_db"] = graph_db
-    if "hardware_knowledge_graph" not in sanitized:
-        sanitized["hardware_knowledge_graph"] = {"enabled": False}
-    return sanitized
-
-
-def _hardware_knowledge_settings_from_cfg(cfg) -> SchedulerSettings:
+def _hardware_knowledge_settings_from_cfg(cfg) -> HardwareKnowledgeSettings:
     hardware_cfg = getattr(cfg, "hardware_knowledge", None)
     nested_settings = getattr(hardware_cfg, "settings", None) if hardware_cfg is not None else None
+    scheduler_cfg = getattr(cfg, "scheduler", None)
+    scheduler_runtime_root = getattr(scheduler_cfg, "runtime_root", None) or str(cfg.workspace_dir / "scheduler_runtime")
+    branch_profile_db_path = str(Path(scheduler_runtime_root).expanduser().resolve() / "db" / "branch_profile.sqlite3")
     if nested_settings:
         payload = OmegaConf.to_container(nested_settings, resolve=True) if not isinstance(nested_settings, dict) else dict(nested_settings)
         if not payload.get("runtime_root"):
             payload["runtime_root"] = str(cfg.workspace_dir / "hardware_knowledge_runtime")
-        payload = _sanitize_hardware_knowledge_settings(payload)
-        return SchedulerSettings.from_dict(payload)
+        if not payload.get("branch_profile_db_path"):
+            payload["branch_profile_db_path"] = branch_profile_db_path
+        return HardwareKnowledgeSettings.from_dict(payload)
 
-    scheduler_cfg = getattr(cfg, "scheduler", None)
-    scheduler_nested = getattr(scheduler_cfg, "settings", None) if scheduler_cfg is not None else None
-    if scheduler_nested:
-        payload = OmegaConf.to_container(scheduler_nested, resolve=True) if not isinstance(scheduler_nested, dict) else dict(scheduler_nested)
-        payload = _sanitize_hardware_knowledge_settings(payload)
-        return SchedulerSettings.from_dict(payload)
-
-    scheduler_settings_path = getattr(scheduler_cfg, "settings_path", None) if scheduler_cfg is not None else None
-    if scheduler_settings_path:
-        payload = OmegaConf.to_container(OmegaConf.load(scheduler_settings_path), resolve=True) or {}
-        return SchedulerSettings.from_dict(_sanitize_hardware_knowledge_settings(payload))
-
-    return SchedulerSettings.from_dict(
-        _sanitize_hardware_knowledge_settings(
-            {"runtime_root": str(cfg.workspace_dir / "hardware_knowledge_runtime")}
-        )
-    )
+    payload = {
+        "runtime_root": str(cfg.workspace_dir / "hardware_knowledge_runtime"),
+        "branch_profile_db_path": branch_profile_db_path,
+    }
+    if hardware_cfg is not None:
+        for key in ("graph", "redis_cache", "device_index", "sqlite_busy_timeout_ms"):
+            value = getattr(hardware_cfg, key, None)
+            if value is not None:
+                payload[key] = OmegaConf.to_container(value, resolve=True) if not isinstance(value, (str, int, float, bool, dict)) else value
+    return HardwareKnowledgeSettings.from_dict(payload)
 
 
 def _submit_startpoint_probe_jobs(
@@ -325,8 +313,11 @@ def run():
                             "id": node_id,
                             "node": node_context,
                             "branch_id": getattr(node_context, "branch_id", None),
+                            "branch_name": getattr(node_context, "branch_name", None) or getattr(node_context, "model_family", None),
                             "model_family": getattr(node_context, "model_family", None),
+                            "branch_profile_key": getattr(node_context, "branch_profile_key", None) or getattr(node_context, "active_profile_key", None),
                             "active_profile_key": getattr(node_context, "active_profile_key", None),
+                            "parent_branch_name": getattr(getattr(node_context, "parent", None), "branch_name", None) or getattr(getattr(node_context, "parent", None), "model_family", None),
                             "parent_model_family": getattr(getattr(node_context, "parent", None), "model_family", None),
                         }
                     ],

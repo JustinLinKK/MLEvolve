@@ -301,15 +301,15 @@ class AgentSearch:
                             logger.info(f"Node {result_node.id} passed code review without changes")
                     try:
                         from engine.script_introspection import introspect_training_script
-                        from localml_scheduler.adapters.mlevolve import build_model_family_profile_key, normalize_model_family
+                        from localml_scheduler.adapters.mlevolve import build_branch_profile_key, normalize_branch_name
 
                         script_metadata = introspect_training_script(result_node.code)
-                        if script_metadata.get("model_family"):
-                            result_node.model_family = normalize_model_family(str(script_metadata["model_family"]))
-                            result_node.active_profile_key = build_model_family_profile_key(
-                                task_id=str(getattr(self.cfg, "exp_id", "mlevolve")),
-                                model_family=result_node.model_family,
-                            )
+                        branch_name = script_metadata.get("branch_name") or script_metadata.get("model_family")
+                        if branch_name:
+                            result_node.branch_name = normalize_branch_name(str(branch_name))
+                            result_node.model_family = result_node.branch_name
+                            result_node.branch_profile_key = build_branch_profile_key(result_node.branch_name)
+                            result_node.active_profile_key = result_node.branch_profile_key
                     except Exception as exc:
                         logger.debug("Skipping node model-family metadata refresh: %s", exc)
 
@@ -541,8 +541,12 @@ class AgentSearch:
                     "id": str(node.id),
                     "node": node,
                     "branch_id": getattr(node, "branch_id", None),
+                    "branch_name": getattr(node, "branch_name", None),
+                    "branch_profile_key": getattr(node, "branch_profile_key", None),
                     "model_family": getattr(node, "model_family", None),
                     "active_profile_key": getattr(node, "active_profile_key", None),
+                    "parent_branch_name": getattr(getattr(node, "parent", None), "branch_name", None)
+                    or getattr(getattr(node, "parent", None), "model_family", None),
                     "parent_model_family": getattr(getattr(node, "parent", None), "model_family", None),
                 }
                 for node in runnable_nodes

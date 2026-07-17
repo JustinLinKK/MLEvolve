@@ -11,12 +11,11 @@ These manifests keep the scheduler compliant with Nautilus-style shared-cluster 
 Database guidance:
 
 - Use the root `config.yaml` or `config.example.yaml` through `MLEVOLVE_CONFIG`; scheduler runtime settings live under `scheduler.settings`.
-- The Nautilus job entrypoint applies cluster-specific overrides through CLI values such as `scheduler.settings.runtime_root`, graph DB mode, backend allowlists, and Qdrant URL.
-- Do not run Docker inside the MLEvolve container. Run databases as normal Kubernetes workloads (`qdrant.yaml` and `neo4j.yaml`) and connect to them through ClusterIP Services.
-- `qdrant.yaml` is the namespace-local vector store for `schema/hardware_feature_records`, `schema/code_doc_chunks`, and `schema/api_symbol_chunks`.
-- `knowledge-ingest-job.yaml` vectorizes the schema folders into Qdrant. It disables graph writes during ingestion so a CPU-only ingest pod does not pollute Neo4j with fake hardware.
-- `neo4j.yaml` is the namespace-local graph evidence store. It can be empty at the start of a run; meaningful job/profile evidence is written by the scheduler after generated training scripts are probed or executed.
-- `postgres-cluster.yaml` targets the Zalando Postgres operator. Create a `scheduler-db-env` Secret with `LOCALML_SCHEDULER_LOG_DSN` and optionally `LOCALML_SCHEDULER_NEO4J_PASSWORD` before enabling the full-stack preset.
+- The Nautilus job entrypoint applies cluster-specific overrides through CLI values such as `scheduler.settings.runtime_root`, backend allowlists, and `hardware_knowledge.settings.graph.uri`.
+- Do not run Docker inside the MLEvolve container. Run the hardware knowledge database as a normal Kubernetes workload (`neo4j.yaml`) and connect to it through a ClusterIP Service.
+- `knowledge-ingest-job.yaml` loads `schema/hardware_knowledge_graph.json` into the hardware Neo4j database.
+- `neo4j.yaml` is the namespace-local hardware knowledge graph store. Scheduler empirical profiles remain in runtime SQLite under `db/branch_profile.sqlite3`.
+- `postgres-cluster.yaml` targets the Zalando Postgres operator. Create a `scheduler-db-env` Secret with `LOCALML_SCHEDULER_LOG_DSN` before enabling the full-stack preset.
 
 Expected PVCs:
 
@@ -33,13 +32,10 @@ Full hardware-aware database flow:
 
 ```bash
 kubectl create secret generic scheduler-db-env \
-  --from-literal=LOCALML_SCHEDULER_NEO4J_PASSWORD=change-me \
-  --from-literal=OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
+  --from-literal=LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD=change-me \
   --dry-run=client -o yaml | kubectl apply -f -
 
-kubectl apply -f k8s/nautilus/qdrant.yaml
 kubectl apply -f k8s/nautilus/neo4j.yaml
-kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=qdrant --timeout=300s
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=neo4j --timeout=300s
 
 kubectl apply -f k8s/nautilus/knowledge-ingest-job.yaml
@@ -48,4 +44,6 @@ kubectl wait --for=condition=complete job/mlevolve-knowledge-ingest --timeout=18
 kubectl apply -f k8s/nautilus/mlevolve-job.yaml
 ```
 
-Keep `neo4j-auth` and `scheduler-db-env` in sync: the password after `neo4j/` in `neo4j-auth.NEO4J_AUTH` must equal `scheduler-db-env.LOCALML_SCHEDULER_NEO4J_PASSWORD`.
+Keep `neo4j-auth` and `scheduler-db-env` in sync: the password after `neo4j/` in
+`neo4j-auth.NEO4J_AUTH` must equal
+`scheduler-db-env.LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD`.

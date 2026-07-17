@@ -87,20 +87,18 @@ def register_node(agent, node: SearchNode, prompt, parent_node=None, new_branch:
             agent.branch_all_nodes[node.branch_id].append(node)
     try:
         from engine.script_introspection import introspect_training_script
-        from localml_scheduler.adapters.mlevolve import build_model_family_profile_key, normalize_model_family
+        from localml_scheduler.adapters.mlevolve import build_branch_profile_key, normalize_branch_name
 
         script_metadata = introspect_training_script(node.code or "")
-        model_family = script_metadata.get("model_family")
-        if model_family is None and parent_node is not None:
-            model_family = getattr(parent_node, "model_family", None)
-        if model_family:
-            normalized_family = normalize_model_family(str(model_family))
-            node.model_family = normalized_family
-            task_id = str(getattr(getattr(agent, "cfg", None), "exp_id", None) or "mlevolve")
-            node.active_profile_key = build_model_family_profile_key(
-                task_id=task_id,
-                model_family=normalized_family,
-            )
+        branch_name = script_metadata.get("branch_name") or script_metadata.get("model_family")
+        if branch_name is None and parent_node is not None:
+            branch_name = getattr(parent_node, "branch_name", None) or getattr(parent_node, "model_family", None)
+        if branch_name:
+            normalized_branch = normalize_branch_name(str(branch_name))
+            node.branch_name = normalized_branch
+            node.model_family = normalized_branch
+            node.branch_profile_key = build_branch_profile_key(normalized_branch)
+            node.active_profile_key = node.branch_profile_key
     except Exception:
         pass
     prompt_text = node.prompt_input or ""
@@ -119,6 +117,8 @@ def register_node(agent, node: SearchNode, prompt, parent_node=None, new_branch:
             "prompt_chars": len(prompt_text),
             "prompt_sha256": hashlib.sha256(prompt_text.encode("utf-8")).hexdigest() if prompt_text else None,
             "parent_node_id": getattr(parent_node or node.parent, "id", None),
+            "branch_name": getattr(node, "branch_name", None),
+            "branch_profile_key": getattr(node, "branch_profile_key", None),
             "model_family": getattr(node, "model_family", None),
             "active_profile_key": getattr(node, "active_profile_key", None),
         }

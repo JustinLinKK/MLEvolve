@@ -74,9 +74,6 @@ def test_mock_early_stop_sample_covers_stop_and_continue_paths() -> None:
 def test_sqlite_metric_samples_and_plot_render(tmp_path: Path) -> None:
     settings = SchedulerSettings(
         runtime_root=tmp_path / "runtime",
-        graph_db={"enabled": False, "mode": "off"},
-        hardware_feature_db={"enabled": False},
-        hardware_knowledge_graph={"enabled": False},
         log_db={"enabled": False},
         redis_cache={"enabled": False},
     )
@@ -128,9 +125,6 @@ def test_scheduler_early_stops_plateauing_toy_job(tmp_path: Path) -> None:
             "cuda_process": {"enabled": False},
             "mps": {"enabled": False},
         },
-        graph_db={"enabled": False, "mode": "off"},
-        hardware_feature_db={"enabled": False},
-        hardware_knowledge_graph={"enabled": False},
         log_db={"enabled": False},
         redis_cache={"enabled": False},
     )

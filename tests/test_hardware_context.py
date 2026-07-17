@@ -59,7 +59,9 @@ with torch.amp.autocast("cuda", dtype=torch.bfloat16):
     assert candidate["ensemble_count"] == 2
     assert candidate["tta_count"] == 3
     assert candidate["model_key"] == "vit_base_patch16_224"
-    assert candidate["model_family"] == "transformer"
+    assert candidate["branch_name"] == "vit-base"
+    assert candidate["branch_name_source"] == "inferred"
+    assert candidate["model_family"] == "vit-base"
     assert candidate["framework"] == "pytorch"
     assert candidate["uses_amp"] is True
     assert candidate["requires_gpu"] is True
@@ -121,8 +123,10 @@ model = build_model()
 
     candidate = introspect_training_script(code)
 
-    assert candidate["model_family"] == "swin_b_384"
-    assert candidate["model_family_source"] == "explicit"
+    assert candidate["branch_name"] == "swin-b"
+    assert candidate["branch_name_source"] == "model_family_alias"
+    assert candidate["model_family"] == "swin-b"
+    assert candidate["model_family_source"] == "model_family_alias"
     assert candidate["model_key"] == "swin_b_384"
 
 
@@ -162,22 +166,12 @@ def test_compact_context_formats_prompt_without_raw_bloat() -> None:
             "profile_symptoms": ["precision_not_optimized"],
             "optimization_targets": ["enable_tensor_core"],
         },
-        "vector_evidence": {
-            "recipes": [
-                {
-                    "record_id": "recipe-1",
-                    "record_type": "optimization_recipe_chunks",
-                    "title": "Use BF16 autocast",
-                    "recommended_patterns": ["Use torch.amp.autocast with bf16."],
-                    "confidence": 0.7,
-                }
-            ],
-            "docs": [],
-            "api_symbols": [],
-        },
-        "recommendations": ["Use graph-recommended physical batch size 16 as the starting point."],
+        "recommendations": [
+            "Use BF16 autocast when the model and loss are stable.",
+            "Use graph-recommended physical batch size 16 as the starting point.",
+        ],
         "risk_flags": ["avoid fixed oversized batch size"],
-        "evidence_refs": ["graph:job:1", "code_knowledge:recipe:1"],
+        "evidence_refs": ["graph:job:1", "hardware_feature:bf16"],
         "confidence": 0.8,
     }
 
@@ -410,32 +404,12 @@ def test_stage_specific_hardware_prompts_split_precision_and_training_focus() ->
             "profile_symptoms": ["precision_not_optimized", "batch_too_small"],
             "optimization_targets": ["enable_tensor_core", "increase_batch_size"],
         },
-        "vector_evidence": {
-            "recipes": [
-                {
-                    "record_id": "amp-recipe",
-                    "record_type": "optimization_recipe_chunks",
-                    "title": "Use BF16 autocast",
-                    "recommended_patterns": ["Use torch.amp.autocast with bf16."],
-                    "confidence": 0.8,
-                },
-                {
-                    "record_id": "batch-recipe",
-                    "record_type": "optimization_recipe_chunks",
-                    "title": "Tune batch size",
-                    "recommended_patterns": ["Use graph-recommended physical batch size 16."],
-                    "confidence": 0.8,
-                },
-            ],
-            "docs": [],
-            "api_symbols": [],
-        },
         "recommendations": [
             "Use torch.amp.autocast with bf16.",
             "Use graph-recommended physical batch size 16 as the starting point.",
         ],
         "risk_flags": ["avoid fixed oversized batch size", "avoid fp16 without GradScaler"],
-        "evidence_refs": ["graph:bf16", "code_knowledge:amp-recipe"],
+        "evidence_refs": ["graph:bf16", "hardware_feature:bf16"],
         "confidence": 0.8,
     }
     compact = compact_optimization_context(raw)
@@ -468,18 +442,6 @@ def test_datatype_prompt_surfaces_transformer_engine_low_precision_without_train
         "derived_diagnosis": {
             "profile_symptoms": ["precision_not_optimized"],
             "optimization_targets": ["enable_tensor_core"],
-        },
-        "vector_evidence": {
-            "recipes": [
-                {
-                    "record_id": "te-fp8",
-                    "title": "Transformer Engine FP8/NVFP4",
-                    "recommended_patterns": [
-                        "Use transformer_engine.pytorch.Linear with te.autocast and an FP8 recipe.",
-                        "Use NVFP4BlockScaling recipe only when the model structure is compatible.",
-                    ],
-                },
-            ],
         },
         "recommendations": [
             "Use Transformer Engine NVFP4BlockScaling recipe and te.autocast for FP8-capable modules.",
@@ -678,7 +640,7 @@ def test_hardware_design_brief_ranks_model_options_without_overriding_constraint
             }
         ],
         "recommendations": ["Prefer tensor-core-friendly shapes when task fit is acceptable."],
-        "evidence_refs": ["code_knowledge:doc:tensor-core"],
+        "evidence_refs": ["hardware_feature:tensor-core"],
         "confidence": 0.8,
     }
 
@@ -1119,7 +1081,7 @@ def test_hardware_design_brief_uses_scheduler_model_design_context() -> None:
                     }
                 ],
                 "recommendations": ["Prefer bf16 autocast."],
-                "evidence_refs": ["code_knowledge:doc:bf16"],
+                "evidence_refs": ["hardware_feature:bf16"],
                 "confidence": 0.7,
             }
 
@@ -1450,7 +1412,6 @@ def test_search_node_hardware_fields_round_trip_in_journal() -> None:
                 "hardware_context": {"found": True, "hardware": {"gpu_name": "RTX Test"}},
                 "graph_evidence": {"exact_profiles": [{"resolved_batch_size": 16}]},
                 "derived_diagnosis": {"profile_symptoms": ["low_sm_utilization"], "optimization_targets": []},
-                "vector_evidence": {"recipes": []},
                 "risk_flags": ["avoid_oom"],
                 "evidence_refs": ["graph:job:1"],
                 "confidence": 0.6,

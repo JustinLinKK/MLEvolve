@@ -122,48 +122,6 @@
       "pack_reject_sm_active_ge": 0.8
     }
   },
-  "graph_db": {
-    "allow_legacy_fallback": true,
-    "auto_import_legacy_sqlite": true,
-    "bootstrap_constraints": true,
-    "database": "neo4j",
-    "enabled": false,
-    "legacy_sqlite_path": "/workspaces/MLEvolve/runs/profile_scheduler_compare_histopathologic-cancer-detection_20260704_212842/scheduler_on/scheduler_runtime/db/scheduler.sqlite3",
-    "mode": "off",
-    "password_env": "LOCALML_SCHEDULER_NEO4J_PASSWORD",
-    "provider": "neo4j",
-    "uri": "bolt://127.0.0.1:7687",
-    "username": "neo4j"
-  },
-  "hardware_feature_db": {
-    "api_key_env": "LOCALML_SCHEDULER_QDRANT_API_KEY",
-    "api_symbol_collection_name": "api_symbol_chunks",
-    "code_doc_collection_name": "code_doc_chunks",
-    "collection_name": "hardware_feature_knowledge",
-    "distance": "Cosine",
-    "embedding_api_key": "",
-    "embedding_api_key_env": "OPENROUTER_API_KEY",
-    "embedding_base_url": "https://openrouter.ai/api/v1",
-    "embedding_batch_size": 32,
-    "embedding_device": "cpu",
-    "embedding_dimension": 4096,
-    "embedding_max_retries": 4,
-    "embedding_model_name": "qwen/qwen3-embedding-8b",
-    "embedding_model_type": "openrouter",
-    "embedding_retry_delay_seconds": 1.0,
-    "enabled": false,
-    "optimization_recipe_collection_name": "optimization_recipe_chunks",
-    "provider": "qdrant",
-    "url": "http://127.0.0.1:6333"
-  },
-  "hardware_knowledge_graph": {
-    "database": "neo4j",
-    "enabled": false,
-    "password_env": "LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD",
-    "provider": "neo4j",
-    "uri": "bolt://127.0.0.1:7688",
-    "username": "neo4j"
-  },
   "log_db": {
     "dsn_env": "LOCALML_SCHEDULER_LOG_DSN",
     "enabled": false,
@@ -174,7 +132,6 @@
   "python_executable": "/opt/conda/bin/python",
   "redis_cache": {
     "cache_graph_queries": true,
-    "cache_vector_queries": true,
     "enabled": false,
     "key_prefix": "localml_scheduler",
     "max_entries": 4096,

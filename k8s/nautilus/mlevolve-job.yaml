@@ -53,7 +53,7 @@ spec:
               set -euo pipefail
               python -m pip install --no-cache-dir \
                 -r requirements_base.txt \
-                qdrant-client neo4j typer pyyaml omegaconf coolname rich shutup flask requests openai google-genai kaggle mlebench
+                neo4j typer pyyaml omegaconf coolname rich shutup flask requests openai google-genai kaggle mlebench
               bash k8s/nautilus/run_mlevolve_job.sh
           env:
             - name: REPO_ROOT
@@ -70,12 +70,8 @@ spec:
               value: /runtime/localml_scheduler
             - name: MLEVOLVE_CONFIG
               value: /workspace/repo/config.example.yaml
-            - name: ENABLE_GRAPH_DB
-              value: "true"
-            - name: GRAPH_DB_URI
+            - name: HARDWARE_GRAPH_URI
               value: bolt://neo4j:7687
-            - name: QDRANT_URL
-              value: http://qdrant:6333
           envFrom:
             - secretRef:
                 name: scheduler-db-env

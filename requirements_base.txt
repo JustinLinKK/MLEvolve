@@ -22,12 +22,11 @@ google-genai>=2.6.0
 openai>=2.38.0
 sentence-transformers>=5.5.1
 
-# Scheduler, graph, vector, and memory backends
+# Scheduler, graph, and memory backends
 faiss-cpu>=1.14.2
 mcp>=1.27.1
 neo4j>=6.2.0
 psycopg[binary]>=3.2.0
-qdrant-client>=1.12,<1.14
 rank-bm25>=0.2.2
 redis==7.4.0
 

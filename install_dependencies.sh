@@ -75,7 +75,6 @@ modules = [
     "openai",
     "pandas",
     "psycopg",
-    "qdrant_client",
     "rank_bm25",
     "redis",
     "requests",

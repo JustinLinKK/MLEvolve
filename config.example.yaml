@@ -36,9 +36,26 @@ hardware_knowledge:
   enabled: true
   include_profile_evidence: true
   probe_timeout_seconds: 10
-  # When null, MLEvolve reuses scheduler.settings for graph/vector DB access
-  # without requiring scheduler.enabled=true.
-  settings: null
+  settings:
+    runtime_root: ./localml_scheduler/hardware_knowledge_runtime
+    # Defaults to scheduler.runtime_root/db/branch_profile.sqlite3 when omitted by run.py.
+    branch_profile_db_path: null
+    graph:
+      enabled: true
+      provider: neo4j
+      uri: bolt://127.0.0.1:7688
+      username: neo4j
+      password_env: LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD
+      database: neo4j
+    redis_cache:
+      enabled: false
+      url: redis://127.0.0.1:6379/0
+      url_env: LOCALML_SCHEDULER_REDIS_URL
+      key_prefix: localml_hardware_knowledge
+      ttl_seconds: 300
+      max_entries: 4096
+      socket_timeout_seconds: 0.2
+      cache_graph_queries: true
 scheduler:
   enabled: true
   runtime_root: null
@@ -65,7 +82,7 @@ scheduler:
     cache_server_host: 127.0.0.1
     cache_server_port: 8765
     cache_socket_name: cache_server.sock
-    # Optional shared Redis LRU cache for graph and vector query results.
+    # Optional shared Redis LRU cache for graph query results.
     redis_cache:
       enabled: false
       url: redis://127.0.0.1:6379/0
@@ -75,50 +92,7 @@ scheduler:
       max_entries: 4096
       socket_timeout_seconds: 0.2
       cache_graph_queries: true
-      cache_vector_queries: true
     auto_resume_recoverable: false
-    # Database 1: local Neo4j scheduler profile/evidence graph store.
-    graph_db:
-      enabled: true
-      mode: primary
-      provider: neo4j
-      uri: bolt://127.0.0.1:7687
-      username: neo4j
-      password_env: LOCALML_SCHEDULER_NEO4J_PASSWORD
-      database: neo4j
-      bootstrap_constraints: true
-      auto_import_legacy_sqlite: true
-      legacy_sqlite_path: null
-      allow_legacy_fallback: true
-    # Database 2: local Neo4j static hardware knowledge graph store.
-    hardware_knowledge_graph:
-      enabled: true
-      provider: neo4j
-      uri: bolt://127.0.0.1:7688
-      username: neo4j
-      password_env: LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD
-      database: neo4j
-    # Database 3: local Qdrant vector/code-knowledge store.
-    hardware_feature_db:
-      enabled: true
-      provider: qdrant
-      url: http://127.0.0.1:6333
-      api_key_env: LOCALML_SCHEDULER_QDRANT_API_KEY
-      collection_name: hardware_feature_knowledge
-      code_doc_collection_name: code_doc_chunks
-      optimization_recipe_collection_name: optimization_recipe_chunks
-      api_symbol_collection_name: api_symbol_chunks
-      embedding_model_type: openrouter
-      embedding_model_name: qwen/qwen3-embedding-8b
-      embedding_dimension: 4096
-      embedding_api_key: ''
-      embedding_api_key_env: OPENROUTER_API_KEY
-      embedding_base_url: https://openrouter.ai/api/v1
-      embedding_batch_size: 32
-      embedding_max_retries: 4
-      embedding_retry_delay_seconds: 1.0
-      embedding_device: cpu
-      distance: Cosine
     log_db:
       provider: postgres
       # Set LOCALML_SCHEDULER_LOG_DSN to a psycopg-compatible DSN, for example:
