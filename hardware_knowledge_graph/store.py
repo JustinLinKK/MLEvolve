@@ -45,7 +45,7 @@ class HardwareKnowledgeGraphStore:
         if self._driver is None:
             if GraphDatabase is None:  # pragma: no cover - exercised only without dependency
                 raise RuntimeError("neo4j python driver is not installed")
-            password = os.getenv(getattr(self.config, "password_env", "LOCALML_SCHEDULER_NEO4J_PASSWORD"), "")
+            password = os.getenv(getattr(self.config, "password_env", "HARDWARE_KNOWLEDGE_NEO4J_PASSWORD"), "")
             username = getattr(self.config, "username", "neo4j")
             auth = (username, password) if username else None
             self._driver = GraphDatabase.driver(getattr(self.config, "uri", "bolt://127.0.0.1:7687"), auth=auth)

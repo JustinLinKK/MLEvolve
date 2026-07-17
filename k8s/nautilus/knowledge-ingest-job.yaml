@@ -64,11 +64,11 @@ spec:
               graph = settings.setdefault("graph", {})
               graph["enabled"] = True
               graph["uri"] = os.environ.get("HARDWARE_GRAPH_URI", "bolt://neo4j:7687")
-              graph["password_env"] = "LOCALML_SCHEDULER_NEO4J_PASSWORD"
+              graph["password_env"] = "HARDWARE_KNOWLEDGE_NEO4J_PASSWORD"
               out = Path("/tmp/mlevolve-ingest-config.yaml")
               out.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
               PY
-              python -m localml_scheduler.cli hardware-knowledge ingest \
+              python -m hardware_knowledge_graph.cli ingest \
                 --config /tmp/mlevolve-ingest-config.yaml \
                 --schema-root schema \
                 --recreate
@@ -81,7 +81,7 @@ spec:
               value: bolt://neo4j:7687
           envFrom:
             - secretRef:
-                name: scheduler-db-env
+                name: hardware-knowledge-env
                 optional: true
           volumeMounts:
             - name: workspace

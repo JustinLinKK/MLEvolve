@@ -10,7 +10,7 @@ NEO4J_HARDWARE_DATA_VOLUME="${NEO4J_HARDWARE_DATA_VOLUME:-mlevolve_neo4j_hardwar
 NEO4J_HARDWARE_LOGS_VOLUME="${NEO4J_HARDWARE_LOGS_VOLUME:-mlevolve_neo4j_hardware_logs}"
 NEO4J_HARDWARE_HTTP_PORT="${NEO4J_HARDWARE_HTTP_PORT:-7475}"
 NEO4J_HARDWARE_BOLT_PORT="${NEO4J_HARDWARE_BOLT_PORT:-7688}"
-LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD="${LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD:-test12345}"
+HARDWARE_KNOWLEDGE_NEO4J_PASSWORD="${HARDWARE_KNOWLEDGE_NEO4J_PASSWORD:-test12345}"
 if [[ -f /.dockerenv ]]; then
   DOCKER_ACCESS_HOST="${DOCKER_ACCESS_HOST:-host.docker.internal}"
 else
@@ -27,7 +27,7 @@ docker-outside-of-docker feature is installed and the container has been rebuilt
 It starts/reuses the independent hardware knowledge Neo4j database.
 
 Environment overrides:
-  LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD  Hardware Neo4j password. Default: test12345
+  HARDWARE_KNOWLEDGE_NEO4J_PASSWORD  Hardware Neo4j password. Default: test12345
   NEO4J_HARDWARE_BOLT_PORT                   Host hardware Neo4j Bolt port. Default: 7688
   NEO4J_HARDWARE_HTTP_PORT                   Host hardware Neo4j HTTP port. Default: 7475
   COMPOSE_PROJECT_NAME                       Compose project name. Default: mlevolve
@@ -72,7 +72,7 @@ start_neo4j_hardware() {
     --restart unless-stopped \
     -p "${NEO4J_HARDWARE_HTTP_PORT}:7474" \
     -p "${NEO4J_HARDWARE_BOLT_PORT}:7687" \
-    -e "NEO4J_AUTH=neo4j/${LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD}" \
+    -e "NEO4J_AUTH=neo4j/${HARDWARE_KNOWLEDGE_NEO4J_PASSWORD}" \
     -v "${NEO4J_HARDWARE_DATA_VOLUME}:/data" \
     -v "${NEO4J_HARDWARE_LOGS_VOLUME}:/logs" \
     "$NEO4J_IMAGE" >/dev/null
@@ -86,12 +86,12 @@ neo4j_cypher() {
   if use_compose; then
     compose_cmd exec -T neo4j-hardware cypher-shell \
       -u neo4j \
-      -p "$LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD" \
+      -p "$HARDWARE_KNOWLEDGE_NEO4J_PASSWORD" \
       "RETURN 1;"
   else
     docker exec "$NEO4J_HARDWARE_CONTAINER" cypher-shell \
       -u neo4j \
-      -p "$LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD" \
+      -p "$HARDWARE_KNOWLEDGE_NEO4J_PASSWORD" \
       "RETURN 1;"
   fi
 }
@@ -128,7 +128,7 @@ Hardware knowledge database is ready.
 
 From inside the devcontainer, run:
 
-  export LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD='${LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD}'
+  export HARDWARE_KNOWLEDGE_NEO4J_PASSWORD='${HARDWARE_KNOWLEDGE_NEO4J_PASSWORD}'
   HARDWARE_GRAPH_URI=bolt://${DOCKER_ACCESS_HOST}:${NEO4J_HARDWARE_BOLT_PORT} \\
   ./bootstrap.sh
 

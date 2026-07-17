@@ -41,8 +41,8 @@ from pathlib import Path
 
 import yaml
 
-from localml_scheduler.config import SchedulerConfig
-from localml_scheduler.hardware_knowledge.store import HardwareKnowledgeGraphStore
+from hardware_knowledge_graph import HardwareKnowledgeSettings
+from hardware_knowledge_graph.store import HardwareKnowledgeGraphStore
 
 config_path, hardware_name = sys.argv[1:3]
 
@@ -70,8 +70,8 @@ def hardware_terms(value: str) -> list[str]:
     return terms
 
 payload = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
-settings_payload = payload.get("scheduler", {}).get("settings", payload)
-settings = SchedulerConfig.from_dict(settings_payload)
+settings_payload = payload.get("hardware_knowledge", {}).get("settings", payload)
+settings = HardwareKnowledgeSettings.from_dict(settings_payload)
 store = HardwareKnowledgeGraphStore(settings)
 try:
     rows = store._query_neighborhood_rows(

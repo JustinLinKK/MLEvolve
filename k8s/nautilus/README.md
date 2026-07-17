@@ -31,8 +31,8 @@ Before applying:
 Full hardware-aware database flow:
 
 ```bash
-kubectl create secret generic scheduler-db-env \
-  --from-literal=LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD=change-me \
+kubectl create secret generic hardware-knowledge-env \
+  --from-literal=HARDWARE_KNOWLEDGE_NEO4J_PASSWORD=change-me \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl apply -f k8s/nautilus/neo4j.yaml
@@ -44,6 +44,6 @@ kubectl wait --for=condition=complete job/mlevolve-knowledge-ingest --timeout=18
 kubectl apply -f k8s/nautilus/mlevolve-job.yaml
 ```
 
-Keep `neo4j-auth` and `scheduler-db-env` in sync: the password after `neo4j/` in
+Keep `neo4j-auth` and `hardware-knowledge-env` in sync: the password after `neo4j/` in
 `neo4j-auth.NEO4J_AUTH` must equal
-`scheduler-db-env.LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD`.
+`hardware-knowledge-env.HARDWARE_KNOWLEDGE_NEO4J_PASSWORD`.

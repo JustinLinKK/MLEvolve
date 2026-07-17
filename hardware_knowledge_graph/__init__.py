@@ -9,12 +9,15 @@ from .records import (
     validate_hardware_spec,
     validate_has_feature,
 )
-from .config import HardwareKnowledgeGraphSettings, HardwareKnowledgeSettings
+from .config import HardwareKnowledgeGraphSettings, HardwareKnowledgeRedisCacheSettings, HardwareKnowledgeSettings
 from .store import HardwareKnowledgeGraphStore
+from .client import HardwareKnowledgeClient
 
 __all__ = [
+    "HardwareKnowledgeClient",
     "HardwareKnowledgeGraphSettings",
     "HardwareKnowledgeSettings",
+    "HardwareKnowledgeRedisCacheSettings",
     "HardwareKnowledgeGraphStore",
     "HardwareKnowledgeRecordError",
     "feature_from_key",

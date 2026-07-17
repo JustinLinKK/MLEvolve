@@ -37,7 +37,7 @@ hardware_knowledge:
   include_profile_evidence: true
   probe_timeout_seconds: 10
   settings:
-    runtime_root: ./localml_scheduler/hardware_knowledge_runtime
+    runtime_root: ./hardware_knowledge_graph/runtime
     # Defaults to scheduler.runtime_root/db/branch_profile.sqlite3 when omitted by run.py.
     branch_profile_db_path: null
     graph:
@@ -45,7 +45,7 @@ hardware_knowledge:
       provider: neo4j
       uri: bolt://127.0.0.1:7688
       username: neo4j
-      password_env: LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD
+      password_env: HARDWARE_KNOWLEDGE_NEO4J_PASSWORD
       database: neo4j
     redis_cache:
       enabled: false

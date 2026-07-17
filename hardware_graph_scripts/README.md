@@ -8,7 +8,7 @@ Default target:
 - Hardware graph DB outside containers: `bolt://127.0.0.1:7688`
 - Hardware graph DB inside devcontainers: `bolt://host.docker.internal:7688`
 - User: `neo4j`
-- Password env: `LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD`
+- Password env: `HARDWARE_KNOWLEDGE_NEO4J_PASSWORD`
 - Default password: `test12345`
 - Default hardware for exact checks: `GeForce RTX 5090`
 

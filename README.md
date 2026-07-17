@@ -110,7 +110,9 @@ agent:
     api_key: "your-openrouter-api-key"
 ```
 
-Hardware knowledge graph settings live under `hardware_knowledge.settings`.
+Hardware knowledge graph settings live under `hardware_knowledge.settings`; the
+graph client/store code lives in the top-level `hardware_knowledge_graph/`
+package, separate from scheduler runtime storage.
 Other tunable fields (`agent.steps`, `agent.time_limit`, etc.) have sensible
 defaults in `config.example.yaml`.
 

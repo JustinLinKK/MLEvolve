@@ -24,7 +24,7 @@ Options:
 
 Environment:
   HARDWARE_GRAPH_DB_URI                         Default: bolt://127.0.0.1:7688
-  LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD    Default: test12345
+  HARDWARE_KNOWLEDGE_NEO4J_PASSWORD    Default: test12345
   HARDWARE_NEO4J_USERNAME                      Default: neo4j
   HARDWARE_NEO4J_DATABASE                      Default: neo4j
   MLEVOLVE_CONFIG                              Optional source config.
@@ -48,7 +48,7 @@ start_hardware_neo4j() {
   if [[ -f "$compose_file" ]] && docker compose version >/dev/null 2>&1; then
     NEO4J_HARDWARE_BOLT_PORT="${NEO4J_HARDWARE_BOLT_PORT:-7688}" \
     NEO4J_HARDWARE_HTTP_PORT="${NEO4J_HARDWARE_HTTP_PORT:-7475}" \
-    LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD="$LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD" \
+    HARDWARE_KNOWLEDGE_NEO4J_PASSWORD="$HARDWARE_KNOWLEDGE_NEO4J_PASSWORD" \
       docker compose -f "$compose_file" -p "$compose_project" up -d neo4j-hardware
     return 0
   fi
@@ -64,7 +64,7 @@ start_hardware_neo4j() {
     --restart unless-stopped \
     -p "${NEO4J_HARDWARE_HTTP_PORT:-7475}:7474" \
     -p "${NEO4J_HARDWARE_BOLT_PORT:-7688}:7687" \
-    -e "NEO4J_AUTH=neo4j/${LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD}" \
+    -e "NEO4J_AUTH=neo4j/${HARDWARE_KNOWLEDGE_NEO4J_PASSWORD}" \
     -v "${NEO4J_HARDWARE_DATA_VOLUME:-mlevolve_neo4j_hardware_data}:/data" \
     -v "${NEO4J_HARDWARE_LOGS_VOLUME:-mlevolve_neo4j_hardware_logs}:/logs" \
     "${NEO4J_IMAGE:-neo4j:5.26}" >/dev/null
@@ -131,7 +131,7 @@ trap cleanup EXIT
 make_hardware_graph_runtime_config "$runtime_config"
 
 ingest_args=(
-  "$HARDWARE_GRAPH_PYTHON" -m localml_scheduler.cli hardware-knowledge ingest
+  "$HARDWARE_GRAPH_PYTHON" -m hardware_knowledge_graph.cli ingest
   --config "$runtime_config"
   --schema-root "$schema_root"
 )
@@ -156,12 +156,12 @@ from pathlib import Path
 
 import yaml
 
-from localml_scheduler.config import SchedulerConfig
-from localml_scheduler.hardware_knowledge.store import HardwareKnowledgeGraphStore
+from hardware_knowledge_graph import HardwareKnowledgeSettings
+from hardware_knowledge_graph.store import HardwareKnowledgeGraphStore
 
 payload = yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8")) or {}
-settings_payload = payload.get("scheduler", {}).get("settings", payload)
-settings = SchedulerConfig.from_dict(settings_payload)
+settings_payload = payload.get("hardware_knowledge", {}).get("settings", payload)
+settings = HardwareKnowledgeSettings.from_dict(settings_payload)
 store = HardwareKnowledgeGraphStore(settings)
 rows = store._run(
     """

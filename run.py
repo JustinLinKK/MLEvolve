@@ -24,8 +24,7 @@ from utils.pipeline_logging import PipelineActionLogger, set_process_pipeline_lo
 import torch
 from localml_scheduler.client import SchedulerClient
 from localml_scheduler.config import SchedulerSettings
-from localml_scheduler.hardware_client import HardwareKnowledgeClient
-from localml_scheduler.hardware_knowledge import HardwareKnowledgeSettings
+from hardware_knowledge_graph import HardwareKnowledgeClient, HardwareKnowledgeSettings
 
 
 class SignalShutdown(BaseException):
@@ -70,13 +69,13 @@ def _hardware_knowledge_settings_from_cfg(cfg) -> HardwareKnowledgeSettings:
     if nested_settings:
         payload = OmegaConf.to_container(nested_settings, resolve=True) if not isinstance(nested_settings, dict) else dict(nested_settings)
         if not payload.get("runtime_root"):
-            payload["runtime_root"] = str(cfg.workspace_dir / "hardware_knowledge_runtime")
+            payload["runtime_root"] = str(cfg.workspace_dir / "hardware_knowledge_graph")
         if not payload.get("branch_profile_db_path"):
             payload["branch_profile_db_path"] = branch_profile_db_path
         return HardwareKnowledgeSettings.from_dict(payload)
 
     payload = {
-        "runtime_root": str(cfg.workspace_dir / "hardware_knowledge_runtime"),
+        "runtime_root": str(cfg.workspace_dir / "hardware_knowledge_graph"),
         "branch_profile_db_path": branch_profile_db_path,
     }
     if hardware_cfg is not None:

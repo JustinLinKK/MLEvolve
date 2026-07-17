@@ -5,9 +5,55 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+import os
 import sys
 
-from ..redis_cache import RedisCacheSettings
+
+@dataclass(slots=True)
+class HardwareKnowledgeRedisCacheSettings:
+    enabled: bool = False
+    url: str = "redis://127.0.0.1:6379/0"
+    url_env: str = "LOCALML_HARDWARE_KNOWLEDGE_REDIS_URL"
+    key_prefix: str = "localml_hardware_knowledge"
+    ttl_seconds: int | None = 300
+    max_entries: int | None = 4096
+    socket_timeout_seconds: float = 0.2
+    cache_graph_queries: bool = True
+
+    def __post_init__(self) -> None:
+        self.enabled = bool(self.enabled)
+        self.url = str(self.url or "redis://127.0.0.1:6379/0").strip()
+        self.url_env = str(self.url_env or "LOCALML_HARDWARE_KNOWLEDGE_REDIS_URL").strip()
+        self.key_prefix = str(self.key_prefix or "localml_hardware_knowledge").strip().strip(":") or "localml_hardware_knowledge"
+        if self.ttl_seconds is not None:
+            self.ttl_seconds = max(1, int(self.ttl_seconds))
+        if self.max_entries is not None:
+            self.max_entries = max(0, int(self.max_entries))
+        self.socket_timeout_seconds = max(0.0, float(self.socket_timeout_seconds))
+        self.cache_graph_queries = bool(self.cache_graph_queries)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any] | None) -> "HardwareKnowledgeRedisCacheSettings":
+        return cls(**(payload or {}))
+
+    def resolved_url(self) -> str:
+        if self.url_env:
+            env_value = os.getenv(self.url_env)
+            if env_value:
+                return env_value
+        return self.url
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "url": self.url,
+            "url_env": self.url_env,
+            "key_prefix": self.key_prefix,
+            "ttl_seconds": self.ttl_seconds,
+            "max_entries": self.max_entries,
+            "socket_timeout_seconds": self.socket_timeout_seconds,
+            "cache_graph_queries": self.cache_graph_queries,
+        }
 
 
 @dataclass(slots=True)
@@ -16,7 +62,7 @@ class HardwareKnowledgeGraphSettings:
     provider: str = "neo4j"
     uri: str = "bolt://127.0.0.1:7688"
     username: str = "neo4j"
-    password_env: str = "LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD"
+    password_env: str = "HARDWARE_KNOWLEDGE_NEO4J_PASSWORD"
     database: str = "neo4j"
 
     def __post_init__(self) -> None:
@@ -65,9 +111,9 @@ class _HardwareGpuSettings:
 
 @dataclass(slots=True)
 class HardwareKnowledgeSettings:
-    runtime_root: Path = Path("localml_scheduler/runtime/hardware_knowledge")
+    runtime_root: Path = Path("hardware_knowledge_graph/runtime")
     graph: HardwareKnowledgeGraphSettings | dict[str, Any] = field(default_factory=HardwareKnowledgeGraphSettings)
-    redis_cache: RedisCacheSettings | dict[str, Any] = field(default_factory=RedisCacheSettings)
+    redis_cache: HardwareKnowledgeRedisCacheSettings | dict[str, Any] = field(default_factory=HardwareKnowledgeRedisCacheSettings)
     branch_profile_db_path: Path | str | None = None
     device_index: int = 0
     sqlite_busy_timeout_ms: int = 10_000
@@ -83,9 +129,9 @@ class HardwareKnowledgeSettings:
         if isinstance(self.graph, dict):
             self.graph = HardwareKnowledgeGraphSettings.from_dict(self.graph)
         if self.redis_cache is None:
-            self.redis_cache = RedisCacheSettings()
+            self.redis_cache = HardwareKnowledgeRedisCacheSettings()
         if isinstance(self.redis_cache, dict):
-            self.redis_cache = RedisCacheSettings.from_dict(self.redis_cache)
+            self.redis_cache = HardwareKnowledgeRedisCacheSettings.from_dict(self.redis_cache)
         self.runtime_root = Path(self.runtime_root).resolve()
         self.db_dir = self.runtime_root / "db"
         self.db_path = self.db_dir / "hardware_knowledge.sqlite3"

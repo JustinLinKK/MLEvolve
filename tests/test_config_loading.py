@@ -9,8 +9,8 @@ import yaml
 
 import config as mle_config
 from localml_scheduler.config import SchedulerConfig
-from localml_scheduler.hardware_knowledge import HardwareKnowledgeSettings
-from localml_scheduler.hardware_knowledge.store import HardwareKnowledgeGraphStore
+from hardware_knowledge_graph import HardwareKnowledgeSettings
+from hardware_knowledge_graph.store import HardwareKnowledgeGraphStore
 from run import _hardware_knowledge_settings_from_cfg, _scheduler_settings_from_cfg
 
 
@@ -219,7 +219,7 @@ def test_hardware_knowledge_settings_do_not_inherit_scheduler_storage(tmp_path: 
 
     settings = _hardware_knowledge_settings_from_cfg(cfg)
 
-    assert settings.runtime_root == (tmp_path / "workspace" / "hardware_knowledge_runtime").resolve()
+    assert settings.runtime_root == (tmp_path / "workspace" / "hardware_knowledge_graph").resolve()
     assert settings.graph.uri == "bolt://127.0.0.1:7688"
     assert settings.branch_profile_db_path == (tmp_path / "workspace" / "scheduler_runtime" / "db" / "branch_profile.sqlite3").resolve()
 
@@ -298,14 +298,14 @@ def test_scheduler_and_hardware_graph_configs_are_decoupled(tmp_path: Path) -> N
             "graph": {
                 "enabled": True,
                 "uri": "bolt://hardware-neo4j:7687",
-                "password_env": "LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD",
+                "password_env": "HARDWARE_KNOWLEDGE_NEO4J_PASSWORD",
             },
         }
     )
 
     assert scheduler_settings.branch_profile_db_path.name == "branch_profile.sqlite3"
     assert hardware_settings.graph.uri == "bolt://hardware-neo4j:7687"
-    assert hardware_settings.graph.password_env == "LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD"
+    assert hardware_settings.graph.password_env == "HARDWARE_KNOWLEDGE_NEO4J_PASSWORD"
     assert HardwareKnowledgeGraphStore(hardware_settings, driver=object()).config.uri == "bolt://hardware-neo4j:7687"
 
 

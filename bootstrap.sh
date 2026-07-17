@@ -13,7 +13,7 @@ if [[ ! -f "$CONFIG_PATH" ]]; then
   exit 2
 fi
 
-export LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD="${LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD:-test12345}"
+export HARDWARE_KNOWLEDGE_NEO4J_PASSWORD="${HARDWARE_KNOWLEDGE_NEO4J_PASSWORD:-test12345}"
 
 read_config_value() {
   local dotted_key="$1"
@@ -76,7 +76,7 @@ graph["provider"] = "neo4j"
 graph["uri"] = os.environ["HARDWARE_GRAPH_URI"]
 graph["username"] = os.environ["HARDWARE_NEO4J_USERNAME"]
 graph["database"] = os.environ["HARDWARE_NEO4J_DATABASE"]
-graph["password_env"] = "LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD"
+graph["password_env"] = "HARDWARE_KNOWLEDGE_NEO4J_PASSWORD"
 
 target.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 PY
@@ -88,7 +88,7 @@ start_local_databases() {
     cat >&2 <<'EOF'
 Docker is not available in this shell.
 
-Point HARDWARE_GRAPH_URI and LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD at an
+Point HARDWARE_GRAPH_URI and HARDWARE_KNOWLEDGE_NEO4J_PASSWORD at an
 existing Neo4j instance, or run this script from a host/devcontainer with Docker
 access and MLEVOLVE_START_LOCAL_DATABASES=1.
 EOF
@@ -100,7 +100,7 @@ EOF
     --name mlevolve-neo4j-hardware \
     --restart unless-stopped \
     -p 7475:7474 -p 7688:7687 \
-    -e NEO4J_AUTH="neo4j/${LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD:-test12345}" \
+    -e NEO4J_AUTH="neo4j/${HARDWARE_KNOWLEDGE_NEO4J_PASSWORD:-test12345}" \
     -v mlevolve_neo4j_hardware_data:/data \
     -v mlevolve_neo4j_hardware_logs:/logs \
     neo4j:5.26
@@ -117,7 +117,7 @@ from neo4j import GraphDatabase
 
 uri = os.environ["HARDWARE_GRAPH_URI"]
 username = os.environ.get("HARDWARE_NEO4J_USERNAME", "")
-password = os.environ.get("LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD", "")
+password = os.environ.get("HARDWARE_KNOWLEDGE_NEO4J_PASSWORD", "")
 database = os.environ.get("HARDWARE_NEO4J_DATABASE") or None
 auth = (username, password) if username else None
 
@@ -153,7 +153,7 @@ ingest_hardware_knowledge() {
     return 1
   fi
   local -a ingest_args=(
-    python -m localml_scheduler.cli hardware-knowledge ingest
+    python -m hardware_knowledge_graph.cli ingest
     --config "$MLEVOLVE_CONFIG"
     --schema-root schema
   )

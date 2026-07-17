@@ -1,5 +1,5 @@
-kubectl create secret generic scheduler-db-env \
-  --from-literal=LOCALML_SCHEDULER_NEO4J_PASSWORD=change-me \
+kubectl create secret generic hardware-knowledge-env \
+  --from-literal=HARDWARE_KNOWLEDGE_NEO4J_PASSWORD=change-me \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl apply -f k8s/nautilus/neo4j.yaml

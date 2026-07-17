@@ -45,7 +45,7 @@ _STAGE_KEYWORDS: dict[str, list[str]] = {
     ],
 }
 
-_DEFAULT_GRAPH_PATH = Path(__file__).resolve().parents[2] / "schema" / "hardware_knowledge_graph.json"
+_DEFAULT_GRAPH_PATH = Path(__file__).resolve().parents[1] / "schema" / "hardware_knowledge_graph.json"
 
 
 # ---------------------------------------------------------------------------

@@ -9,15 +9,16 @@ import os
 import subprocess
 import sys
 
-from .graph_knowledge import SchedulerKnowledgeBase
-from .hardware import HardwareProfile
-from .hardware_knowledge import HardwareKnowledgeGraphStore, HardwareKnowledgeSettings
-from .redis_cache import RedisLRUCache, graph_cache_enabled
-from .runtime_environment import (
+from localml_scheduler.graph_knowledge import SchedulerKnowledgeBase
+from localml_scheduler.hardware import HardwareProfile
+from .config import HardwareKnowledgeSettings
+from .store import HardwareKnowledgeGraphStore
+from localml_scheduler.redis_cache import RedisLRUCache, graph_cache_enabled
+from localml_scheduler.runtime_environment import (
     detect_runtime_environment,
     validate_generated_training_code as _validate_generated_training_code,
 )
-from .storage import BranchProfileReader
+from localml_scheduler.storage import BranchProfileReader
 
 
 _PIPELINE_HARDWARE_STAGES = ("model_structure", "datatype", "training_parameters")
@@ -364,7 +365,7 @@ class HardwareKnowledgeClient:
     @staticmethod
     def _stage_feature_context_from_static_graph(*, hardware_name: str, stages: list[str], limit: int) -> dict[str, Any]:
         try:
-            from .hardware_knowledge.feature_filter import query_hardware_features, query_hardware_node
+            from hardware_knowledge_graph.feature_filter import query_hardware_features, query_hardware_node
         except Exception as exc:
             return {
                 "found": False,

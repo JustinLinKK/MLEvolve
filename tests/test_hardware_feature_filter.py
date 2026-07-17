@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from localml_scheduler.hardware_knowledge.feature_filter import query_hardware_node
+from hardware_knowledge_graph.feature_filter import query_hardware_node
 
 
 def test_stage_pattern_filter_ignores_keywords_hidden_in_source_urls(tmp_path: Path) -> None:

@@ -74,6 +74,9 @@ spec:
               value: bolt://neo4j:7687
           envFrom:
             - secretRef:
+                name: hardware-knowledge-env
+                optional: true
+            - secretRef:
                 name: scheduler-db-env
                 optional: true
           volumeMounts:

@@ -7,7 +7,7 @@ HARDWARE_GRAPH_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARDWARE_GRAPH_REPO_ROOT="$(cd "$HARDWARE_GRAPH_SCRIPT_DIR/.." && pwd)"
 
 export PYTHONPATH="$HARDWARE_GRAPH_REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
-export LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD="${LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD:-test12345}"
+export HARDWARE_KNOWLEDGE_NEO4J_PASSWORD="${HARDWARE_KNOWLEDGE_NEO4J_PASSWORD:-test12345}"
 if [[ -z "${HARDWARE_GRAPH_URI:-}" ]]; then
   if [[ -f /.dockerenv ]]; then
     HARDWARE_GRAPH_ACCESS_HOST="${HARDWARE_GRAPH_ACCESS_HOST:-host.docker.internal}"
@@ -88,7 +88,7 @@ hardware_graph["provider"] = "neo4j"
 hardware_graph["uri"] = os.environ["HARDWARE_GRAPH_URI"]
 hardware_graph["username"] = os.environ["HARDWARE_NEO4J_USERNAME"]
 hardware_graph["database"] = os.environ["HARDWARE_NEO4J_DATABASE"]
-hardware_graph["password_env"] = "LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD"
+hardware_graph["password_env"] = "HARDWARE_KNOWLEDGE_NEO4J_PASSWORD"
 
 target.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 PY
@@ -105,7 +105,7 @@ from neo4j import GraphDatabase
 
 uri = os.environ["HARDWARE_GRAPH_URI"]
 username = os.environ.get("HARDWARE_NEO4J_USERNAME", "")
-password = os.environ.get("LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD", "")
+password = os.environ.get("HARDWARE_KNOWLEDGE_NEO4J_PASSWORD", "")
 database = os.environ.get("HARDWARE_NEO4J_DATABASE") or None
 auth = (username, password) if username else None
 
@@ -128,7 +128,7 @@ User:  $HARDWARE_NEO4J_USERNAME
 Start local databases with:
   ./docker_host_databases.sh up
 
-Or point HARDWARE_GRAPH_URI and LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD at
+Or point HARDWARE_GRAPH_URI and HARDWARE_KNOWLEDGE_NEO4J_PASSWORD at
 an existing Neo4j instance.
 EOF
       return 1
