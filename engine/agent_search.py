@@ -21,6 +21,7 @@ from agents import (
 )
 from engine import node_selection, evaluation, execution, solution_manager
 from engine.conditions import is_branch_stagnant
+from engine.coldstart import collect_model_contracts
 from utils.data_preview import clean_task_desc
 
 logger = logging.getLogger("MLEvolve")
@@ -65,6 +66,7 @@ class AgentSearch:
         self.branch_node_count: Dict[int, int] = {}
         self.use_coldstart = cfg.coldstart.use_coldstart
         self.coldstart_description = cfg.coldstart.description
+        self.model_contracts = collect_model_contracts(cfg) if self.use_coldstart else []
         self.scheduler_client = None
         self.hardware_knowledge_client = None
         self.hardware_cache_status: dict | None = None

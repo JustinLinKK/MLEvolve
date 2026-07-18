@@ -2,6 +2,7 @@ import logging
 import time
 from . import gemini as _gemini
 from . import openai as _openai
+from . import codex_cli as _codex_cli
 from .gemini import FunctionSpec, OutputType, PromptType, compile_prompt_to_md
 from config import Config
 logger = logging.getLogger("MLEvolve")
@@ -36,6 +37,8 @@ def _provider(model: str, cfg: Config | None = None) -> str:
         return "openai"
     if provider in {"gemini", "google"}:
         return "gemini"
+    if provider in {"codex", "codex-cli"}:
+        return "codex"
     return "gemini" if (model or "").lower().startswith("gemini") else "openai"
 
 
@@ -92,6 +95,14 @@ def query(
     try:
         if provider == "openai":
             output, req_time, in_tok_count, out_tok_count, info = _openai.query(
+                system_message=system_message,
+                user_message=user_message,
+                func_spec=func_spec,
+                cfg=cfg,
+                **model_kwargs,
+            )
+        elif provider == "codex":
+            output, req_time, in_tok_count, out_tok_count, info = _codex_cli.query(
                 system_message=system_message,
                 user_message=user_message,
                 func_spec=func_spec,
@@ -161,6 +172,17 @@ def generate(
     try:
         if provider == "openai":
             output = _openai.generate(
+                prompt=prompt,
+                cfg=cfg,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stop_tokens=stop_tokens,
+                json_schema=json_schema,
+                max_retries=max_retries,
+                retry_delay=retry_delay,
+            )
+        elif provider == "codex":
+            output = _codex_cli.generate(
                 prompt=prompt,
                 cfg=cfg,
                 temperature=temperature,

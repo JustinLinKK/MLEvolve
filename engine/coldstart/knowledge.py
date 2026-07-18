@@ -29,6 +29,7 @@ def collect_models_for_task(
             "model_name": m_name,
             "description": m_info.get("Description", ""),
             "code_template": m_info.get("Code_template", ""),
+            "contract": m_info.get("Contract", {}),
         })
     return matched
 
@@ -36,6 +37,73 @@ def collect_models_for_task(
 def _model_is_available(model: Dict[str, str], torch_hub_dir: str) -> bool:
     template = model.get("code_template", "")
     return "{TORCH_HUB_DIR}" not in template or bool(torch_hub_dir)
+
+
+def _render_model_contract(contract: Dict[str, Any]) -> str:
+    if not isinstance(contract, dict) or not contract:
+        return ""
+
+    model_id = str(contract.get("model_id") or "").strip()
+    library = str(contract.get("library") or "").strip()
+    library_version = str(contract.get("library_version") or "").strip()
+    resolved_model_type = str(contract.get("resolved_model_type") or "").strip()
+    loader = str(contract.get("loader") or "").strip()
+    preprocessing = contract.get("preprocessing") if isinstance(contract.get("preprocessing"), dict) else {}
+    feature_apis = contract.get("feature_apis") if isinstance(contract.get("feature_apis"), list) else []
+
+    lines = ["Model API contract (authoritative for this repository runtime):"]
+    if model_id:
+        lines.append(f"- Exact model id: `{model_id}`")
+    runtime_bits = [bit for bit in (library, library_version) if bit]
+    if runtime_bits:
+        runtime = " ".join(runtime_bits)
+        if resolved_model_type:
+            runtime += f"; checkpoint resolves to `{resolved_model_type}`"
+        lines.append(f"- Runtime: {runtime}")
+    if loader and model_id:
+        lines.append(f"- Load with: `{loader}.from_pretrained(\"{model_id}\")`")
+
+    processor = str(preprocessing.get("processor") or "").strip()
+    image_size = preprocessing.get("fixed_image_size")
+    image_mean = preprocessing.get("image_mean")
+    image_std = preprocessing.get("image_std")
+    if processor and model_id:
+        lines.append(f"- Preferred preprocessing: `{processor}.from_pretrained(\"{model_id}\")`")
+    if image_size is not None:
+        lines.append(f"- Required fixed image size: `{image_size}x{image_size}`")
+    if image_mean is not None and image_std is not None:
+        lines.append(f"- Manual normalization fallback: mean={image_mean}, std={image_std}")
+
+    for feature_api in feature_apis:
+        if not isinstance(feature_api, dict):
+            continue
+        modality = str(feature_api.get("modality") or "feature").strip()
+        call = str(feature_api.get("call") or "").strip()
+        return_type = str(feature_api.get("return_type") or feature_api.get("return_kind") or "").strip()
+        return_shape = feature_api.get("return_shape")
+        if call:
+            lines.append(f"- {modality.title()} feature call: `{call}`")
+        return_details = return_type
+        if return_shape:
+            return_details += f" with shape `{return_shape}`"
+        if return_details:
+            lines.append(f"- Feature return: {return_details}; use this value directly.")
+        invalid_attributes = [str(value) for value in feature_api.get("invalid_result_attributes", []) if value]
+        if invalid_attributes:
+            attrs = ", ".join(f"`.{value}`" for value in invalid_attributes)
+            lines.append(f"- Do not access {attrs} on the feature-call result.")
+        dimension_path = str(feature_api.get("dimension_config_path") or "").strip()
+        if dimension_path:
+            lines.append(f"- Feature dimension config path: `model.config.{dimension_path}`")
+
+    invalid_config_paths = [str(value) for value in contract.get("invalid_config_paths", []) if value]
+    if invalid_config_paths:
+        invalid = ", ".join(f"`model.config.{value}`" for value in invalid_config_paths)
+        lines.append(f"- Invalid config assumptions for this checkpoint: {invalid}")
+    smoke_assertions = [str(value) for value in contract.get("smoke_assertions", []) if value]
+    for assertion in smoke_assertions:
+        lines.append(f"- Pre-training smoke assertion: `{assertion}`")
+    return "\n".join(lines)
 
 
 def _build_guidance_text(task_name: str, tasks: Dict, models: Dict, torch_hub_dir: str = "") -> str:
@@ -48,6 +116,9 @@ def _build_guidance_text(task_name: str, tasks: Dict, models: Dict, torch_hub_di
     for i, m in enumerate(model_list):
         lines.append(f"\nModel{i+1}: {m['model_name']}\n")
         lines.append(f"Description:{m['description']}\n")
+        contract_text = _render_model_contract(m.get("contract") or {})
+        if contract_text:
+            lines.append(contract_text + "\n")
         lines.append("Code template (MUST copy exactly — do NOT change model variant names or file paths):\n```python\n" + m["code_template"] + "\n```")
     return "\n".join(lines)
 
@@ -87,6 +158,24 @@ def _default_shape_hints(category: str | None) -> dict[str, Any]:
     return {"modality": modality}
 
 
+def _shape_hints_from_contract(contract: Dict[str, Any], category: str | None) -> dict[str, Any]:
+    shape_hints = _default_shape_hints(category)
+    if not isinstance(contract, dict):
+        return shape_hints
+    preprocessing = contract.get("preprocessing")
+    if isinstance(preprocessing, dict) and preprocessing.get("fixed_image_size") is not None:
+        shape_hints["input_resolution"] = preprocessing["fixed_image_size"]
+    feature_apis = contract.get("feature_apis")
+    if isinstance(feature_apis, list):
+        for feature_api in feature_apis:
+            if not isinstance(feature_api, dict):
+                continue
+            if feature_api.get("dimension") is not None:
+                shape_hints["feature_dimension"] = feature_api["dimension"]
+                break
+    return shape_hints
+
+
 def collect_startpoint_model_specs(cfg: Any) -> List[Dict[str, Any]]:
     """Return ordered cold-start model specs suitable for scheduler probing."""
     tasks = _load_json(cfg.coldstart.task_json_path)
@@ -105,7 +194,8 @@ def collect_startpoint_model_specs(cfg: Any) -> List[Dict[str, Any]]:
             code_template = code_template.replace("{TORCH_HUB_DIR}", torch_hub_dir.rstrip("/"))
         display_name = str(model.get("model_name") or f"Model{index + 1}")
         model_key = detect_model_key(code_template) or _slug(display_name)
-        shape_hints = _default_shape_hints(category)
+        model_contract = model.get("contract") if isinstance(model.get("contract"), dict) else {}
+        shape_hints = _shape_hints_from_contract(model_contract, category)
         specs.append(
             {
                 "rank": index + 1,
@@ -116,10 +206,31 @@ def collect_startpoint_model_specs(cfg: Any) -> List[Dict[str, Any]]:
                 "display_name": display_name,
                 "description": model.get("description", ""),
                 "code_template": code_template,
+                "model_contract": model_contract,
                 "shape_hints": shape_hints,
             }
         )
     return specs
+
+
+def collect_model_contracts(cfg: Any) -> List[Dict[str, Any]]:
+    """Return model API contracts selected by the cold-start task mapping."""
+    tasks = _load_json(cfg.coldstart.task_json_path)
+    models = _load_json(cfg.coldstart.model_json_path)
+    task_id = str(getattr(cfg, "exp_id", "mlevolve"))
+    torch_hub_dir = getattr(cfg, "torch_hub_dir", "") or ""
+    selected = collect_models_for_task(task_id, tasks, models)
+    contracts: list[dict[str, Any]] = []
+    for model in selected:
+        if not _model_is_available(model, torch_hub_dir):
+            continue
+        contract = model.get("contract")
+        if not isinstance(contract, dict) or not contract:
+            continue
+        normalized = dict(contract)
+        normalized.setdefault("display_name", model.get("model_name", ""))
+        contracts.append(normalized)
+    return contracts
 
 
 def get_init_solution_paths(exp_id: str) -> List[str]:

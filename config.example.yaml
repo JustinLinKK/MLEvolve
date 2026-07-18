@@ -231,12 +231,24 @@ agent:
     provider: openrouter
     base_url: https://openrouter.ai/api/v1
     api_key: ''
+    executable: codex
+    reasoning_effort: low
+    timeout_seconds: 1200
+    ephemeral: true
+    ignore_user_config: true
+    isolated_home: true
   feedback:
     model: openai/gpt-5-nano
     temp: 1
     provider: openrouter
     base_url: https://openrouter.ai/api/v1
     api_key: ''
+    executable: codex
+    reasoning_effort: low
+    timeout_seconds: 1200
+    ephemeral: true
+    ignore_user_config: true
+    isolated_home: true
   check_data_leakage: true
   use_diff_mode: true
   hardware_context_enabled: true

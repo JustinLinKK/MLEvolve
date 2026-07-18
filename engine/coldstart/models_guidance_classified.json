@@ -5,8 +5,41 @@
 			"Description": "DINOv3 is an extended family of versatile vision foundation models producing high-quality dense features and  is an outstanding backbone for various vision tasks like classification, segmentation and detection.etc. support rgb images."
 		},
 		"Siglip2": {
-			"Code_template": "from transformers import AutoProcessor, AutoModel\nmodel = AutoModel.from_pretrained(\"google/siglip2-so400m-patch16-256\")\npooled_feat = model.get_image_features(pixel_values=inputs) # [b,1152]\n \n #for normalize normalize = transforms.Normalize(\n        mean=(0.5, 0.5, 0.5),\n        std=(0.5, 0.5, 0.5),\n    )\n #",
-			"Description": "Siglip2 is an extended family of vision as well as multimodel foundation model, has superior image classification, image-text retrieval, and downstream vison transfer performance across all model scales."
+			"Code_template": "from transformers import AutoProcessor, AutoModel\nMODEL_ID = \"google/siglip2-so400m-patch16-256\"\nprocessor = AutoProcessor.from_pretrained(MODEL_ID)\nmodel = AutoModel.from_pretrained(MODEL_ID)\nimage_features = model.get_image_features(pixel_values=pixel_values)  # torch.Tensor [batch, 1152]; use directly\nfeature_dim = model.config.vision_config.hidden_size",
+			"Description": "Siglip2 is an extended family of vision as well as multimodel foundation model, has superior image classification, image-text retrieval, and downstream vison transfer performance across all model scales.",
+			"Contract": {
+				"schema_version": 1,
+				"library": "transformers",
+				"library_version": "4.53.0",
+				"model_id": "google/siglip2-so400m-patch16-256",
+				"loader": "AutoModel",
+				"resolved_model_type": "siglip",
+				"preprocessing": {
+					"processor": "AutoProcessor",
+					"fixed_image_size": 256,
+					"image_mean": [0.5, 0.5, 0.5],
+					"image_std": [0.5, 0.5, 0.5]
+				},
+				"feature_apis": [
+					{
+						"modality": "image",
+						"method": "get_image_features",
+						"call": "image_features = model.get_image_features(pixel_values=pixel_values)",
+						"return_kind": "tensor",
+						"return_type": "torch.Tensor",
+						"return_shape": "[batch, 1152]",
+						"rank": 2,
+						"dimension": 1152,
+						"dimension_config_path": "vision_config.hidden_size",
+						"invalid_result_attributes": ["pooler_output", "last_hidden_state"]
+					}
+				],
+				"invalid_config_paths": ["projection_dim", "hidden_size"],
+				"smoke_assertions": [
+					"image_features.ndim == 2",
+					"image_features.shape[-1] == model.config.vision_config.hidden_size"
+				]
+			}
 		}
 	},
 	"Detection": {

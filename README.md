@@ -110,6 +110,39 @@ agent:
     api_key: "your-openrouter-api-key"
 ```
 
+For bounded repository stress tests, MLEvolve can call an authenticated Codex
+CLI directly. Prompts are sent on stdin; each call is read-only and ephemeral by
+default. Install and log in to Codex first, then configure both stages without
+an OpenRouter endpoint or key:
+
+```yaml
+agent:
+  code:
+    provider: "codex"
+    model: "gpt-5.5"
+    temp: 1
+    base_url: ""
+    api_key: ""
+    executable: "codex"
+    reasoning_effort: "low"
+    timeout_seconds: 1200
+    ephemeral: true
+    ignore_user_config: true
+    isolated_home: true
+  feedback:
+    provider: "codex"
+    model: "gpt-5.5"
+    temp: 1
+    base_url: ""
+    api_key: ""
+    executable: "codex"
+    reasoning_effort: "low"
+    timeout_seconds: 1200
+    ephemeral: true
+    ignore_user_config: true
+    isolated_home: true
+```
+
 Hardware knowledge graph settings live under `hardware_knowledge.settings`; the
 graph client/store code lives in the top-level `hardware_knowledge_graph/`
 package, separate from scheduler runtime storage.

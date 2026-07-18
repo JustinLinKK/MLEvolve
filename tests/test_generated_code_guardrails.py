@@ -88,13 +88,66 @@ def test_interpreter_rejects_empty_generated_script(tmp_path):
     assert "no Python code was produced" in "".join(result.term_out)
 
 
+def test_interpreter_rejects_model_contract_violation_before_subprocess(tmp_path):
+    task_path = tmp_path / "tasks.json"
+    model_path = tmp_path / "models.json"
+    task_path.write_text('{"vision-task": "General Image"}', encoding="utf-8")
+    model_path.write_text(
+        '''{
+          "General Image": {
+            "FutureVision": {
+              "Code_template": "model = AutoModel.from_pretrained('vendor/future-vision')",
+              "Contract": {
+                "schema_version": 1,
+                "model_id": "vendor/future-vision",
+                "feature_apis": [{
+                  "method": "encode_images",
+                  "call": "features = model.encode_images(pixel_values=pixel_values)",
+                  "return_kind": "tensor",
+                  "invalid_result_attributes": ["pooler_output"]
+                }]
+              }
+            }
+          }
+        }''',
+        encoding="utf-8",
+    )
+    cfg = SimpleNamespace(
+        exp_id="vision-task",
+        torch_hub_dir="",
+        coldstart=SimpleNamespace(
+            use_coldstart=True,
+            task_json_path=str(task_path),
+            model_json_path=str(model_path),
+        ),
+        agent=SimpleNamespace(search=SimpleNamespace(parallel_search_num=1)),
+        scheduler=SimpleNamespace(enabled=False),
+        start_cpu_id="0",
+        cpu_number="1",
+    )
+    interpreter = Interpreter(tmp_path, max_parallel_run=1, cfg=cfg)
+    code = '''
+MODEL_ID = "vendor/future-vision"
+model = AutoModel.from_pretrained(MODEL_ID)
+features = model.encode_images(pixel_values=pixel_values)
+pooled = features.pooler_output
+'''
+
+    result = interpreter.run(code, id="contract-bad")
+
+    assert result.exc_type == "ModelAPIContractError"
+    assert result.exc_info["issues"][0]["category"] == "model_feature_return_contract_violation"
+    assert "failed the pretrained-model API contract" in "".join(result.term_out)
+    assert not list(tmp_path.glob("runfile_*.py"))
+
+
 def test_code_review_retries_when_critical_runtime_finding_is_approved(monkeypatch):
     calls = []
 
     monkeypatch.setattr(
         code_review_agent,
         "validate_generated_training_code",
-        lambda code, stage: {
+        lambda code, stage, model_contracts=None: {
             "ok": False,
             "critical_count": 1,
             "warning_count": 0,

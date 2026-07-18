@@ -263,8 +263,13 @@ def _build_structured_bug_report(
     failure_reasons: list[str],
     *,
     has_csv_submission: bool,
+    model_contracts: list[dict[str, Any]] | None = None,
 ) -> tuple[str, str]:
-    compatibility = validate_generated_training_code(node.code or "", stage="result_parse")
+    compatibility = validate_generated_training_code(
+        node.code or "",
+        stage="result_parse",
+        model_contracts=model_contracts or [],
+    )
     critical_issues = [
         issue for issue in compatibility.get("issues", [])
         if issue.get("severity") == "critical"
@@ -669,6 +674,7 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
                     response,
                     failure_reasons,
                     has_csv_submission=has_csv_submission,
+                    model_contracts=getattr(agent, "model_contracts", []),
                 )
                 node.metric = WorstMetricValue()
             else:
@@ -682,6 +688,7 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
                         response,
                         failure_reasons,
                         has_csv_submission=has_csv_submission,
+                        model_contracts=getattr(agent, "model_contracts", []),
                     )
 
             status = "FAIL" if node.is_buggy else "PASS"

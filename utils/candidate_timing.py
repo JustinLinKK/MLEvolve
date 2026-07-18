@@ -54,7 +54,7 @@ def instrument_code_for_phase_timing(code: str, phase_log_path: str | Path) -> P
         )
 
     helper = ast.parse(_helper_source(phase_log))
-    module.body = helper.body + module.body
+    _prepend_after_module_preamble(module, helper.body)
     ast.fix_missing_locations(module)
     return PhaseInstrumentationResult(
         code=ast.unparse(module),
@@ -63,6 +63,19 @@ def instrument_code_for_phase_timing(code: str, phase_log_path: str | Path) -> P
         instrumented_region_count=transformer.instrumented_region_count,
         reason="ok",
     )
+
+
+def _prepend_after_module_preamble(module: ast.Module, statements: list[ast.stmt]) -> None:
+    """Keep the module docstring and future imports in their required leading positions."""
+    insertion_index = 0
+    if module.body and _is_docstring_expr(module.body[0]):
+        insertion_index = 1
+    while insertion_index < len(module.body):
+        node = module.body[insertion_index]
+        if not isinstance(node, ast.ImportFrom) or node.module != "__future__":
+            break
+        insertion_index += 1
+    module.body[insertion_index:insertion_index] = statements
 
 
 def materialize_phase_instrumented_file(

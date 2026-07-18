@@ -29,6 +29,8 @@ from engine.script_introspection import (
     introspect_training_script as _introspect_training_script,
     normalized_mlevolve_script_signature as _normalized_mlevolve_script_signature,
 )
+from engine.coldstart import collect_model_contracts
+from localml_scheduler.runtime_environment import validate_model_api_contracts
 from utils.candidate_timing import instrument_code_for_phase_timing, parse_phase_timing_log
 
 logger = logging.getLogger("MLEvolve")
@@ -185,6 +187,7 @@ def _generated_code_validation_result(
     node_id: Any,
     start_time: float,
     source_label: str,
+    model_contracts: list[dict[str, Any]] | None = None,
 ) -> ExecutionResult | None:
     """Return an ExecutionResult when generated code should not be executed."""
     code_text = str(code or "")
@@ -228,6 +231,27 @@ def _generated_code_validation_result(
             },
             exc_stack=[(filename, int(exc.lineno or 0), "<module>", (exc.text or "").strip())],
         )
+
+    contract_issues = validate_model_api_contracts(code_text, model_contracts or [])
+    if contract_issues:
+        lines = ["Generated script failed the pretrained-model API contract before execution.\n"]
+        for issue in contract_issues:
+            lines.append(f"- [{issue.get('category', 'model_contract')}] {issue.get('message', '')}\n")
+            if issue.get("evidence"):
+                lines.append(f"  Evidence: {issue['evidence']}\n")
+            if issue.get("repair_hint"):
+                lines.append(f"  Required fix: {issue['repair_hint']}\n")
+        return ExecutionResult(
+            term_out=lines,
+            exec_time=exec_time,
+            exc_type="ModelAPIContractError",
+            exc_info={
+                "message": "generated code violates a selected pretrained-model API contract",
+                "node_id": str(node_id),
+                "issues": contract_issues,
+            },
+            exc_stack=[],
+        )
     return None
 
 
@@ -255,6 +279,16 @@ class Interpreter:
         self.working_dir = Path(working_dir).resolve()
         assert self.working_dir.exists(), f"Working directory {self.working_dir} does not exist"
         self.cfg = cfg
+        try:
+            coldstart = getattr(cfg, "coldstart", None)
+            self.model_contracts = (
+                collect_model_contracts(cfg)
+                if coldstart is not None and bool(getattr(coldstart, "use_coldstart", False))
+                else []
+            )
+        except Exception as exc:
+            logger.warning("Could not load cold-start model API contracts: %s", exc)
+            self.model_contracts = []
         self.pipeline_logger = pipeline_logger
         self.timeout = _finite_timeout_seconds(timeout)
         self.max_parallel_run = (
@@ -928,6 +962,7 @@ class Interpreter:
                     node_id=node_id,
                     start_time=time.time(),
                     source_label="scheduler-candidate",
+                    model_contracts=self.model_contracts,
                 )
                 if validation_result is not None:
                     handle = SchedulerJobHandle(
@@ -1741,6 +1776,7 @@ class Interpreter:
             node_id=id,
             start_time=start_time,
             source_label="subprocess-candidate",
+            model_contracts=self.model_contracts,
         )
         if validation_result is not None:
             return validation_result

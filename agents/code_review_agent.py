@@ -90,7 +90,11 @@ def run(agent, node: SearchNode) -> str:
         code=review_base_code,
         data_preview=getattr(agent, "data_preview", "") or "",
     )
-    compatibility_result = validate_generated_training_code(review_base_code, stage="code_review")
+    compatibility_result = validate_generated_training_code(
+        review_base_code,
+        stage="code_review",
+        model_contracts=getattr(agent, "model_contracts", []),
+    )
     critical_compatibility_count = int(compatibility_result.get("critical_count", 0) or 0)
     compatibility_section = _format_runtime_compatibility_findings(compatibility_result)
     if compatibility_section:

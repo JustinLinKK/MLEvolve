@@ -53,6 +53,12 @@ class StageConfig:
     base_url: str
     api_key: str
     provider: str = ""
+    executable: str = "codex"
+    reasoning_effort: str = "low"
+    timeout_seconds: float = 1200.0
+    ephemeral: bool = True
+    ignore_user_config: bool = True
+    isolated_home: bool = True
 
 @dataclass
 class DecayConfig:
