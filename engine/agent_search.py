@@ -257,10 +257,10 @@ class AgentSearch:
                             logger.info(f"[_run_single_step] Draft node {result_node.id} is locked.")
                         else:
                             logger.info("Draft generation skipped because no child slot was available.")
-                elif parent_node.is_buggy or parent_node.is_valid is False:
+                elif parent_node.debug_eligible:
                     result_node = debug_agent.run(self, parent_node)
 
-                elif parent_node.is_buggy is False:
+                elif parent_node.search_eligible:
                     can_use_fusion = False
                     if self.search_start_time:
                         elapsed_time = time.time() - self.search_start_time
@@ -287,7 +287,8 @@ class AgentSearch:
                         result_node = improve_agent.run(self, parent_node)
 
                 else:
-                    logger.warning(f"[_run_single_step] node {parent_node.id} is_buggy is None.")
+                    parent_node.is_terminal = True
+                    logger.info("[_run_single_step] node %s is quarantined and not expandable", parent_node.id)
 
                 if result_node:
                     self.refresh_hardware_context(result_node)
@@ -311,7 +312,7 @@ class AgentSearch:
                             result_node.branch_name = normalize_branch_name(str(branch_name))
                             result_node.model_family = result_node.branch_name
                             result_node.branch_profile_key = build_branch_profile_key(result_node.branch_name)
-                            result_node.active_profile_key = result_node.branch_profile_key
+                            result_node.active_profile_key = None
                     except Exception as exc:
                         logger.debug("Skipping node model-family metadata refresh: %s", exc)
 

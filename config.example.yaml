@@ -195,6 +195,9 @@ scheduler:
         batch_probe_enabled: true
         batch_probe_model_key: null
         batch_probe_probe_timeout_seconds: 45
+        batch_probe_startup_timeout_seconds: 90
+        batch_probe_step_timeout_seconds: 30
+        batch_probe_optimizer_steps: 1
         batch_probe_poll_interval_seconds: 0.5
         batch_probe_max_multiplier: 32
         batch_probe_search_mode: power_of_two
@@ -270,6 +273,7 @@ agent:
     num_improves: 3
     topk_max_improves: 10
     max_debug_depth: 20
+    repeated_failure_limit: 2
     back_debug_depth: 3
     debug_prob: 1
     metric_improvement_threshold: 0.0001

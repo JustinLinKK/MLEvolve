@@ -101,6 +101,7 @@ class SearchConfig:
     fusion_max_time_hours: float
     fusion_min_successful_nodes: int
     fusion_min_branches: int
+    repeated_failure_limit: int = 2
 
 @dataclass
 class AgentConfig:

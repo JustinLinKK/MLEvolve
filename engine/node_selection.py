@@ -54,7 +54,7 @@ def select(agent, node: SearchNode) -> SearchNode | None:
     """UCT selection: recurse from node, return node to expand (root lock for drafts)."""
     def _best_child(n: SearchNode) -> SearchNode | None:
         if agent.is_root(n):
-            filtered_children = [child for child in n.children if not child.lock]
+            filtered_children = [child for child in n.children if not child.lock and not child.is_terminal]
             if not filtered_children:
                 logger.debug("[select] root %s has no unlocked children", n.id)
                 return None
@@ -65,7 +65,7 @@ def select(agent, node: SearchNode) -> SearchNode | None:
                 selected_node.lock = True
             return selected_node
         else:
-            filtered_children = [child for child in n.children if not child.lock]
+            filtered_children = [child for child in n.children if not child.lock and not child.is_terminal]
             if not filtered_children:
                 logger.debug("[select] node %s has no unlocked children to descend into", n.id)
                 return None
@@ -144,7 +144,7 @@ def get_top_k_nodes_global(agent, k: int, max_from_same_branch: int) -> List[dic
     all_nodes = []
     for branch_id in agent.branch_all_nodes:
         for node in agent.branch_all_nodes[branch_id]:
-            if not node.is_buggy and node.metric is not None and node.metric.value is not None:
+            if node.search_eligible and node.metric is not None and node.metric.value is not None:
                 all_nodes.append(node)
 
     if not all_nodes:

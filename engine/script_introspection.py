@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import re
 import logging
+from dataclasses import asdict, dataclass, field
 from hashlib import sha1
 from typing import Any
 
@@ -18,6 +20,9 @@ BATCH_PARAM_NAMES = (
     "eval_batch_size",
     "per_device_train_batch_size",
     "per_device_eval_batch_size",
+    "BASE_BATCH_SIZE",
+    "PHYSICAL_BATCH_SIZE",
+    "TRAIN_BATCH_SIZE",
 )
 
 EPOCH_PARAM_NAMES = (
@@ -195,6 +200,298 @@ _BATCH_PROBE_ENABLE_PATTERN = re.compile(
     rf"\b(?:{'|'.join(re.escape(name) for name in BATCH_PARAM_NAMES)})\b"
 )
 
+_NON_TRAIN_BATCH_TOKENS = ("eval", "valid", "val_", "test", "predict", "infer", "submission")
+_TRAIN_ROLE_TOKENS = ("train", "training")
+_NON_TRAIN_ROLE_TOKENS = ("valid", "validation", "val", "test", "predict", "inference", "submission")
+
+
+@dataclass(frozen=True, slots=True)
+class TrainingBatchSite:
+    """A statically proven training-loader batch argument."""
+
+    lineno: int
+    col_offset: int
+    argument: str
+    expression: str
+
+
+@dataclass(frozen=True, slots=True)
+class TrainingBatchContract:
+    """Static contract used to decide whether scheduler batch probing is safe."""
+
+    initial_batch_size: int | None = None
+    minimum_batch_size: int = 1
+    batch_symbols: tuple[str, ...] = ()
+    train_sites: tuple[TrainingBatchSite, ...] = ()
+    confidence: str = "unsupported"
+    unsupported_reason: str | None = None
+    diagnostics: tuple[str, ...] = ()
+
+    @property
+    def supported(self) -> bool:
+        return self.confidence == "high" and self.initial_batch_size is not None and bool(self.train_sites)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["supported"] = self.supported
+        return payload
+
+
+def _name_looks_like_train_batch(name: str) -> bool:
+    lowered = str(name or "").lower()
+    if "batch" not in lowered:
+        return False
+    return not any(token in lowered for token in _NON_TRAIN_BATCH_TOKENS)
+
+
+def _assignment_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+        return node.targets[0].id
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        return node.target.id
+    return None
+
+
+def _assignment_value(node: ast.AST) -> ast.expr | None:
+    if isinstance(node, (ast.Assign, ast.AnnAssign)):
+        return node.value
+    return None
+
+
+def _resolve_static_int(expr: ast.expr | None, assignments: dict[str, ast.expr], seen: set[str] | None = None) -> int | None:
+    if expr is None:
+        return None
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, int) and not isinstance(expr.value, bool):
+        return int(expr.value)
+    if isinstance(expr, ast.Name):
+        seen = set(seen or ())
+        if expr.id in seen:
+            return None
+        seen.add(expr.id)
+        return _resolve_static_int(assignments.get(expr.id), assignments, seen)
+    if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, (ast.UAdd, ast.USub)):
+        value = _resolve_static_int(expr.operand, assignments, seen)
+        if value is not None:
+            return value if isinstance(expr.op, ast.UAdd) else -value
+    if isinstance(expr, ast.BinOp):
+        left = _resolve_static_int(expr.left, assignments, seen)
+        right = _resolve_static_int(expr.right, assignments, seen)
+        if left is None or right is None:
+            return None
+        if isinstance(expr.op, ast.Mult):
+            return left * right
+        if isinstance(expr.op, ast.FloorDiv) and right:
+            return left // right
+        if isinstance(expr.op, ast.Add):
+            return left + right
+        if isinstance(expr.op, ast.Sub):
+            return left - right
+    if isinstance(expr, ast.IfExp):
+        left = _resolve_static_int(expr.body, assignments, seen)
+        right = _resolve_static_int(expr.orelse, assignments, seen)
+        return left if left == right else (left if right is None else right if left is None else None)
+    return None
+
+
+def _call_name(call: ast.Call) -> str:
+    try:
+        return ast.unparse(call.func).lower()
+    except Exception:
+        return ""
+
+
+def _expr_names(expr: ast.AST | None) -> set[str]:
+    return {node.id for node in ast.walk(expr) if isinstance(node, ast.Name)} if expr is not None else set()
+
+
+def _loader_role(call: ast.Call, parent_target: str | None) -> str | None:
+    call_name = _call_name(call)
+    if "loader" not in call_name and "dataloader" not in call_name:
+        return None
+    evidence = " ".join(
+        [
+            str(parent_target or ""),
+            call_name,
+            *(ast.unparse(arg) for arg in call.args[:1]),
+        ]
+    ).lower()
+    if any(token in evidence for token in _NON_TRAIN_ROLE_TOKENS):
+        return "non_train"
+    if any(token in evidence for token in _TRAIN_ROLE_TOKENS):
+        return "train"
+    for keyword in call.keywords:
+        if keyword.arg == "shuffle" and isinstance(keyword.value, ast.Constant):
+            return "train" if keyword.value.value is True else None
+    return None
+
+
+def analyze_training_batch_contract(code: str) -> TrainingBatchContract:
+    """Find a role-scoped, statically controllable training batch-size knob."""
+    try:
+        module = ast.parse(code or "")
+    except SyntaxError as exc:
+        return TrainingBatchContract(unsupported_reason=f"syntax error: {exc.msg}")
+
+    assignments: dict[str, ast.expr] = {}
+    parent_targets: dict[int, str] = {}
+    enclosing_functions: dict[int, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+    loader_factory_batch_parameters: dict[str, tuple[str, int]] = {}
+
+    class _FunctionContextVisitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.stack: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            self.stack.append(node)
+            self.generic_visit(node)
+            self.stack.pop()
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            self.stack.append(node)
+            self.generic_visit(node)
+            self.stack.pop()
+
+        def visit_Call(self, node: ast.Call) -> None:
+            if self.stack:
+                enclosing_functions[id(node)] = self.stack[-1]
+            self.generic_visit(node)
+
+    _FunctionContextVisitor().visit(module)
+    for function in (
+        node for node in ast.walk(module) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ):
+        parameters = [*function.args.posonlyargs, *function.args.args]
+        parameter_indexes = {parameter.arg: index for index, parameter in enumerate(parameters)}
+        factory_parameters: set[str] = set()
+        for inner_call in (node for node in ast.walk(function) if isinstance(node, ast.Call)):
+            if "dataloader" not in _call_name(inner_call):
+                continue
+            batch_expr = next(
+                (keyword.value for keyword in inner_call.keywords if keyword.arg == "batch_size"),
+                inner_call.args[1] if len(inner_call.args) >= 2 else None,
+            )
+            if isinstance(batch_expr, ast.Name) and batch_expr.id in parameter_indexes:
+                factory_parameters.add(batch_expr.id)
+        if len(factory_parameters) == 1:
+            parameter_name = next(iter(factory_parameters))
+            loader_factory_batch_parameters[function.name.lower()] = (
+                parameter_name,
+                parameter_indexes[parameter_name],
+            )
+    for node in ast.walk(module):
+        name = _assignment_name(node)
+        value = _assignment_value(node)
+        if name and value is not None:
+            assignments.setdefault(name, value)
+            if isinstance(value, ast.Call):
+                parent_targets[id(value)] = name
+
+    sites: list[TrainingBatchSite] = []
+    symbols: set[str] = set()
+    diagnostics: list[str] = []
+    site_values: list[int] = []
+    for call in (node for node in ast.walk(module) if isinstance(node, ast.Call)):
+        role = _loader_role(call, parent_targets.get(id(call)))
+        if role != "train":
+            continue
+        candidates: list[tuple[str, ast.expr]] = []
+        for keyword in call.keywords:
+            if keyword.arg in {"batch_size", "train_batch_size", "per_device_train_batch_size"}:
+                candidates.append((f"keyword:{keyword.arg}", keyword.value))
+        if not candidates:
+            call_leaf = _call_name(call).rsplit(".", 1)[-1]
+            factory_parameter = loader_factory_batch_parameters.get(call_leaf)
+            if factory_parameter is not None:
+                parameter_name, parameter_index = factory_parameter
+                if len(call.args) > parameter_index:
+                    candidates.append((f"positional:{parameter_index}", call.args[parameter_index]))
+                else:
+                    keyword_expr = next(
+                        (keyword.value for keyword in call.keywords if keyword.arg == parameter_name),
+                        None,
+                    )
+                    if keyword_expr is not None:
+                        candidates.append((f"keyword:{parameter_name}", keyword_expr))
+            elif "dataloader" in _call_name(call) and len(call.args) >= 2:
+                candidates.append(("positional:1", call.args[1]))
+        for argument, expr in candidates:
+            value = _resolve_static_int(expr, assignments)
+            parameter_values: list[tuple[int, ast.expr]] = []
+            enclosing = enclosing_functions.get(id(call))
+            if value is None and enclosing is not None and isinstance(expr, ast.Name):
+                parameters = [*enclosing.args.posonlyargs, *enclosing.args.args]
+                parameter_names = [parameter.arg for parameter in parameters]
+                if expr.id in parameter_names:
+                    parameter_index = parameter_names.index(expr.id)
+                    for caller in (node for node in ast.walk(module) if isinstance(node, ast.Call)):
+                        caller_name = _call_name(caller).rsplit(".", 1)[-1]
+                        if caller_name != enclosing.name.lower():
+                            continue
+                        caller_expr = caller.args[parameter_index] if len(caller.args) > parameter_index else None
+                        if caller_expr is None:
+                            caller_expr = next(
+                                (keyword.value for keyword in caller.keywords if keyword.arg == expr.id),
+                                None,
+                            )
+                        caller_value = _resolve_static_int(caller_expr, assignments)
+                        if caller_value is not None and caller_expr is not None:
+                            parameter_values.append((caller_value, caller_expr))
+                    if parameter_values:
+                        value = max(item[0] for item in parameter_values)
+                        symbols.add(expr.id)
+                        for _, caller_expr in parameter_values:
+                            symbols.update(name for name in _expr_names(caller_expr) if _name_looks_like_train_batch(name))
+                        if len({item[0] for item in parameter_values}) > 1:
+                            diagnostics.append(
+                                f"line {getattr(call, 'lineno', 0)} uses static fallback batch values; probing starts from {value}"
+                            )
+            if value is None:
+                diagnostics.append(f"line {getattr(call, 'lineno', 0)} training batch expression is not statically resolvable")
+                continue
+            site_values.append(value)
+            symbols.update(name for name in _expr_names(expr) if _name_looks_like_train_batch(name))
+            sites.append(
+                TrainingBatchSite(
+                    lineno=int(getattr(call, "lineno", 0)),
+                    col_offset=int(getattr(call, "col_offset", 0)),
+                    argument=argument,
+                    expression=ast.unparse(expr),
+                )
+            )
+
+    if not sites:
+        reason = "no statically proven training DataLoader batch argument"
+        if diagnostics:
+            reason = diagnostics[0]
+        return TrainingBatchContract(unsupported_reason=reason, diagnostics=tuple(diagnostics))
+
+    unique_values = set(site_values)
+    if len(unique_values) != 1:
+        return TrainingBatchContract(
+            batch_symbols=tuple(sorted(symbols)),
+            train_sites=tuple(sites),
+            unsupported_reason="training loader sites resolve to different initial batch sizes",
+            diagnostics=tuple(diagnostics),
+        )
+
+    minimum = 1
+    for node in ast.walk(module):
+        if not isinstance(node, ast.Compare) or len(node.ops) != 1 or len(node.comparators) != 1:
+            continue
+        left_names = _expr_names(node.left)
+        right_value = _resolve_static_int(node.comparators[0], assignments)
+        if left_names & symbols and right_value is not None and isinstance(node.ops[0], (ast.GtE, ast.Gt)):
+            minimum = max(minimum, right_value + (1 if isinstance(node.ops[0], ast.Gt) else 0))
+
+    return TrainingBatchContract(
+        initial_batch_size=site_values[0],
+        minimum_batch_size=minimum,
+        batch_symbols=tuple(sorted(symbols)),
+        train_sites=tuple(sites),
+        confidence="high",
+        diagnostics=tuple(diagnostics),
+    )
+
 
 def normalized_mlevolve_script_signature(code: str) -> str:
     """Return a stable signature for generated code while ignoring batch-size edits."""
@@ -205,14 +502,15 @@ def normalized_mlevolve_script_signature(code: str) -> str:
 
 
 def code_supports_batch_probe(code: str) -> bool:
-    return _BATCH_PROBE_ENABLE_PATTERN.search(code or "") is not None
+    return analyze_training_batch_contract(code).supported
 
 
 def detect_initial_batch_size(code: str) -> int | None:
+    contract = analyze_training_batch_contract(code)
+    if contract.initial_batch_size is not None:
+        return contract.initial_batch_size
     match = _BATCH_PARAM_PATTERN.search(code or "")
-    if not match:
-        return None
-    return _safe_int(match.group(1))
+    return _safe_int(match.group(1)) if match else None
 
 
 def detect_epoch_count(code: str) -> int | None:
@@ -513,6 +811,7 @@ def introspect_training_script(code: str) -> dict[str, Any]:
             "Generated script is missing MODEL_BRANCH; inferred branch_name=%s from model key/code.",
             inferred_branch_name,
         )
+    batch_contract = analyze_training_batch_contract(code)
     candidate: dict[str, Any] = {
         "model_key": model_key,
         "branch_name": branch_name,
@@ -520,6 +819,9 @@ def introspect_training_script(code: str) -> dict[str, Any]:
         "model_family": model_family,
         "model_family_source": model_family_source,
         "proposed_batch_size": detect_initial_batch_size(code),
+        "minimum_batch_size": batch_contract.minimum_batch_size if batch_contract.supported else None,
+        "batch_probe_supported": batch_contract.supported,
+        "batch_contract": batch_contract.to_dict(),
         "proposed_epochs": detect_epoch_count(code),
         "input_resolution": detect_input_resolution(code),
         "fold_count": detect_fold_count(code),

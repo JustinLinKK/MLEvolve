@@ -8,6 +8,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 
 from dataclasses_json import DataClassJsonMixin
@@ -17,6 +18,19 @@ from utils.metric import MetricValue
 from utils.response import trim_long_string
 
 logger = logging.getLogger("MLEvolve")
+
+
+class NodeOutcome(str, Enum):
+    VALID = "valid"
+    CANDIDATE_EXCEPTION = "candidate_exception"
+    EXECUTION_TIMEOUT = "execution_timeout"
+    ARTIFACT_INVALID = "artifact_invalid"
+    SUBMISSION_INVALID = "submission_invalid"
+    PROBE_FAILURE = "probe_failure"
+    VALIDATION_UNAVAILABLE = "validation_unavailable"
+    RESULT_PARSE_FAILURE = "result_parse_failure"
+    POLICY_REJECTED = "policy_rejected"
+    REPEATED_FAILURE = "repeated_failure"
 
 
 @dataclass(eq=False)
@@ -43,12 +57,18 @@ class SearchNode(DataClassJsonMixin):
     exc_stack: list[tuple] | None = field(default=None, kw_only=True)
     phase_timings: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
     instrumentation: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
+    failure_diagnostic: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
 
     # ---- evaluation ----
     analysis: str = field(default=None, kw_only=True)  # type: ignore
     metric: MetricValue = field(default=None, kw_only=True)  # type: ignore
     is_buggy: bool = field(default=None, kw_only=True)  # type: ignore
     is_valid: bool = field(default=None, kw_only=True)  # type: ignore
+    outcome: Optional[str] = field(default=None, kw_only=True)
+    search_eligible: bool = field(default=False, kw_only=True)
+    debug_eligible: bool = field(default=False, kw_only=True)
+    failure_fingerprint: Optional[str] = field(default=None, kw_only=True)
+    quarantine_reason: Optional[str] = field(default=None, kw_only=True)
 
     # ---- search / MCTS ----
     stage: Literal["root", "improve", "debug", "draft", "fusion_draft", "evolution", "fusion"]
@@ -107,6 +127,11 @@ class SearchNode(DataClassJsonMixin):
                 self.stage_note_board = copy.deepcopy(self.parent.stage_note_board)
         if self.stage not in ["root", "improve", "debug", "draft", "fusion_draft", "evolution", "fusion"]:
             raise ValueError(f"Invalid stage: {self.stage}")
+        if self.outcome is None:
+            if self.is_buggy is True:
+                self.debug_eligible = True
+            elif self.is_buggy is False and self.is_valid is not False and self.metric is not None:
+                self.search_eligible = True
 
     # ---- base node properties ----
 
@@ -115,7 +140,7 @@ class SearchNode(DataClassJsonMixin):
         """Inferred stage based on parent relationship."""
         if self.parent is None:
             return "draft"
-        return "debug" if self.parent.is_buggy else "improve"
+        return "debug" if self.parent.debug_eligible or self.parent.is_buggy else "improve"
 
     def absorb_exec_result(self, exec_result: ExecutionResult):
         """Absorb the result of executing the code from this node."""
@@ -126,9 +151,39 @@ class SearchNode(DataClassJsonMixin):
         self.exc_stack = exec_result.exc_stack
         self.phase_timings = exec_result.phase_timings
         self.instrumentation = exec_result.instrumentation
+        self.outcome = exec_result.outcome or self.outcome
+        self.failure_diagnostic = exec_result.failure_diagnostic
         instrumentation = exec_result.instrumentation or {}
         if isinstance(instrumentation, dict) and instrumentation.get("scheduler_early_stop"):
             self.training_curve_feedback = dict(instrumentation.get("scheduler_early_stop") or {})
+        if isinstance(instrumentation, dict):
+            if instrumentation.get("failure_diagnostic") and self.failure_diagnostic is None:
+                self.failure_diagnostic = dict(instrumentation["failure_diagnostic"])
+            if instrumentation.get("batch_probe_key"):
+                self.active_profile_key = str(instrumentation["batch_probe_key"])
+
+    def apply_outcome(self, outcome: NodeOutcome | str, *, reason: str | None = None) -> None:
+        value = outcome.value if isinstance(outcome, NodeOutcome) else str(outcome)
+        self.outcome = value
+        debuggable = {
+            NodeOutcome.CANDIDATE_EXCEPTION.value,
+            NodeOutcome.EXECUTION_TIMEOUT.value,
+            NodeOutcome.ARTIFACT_INVALID.value,
+            NodeOutcome.SUBMISSION_INVALID.value,
+        }
+        self.is_valid = value == NodeOutcome.VALID.value
+        self.is_buggy = value in debuggable
+        self.search_eligible = value == NodeOutcome.VALID.value
+        self.debug_eligible = value in debuggable
+        if value in {
+            NodeOutcome.PROBE_FAILURE.value,
+            NodeOutcome.VALIDATION_UNAVAILABLE.value,
+            NodeOutcome.RESULT_PARSE_FAILURE.value,
+            NodeOutcome.POLICY_REJECTED.value,
+            NodeOutcome.REPEATED_FAILURE.value,
+        }:
+            self.is_terminal = True
+            self.quarantine_reason = reason or value
 
     @property
     def term_out(self) -> str:
@@ -197,7 +252,7 @@ class SearchNode(DataClassJsonMixin):
                 logger.debug(f"[reached_child_limit] node {self.id} regular_draft_count={regular_draft_count}, in_flight={in_flight}, limit={scfg.num_drafts}")
                 return regular_expected >= scfg.num_drafts
             else:
-                if self.is_buggy:
+                if self.debug_eligible or self.is_buggy:
                     if self.has_no_bug_child():
                         return True
                     else:

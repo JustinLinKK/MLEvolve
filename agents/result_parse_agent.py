@@ -1,10 +1,11 @@
 import logging
 import re
 import time
+from hashlib import sha1
 from typing import Any, cast
 
 from llm import FunctionSpec, query
-from engine.search_node import SearchNode
+from engine.search_node import NodeOutcome, SearchNode
 from engine.executor import ExecutionResult
 from localml_scheduler.runtime_environment import validate_generated_training_code
 from utils.metric import MetricValue, WorstMetricValue
@@ -14,6 +15,93 @@ from agents import data_leakage_agent
 from agents.triggers import should_check_data_leakage
 
 logger = logging.getLogger("MLEvolve")
+
+_METRIC_LINE_RE = re.compile(
+    r"(?P<key>(?:val(?:idation)?[_ /-]*)?(?:accuracy|acc|auc|f1|score|precision|recall|iou|map|log[_ -]?loss|loss|rmse|mae|mse))"
+    r"\s*[:=]\s*(?P<value>[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)",
+    re.IGNORECASE,
+)
+
+
+def _extract_metric_from_output(output: str) -> tuple[float | None, str | None]:
+    explicit: list[float] = []
+    candidates: list[tuple[int, float, str]] = []
+    for line in str(output or "").splitlines():
+        if "MLEVOLVE_METRIC" in line:
+            payload = line.split("MLEVOLVE_METRIC", 1)[1].lstrip(" :")
+            try:
+                import json
+
+                values = json.loads(payload)
+            except Exception:
+                values = {}
+            if isinstance(values, dict):
+                for key, value in values.items():
+                    if str(key).lower() in {"epoch", "step", "global_step", "lr", "learning_rate"}:
+                        continue
+                    try:
+                        explicit.append(float(value))
+                    except (TypeError, ValueError):
+                        continue
+        lowered = line.lower()
+        for match in _METRIC_LINE_RE.finditer(line):
+            key = match.group("key")
+            if "train" in lowered and not any(token in lowered for token in (" val", "valid", "validation")):
+                continue
+            priority = 2 if any(token in key.lower() for token in ("val", "valid")) else 1
+            candidates.append((priority, float(match.group("value")), key))
+    if explicit:
+        return explicit[-1], "mlevolve_metric"
+    if not candidates:
+        return None, None
+    best_priority = max(item[0] for item in candidates)
+    _, value, key = [item for item in candidates if item[0] == best_priority][-1]
+    return value, f"log:{key.lower().replace(' ', '_')}"
+
+
+def _failure_fingerprint(node: SearchNode) -> str | None:
+    diagnostic = node.failure_diagnostic or {}
+    if diagnostic.get("fingerprint"):
+        return str(diagnostic["fingerprint"])
+    if not node.exc_type and node.outcome not in {
+        NodeOutcome.ARTIFACT_INVALID.value,
+        NodeOutcome.SUBMISSION_INVALID.value,
+    }:
+        return None
+    message = str((node.exc_info or {}).get("message") or node.analysis or "")
+    normalized = re.sub(r"0x[0-9a-fA-F]+|\b\d+(?:\.\d+)?\b", "<n>", message.lower())
+    payload = f"{node.outcome or ''}|{node.exc_type or ''}|{normalized.strip()}"
+    return sha1(payload.encode("utf-8")).hexdigest()[:20]
+
+
+def _apply_failure_circuit_breaker(agent, node: SearchNode) -> None:
+    node.failure_fingerprint = _failure_fingerprint(node)
+    if not node.debug_eligible or not node.failure_fingerprint:
+        return
+    count = 0
+    current: SearchNode | None = node
+    while current is not None:
+        if current.failure_fingerprint == node.failure_fingerprint:
+            count += 1
+        current = current.parent
+    search_cfg = getattr(agent, "scfg", None)
+    limit = max(1, int(getattr(search_cfg, "repeated_failure_limit", 2) or 2))
+    if count < limit:
+        return
+    reason = f"failure fingerprint {node.failure_fingerprint} repeated {count} times in one lineage"
+    node.apply_outcome(NodeOutcome.REPEATED_FAILURE, reason=reason)
+    node.analysis = f"{node.analysis or ''}\n\nREPEATED_FAILURE: {reason}".strip()
+    try:
+        from utils.pipeline_logging import log_pipeline_event
+
+        log_pipeline_event(
+            agent,
+            "lineage_failure_quarantined",
+            node=node,
+            payload={"fingerprint": node.failure_fingerprint, "count": count, "limit": limit},
+        )
+    except Exception:
+        pass
 
 metric_direction_func_spec = FunctionSpec(
     name="determine_metric_direction",
@@ -228,16 +316,25 @@ def _save_code_summary(agent, node: SearchNode, response: dict):
 
 def _determine_buggy(node: SearchNode, response: dict, has_csv_submission: bool) -> list[str]:
     failure_reasons = []
-    if response["is_bug"]:
-        failure_reasons.append("execution error detected")
-    if node.exc_type is not None:
+    scheduler_probe_kind = str((node.exc_info or {}).get("scheduler_probe_failure_kind") or "")
+    if node.outcome == NodeOutcome.PROBE_FAILURE.value or scheduler_probe_kind:
+        failure_reasons.append(f"scheduler probe failed: {scheduler_probe_kind or 'unknown'}")
+        node.apply_outcome(NodeOutcome.PROBE_FAILURE, reason=failure_reasons[-1])
+    elif node.exc_type == "TimeoutError" or node.outcome == NodeOutcome.EXECUTION_TIMEOUT.value:
+        failure_reasons.append("execution timed out")
+        node.apply_outcome(NodeOutcome.EXECUTION_TIMEOUT)
+    elif node.exc_type is not None:
         failure_reasons.append(f"exception raised: {node.exc_type}")
-    if response["metric"] is None:
-        failure_reasons.append("no metric value reported")
-    if not has_csv_submission:
+        node.apply_outcome(NodeOutcome.CANDIDATE_EXCEPTION)
+    elif not has_csv_submission:
         failure_reasons.append("submission file not found")
+        node.apply_outcome(NodeOutcome.ARTIFACT_INVALID)
+    elif response["metric"] is None:
+        failure_reasons.append("no metric value reported")
+        node.apply_outcome(NodeOutcome.RESULT_PARSE_FAILURE, reason=failure_reasons[-1])
+    else:
+        node.apply_outcome(NodeOutcome.VALID)
 
-    node.is_buggy = len(failure_reasons) > 0
     if node.is_buggy:
         logger.warning(f"Node {node.id} marked as buggy: {'; '.join(failure_reasons)}")
     return failure_reasons
@@ -449,7 +546,7 @@ def _traceback_excerpt(text: str) -> str:
 
 
 def _validate_format_with_retry(agent, node: SearchNode):
-    exp_id = agent.cfg.exp_name.split("_")[2]
+    exp_id = agent.cfg.exp_id
     submission_path = agent.cfg.workspace_dir / "submission" / f"submission_{node.id}.csv"
 
     status, res = _validate_submission_with_retry(
@@ -463,44 +560,35 @@ def _validate_format_with_retry(agent, node: SearchNode):
     if status:
         if not res['is_valid']:
             logger.warning(f"[validate] node {node.id}: invalid after retry attempts.")
-            node.is_valid = False
-            node.is_buggy = True
+            node.apply_outcome(NodeOutcome.SUBMISSION_INVALID)
             node._term_out.append(f"\n{res['result']}")
             node.analysis = f"FORMAT_ERROR: Execution succeeded but submission file failed format validation.\n\nDetails:\n{res['result']}"
         else:
             _check_content_quality(agent, node, submission_path)
     else:
-        logger.error(f"An unexpected error occurred: {res}, skip this stage.")
-        logger.info(f"Node {node.id} format validation passed. Now checking content quality...")
-        content_valid, content_error = validate_submission_content_quality(
-                submission_path=submission_path,
-                sample_path=None,
-                constant_threshold=0.95,
-            )
-
-        if not content_valid:
-            _mark_content_quality_failure(node, content_error)
-        else:
-            logger.info(f"[validate] node {node.id}: valid")
-            node.is_valid = True
+        reason = f"external submission validation unavailable: {res}"
+        logger.error(reason)
+        node.apply_outcome(NodeOutcome.VALIDATION_UNAVAILABLE, reason=reason)
+        node.analysis = f"VALIDATION_UNAVAILABLE: {reason}"
 
 
 def _validate_format_simple(agent, node: SearchNode):
-    exp_id = agent.cfg.exp_name.split("_")[2]
+    exp_id = agent.cfg.exp_id
     submission_path = agent.cfg.workspace_dir / "submission" / f"submission_{node.id}.csv"
 
     status, res = call_validate(exp_id=exp_id, submission_path=submission_path)
     if status:
         if not res['is_valid']:
             logger.warning(f"[validate] node {node.id}: invalid.")
-            node.is_valid = False
-            node.is_buggy = True
+            node.apply_outcome(NodeOutcome.SUBMISSION_INVALID)
             node._term_out.append(f"\n{res['result']}")
             node.analysis = f"FORMAT_ERROR: Execution succeeded but submission file failed format validation.\n\nDetails:\n{res['result']}"
         else:
             _check_content_quality(agent, node, submission_path)
     else:
-        logger.error(f"An unexpected error occurred: {res}, skip this stage.")
+        reason = f"external submission validation unavailable: {res}"
+        logger.error(reason)
+        node.apply_outcome(NodeOutcome.VALIDATION_UNAVAILABLE, reason=reason)
 
 
 def _check_content_quality(agent, node: SearchNode, submission_path):
@@ -515,13 +603,12 @@ def _check_content_quality(agent, node: SearchNode, submission_path):
         _mark_content_quality_failure(node, content_error)
     else:
         logger.info(f"✅ Node {node.id} passed both format and content quality checks.")
-        node.is_valid = True
+        node.apply_outcome(NodeOutcome.VALID)
 
 
 def _mark_content_quality_failure(node: SearchNode, content_error):
     logger.warning(f"Node {node.id} is marked as buggy due to content quality check failure.")
-    node.is_valid = False
-    node.is_buggy = True
+    node.apply_outcome(NodeOutcome.POLICY_REJECTED, reason=str(content_error))
     error_message = (
         "Submission format is correct, but content quality check FAILED:\n\n"
         f"{content_error}\n\n"
@@ -538,28 +625,8 @@ def _mark_content_quality_failure(node: SearchNode, content_error):
 
 
 def _validate_metric_direction(agent, node: SearchNode, response: dict):
-    returned_maximize = not response["lower_is_better"]
-    if agent.metric_maximize is not None and returned_maximize != agent.metric_maximize:
-        logger.error("=" * 80)
-        logger.error(f"METRIC DIRECTION MISMATCH for Node {node.id}!")
-        logger.error(f"  - Returned lower_is_better = {response['lower_is_better']} (maximize={returned_maximize})")
-        logger.error(f"  - Pre-determined maximize = {agent.metric_maximize}")
-        logger.error(f"  - Marking this node as BUGGY, will NOT update top candidates")
-        logger.error("=" * 80)
-        node.is_buggy = True
-        node.metric = WorstMetricValue()
-        node.analysis = (
-            f"{node.analysis}\n\n[ERROR] Metric direction mismatch detected:\n"
-            f"- Returned lower_is_better={response['lower_is_better']} (maximize={returned_maximize})\n"
-            f"- Expected maximize={agent.metric_maximize}\n"
-            f"- Pre-determination reasoning: {agent.metric_maximize_reasoning or 'N/A'}\n"
-            f"This node is marked as buggy and will not be considered for best/top candidates."
-        )
-    else:
-        logger.info(f"Node {node.id} metric direction validated: maximize={agent.metric_maximize}")
-        node.metric = MetricValue(
-            response["metric"], maximize=agent.metric_maximize
-        )
+    logger.info("Node %s uses task-level metric direction: maximize=%s", node.id, agent.metric_maximize)
+    node.metric = MetricValue(response["metric"], maximize=agent.metric_maximize)
 
 
 def _check_data_leakage(agent, node: SearchNode, response: dict):
@@ -577,7 +644,7 @@ def _check_data_leakage(agent, node: SearchNode, response: dict):
             f"⚠️  Node {node.id} detected data leakage with {leakage_result['confidence']} confidence. "
             f"Marking as buggy and resetting metric."
         )
-        node.is_buggy = True
+        node.apply_outcome(NodeOutcome.POLICY_REJECTED, reason="data leakage policy check")
         node.metric = WorstMetricValue()
         node.analysis = (
             f"⚠️ DATA LEAKAGE DETECTED (Confidence: {leakage_result['confidence'].upper()})\n\n"
@@ -626,17 +693,26 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
                 "Execution output": wrap_code(node.term_out, lang=""),
             }
 
-            response = cast(
-                dict,
-                query(
-                    system_message=prompt,
-                    user_message=None,
-                    func_spec=get_review_func_spec(getattr(agent.acfg, "use_global_memory", False)),
-                    model=agent.acfg.feedback.model,
-                    temperature=agent.acfg.feedback.temp,
-                    cfg=agent.cfg
-                ),
-            )
+            try:
+                response = cast(
+                    dict,
+                    query(
+                        system_message=prompt,
+                        user_message=None,
+                        func_spec=get_review_func_spec(getattr(agent.acfg, "use_global_memory", False)),
+                        model=agent.acfg.feedback.model,
+                        temperature=agent.acfg.feedback.temp,
+                        cfg=agent.cfg
+                    ),
+                )
+            except Exception as exc:
+                logger.warning("LLM result summary unavailable for node %s: %s", node.id, exc)
+                response = {
+                    "is_bug": node.exc_type is not None,
+                    "summary": "Execution completed; deterministic framework checks were used because result summarization was unavailable.",
+                    "metric": None,
+                    "lower_is_better": not bool(agent.metric_maximize),
+                }
 
             # Gemini structured output may omit required fields; fill defaults
             response.setdefault("is_bug", True)
@@ -645,12 +721,10 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
             response.setdefault("lower_is_better",
                                 not agent.metric_maximize if agent.metric_maximize is not None else False)
 
-            metric_val = response.get("metric")
-            if not isinstance(metric_val, (int, float)):
-                try:
-                    response["metric"] = float(metric_val)
-                except (TypeError, ValueError):
-                    response["metric"] = None
+            deterministic_metric, metric_source = _extract_metric_from_output(node.term_out)
+            response["metric"] = deterministic_metric
+            response["metric_source"] = metric_source
+            response["lower_is_better"] = not bool(agent.metric_maximize)
 
             for bool_field in ("is_bug", "lower_is_better"):
                 v = response.get(bool_field)
@@ -663,26 +737,15 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
             _save_code_summary(agent, node, response)
             failure_reasons = _determine_buggy(node, response, has_csv_submission)
 
-            if not node.is_buggy:
+            if node.outcome == NodeOutcome.VALID.value:
                 _validate_format_with_retry(agent, node)
+                if node.outcome == NodeOutcome.VALID.value and (node.is_valid is False or node.is_buggy is True):
+                    node.apply_outcome(NodeOutcome.SUBMISSION_INVALID)
 
-            if node.is_buggy:
+            if node.outcome != NodeOutcome.VALID.value:
                 if not failure_reasons:
                     failure_reasons.extend(_post_validation_failure_reasons(node))
-                node.bug_report, node.fix_report = _build_structured_bug_report(
-                    node,
-                    response,
-                    failure_reasons,
-                    has_csv_submission=has_csv_submission,
-                    model_contracts=getattr(agent, "model_contracts", []),
-                )
-                node.metric = WorstMetricValue()
-            else:
-                _validate_metric_direction(agent, node, response)
-                _check_data_leakage(agent, node, response)
-                if node.is_buggy:
-                    if not failure_reasons:
-                        failure_reasons.extend(_post_validation_failure_reasons(node))
+                if node.debug_eligible:
                     node.bug_report, node.fix_report = _build_structured_bug_report(
                         node,
                         response,
@@ -690,8 +753,18 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
                         has_csv_submission=has_csv_submission,
                         model_contracts=getattr(agent, "model_contracts", []),
                     )
+                node.metric = WorstMetricValue()
+            else:
+                _validate_metric_direction(agent, node, response)
+                _check_data_leakage(agent, node, response)
+                if node.outcome != NodeOutcome.VALID.value:
+                    if not failure_reasons:
+                        failure_reasons.extend(_post_validation_failure_reasons(node))
+                    node.metric = WorstMetricValue()
 
-            status = "FAIL" if node.is_buggy else "PASS"
+            _apply_failure_circuit_breaker(agent, node)
+
+            status = "PASS" if node.outcome == NodeOutcome.VALID.value else "FAIL" if node.debug_eligible else "QUARANTINE"
             metric_val = node.metric.value if node.metric else None
             logger.info(f"[parse] node {node.id}: {status} | metric={metric_val}")
             try:
@@ -702,6 +775,10 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
                     "metric": metric_val,
                     "is_buggy": node.is_buggy,
                     "is_valid": node.is_valid,
+                    "outcome": node.outcome,
+                    "search_eligible": node.search_eligible,
+                    "debug_eligible": node.debug_eligible,
+                    "failure_fingerprint": node.failure_fingerprint,
                     "exec_time": node.exec_time,
                     "exc_type": node.exc_type,
                     "summary": node.analysis,
@@ -720,8 +797,8 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
             logger.warning(f"[parse] tool call failed: {e}")
             continue
 
-    logger.error(f"All {max_retries} parse attempts failed for node {node.id}, marking as buggy")
-    node.is_buggy = True
+    logger.error(f"All {max_retries} parse attempts failed for node {node.id}, quarantining result")
+    node.apply_outcome(NodeOutcome.RESULT_PARSE_FAILURE, reason="deterministic result parsing failed")
     node.metric = WorstMetricValue()
     node.analysis = "Execution result parsing failed after multiple attempts."
     node.bug_report = (

@@ -54,7 +54,7 @@ def test_submit_startpoint_probe_jobs_builds_async_scheduler_jobs(tmp_path) -> N
     submitted = client.submitted_jobs[0]
     assert submitted.task_type == "mlevolve_startpoint_probe"
     assert submitted.priority == 100
-    assert submitted.batch_probe.profile_key
+    assert submitted.batch_probe.profile_namespace
     assert submitted.batch_probe.shape_signature_override
     assert submitted.batch_probe.search_mode == "power_of_two"
     assert pipeline.events[0][0] == "scheduler_startpoint_probes_submitted"

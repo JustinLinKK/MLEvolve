@@ -111,6 +111,8 @@ class ExecutionResult(DataClassJsonMixin):
     exc_stack: list[tuple] | None = None
     phase_timings: dict[str, Any] | None = None
     instrumentation: dict[str, Any] | None = None
+    outcome: str | None = None
+    failure_diagnostic: dict[str, Any] | None = None
 
 
 @dataclass
@@ -512,6 +514,7 @@ class Interpreter:
             "tta_count",
             "gradient_accumulation_steps",
             "num_workers",
+            "minimum_batch_size",
         ):
             if script_metadata.get(key) is not None:
                 hints[key] = script_metadata[key]
@@ -548,9 +551,6 @@ class Interpreter:
             return None, None
         normalized_family = normalize_branch_name(model_family)
         profile_key = build_branch_profile_key(normalized_family)
-        existing = self._batch_probe_profile(profile_key)
-        if existing is not None:
-            return profile_key, existing
 
         probe_job = build_model_family_probe_job(
             workflow_id=workflow_id,
@@ -595,7 +595,10 @@ class Interpreter:
         while deadline is None or time.time() < deadline:
             final_job = self.scheduler_client.inspect(submitted.job_id)
             last_probe_event_id = self._log_scheduler_probe_updates(submitted.job_id, last_probe_event_id)
-            profile = self._batch_probe_profile(profile_key)
+            concrete_key = None
+            if final_job is not None:
+                concrete_key = (getattr(final_job, "metadata", None) or {}).get("batch_probe_key")
+            profile = self._batch_probe_profile(concrete_key)
             if profile is not None:
                 self._pipeline_emit(
                     "scheduler_model_family_probe_finished",
@@ -606,11 +609,11 @@ class Interpreter:
                         "branch_name": normalized_family,
                         "branch_profile_key": profile_key,
                         "model_family": normalized_family,
-                        "profile_key": profile_key,
+                        "profile_key": concrete_key,
                         "status": "profile_ready",
                     },
                 )
-                return profile_key, profile
+                return concrete_key, profile
             if final_job is not None and final_job.status.is_terminal:
                 break
             time.sleep(poll_interval)
@@ -647,13 +650,18 @@ class Interpreter:
         from localml_scheduler.adapters.mlevolve import build_branch_shape_signature, normalize_branch_name
 
         normalized_family = normalize_branch_name(model_family) if model_family else None
-        profile = self._batch_probe_profile(model_family_profile_key) if model_family_profile_key else None
         if detected_batch_size is not None:
             runner_kwargs["batch_size"] = detected_batch_size
-            runner_kwargs["probe_max_batch_size"] = max(
+            probe_max_batch_size = max(
                 detected_batch_size,
                 _floor_power_of_two(detected_batch_size * max(1, int(submission_defaults.batch_probe_max_multiplier))) or detected_batch_size,
             )
+            configured_max_batch_size = None
+            if self.scheduler_client is not None:
+                configured_max_batch_size = self.scheduler_client.settings.gpu_scheduler.batch_probe_max_batch_size
+            if configured_max_batch_size is not None:
+                probe_max_batch_size = min(probe_max_batch_size, max(1, int(configured_max_batch_size)))
+            runner_kwargs["probe_max_batch_size"] = probe_max_batch_size
 
         if normalized_family and model_family_profile_key:
             shape_signature = build_branch_shape_signature(
@@ -667,21 +675,23 @@ class Interpreter:
                 model_key=normalized_family,
                 search_mode="power_of_two",
                 shape_hints=shape_hints,
-                profile_key=model_family_profile_key,
+                profile_namespace=model_family_profile_key,
                 shape_signature_override=shape_signature,
-                reuse_only=profile is not None,
+                minimum_batch_size=int(shape_hints.get("minimum_batch_size") or 1),
+                contract_version=2,
+                reuse_only=False,
             )
             metadata = {
                 "branch_name": normalized_family,
                 "branch_profile_key": model_family_profile_key,
                 "branch_shape_signature": shape_signature,
-                "branch_reuse_only": profile is not None,
-                "branch_profile_available": profile is not None,
+                "branch_reuse_only": False,
+                "branch_profile_available": False,
                 "model_family": normalized_family,
                 "model_family_profile_key": model_family_profile_key,
                 "model_family_shape_signature": shape_signature,
-                "model_family_reuse_only": profile is not None,
-                "model_family_profile_available": profile is not None,
+                "model_family_reuse_only": False,
+                "model_family_profile_available": False,
                 "startpoint_reuse_only": False,
             }
         else:
@@ -695,6 +705,8 @@ class Interpreter:
                     "task_id": task_id,
                     "script_signature": script_signature,
                 },
+                minimum_batch_size=int(shape_hints.get("minimum_batch_size") or 1),
+                contract_version=2,
             )
             metadata = {
                 "branch_reuse_only": False,
@@ -1402,6 +1414,9 @@ class Interpreter:
             "working_dir": str(run_wd),
             "result_path": str(result_path),
             "probe_timeout_seconds": int(submission_defaults.batch_probe_probe_timeout_seconds),
+            "probe_startup_timeout_seconds": int(submission_defaults.batch_probe_startup_timeout_seconds),
+            "probe_step_timeout_seconds": int(submission_defaults.batch_probe_step_timeout_seconds),
+            "probe_optimizer_steps": int(submission_defaults.batch_probe_optimizer_steps),
             "probe_poll_interval_seconds": float(submission_defaults.batch_probe_poll_interval_seconds),
         }
         if self.timeout is not None:
@@ -1417,15 +1432,14 @@ class Interpreter:
         if branch_name:
             script_shape_hints["branch_name"] = branch_name
             script_shape_hints["model_family"] = branch_name
-        branch_profile_key = active_profile_key or getattr(node_context, "branch_profile_key", None)
+        branch_profile_key = getattr(node_context, "branch_profile_key", None)
         model_family_profile_key = branch_profile_key
         normalized_family = normalize_branch_name(branch_name) if branch_name else None
-        model_family_profile = self._batch_probe_profile(model_family_profile_key) if model_family_profile_key else None
-        if normalized_family and model_family_profile is None:
+        model_family_profile = None
+        if normalized_family and model_family_profile_key is None:
             candidate_profile_key = build_branch_profile_key(normalized_family)
             model_family_profile_key = candidate_profile_key
             branch_profile_key = candidate_profile_key
-            model_family_profile = self._batch_probe_profile(candidate_profile_key)
         batch_probe, batch_probe_metadata = self._build_scheduler_batch_probe(
             submission_defaults=submission_defaults,
             task_id=task_id,
@@ -1514,9 +1528,8 @@ class Interpreter:
                 if branch_name:
                     node_context.branch_name = branch_name
                     node_context.model_family = branch_name
-                if model_family_profile is not None and model_family_profile_key:
+                if model_family_profile_key:
                     node_context.branch_profile_key = model_family_profile_key
-                    node_context.active_profile_key = model_family_profile_key
             except Exception:
                 pass
         return _PreparedSchedulerJob(
@@ -1605,6 +1618,10 @@ class Interpreter:
             exec_time = float(payload.get("exec_time", time.time() - prepared_job.start_time))
             status_value = final_payload.get("status") or (getattr(final_job.status, "value", str(final_job.status)) if final_job is not None else None)
             instrumentation = dict(payload.get("instrumentation") or {})
+            if final_metadata.get("batch_probe_key"):
+                instrumentation["batch_probe_key"] = final_metadata.get("batch_probe_key")
+            if final_metadata.get("scheduler_probe_diagnostic"):
+                instrumentation["failure_diagnostic"] = final_metadata.get("scheduler_probe_diagnostic")
             early_stop_payload = dict(instrumentation.get("scheduler_early_stop") or {})
             early_stop_decision = final_metadata.get("scheduler_early_stop_decision")
             early_stop_plot_path = final_metadata.get("scheduler_early_stop_plot_path") or early_stop_payload.get("plot_path")
@@ -1653,6 +1670,8 @@ class Interpreter:
                 exc_stack=payload.get("exc_stack") or [],
                 phase_timings=payload.get("phase_timings"),
                 instrumentation=instrumentation,
+                outcome=payload.get("outcome"),
+                failure_diagnostic=instrumentation.get("failure_diagnostic"),
             )
 
         reason = final_job.status_reason if final_job is not None else "scheduler job finished without result"
@@ -1666,6 +1685,7 @@ class Interpreter:
             "scheduler_probe_returncode",
             "scheduler_probe_stdout_excerpt",
             "scheduler_probe_stderr_excerpt",
+            "scheduler_probe_diagnostic",
         ):
             if final_metadata.get(key) is not None:
                 exc_info[key] = final_metadata.get(key)
@@ -1680,6 +1700,8 @@ class Interpreter:
             exc_type="RuntimeError",
             exc_info=exc_info,
             exc_stack=[],
+            outcome="probe_failure" if final_metadata.get("scheduler_probe_failure_kind") else "candidate_exception",
+            failure_diagnostic=final_metadata.get("scheduler_probe_diagnostic"),
         )
 
     def _record_scheduler_tuning_outcome(

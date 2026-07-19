@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from agents import result_parse_agent
 from engine.executor import ExecutionResult
-from engine.search_node import SearchNode
+from engine.search_node import NodeOutcome, SearchNode
 
 
 def _agent(tmp_path: Path) -> SimpleNamespace:
@@ -13,6 +13,8 @@ def _agent(tmp_path: Path) -> SimpleNamespace:
         cfg=SimpleNamespace(
             workspace_dir=tmp_path,
             use_grading_server=False,
+            exp_id="real-competition-id",
+            exp_name="unrelated_name_parts",
         ),
         acfg=SimpleNamespace(
             feedback=SimpleNamespace(model="test-model", temp=0.0),
@@ -23,7 +25,92 @@ def _agent(tmp_path: Path) -> SimpleNamespace:
         metric_maximize_reasoning="log loss is minimized",
         global_memory=None,
         pipeline_logger=None,
+        scfg=SimpleNamespace(repeated_failure_limit=2),
     )
+
+
+def test_validation_uses_exp_id_and_quarantines_outage(tmp_path: Path, monkeypatch) -> None:
+    node = SearchNode(code="", plan="draft", stage="draft")
+    node._term_out = []
+    submission_dir = tmp_path / "submission"
+    submission_dir.mkdir()
+    (submission_dir / f"submission_{node.id}.csv").write_text("id,label\n1,0.5\n", encoding="utf-8")
+    captured = {}
+
+    def unavailable(**kwargs):
+        captured.update(kwargs)
+        return False, {"error": "validator offline"}
+
+    monkeypatch.setattr(result_parse_agent, "_validate_submission_with_retry", unavailable)
+
+    result_parse_agent._validate_format_with_retry(_agent(tmp_path), node)
+
+    assert captured["exp_id"] == "real-competition-id"
+    assert node.outcome == NodeOutcome.VALIDATION_UNAVAILABLE.value
+    assert node.is_buggy is False
+    assert node.is_terminal is True
+
+
+def test_zero_metric_is_valid_and_llm_cannot_override_it(tmp_path: Path, monkeypatch) -> None:
+    agent = _agent(tmp_path)
+    monkeypatch.setattr(
+        result_parse_agent,
+        "query",
+        lambda **_: {"is_bug": True, "summary": "summary", "metric": 99, "lower_is_better": False},
+    )
+    monkeypatch.setattr(
+        result_parse_agent,
+        "_validate_format_with_retry",
+        lambda _agent, validated_node: validated_node.apply_outcome(NodeOutcome.VALID),
+    )
+    node = SearchNode(code="", plan="draft", stage="draft")
+    submission_dir = tmp_path / "submission"
+    submission_dir.mkdir()
+    (submission_dir / f"submission_{node.id}.csv").write_text("id,label\n1,0.5\n", encoding="utf-8")
+
+    parsed = result_parse_agent.run(
+        agent,
+        node,
+        ExecutionResult(
+            term_out=['MLEVOLVE_METRIC {"log_loss": 0.0}\n'],
+            exec_time=1.0,
+            exc_type=None,
+            exc_info=None,
+            exc_stack=[],
+        ),
+    )
+
+    assert parsed.outcome == NodeOutcome.VALID.value
+    assert parsed.metric.value == 0.0
+    assert parsed.metric.maximize is False
+    assert parsed.search_eligible is True
+
+
+def test_repeated_failure_fingerprint_quarantines_lineage(tmp_path: Path, monkeypatch) -> None:
+    agent = _agent(tmp_path)
+    monkeypatch.setattr(
+        result_parse_agent,
+        "query",
+        lambda **_: {"is_bug": True, "summary": "same failure", "metric": None, "lower_is_better": True},
+    )
+    execution = ExecutionResult(
+        term_out=["RuntimeError: fallback loop never executed\n"],
+        exec_time=1.0,
+        exc_type="RuntimeError",
+        exc_info={"message": "fallback loop never executed"},
+        exc_stack=[],
+    )
+    parent = result_parse_agent.run(agent, SearchNode(code="", plan="draft", stage="draft"), execution)
+    child = result_parse_agent.run(
+        agent,
+        SearchNode(code="", plan="debug", stage="debug", parent=parent),
+        execution,
+    )
+
+    assert parent.outcome == NodeOutcome.CANDIDATE_EXCEPTION.value
+    assert child.outcome == NodeOutcome.REPEATED_FAILURE.value
+    assert child.is_terminal is True
+    assert child.debug_eligible is False
 
 
 def test_parser_builds_bf16_validation_bug_report(tmp_path: Path, monkeypatch) -> None:
@@ -184,7 +271,13 @@ def test_parser_builds_submission_validation_bug_report(tmp_path: Path, monkeypa
     submission_dir = tmp_path / "submission"
     submission_dir.mkdir()
     (submission_dir / f"submission_{node.id}.csv").write_text("id,score\n1,0.1\n", encoding="utf-8")
-    exec_result = ExecutionResult(term_out=["done\n"], exec_time=1.0, exc_type=None, exc_info=None, exc_stack=[])
+    exec_result = ExecutionResult(
+        term_out=['MLEVOLVE_METRIC {"score": 0.42}\n'],
+        exec_time=1.0,
+        exc_type=None,
+        exc_info=None,
+        exc_stack=[],
+    )
 
     parsed = result_parse_agent.run(_agent(tmp_path), node, exec_result)
 

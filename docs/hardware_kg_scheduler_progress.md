@@ -68,7 +68,7 @@ Observed:
 
 1. Ensure upstream jobs consistently attach usable branch prediction metadata.
 2. Calibrate or replace the branch predictor with the PerfSeer adapter.
-3. Load the static hardware graph and Qdrant corpus in the normal runtime path.
+3. Load the static hardware graph in the independent hardware knowledge runtime.
 4. Improve profile-evidence use in prompts and reduce scheduler probe/queue
    overhead before claiming utilization gains.
 

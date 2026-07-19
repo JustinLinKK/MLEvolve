@@ -54,6 +54,13 @@ def check_improvement(agent, cur_node: SearchNode, parent_node: SearchNode):
     improvement = 0
     should_backpropagate = False
 
+    if not cur_node.search_eligible and not cur_node.debug_eligible:
+        cur_node.is_terminal = True
+        reward = -1
+        backpropagate(cur_node, reward)
+        _log_evaluation(agent, cur_node, "quarantine", reward=reward, improvement=None)
+        return True
+
     if (agent.search_start_time and
         cur_node.stage != "root" and
         cur_node.branch_id is not None):
