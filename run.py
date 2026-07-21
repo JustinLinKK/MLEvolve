@@ -39,6 +39,15 @@ class SignalShutdown(BaseException):
         super().__init__(self.signal_name)
 
 
+def _live_scheduler_empty_generation_action(empty_generation_attempts: int, outstanding_count: int) -> str:
+    """Return wait/retry/stop for a no-node live scheduler generation attempt."""
+    if int(outstanding_count or 0) > 0:
+        return "wait"
+    if int(empty_generation_attempts or 0) >= 3:
+        return "stop"
+    return "retry"
+
+
 def _scheduler_settings_from_cfg(cfg, scheduler_cfg) -> SchedulerSettings:
     scheduler_runtime_root = getattr(scheduler_cfg, "runtime_root", None) or str(cfg.workspace_dir / "scheduler_runtime")
     nested_settings = getattr(scheduler_cfg, "settings", None)
@@ -151,6 +160,7 @@ def run():
     scheduler_service = None
     scheduler_client = None
     hardware_knowledge_client = None
+    interpreter = None
     pipeline_logger = PipelineActionLogger(
         cfg.log_dir / "pipeline.sqlite3",
         run_id=cfg.exp_name,
@@ -167,16 +177,54 @@ def run():
         },
     )
     previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
+    previous_sigint_handler = signal.getsignal(signal.SIGINT)
     shutdown_exit_code = None
     shutdown_handled = False
+    shutdown_signals_ignored = False
+    runtime_processes_stopped = False
 
-    def handle_sigterm(signum, frame):
+    def ignore_shutdown_signals():
+        nonlocal shutdown_signals_ignored
+        if shutdown_signals_ignored:
+            return
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        shutdown_signals_ignored = True
+
+    def stop_runtime_processes():
+        nonlocal scheduler_service, runtime_processes_stopped
+        if runtime_processes_stopped:
+            return
+        runtime_processes_stopped = True
+        ignore_shutdown_signals()
+        if interpreter is not None:
+            try:
+                interpreter.terminate_all_subprocesses()
+            except Exception as exc:
+                logger.warning("Error terminating interpreter subprocesses: %s", exc)
+        if scheduler_service is not None:
+            try:
+                scheduler_service.stop()
+            except Exception as exc:
+                logger.warning("Error stopping scheduler service: %s", exc)
+            finally:
+                scheduler_service = None
+
+    def handle_shutdown_exception(exc: SignalShutdown):
+        nonlocal shutdown_exit_code, shutdown_handled
+        if shutdown_exit_code is None:
+            shutdown_exit_code = 128 + exc.signum
+        shutdown_handled = True
+        ignore_shutdown_signals()
+        logger.info("%s received, terminating subprocesses and shutting down...", exc.signal_name)
+        stop_runtime_processes()
+
+    def handle_shutdown_signal(signum, frame):
         del frame
-        shutdown = SignalShutdown(signum)
-        logger.warning("%s received; stopping run so hardware report can be written.", shutdown.signal_name)
-        raise shutdown
+        raise SignalShutdown(signum)
 
-    signal.signal(signal.SIGTERM, handle_sigterm)
+    signal.signal(signal.SIGTERM, handle_shutdown_signal)
+    signal.signal(signal.SIGINT, handle_shutdown_signal)
 
     try:
         task_desc = load_task_desc(cfg)
@@ -475,7 +523,20 @@ def run():
                     collect_scheduler_results()
                     if submitted_node is None:
                         empty_generation_attempts += 1
-                        if empty_generation_attempts >= 3 and interpreter.scheduler_outstanding_count() == 0:
+                        outstanding_after_empty = interpreter.scheduler_outstanding_count()
+                        empty_generation_action = _live_scheduler_empty_generation_action(
+                            empty_generation_attempts,
+                            outstanding_after_empty,
+                        )
+                        if empty_generation_action == "wait":
+                            if empty_generation_attempts == 1 or empty_generation_attempts % 5 == 0:
+                                logger.warning(
+                                    "Live scheduler generation produced no node while %s scheduler job(s) remain outstanding; waiting before retry.",
+                                    outstanding_after_empty,
+                                )
+                            time.sleep(poll_interval)
+                            continue
+                        if empty_generation_action == "stop":
                             logger.warning(
                                 "Live scheduler generation produced no node repeatedly; stopping at %s/%s completed steps.",
                                 completed,
@@ -497,15 +558,12 @@ def run():
                     if not executed_nodes:
                         time.sleep(poll_interval)
             except SignalShutdown as exc:
-                shutdown_exit_code = 128 + exc.signum
-                shutdown_handled = True
-                logger.info("%s received, terminating subprocesses and shutting down...", exc.signal_name)
-                interpreter.terminate_all_subprocesses()
+                handle_shutdown_exception(exc)
                 raise
             except KeyboardInterrupt:
-                logger.info("KeyboardInterrupt received, terminating subprocesses and shutting down...")
-                interpreter.terminate_all_subprocesses()
-                raise
+                exc = SignalShutdown(signal.SIGINT)
+                handle_shutdown_exception(exc)
+                raise exc
         elif pending_draft_nodes or completed < total_steps:
             logger.info(f"🚀 Phase 2: Pipelined parallel execution")
             logger.info(f"   - Pending draft executions: {len(pending_draft_nodes)}")
@@ -588,18 +646,15 @@ def run():
                         logger.info(f"📊 Progress: {completed}/{total_steps} steps completed, {len(futures)} tasks running")
             except SignalShutdown as exc:
                 interrupted = True
-                shutdown_exit_code = 128 + exc.signum
-                shutdown_handled = True
-                logger.info("%s received, terminating subprocesses and shutting down...", exc.signal_name)
-                interpreter.terminate_all_subprocesses()
+                handle_shutdown_exception(exc)
                 executor.shutdown(wait=False, cancel_futures=True) if sys.version_info >= (3, 9) else executor.shutdown(wait=False)
                 raise
             except KeyboardInterrupt:
                 interrupted = True
-                logger.info("KeyboardInterrupt received, terminating subprocesses and shutting down...")
-                interpreter.terminate_all_subprocesses()
+                exc = SignalShutdown(signal.SIGINT)
+                handle_shutdown_exception(exc)
                 executor.shutdown(wait=False, cancel_futures=True) if sys.version_info >= (3, 9) else executor.shutdown(wait=False)
-                raise
+                raise exc
             finally:
                 if not interrupted:
                     executor.shutdown(wait=True)
@@ -608,12 +663,22 @@ def run():
 
         interpreter.cleanup_session(-1)
     except SignalShutdown as exc:
-        if shutdown_exit_code is None:
-            shutdown_exit_code = 128 + exc.signum
-        if not shutdown_handled and "interpreter" in locals():
-            logger.info("%s received, terminating subprocesses and shutting down...", exc.signal_name)
-            interpreter.terminate_all_subprocesses()
+        if not shutdown_handled:
+            handle_shutdown_exception(exc)
+    except KeyboardInterrupt:
+        if not shutdown_handled:
+            handle_shutdown_exception(SignalShutdown(signal.SIGINT))
     finally:
+        if shutdown_exit_code is not None or sys.exc_info()[0] is not None:
+            stop_runtime_processes()
+        elif scheduler_service is not None:
+            ignore_shutdown_signals()
+            try:
+                scheduler_service.stop()
+            except Exception as exc:
+                logger.warning("Error stopping scheduler service: %s", exc)
+            finally:
+                scheduler_service = None
         if "journal" in locals():
             try:
                 metrics = build_comparison_metrics(
@@ -632,10 +697,14 @@ def run():
             except Exception as exc:
                 logger.warning("Failed to write comparison metrics: %s", exc)
         signal.signal(signal.SIGTERM, previous_sigterm_handler)
-        if "interpreter" in locals():
+        signal.signal(signal.SIGINT, previous_sigint_handler)
+        if interpreter is not None:
             interpreter.cleanup_session(-1)
         if scheduler_service is not None:
-            scheduler_service.stop()
+            try:
+                scheduler_service.stop()
+            except Exception as exc:
+                logger.warning("Error stopping scheduler service: %s", exc)
         hardware_monitor.stop()
         set_process_pipeline_logger(None)
         pipeline_logger.close()

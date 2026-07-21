@@ -1,0 +1,220 @@
+206: [2026-07-20 22:06:53,544] ERROR: Server is not online after 3 retries.
+207: [2026-07-20 22:06:53,544] ERROR: external submission validation unavailable: Server at http://127.0.0.1:5005 is not online
+212: [2026-07-20 22:06:53,579] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+213: [2026-07-20 22:06:53,580] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+221: [2026-07-20 22:06:53,599] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+240: ValueError: max() iterable argument is empty
+241: [2026-07-20 22:06:53,600] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+247: [2026-07-20 22:06:53,605] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+266: ValueError: max() iterable argument is empty
+267: [2026-07-20 22:06:53,606] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+273: [2026-07-20 22:06:53,610] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+292: ValueError: max() iterable argument is empty
+293: [2026-07-20 22:06:53,611] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+299: [2026-07-20 22:06:53,616] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+318: ValueError: max() iterable argument is empty
+319: [2026-07-20 22:06:53,616] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+325: [2026-07-20 22:06:53,621] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+344: ValueError: max() iterable argument is empty
+345: [2026-07-20 22:06:53,622] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+351: [2026-07-20 22:06:53,628] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+370: ValueError: max() iterable argument is empty
+371: [2026-07-20 22:06:53,633] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+377: [2026-07-20 22:06:53,640] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+396: ValueError: max() iterable argument is empty
+397: [2026-07-20 22:06:53,641] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+403: [2026-07-20 22:06:53,648] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+422: ValueError: max() iterable argument is empty
+423: [2026-07-20 22:06:53,649] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+429: [2026-07-20 22:06:53,654] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+448: ValueError: max() iterable argument is empty
+449: [2026-07-20 22:06:53,655] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+455: [2026-07-20 22:06:53,660] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+474: ValueError: max() iterable argument is empty
+475: [2026-07-20 22:06:53,661] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+481: [2026-07-20 22:06:53,665] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+500: ValueError: max() iterable argument is empty
+501: [2026-07-20 22:06:53,666] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+507: [2026-07-20 22:06:53,671] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+526: ValueError: max() iterable argument is empty
+527: [2026-07-20 22:06:53,672] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+533: [2026-07-20 22:06:53,677] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+552: ValueError: max() iterable argument is empty
+553: [2026-07-20 22:06:53,682] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+559: [2026-07-20 22:06:53,700] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+578: ValueError: max() iterable argument is empty
+579: [2026-07-20 22:06:53,701] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+585: [2026-07-20 22:06:53,706] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+604: ValueError: max() iterable argument is empty
+605: [2026-07-20 22:06:53,707] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+611: [2026-07-20 22:06:53,712] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+630: ValueError: max() iterable argument is empty
+631: [2026-07-20 22:06:53,712] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+637: [2026-07-20 22:06:53,717] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+656: ValueError: max() iterable argument is empty
+657: [2026-07-20 22:06:53,718] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+663: [2026-07-20 22:06:53,725] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+682: ValueError: max() iterable argument is empty
+683: [2026-07-20 22:06:53,726] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+689: [2026-07-20 22:06:53,731] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+708: ValueError: max() iterable argument is empty
+709: [2026-07-20 22:06:53,732] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+715: [2026-07-20 22:06:53,736] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+734: ValueError: max() iterable argument is empty
+735: [2026-07-20 22:06:53,741] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+741: [2026-07-20 22:06:53,748] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+760: ValueError: max() iterable argument is empty
+761: [2026-07-20 22:06:53,749] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+767: [2026-07-20 22:06:53,754] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+786: ValueError: max() iterable argument is empty
+787: [2026-07-20 22:06:53,754] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+793: [2026-07-20 22:06:53,759] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+812: ValueError: max() iterable argument is empty
+813: [2026-07-20 22:06:53,760] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+819: [2026-07-20 22:06:53,764] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+838: ValueError: max() iterable argument is empty
+839: [2026-07-20 22:06:53,765] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+845: [2026-07-20 22:06:53,770] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+864: ValueError: max() iterable argument is empty
+865: [2026-07-20 22:06:53,770] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+871: [2026-07-20 22:06:53,775] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+890: ValueError: max() iterable argument is empty
+891: [2026-07-20 22:06:53,776] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+897: [2026-07-20 22:06:53,780] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+916: ValueError: max() iterable argument is empty
+917: [2026-07-20 22:06:53,781] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+923: [2026-07-20 22:06:53,786] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+942: ValueError: max() iterable argument is empty
+943: [2026-07-20 22:06:53,790] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+949: [2026-07-20 22:06:53,797] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+968: ValueError: max() iterable argument is empty
+969: [2026-07-20 22:06:53,798] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+975: [2026-07-20 22:06:53,804] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+994: ValueError: max() iterable argument is empty
+995: [2026-07-20 22:06:53,804] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1001: [2026-07-20 22:06:53,809] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1020: ValueError: max() iterable argument is empty
+1021: [2026-07-20 22:06:53,809] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1027: [2026-07-20 22:06:53,814] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1046: ValueError: max() iterable argument is empty
+1047: [2026-07-20 22:06:53,815] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1053: [2026-07-20 22:06:53,819] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1072: ValueError: max() iterable argument is empty
+1073: [2026-07-20 22:06:53,820] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1079: [2026-07-20 22:06:53,825] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1098: ValueError: max() iterable argument is empty
+1099: [2026-07-20 22:06:53,826] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1105: [2026-07-20 22:06:53,830] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1124: ValueError: max() iterable argument is empty
+1125: [2026-07-20 22:06:53,831] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1131: [2026-07-20 22:06:53,836] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1150: ValueError: max() iterable argument is empty
+1151: [2026-07-20 22:06:53,840] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1157: [2026-07-20 22:06:53,861] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1176: ValueError: max() iterable argument is empty
+1177: [2026-07-20 22:06:53,862] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1183: [2026-07-20 22:06:53,867] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1202: ValueError: max() iterable argument is empty
+1203: [2026-07-20 22:06:53,868] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1209: [2026-07-20 22:06:53,873] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1228: ValueError: max() iterable argument is empty
+1229: [2026-07-20 22:06:53,874] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1235: [2026-07-20 22:06:53,879] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1254: ValueError: max() iterable argument is empty
+1255: [2026-07-20 22:06:53,879] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1261: [2026-07-20 22:06:53,884] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1280: ValueError: max() iterable argument is empty
+1281: [2026-07-20 22:06:53,885] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1287: [2026-07-20 22:06:53,890] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1306: ValueError: max() iterable argument is empty
+1307: [2026-07-20 22:06:53,895] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1313: [2026-07-20 22:06:53,902] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1332: ValueError: max() iterable argument is empty
+1333: [2026-07-20 22:06:53,902] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1339: [2026-07-20 22:06:53,907] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1358: ValueError: max() iterable argument is empty
+1359: [2026-07-20 22:06:53,908] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1365: [2026-07-20 22:06:53,913] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1384: ValueError: max() iterable argument is empty
+1385: [2026-07-20 22:06:53,914] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1391: [2026-07-20 22:06:53,919] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1410: ValueError: max() iterable argument is empty
+1411: [2026-07-20 22:06:53,919] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1417: [2026-07-20 22:06:53,923] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1436: ValueError: max() iterable argument is empty
+1437: [2026-07-20 22:06:53,924] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1443: [2026-07-20 22:06:53,928] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1462: ValueError: max() iterable argument is empty
+1463: [2026-07-20 22:06:53,929] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1469: [2026-07-20 22:06:53,933] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1488: ValueError: max() iterable argument is empty
+1489: [2026-07-20 22:06:53,934] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1495: [2026-07-20 22:06:53,939] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1514: ValueError: max() iterable argument is empty
+1515: [2026-07-20 22:06:53,943] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1521: [2026-07-20 22:06:53,949] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1540: ValueError: max() iterable argument is empty
+1541: [2026-07-20 22:06:53,950] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1547: [2026-07-20 22:06:53,956] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1566: ValueError: max() iterable argument is empty
+1567: [2026-07-20 22:06:53,957] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1573: [2026-07-20 22:06:53,961] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1592: ValueError: max() iterable argument is empty
+1593: [2026-07-20 22:06:53,962] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1599: [2026-07-20 22:06:53,967] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1618: ValueError: max() iterable argument is empty
+1619: [2026-07-20 22:06:53,967] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1625: [2026-07-20 22:06:53,972] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1644: ValueError: max() iterable argument is empty
+1645: [2026-07-20 22:06:53,972] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1651: [2026-07-20 22:06:53,978] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1670: ValueError: max() iterable argument is empty
+1671: [2026-07-20 22:06:53,979] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1677: [2026-07-20 22:06:53,983] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1696: ValueError: max() iterable argument is empty
+1697: [2026-07-20 22:06:53,984] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1703: [2026-07-20 22:06:53,989] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1722: ValueError: max() iterable argument is empty
+1723: [2026-07-20 22:06:53,993] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1729: [2026-07-20 22:06:53,999] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1748: ValueError: max() iterable argument is empty
+1749: [2026-07-20 22:06:54,000] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1755: [2026-07-20 22:06:54,006] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1774: ValueError: max() iterable argument is empty
+1775: [2026-07-20 22:06:54,007] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1781: [2026-07-20 22:06:54,011] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1800: ValueError: max() iterable argument is empty
+1801: [2026-07-20 22:06:54,012] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1807: [2026-07-20 22:06:54,017] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1826: ValueError: max() iterable argument is empty
+1827: [2026-07-20 22:06:54,017] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1833: [2026-07-20 22:06:54,022] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1852: ValueError: max() iterable argument is empty
+1853: [2026-07-20 22:06:54,022] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1859: [2026-07-20 22:06:54,027] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1878: ValueError: max() iterable argument is empty
+1879: [2026-07-20 22:06:54,027] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1885: [2026-07-20 22:06:54,032] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1904: ValueError: max() iterable argument is empty
+1905: [2026-07-20 22:06:54,032] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1911: [2026-07-20 22:06:54,037] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1930: ValueError: max() iterable argument is empty
+1931: [2026-07-20 22:06:54,041] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1937: [2026-07-20 22:06:54,048] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1956: ValueError: max() iterable argument is empty
+1957: [2026-07-20 22:06:54,049] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1963: [2026-07-20 22:06:54,054] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+1982: ValueError: max() iterable argument is empty
+1983: [2026-07-20 22:06:54,055] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+1989: [2026-07-20 22:06:54,060] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+2008: ValueError: max() iterable argument is empty
+2009: [2026-07-20 22:06:54,061] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+2015: [2026-07-20 22:06:54,065] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+2034: ValueError: max() iterable argument is empty
+2035: [2026-07-20 22:06:54,066] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+2041: [2026-07-20 22:06:54,071] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+2060: ValueError: max() iterable argument is empty
+2061: [2026-07-20 22:06:54,071] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding
+2067: [2026-07-20 22:06:54,076] ERROR: Exception while generating live scheduler node: max() iterable argument is empty
+2086: ValueError: max() iterable argument is empty
+2087: [2026-07-20 22:06:54,077] INFO: 📊 Progress: 2/20 steps completed, 1 scheduler job(s) outstanding

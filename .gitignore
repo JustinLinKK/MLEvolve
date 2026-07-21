@@ -103,3 +103,6 @@ config.yaml
 config/config.yaml
 localml_scheduler/configs/*.yaml
 localml_scheduler/runtime/
+
+# ===== Generated Scheduler Benchmark Outputs =====
+scheduler_benchmark_test/fixtures/*_scheduler_stress*/

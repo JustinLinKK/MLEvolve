@@ -15,7 +15,11 @@ from localml_scheduler.config import SchedulerSettings
 from localml_scheduler.domain import BatchProbeSpec, JobStatus, PackingSpec, ResourceRequirements, RuntimeProbeSpec, TrainingJob
 from localml_scheduler.execution.process_utils import start_new_session_kwargs, terminate_process_tree
 from scheduler_benchmark_test.replay_multiprocess_baseline import replay_multiprocess_baseline
-from scheduler_benchmark_test.replay_model_sources import materialize_sources, validate_smoke_sources
+from scheduler_benchmark_test.replay_model_sources import (
+    build_scheduler_stress_fixture,
+    materialize_sources,
+    validate_smoke_sources,
+)
 from scheduler_benchmark_test.replay_scheduler_timeline import replay_fixture
 from scheduler_benchmark_test.timeline_fixture import extract_fixture, load_fixture
 from scheduler_benchmark_test.validate_replay_fixture import validate_fixture
@@ -330,6 +334,61 @@ def test_scheduler_replay_ignore_cancels_and_wait_for_all(tmp_path: Path) -> Non
     assert metrics["cancelled_job_count"] == 0
 
 
+def test_replay_clean_profile_db_removes_stale_runtime_db(tmp_path: Path) -> None:
+    runtime_root = _make_runtime(tmp_path)
+    fixture_dir = tmp_path / "fixture"
+    extract_fixture(runtime_root, fixture_dir)
+
+    output = tmp_path / "clean_profile_db"
+    stale_marker = output / "scheduler_runtime" / "db" / "stale_profile_marker.txt"
+    stale_marker.parent.mkdir(parents=True)
+    stale_marker.write_text("old profile cache", encoding="utf-8")
+
+    replay_fixture(
+        fixture=fixture_dir,
+        output_root=output,
+        runner_mode="noop",
+        no_sleep=True,
+        post_actions_wait_seconds=0,
+        wait_for_all=True,
+        cancel_policy="ignore",
+        clean_profile_db=True,
+    )
+
+    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    assert metrics["replay_clean_profile_db"] is True
+    assert not stale_marker.exists()
+    assert (output / "scheduler_runtime" / "db" / "scheduler.sqlite3").exists()
+
+
+def test_replay_strips_archive_bookkeeping_before_job_reconstruction(tmp_path: Path) -> None:
+    runtime_root = _make_runtime(tmp_path)
+    fixture_dir = tmp_path / "fixture"
+    extract_fixture(runtime_root, fixture_dir)
+    actions, jobs_by_id, _baseline, _settings = load_fixture(fixture_dir)
+
+    jobs_by_id["job-1"]["pre_archive_baseline_model_path"] = "/previous/run/candidate.py"
+    (fixture_dir / "jobs.jsonl").write_text(
+        "".join(json.dumps(job, sort_keys=True) + "\n" for job in jobs_by_id.values()),
+        encoding="utf-8",
+    )
+
+    output = tmp_path / "archive_bookkeeping"
+    replay_fixture(
+        fixture=fixture_dir,
+        output_root=output,
+        runner_mode="noop",
+        no_sleep=True,
+        post_actions_wait_seconds=0,
+        wait_for_all=True,
+        cancel_policy="ignore",
+    )
+
+    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    assert metrics["submitted_job_count"] == sum(1 for action in actions if action["action"] == "SUBMIT")
+    assert metrics["completed_job_count"] == metrics["submitted_job_count"]
+
+
 def test_multiprocess_baseline_noop_writes_metrics(tmp_path: Path) -> None:
     runtime_root = _make_runtime(tmp_path)
     fixture_dir = tmp_path / "fixture"
@@ -549,6 +608,58 @@ def test_materialize_replay_sources_rewrites_fixtures_and_validates_smoke(tmp_pa
     assert smoke.report["summary"]["source_count"] == 3
 
 
+def test_build_scheduler_stress_fixture_creates_cold_two_epoch_jobs(tmp_path: Path) -> None:
+    runtime_root = _make_runtime(tmp_path)
+    source_fixture = tmp_path / "fixture"
+    stress_fixture = tmp_path / "stress_fixture"
+    archive_root = tmp_path / "replay_model_sources" / "unit"
+    extract_fixture(runtime_root, source_fixture)
+
+    result = build_scheduler_stress_fixture(
+        source_fixture=source_fixture,
+        output_fixture=stress_fixture,
+        archive_root=archive_root,
+        max_epochs=2,
+    )
+
+    actions, jobs_by_id, baseline, settings = load_fixture(stress_fixture)
+    assert result.summary["job_count"] == 1
+    assert result.summary["normal_timeout_field_count"] == 0
+    assert result.summary["batch_probe_reuse_only_false_count"] == 1
+    assert baseline["scheduler_stress_fixture"] is True
+    assert baseline["stress_max_epochs"] == 2
+    assert "clean scheduler/profile DB" in baseline["stress_profile_db_policy"]
+    assert [action["action"] for action in actions] == ["SUBMIT"]
+    assert list(jobs_by_id) == ["job-1"]
+
+    job = jobs_by_id["job-1"]
+    runner_kwargs = job["config"]["runner_kwargs"]
+    assert job["task_type"] == "mlevolve_script"
+    assert job["max_epochs"] == 2
+    assert job["config"]["max_epochs"] == 2
+    assert runner_kwargs["max_epochs"] == 2
+    assert runner_kwargs["probe_max_epochs"] == 2
+    assert "timeout" not in runner_kwargs
+    assert archive_root.resolve() in Path(runner_kwargs["script_path"]).parents
+    assert archive_root.resolve() in Path(job["baseline_model_path"]).parents
+    assert Path(runner_kwargs["script_path"]).exists()
+    assert Path(job["baseline_model_path"]).exists()
+    assert "pre_archive_baseline_model_path" not in job
+    assert job["batch_probe"]["enabled"] is True
+    assert job["batch_probe"]["reuse_only"] is False
+    assert job["batch_probe"]["profile_key"] is None
+    assert job["batch_probe"]["profile_namespace"].startswith("branch-profile:")
+    assert job["batch_probe"]["shape_signature_override"].startswith("mlevolve-branch-shape:")
+    assert job["metadata"]["scheduler_stress_fixture"] is True
+    assert job["metadata"]["scheduler_stress_max_epochs"] == 2
+    assert job["metadata"]["scheduler_stress_timeout_policy"] == "no_normal_execution_timeout"
+    assert job["metadata"]["branch_profile_available"] is False
+    assert settings["gpu_scheduler"]["batch_probe_enabled"] is True
+    assert settings["gpu_scheduler"]["model_family_probe_timeout_seconds"] is None
+    assert settings["gpu_scheduler"]["max_packed_jobs_per_gpu"] == 0
+    assert settings["gpu_scheduler"]["auto_pack"]["target_metric"] == "vram"
+
+
 def test_scheduler_replay_wrapper_quick_preset_dry_run(tmp_path: Path) -> None:
     output = tmp_path / "scheduler_quick"
 
@@ -580,6 +691,60 @@ def test_scheduler_replay_wrapper_quick_preset_dry_run(tmp_path: Path) -> None:
     assert metrics["replay_action_count"] == 38
     assert metrics["replay_submit_action_count"] == 38
     assert metrics["replay_cancel_action_count"] == 0
+
+
+def test_scheduler_replay_wrapper_stress_preset_dry_run(tmp_path: Path) -> None:
+    output = tmp_path / "scheduler_stress"
+
+    result = _run_wrapper(
+        [
+            "bash",
+            "scheduler_benchmark_test/run_histopath_scheduler_replay.sh",
+            "--preset",
+            "stress",
+            "--dry-run",
+            "--output-root",
+            str(output),
+            "--skip-plots",
+        ]
+    )
+
+    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    assert "Preset: stress" in result.stdout
+    assert "stress_test_data" in result.stdout
+    assert "scheduler_stress_2epoch" in result.stdout
+    assert "Runner mode: real" in result.stdout
+    assert "Speedup: 1" in result.stdout
+    assert "Post-actions wait: 0" in result.stdout
+    assert "Wait for all: 1" in result.stdout
+    assert "Cancel policy: ignore" in result.stdout
+    assert "No sleep: 1" in result.stdout
+    assert "Clean profile DB: 1" in result.stdout
+    assert metrics["replay_dry_run"] is True
+    assert metrics["replay_runner_mode"] == "real"
+    assert metrics["replay_wait_for_all"] is True
+    assert metrics["replay_cancel_policy"] == "ignore"
+    assert metrics["replay_clean_profile_db"] is True
+    assert metrics["replay_action_count"] == 12
+    assert metrics["replay_submit_action_count"] == 12
+    assert metrics["replay_cancel_action_count"] == 0
+
+    fixture = ROOT / "scheduler_benchmark_test" / "stress_test_data" / "histopathologic-cancer-detection_20260704_212842_scheduler_stress_2epoch"
+    _actions, jobs_by_id, _baseline, _settings = load_fixture(fixture)
+    signatures_by_family: dict[str, set[str]] = {}
+    counts_by_family: dict[str, int] = {}
+    for job in jobs_by_id.values():
+        family = job["metadata"]["model_family"]
+        counts_by_family[family] = counts_by_family.get(family, 0) + 1
+        signatures_by_family.setdefault(family, set()).add(job["batch_probe"]["shape_signature_override"])
+        assert "script_signature" not in job["batch_probe"]["shape_hints"]
+    for family, count in counts_by_family.items():
+        if count > 1:
+            assert len(signatures_by_family[family]) == 1
+    for source_path in (fixture / "sources").glob("*.py"):
+        source = source_path.read_text(encoding="utf-8")
+        assert "_MlevolveProbeImageBackbone" not in source
+        assert "_mlevolve_probe_or_load_automodel" not in source
 
 
 def test_multiprocess_wrapper_quick_preset_dry_run(tmp_path: Path) -> None:

@@ -57,6 +57,7 @@ def replay_fixture(
     no_sleep: bool = False,
     wait_for_all: bool = False,
     cancel_policy: str = "replay",
+    clean_profile_db: bool = False,
 ) -> ReplayResult:
     if runner_mode not in {"real", "noop"}:
         raise ValueError(f"Unsupported runner mode: {runner_mode}")
@@ -81,6 +82,8 @@ def replay_fixture(
         cancel_policy=cancel_policy,
     )
     _prepare_workspace(workspace, baseline)
+    if clean_profile_db and not dry_run:
+        _clean_replay_databases(runtime_root)
 
     skipped_actions: list[dict[str, Any]] = []
     submitted_job_ids: list[str] = []
@@ -106,6 +109,7 @@ def replay_fixture(
             dry_run=True,
             wait_for_all=wait_for_all,
             cancel_policy=cancel_policy,
+            clean_profile_db=clean_profile_db,
         )
         return _write_outputs(
             output,
@@ -188,6 +192,7 @@ def replay_fixture(
         dry_run=False,
         wait_for_all=wait_for_all,
         cancel_policy=cancel_policy,
+        clean_profile_db=clean_profile_db,
     )
     samples = list(getattr(service, "_device_samples", []) or []) if service is not None else []
     return _write_outputs(
@@ -318,6 +323,12 @@ def _prepare_workspace(workspace: Path, baseline: dict[str, Any]) -> None:
             pass
 
 
+def _clean_replay_databases(runtime_root: Path) -> None:
+    db_dir = runtime_root / "db"
+    if db_dir.exists():
+        shutil.rmtree(db_dir)
+
+
 def _wait_for_terminal(client: SchedulerClient, job_ids: list[str], *, timeout_seconds: float | None) -> None:
     deadline = None if timeout_seconds is None else time.time() + max(0.0, timeout_seconds)
     while deadline is None or time.time() < deadline:
@@ -350,6 +361,7 @@ def _build_metrics(
     dry_run: bool,
     wait_for_all: bool,
     cancel_policy: str,
+    clean_profile_db: bool,
 ) -> dict[str, Any]:
     jobs = [job.to_dict() for job in client.list_jobs()] if client is not None else []
     events = client.list_events() if client is not None else []
@@ -381,6 +393,7 @@ def _build_metrics(
         "replay_dry_run": dry_run,
         "replay_wait_for_all": wait_for_all,
         "replay_cancel_policy": cancel_policy,
+        "replay_clean_profile_db": clean_profile_db,
         "replay_action_count": len(selected_actions),
         "replay_submit_action_count": sum(1 for action in selected_actions if action["action"] == "SUBMIT"),
         "replay_cancel_action_count": sum(1 for action in selected_actions if action["action"] == "CANCEL"),
@@ -664,6 +677,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-sleep", action="store_true", help="Submit selected actions immediately.")
     parser.add_argument("--wait-for-all", action="store_true", help="Wait until all submitted jobs finish; do not cancel after the post-action wait.")
     parser.add_argument("--cancel-policy", choices=sorted(CANCEL_POLICIES), default="replay")
+    parser.add_argument("--clean-profile-db", action="store_true", help="Remove replay scheduler/profile SQLite DBs before starting.")
     return parser
 
 
@@ -684,6 +698,7 @@ def main(argv: list[str] | None = None) -> int:
         no_sleep=args.no_sleep,
         wait_for_all=args.wait_for_all,
         cancel_policy=args.cancel_policy,
+        clean_profile_db=args.clean_profile_db,
     )
     print(
         json.dumps(

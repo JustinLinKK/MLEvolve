@@ -1,0 +1,110 @@
+{
+  "codex_path": {
+    "command": [
+      "which",
+      "codex"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "/home/vscode/.local/bin/codex"
+  },
+  "codex_version": {
+    "command": [
+      "/home/vscode/.local/bin/codex",
+      "--version"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "codex-cli 0.144.5"
+  },
+  "docker_ps": {
+    "command": [
+      "docker",
+      "ps",
+      "--format",
+      "{{.Names}}\t{{.Status}}\t{{.Ports}}"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "mlevolve-neo4j-profile-1\tUp 2 hours (healthy)\t0.0.0.0:7474->7474/tcp, [::]:7474->7474/tcp, 0.0.0.0:7687->7687/tcp, [::]:7687->7687/tcp\nmlevolve-neo4j-hardware-1\tUp 2 hours (healthy)\t0.0.0.0:7475->7474/tcp, [::]:7475->7474/tcp, 0.0.0.0:7688->7687/tcp, [::]:7688->7687/tcp\nmlevolve-qdrant-1\tUp 2 hours\t0.0.0.0:6333-6334->6333-6334/tcp, [::]:6333-6334->6333-6334/tcp\nawesome_leavitt\tUp 2 hours"
+  },
+  "git_branch": {
+    "command": [
+      "git",
+      "branch",
+      "--show-current"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "hardware-awared"
+  },
+  "git_commit": {
+    "command": [
+      "git",
+      "rev-parse",
+      "HEAD"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "6974d974b0262dd67893249f0cca275e60342bdc"
+  },
+  "git_status_short": {
+    "command": [
+      "git",
+      "status",
+      "--short"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "?? Stress_test_report.md\n?? reports/\n?? stress_test_failure_analysis.md"
+  },
+  "mps_control": {
+    "command": [
+      "which",
+      "nvidia-cuda-mps-control"
+    ],
+    "returncode": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "nvidia_compute_apps": {
+    "command": [
+      "nvidia-smi",
+      "--query-compute-apps=pid,process_name,used_memory",
+      "--format=csv,noheader,nounits"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": ""
+  },
+  "nvidia_smi": {
+    "command": [
+      "nvidia-smi"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "Mon Jul 20 22:16:04 2026       \n+-----------------------------------------------------------------------------------------+\n| NVIDIA-SMI 610.43.02              KMD Version: 610.47        CUDA UMD Version: 13.3     |\n+-----------------------------------------+------------------------+----------------------+\n| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |\n| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |\n|                                         |                        |               MIG M. |\n|=========================================+========================+======================|\n|   0  NVIDIA GeForce RTX 5090        On  |   00000000:01:00.0  On |                  N/A |\n|  0%   43C    P8              8W /  575W |    4736MiB /  32607MiB |      0%      Default |\n|                                         |                        |                  N/A |\n+-----------------------------------------+------------------------+----------------------+\n\n+-----------------------------------------------------------------------------------------+\n| Processes:                                                                              |\n|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |\n|        ID   ID                                                               Usage      |\n|=========================================================================================|\n|  No running processes found                                                             |\n+-----------------------------------------------------------------------------------------+"
+  },
+  "python_torch": {
+    "command": [
+      "python",
+      "-c",
+      "import sys, multiprocessing as mp, torch; print('python', sys.version.split()[0]); print('executable', sys.executable); print('mp_start_method', mp.get_start_method(allow_none=True)); print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available()); print('torch_cuda', torch.version.cuda); print('device_count', torch.cuda.device_count()); print('device0', torch.cuda.get_device_name(0) if torch.cuda.is_available() else None)"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "python 3.12.13\nexecutable /opt/conda/bin/python\nmp_start_method None\ntorch 2.12.0+cu130\ncuda_available True\ntorch_cuda 13.0\ndevice_count 1\ndevice0 NVIDIA GeForce RTX 5090"
+  },
+  "validation_service_probe": {
+    "command": [
+      "curl",
+      "-sS",
+      "-m",
+      "2",
+      "http://127.0.0.1:5005/"
+    ],
+    "returncode": 7,
+    "stderr": "curl: (7) Failed to connect to 127.0.0.1 port 5005 after 0 ms: Could not connect to server",
+    "stdout": ""
+  }
+}

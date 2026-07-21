@@ -490,7 +490,7 @@ def _lookup_node(
                 e for e in graph["edges"]
                 if e.get("from") == hw_id and e.get("type") == "HAS_FEATURE"
             ]
-            return node, edges
+            return node, _with_virtual_hardware_match_edges(graph, node, edges)
 
     for node, searchable in candidates:
         normalized_values = [_normalize_hardware_query(value) for value in searchable]
@@ -500,8 +500,65 @@ def _lookup_node(
                 e for e in graph["edges"]
                 if e.get("from") == hw_id and e.get("type") == "HAS_FEATURE"
             ]
-            return node, edges
+            return node, _with_virtual_hardware_match_edges(graph, node, edges)
     return None, []
+
+
+def _with_virtual_hardware_match_edges(
+    graph: dict[str, Any],
+    hardware_node: dict[str, Any],
+    edges: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    existing = {str(edge.get("to") or "") for edge in edges}
+    expanded = list(edges)
+    hw_id = str(hardware_node.get("id") or "")
+    hw_props = dict(hardware_node.get("properties") or {})
+    for node in graph.get("nodes") or []:
+        if node.get("label") != "Feature":
+            continue
+        node_id = str(node.get("id") or "")
+        if not node_id or node_id in existing:
+            continue
+        props = dict(node.get("properties") or {})
+        if not _hardware_matches_feature_rule(hw_props, props.get("hardware_match")):
+            continue
+        existing.add(node_id)
+        expanded.append(
+            {
+                "type": "HAS_FEATURE",
+                "from": hw_id,
+                "to": node_id,
+                "properties": dict(props.get("default_relationship") or {}),
+            }
+        )
+    return expanded
+
+
+def _hardware_matches_feature_rule(hw_props: dict[str, Any], rule: Any) -> bool:
+    if not isinstance(rule, dict) or not rule:
+        return False
+    vendor = str(rule.get("vendor") or "").strip().lower()
+    if vendor and vendor != str(hw_props.get("vendor") or "").strip().lower():
+        return False
+    hardware_type = str(rule.get("hardware_type") or "").strip().upper()
+    if hardware_type and hardware_type != str(hw_props.get("hardware_type") or "GPU").strip().upper():
+        return False
+    architectures = _lower_list(rule.get("architectures") or rule.get("architecture"))
+    if architectures and str(hw_props.get("architecture") or "").strip().lower() not in architectures:
+        return False
+    stack_any = _lower_list(rule.get("software_stack_any"))
+    if stack_any:
+        hardware_stack = {str(item or "").strip().lower() for item in hw_props.get("software_stack") or []}
+        if not hardware_stack.intersection(stack_any):
+            return False
+    return True
+
+
+def _lower_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    raw = value if isinstance(value, list) else [value]
+    return [str(item or "").strip().lower() for item in raw if str(item or "").strip()]
 
 
 def _normalize_hardware_query(value: Any) -> str:

@@ -341,8 +341,19 @@ class SearchNode(DataClassJsonMixin):
             if executed:
                 stats_parts.append(f"{len(executed)} executed")
                 if successful:
-                    best_metric = max(n.metric.value for n in successful if n.metric and n.metric.value is not None)
-                    stats_parts.append(f"{len(successful)} successful (best: {best_metric:.4f})")
+                    successful_with_metric = [
+                        n for n in successful
+                        if n.metric and n.metric.value is not None
+                    ]
+                    metricless_successful = len(successful) - len(successful_with_metric)
+                    if successful_with_metric:
+                        best_metric = max(n.metric.value for n in successful_with_metric)
+                        detail = f"{len(successful)} successful (best: {best_metric:.4f}"
+                        if metricless_successful:
+                            detail += f", {metricless_successful} without metric"
+                        stats_parts.append(detail + ")")
+                    else:
+                        stats_parts.append(f"{len(successful)} successful without metric")
                 else:
                     stats_parts.append(f"0 successful (all failed or buggy)")
 

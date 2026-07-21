@@ -920,6 +920,120 @@ def test_hardware_design_brief_fetches_only_selected_feature_details(monkeypatch
     assert "detail for fp8" not in context.prompt_section
 
 
+def test_hardware_design_brief_adds_scheduler_backend_feature_details(monkeypatch) -> None:
+    class FakeScheduler:
+        def __init__(self) -> None:
+            self.detail_calls = []
+            self.settings = SimpleNamespace(
+                gpu_scheduler=SimpleNamespace(
+                    mode="auto",
+                    backend_priority=["stream_mps", "stream", "cuda_process", "mps", "exclusive"],
+                    concurrent_backend_allowlist=["stream_mps", "stream"],
+                    submission_defaults=SimpleNamespace(
+                        requires_gpu=True,
+                        packing_family="mlevolve_script",
+                        backend_allowlist=[],
+                        batch_probe_model_key=None,
+                    ),
+                )
+            )
+
+        def get_model_design_hardware_context(self, **kwargs):
+            return {
+                "found": True,
+                "hardware_context": {
+                    "found": True,
+                    "hardware": {
+                        "gpu_name": "NVIDIA GeForce RTX 5090",
+                        "hardware_key": "hw-current",
+                        "summary_text": "NVIDIA GeForce RTX 5090",
+                    },
+                    "backend_capabilities": {
+                        "mode": "auto",
+                        "effective_mode": "parallel_auto_pack",
+                        "backend_priority": ["stream_mps", "stream", "cuda_process", "mps", "exclusive"],
+                        "enabled_backends": ["exclusive", "stream_mps", "stream", "cuda_process", "mps"],
+                        "stream_mps_enabled": True,
+                        "stream_enabled": True,
+                        "cuda_process_enabled": True,
+                        "mps_enabled": True,
+                        "stream_mps_available": True,
+                        "stream_available": True,
+                        "cuda_process_available": True,
+                        "mps_available": True,
+                    },
+                },
+                "hardware_feature_index": {
+                    "found": True,
+                    "features": [
+                        {
+                            "feature_id": "bf16",
+                            "feature_name": "BF16",
+                            "category": "precision",
+                            "support_level": "supported",
+                        }
+                    ],
+                    "source": "hardware_knowledge_graph.json",
+                },
+                "workload_type": kwargs.get("workload_type"),
+                "model_options": [{"model_family": "cnn", "rationale": "vision baseline", "confidence": 0.6}],
+                "confidence": 0.6,
+            }
+
+        def get_hardware_feature_details(self, *, hardware_id, feature_ids, limit):
+            self.detail_calls.append((hardware_id, list(feature_ids), limit))
+            return {
+                "found": True,
+                "features": [
+                    {
+                        "feature_id": feature_id,
+                        "feature_name": feature_id,
+                        "category": "parallelism" if "scheduler_compatibility" in feature_id else "precision",
+                        "support_level": "supported",
+                        "summary_text": f"detail for {feature_id}",
+                        "recommended_patterns": [f"recommended {feature_id}"],
+                        "avoid_patterns": [f"avoid {feature_id}"],
+                    }
+                    for feature_id in feature_ids
+                ],
+            }
+
+    scheduler = FakeScheduler()
+    agent = SimpleNamespace(
+        scheduler_client=scheduler,
+        acfg=SimpleNamespace(
+            hardware_context_enabled=True,
+            hardware_context_limit=4,
+            hardware_context_max_prompt_chars=5000,
+            code=SimpleNamespace(temp=0.7),
+        ),
+        cfg=SimpleNamespace(exp_id="task-a"),
+        task_desc="histopathologic cancer image classification",
+        data_preview="train tif images and labels",
+    )
+    monkeypatch.setattr("agents.hardware_context.generate", lambda **_: '{"feature_ids": ["bf16"]}')
+
+    context = get_hardware_design_brief(agent)
+
+    assert scheduler.detail_calls == [
+        (
+            "current",
+            [
+                "cuda_stream_scheduler_compatibility",
+                "cuda_process_scheduler_compatibility",
+                "mps_scheduler_compatibility",
+                "bf16",
+            ],
+            4,
+        )
+    ]
+    assert "Scheduler backend config" in context.prompt_section
+    assert "stream_mps_available=True" in context.prompt_section
+    assert "detail for cuda_stream_scheduler_compatibility" in context.prompt_section
+    assert "detail for cuda_process_scheduler_compatibility" in context.prompt_section
+    assert "detail for mps_scheduler_compatibility" in context.prompt_section
+
+
 def test_scheduler_lookup_is_non_fatal_and_uses_get_optimization_context() -> None:
     class FakeScheduler:
         def __init__(self) -> None:

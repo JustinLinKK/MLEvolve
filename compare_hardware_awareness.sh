@@ -304,14 +304,53 @@ prepare_dataset() {
 
 GRADING_SERVER_PID=""
 GRADING_SERVER_PORT=$((5005 + SERVER_ID))
+CLEANED_UP=0
+
+signal_scheduler_workers_for_run_root() {
+  local sig="$1"
+  local pid pgid cmd
+  local found=1
+  while read -r pid pgid cmd; do
+    [[ -n "${pid:-}" ]] || continue
+    [[ "${cmd:-}" == *"localml_scheduler.execution.worker_entry --runtime-root ${RUN_ROOT}/"* ]] || continue
+    found=0
+    if [[ -n "${pgid:-}" ]]; then
+      kill -s "$sig" -- "-$pgid" 2>/dev/null || kill -s "$sig" -- "$pid" 2>/dev/null || true
+    else
+      kill -s "$sig" -- "$pid" 2>/dev/null || true
+    fi
+  done < <(ps -eo pid=,pgid=,args=)
+  return "$found"
+}
 
 cleanup() {
+  local status=$?
+  if [[ "$CLEANED_UP" -eq 1 ]]; then
+    return "$status"
+  fi
+  CLEANED_UP=1
+  if signal_scheduler_workers_for_run_root TERM; then
+    sleep 1
+    signal_scheduler_workers_for_run_root KILL || true
+  fi
   if [[ -n "$GRADING_SERVER_PID" ]] && kill -0 "$GRADING_SERVER_PID" 2>/dev/null; then
     kill -TERM "$GRADING_SERVER_PID" 2>/dev/null || true
     wait "$GRADING_SERVER_PID" 2>/dev/null || true
   fi
+  return "$status"
 }
-trap cleanup EXIT INT TERM
+
+on_interrupt() {
+  exit 130
+}
+
+on_terminate() {
+  exit 143
+}
+
+trap cleanup EXIT
+trap on_interrupt INT
+trap on_terminate TERM
 
 wait_for_validation_server() {
   local waited=0
@@ -462,6 +501,21 @@ generate_plots() {
   fi
 }
 
+run_and_record_mode() {
+  local mode="$1"
+  local mode_exit=0
+  if run_mode "$mode"; then
+    return 0
+  else
+    mode_exit=$?
+  fi
+  if [[ "$mode_exit" -eq 130 || "$mode_exit" -eq 143 ]]; then
+    exit "$mode_exit"
+  fi
+  OVERALL_EXIT=1
+  return 0
+}
+
 MANIFEST="$RUN_ROOT/manifest.txt"
 {
   echo "created_at: $(date -Iseconds)"
@@ -506,9 +560,7 @@ fi
 
 OVERALL_EXIT=0
 for mode in "${MODE_ORDER[@]}"; do
-  if ! run_mode "$mode"; then
-    OVERALL_EXIT=1
-  fi
+  run_and_record_mode "$mode"
 done
 
 generate_plots

@@ -24,12 +24,13 @@ from typing import Any
 import humanize
 from dataclasses_json import DataClassJsonMixin
 from engine.script_introspection import (
-    code_supports_batch_probe as _code_supports_batch_probe,
+    analyze_training_batch_contract as _analyze_training_batch_contract,
     detect_initial_batch_size as _detect_initial_batch_size,
     introspect_training_script as _introspect_training_script,
     normalized_mlevolve_script_signature as _normalized_mlevolve_script_signature,
 )
 from engine.coldstart import collect_model_contracts
+from localml_scheduler.execution.process_utils import signal_process_tree, start_new_session_kwargs, terminate_process_tree
 from localml_scheduler.runtime_environment import validate_model_api_contracts
 from utils.candidate_timing import instrument_code_for_phase_timing, parse_phase_timing_log
 
@@ -785,12 +786,7 @@ class Interpreter:
         for slot_id, proc in procs:
             try:
                 if proc.poll() is None:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=2)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
-                        proc.wait()
+                    terminate_process_tree(proc, timeout=2.0)
             except Exception as e:
                 logger.warning(f"Error terminating subprocess slot {slot_id}: {e}")
         if self.scheduler_client is not None:
@@ -1421,7 +1417,13 @@ class Interpreter:
         }
         if self.timeout is not None:
             runner_kwargs["timeout"] = self.timeout
-        batch_probe_enabled = bool(submission_defaults.batch_probe_enabled) and _code_supports_batch_probe(code)
+        batch_contract = _analyze_training_batch_contract(code)
+        batch_probe_enabled = bool(submission_defaults.batch_probe_enabled) and batch_contract.supported
+        batch_probe_disabled_reason = None
+        if not bool(submission_defaults.batch_probe_enabled):
+            batch_probe_disabled_reason = "scheduler submission defaults disabled batch probing"
+        elif not batch_contract.supported:
+            batch_probe_disabled_reason = batch_contract.unsupported_reason or "batch contract unsupported"
         task_id = str(getattr(self.cfg, "exp_id", "mlevolve"))
         workflow_id = str(getattr(self.cfg, "exp_name", "mlevolve"))
         script_shape_hints = self._script_shape_hints(
@@ -1499,11 +1501,31 @@ class Interpreter:
             "script_signature": script_signature,
             "scheduler_mode": getattr(scheduler_settings.gpu_scheduler, "mode", None),
             "batch_probe_enabled": batch_probe_enabled,
+            "batch_probe_supported": batch_contract.supported,
+            "batch_probe_disabled_reason": batch_probe_disabled_reason,
+            "batch_probe_contract": batch_contract.to_dict(),
             "runtime_probe_enabled": bool(getattr(submission_defaults, "runtime_probe_enabled", False)),
             "packing_eligible": packing_eligible,
             "packing_backend_allowlist": packing_backend_allowlist,
         }
         job_metadata.update(batch_probe_metadata)
+        if not batch_probe_enabled:
+            self._pipeline_emit(
+                "batch_probe_disabled",
+                node_id=node_id,
+                stage="execution",
+                payload={
+                    "reason": batch_probe_disabled_reason,
+                    "detected_batch_size": detected_batch_size,
+                    "proposed_batch_size": detected_batch_size,
+                    "branch_name": branch_name,
+                    "branch_profile_key": branch_profile_key,
+                    "model_family": model_family,
+                    "model_family_profile_key": model_family_profile_key,
+                    "script_signature": script_signature,
+                    "batch_contract": batch_contract.to_dict(),
+                },
+            )
         job = build_mlevolve_job(
             workflow_id=str(getattr(self.cfg, "exp_name", "mlevolve")),
             baseline_model_id=f"mlevolve-script-{id}",
@@ -1860,6 +1882,7 @@ class Interpreter:
                 text=True,
                 bufsize=1,
                 env={**os.environ, "PYTHONUNBUFFERED": "1"},
+                **start_new_session_kwargs(),
             )
             with self._procs_lock:
                 self._active_procs[process_id] = proc
@@ -1944,11 +1967,11 @@ class Interpreter:
             except subprocess.TimeoutExpired:
                 logger.warning("Subprocess timeout, sending SIGINT...")
                 try:
-                    proc.send_signal(signal.SIGINT)
+                    signal_process_tree(proc, signal.SIGINT)
                     stdout, stderr = proc.communicate(timeout=2)
                 except subprocess.TimeoutExpired:
                     logger.warning("Subprocess failed to terminate after SIGINT, killing...")
-                    proc.kill()
+                    signal_process_tree(proc, signal.SIGKILL)
                     stdout, stderr = proc.communicate()
                 
                 exec_time = time.time() - start_time
@@ -2013,13 +2036,13 @@ class Interpreter:
                 try:
                     if proc.poll() is None:
                         logger.warning(f"Subprocess {process_id} still running, terminating...")
-                        proc.terminate()
+                        signal_process_tree(proc, signal.SIGTERM)
                         try:
-                            proc.wait(timeout=2)
+                            proc.communicate(timeout=2)
                         except subprocess.TimeoutExpired:
                             logger.warning(f"Subprocess {process_id} failed to terminate, killing...")
-                            proc.kill()
-                            proc.wait()
+                            signal_process_tree(proc, signal.SIGKILL)
+                            proc.communicate()
                 except Exception as e:
                     logger.warning(f"Error cleaning up subprocess {process_id}: {e}")
             

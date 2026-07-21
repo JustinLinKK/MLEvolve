@@ -555,7 +555,10 @@ class HardwareKnowledgeClient:
         limit: int = 8,
     ) -> dict[str, Any]:
         workload = workload_type or task_type or "mlevolve_training"
-        hardware_context = self.get_hardware_context(hardware_key, include_scheduler_limits=False)
+        hardware_context = self.get_hardware_context(
+            hardware_key,
+            include_scheduler_limits=self.scheduler_context_attached,
+        )
         feature_context = self.get_stage_hardware_features(hardware_key, pipeline_stage="model_structure", limit=max(4, int(limit)))
         feature_words = self._hardware_feature_words(list(feature_context.get("features") or []))
         families = candidate_families or self._default_model_families_for_workload(workload)

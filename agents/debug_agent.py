@@ -25,6 +25,7 @@ from agents.prompts import (
 from agents.coder.diff_coder import SearchReplacePatcher, DIFF_SYS_FORMAT
 from agents.planner import build_chat_prompt_for_model
 from agents.triggers import register_node
+from localml_scheduler.runtime_environment import validate_generated_training_code
 
 logger = logging.getLogger("MLEvolve")
 
@@ -96,6 +97,28 @@ def _build_debug_reports(
     if not fix_report:
         fix_report = "Generated a debug revision intended to resolve the parent node failure."
     return bug_report, fix_report
+
+
+def _runtime_validation_retry_note(validation: dict[str, Any]) -> str:
+    issues = [
+        issue
+        for issue in validation.get("issues", [])
+        if issue.get("severity") == "critical"
+    ]
+    if not issues:
+        return "The patched code failed static validation. Return a complete, syntactically valid repair."
+    lines = ["The patched code still has critical generated-code validation findings:"]
+    for issue in issues[:3]:
+        category = issue.get("category") or "runtime_compatibility"
+        message = issue.get("message") or "critical issue"
+        hint = issue.get("repair_hint") or "Fix this before returning code."
+        evidence = str(issue.get("evidence") or "").strip()
+        detail = f"- {category}: {message} Repair hint: {hint}"
+        if evidence:
+            detail += f" Evidence: {trim_long_string(evidence, threshold=300, k=140)}"
+        lines.append(detail)
+    lines.append("Return only complete SEARCH/REPLACE blocks that remove these issues from the CURRENT code.")
+    return "\n".join(lines)
 
 
 def _format_debug_memory_guidance(agent, similar_fixes: List[Tuple]) -> str:
@@ -369,6 +392,17 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
                         total_applied += count
 
                     if total_applied > 0 and current_code and current_code != parent_node.code and not has_incomplete_block:
+                        validation = validate_generated_training_code(current_code, stage="debug_diff")
+                        if not validation.get("ok", False):
+                            retry_note = _runtime_validation_retry_note(validation)
+                            logger.warning(
+                                f"Diff patch attempt {retry_idx + 1}/{max_diff_retries} left critical "
+                                f"generated-code findings: {validation.get('issues')}"
+                            )
+                            if retry_idx < max_diff_retries - 1:
+                                continue
+                            logger.warning("Last diff attempt still failed validation, will fallback to full rewrite")
+                            continue
                         plan = extract_plan_from_diff_response(response).strip()
                         if not plan:
                             error_parts = []
@@ -443,10 +477,18 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
                     logger.warning(f"All {max_diff_retries} diff attempts failed, will fallback to full rewrite")
 
         if code is None and total_applied > 0:
-            code = current_code
-            if plan is None:
-                plan = "Partial diff patches applied; continuing with partially fixed code."
-            report_source_text = last_report_text or last_generation_text or report_source_text
+            validation = validate_generated_training_code(current_code, stage="debug_partial_diff")
+            if validation.get("ok", False):
+                code = current_code
+                if plan is None:
+                    plan = "Partial diff patches applied; continuing with partially fixed code."
+                report_source_text = last_report_text or last_generation_text or report_source_text
+            else:
+                logger.warning(
+                    "Partial diff patches for node %s were not accepted because validation still failed: %s",
+                    parent_node.id,
+                    validation.get("issues"),
+                )
 
     if code is None:
         logger.info(f"Falling back to full code rewrite debugging method for node {parent_node.id}")

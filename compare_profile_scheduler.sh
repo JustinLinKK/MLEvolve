@@ -46,6 +46,8 @@ Options:
   --no-validation-server      Do not start engine.validation.format_server.
   --plot-output-dir PATH      Graph output directory. Defaults to <run-root>/comparison_plots.
   --skip-plots, --no-plots    Do not generate comparison graph images after both runs.
+  --scheduler-on-only         Run only scheduler_on with hardware knowledge enabled.
+  --disable-max-packing-limit Set max_packed_jobs_per_gpu=0 and use VRAM-targeted auto-pack.
   --dry-run                   Print commands without preparing or running.
   -h, --help                  Show this help.
 
@@ -74,6 +76,8 @@ VERIFY_CHECKSUMS=0
 START_VALIDATION_SERVER=1
 GENERATE_PLOTS=1
 PLOT_OUTPUT_DIR=""
+SCHEDULER_ON_ONLY=0
+DISABLE_MAX_PACKING_LIMIT=0
 DRY_RUN=0
 EXTRA_OVERRIDES=()
 
@@ -154,6 +158,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-plots|--no-plots)
       GENERATE_PLOTS=0
+      shift
+      ;;
+    --scheduler-on-only|--only-scheduler-on)
+      SCHEDULER_ON_ONLY=1
+      shift
+      ;;
+    --disable-max-packing-limit|--no-max-packing-limit)
+      DISABLE_MAX_PACKING_LIMIT=1
       shift
       ;;
     --dry-run)
@@ -240,9 +252,28 @@ if [[ -z "$PLOT_OUTPUT_DIR" ]]; then
 else
   PLOT_OUTPUT_DIR="$(realpath -m "$PLOT_OUTPUT_DIR")"
 fi
+EVIDENCE_DIR="$RUN_ROOT/evidence"
+MODE_LABELS=()
+if [[ "$SCHEDULER_ON_ONLY" -eq 0 ]]; then
+  MODE_LABELS+=(scheduler_off)
+fi
+MODE_LABELS+=(scheduler_on)
 
 quote_cmd() {
   printf '%q ' "$@"
+}
+
+collect_evidence() {
+  local phase="$1"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "Would collect profile scheduler evidence ($phase) into $EVIDENCE_DIR"
+    return 0
+  fi
+  python "$ROOT/utils/collect_profile_scheduler_evidence.py" \
+    --run-root "$RUN_ROOT" \
+    --output-dir "$EVIDENCE_DIR" \
+    --config "$CONFIG_PATH" \
+    --phase "$phase" || echo "Warning: evidence collection failed for phase $phase." >&2
 }
 
 prepare_dataset() {
@@ -281,14 +312,53 @@ prepare_dataset() {
 
 GRADING_SERVER_PID=""
 GRADING_SERVER_PORT=$((5005 + SERVER_ID))
+CLEANED_UP=0
+
+signal_scheduler_workers_for_run_root() {
+  local sig="$1"
+  local pid pgid cmd
+  local found=1
+  while read -r pid pgid cmd; do
+    [[ -n "${pid:-}" ]] || continue
+    [[ "${cmd:-}" == *"localml_scheduler.execution.worker_entry --runtime-root ${RUN_ROOT}/"* ]] || continue
+    found=0
+    if [[ -n "${pgid:-}" ]]; then
+      kill -s "$sig" -- "-$pgid" 2>/dev/null || kill -s "$sig" -- "$pid" 2>/dev/null || true
+    else
+      kill -s "$sig" -- "$pid" 2>/dev/null || true
+    fi
+  done < <(ps -eo pid=,pgid=,args=)
+  return "$found"
+}
 
 cleanup() {
+  local status=$?
+  if [[ "$CLEANED_UP" -eq 1 ]]; then
+    return "$status"
+  fi
+  CLEANED_UP=1
+  if signal_scheduler_workers_for_run_root TERM; then
+    sleep 1
+    signal_scheduler_workers_for_run_root KILL || true
+  fi
   if [[ -n "$GRADING_SERVER_PID" ]] && kill -0 "$GRADING_SERVER_PID" 2>/dev/null; then
     kill -TERM "$GRADING_SERVER_PID" 2>/dev/null || true
     wait "$GRADING_SERVER_PID" 2>/dev/null || true
   fi
+  return "$status"
 }
-trap cleanup EXIT INT TERM
+
+on_interrupt() {
+  exit 130
+}
+
+on_terminate() {
+  exit 143
+}
+
+trap cleanup EXIT
+trap on_interrupt INT
+trap on_terminate TERM
 
 wait_for_validation_server() {
   local waited=0
@@ -365,9 +435,19 @@ run_mode() {
 
   if [[ "$scheduler_enabled" == "true" ]]; then
     cmd+=("scheduler.runtime_root=$scheduler_runtime")
+    if [[ "$DISABLE_MAX_PACKING_LIMIT" -eq 1 ]]; then
+      cmd+=(
+        "scheduler.settings.gpu_scheduler.mode=parallel_auto_pack"
+        "scheduler.settings.gpu_scheduler.max_packed_jobs_per_gpu=0"
+        "scheduler.settings.gpu_scheduler.auto_pack.target_metric=vram"
+      )
+    else
+      cmd+=(
+        "scheduler.settings.gpu_scheduler.candidate_window_size=2"
+        "scheduler.settings.gpu_scheduler.max_packed_jobs_per_gpu=2"
+      )
+    fi
     cmd+=(
-      "scheduler.settings.gpu_scheduler.candidate_window_size=2"
-      "scheduler.settings.gpu_scheduler.max_packed_jobs_per_gpu=2"
       "scheduler.settings.gpu_scheduler.batch_probe_max_search_rounds=4"
       "scheduler.settings.gpu_scheduler.profiling.warmup_steps=5"
       "scheduler.settings.gpu_scheduler.profiling.solo_probe_steps=10"
@@ -428,7 +508,7 @@ generate_plots() {
     python "$ROOT/utils/plot_hardware_awareness_comparison.py"
     --run-root "$RUN_ROOT"
     --output-dir "$PLOT_OUTPUT_DIR"
-    --modes scheduler_off scheduler_on
+    --modes "${MODE_LABELS[@]}"
   )
 
   echo
@@ -446,6 +526,22 @@ generate_plots() {
   fi
 }
 
+run_and_record_mode() {
+  local label="$1"
+  local scheduler_enabled="$2"
+  local mode_exit=0
+  if run_mode "$label" "$scheduler_enabled"; then
+    return 0
+  else
+    mode_exit=$?
+  fi
+  if [[ "$mode_exit" -eq 130 || "$mode_exit" -eq 143 ]]; then
+    exit "$mode_exit"
+  fi
+  OVERALL_EXIT=1
+  return 0
+}
+
 MANIFEST="$RUN_ROOT/manifest.txt"
 {
   echo "created_at: $(date -Iseconds)"
@@ -461,12 +557,16 @@ MANIFEST="$RUN_ROOT/manifest.txt"
   echo "agent_time_limit: $AGENT_TIME_LIMIT"
   echo "timeout_seconds: $TIMEOUT_SECONDS"
   echo "memory_index: $MEMORY_INDEX"
+  echo "scheduler_on_only: $SCHEDULER_ON_ONLY"
+  echo "disable_max_packing_limit: $DISABLE_MAX_PACKING_LIMIT"
   echo "validation_server_port: $GRADING_SERVER_PORT"
   echo "extra_overrides: ${EXTRA_OVERRIDES[*]:-}"
   echo "run_root: $RUN_ROOT"
   echo "plots_enabled: $GENERATE_PLOTS"
   echo "plot_output_dir: $PLOT_OUTPUT_DIR"
 } > "$MANIFEST"
+
+collect_evidence preflight
 
 prepare_dataset
 
@@ -484,19 +584,17 @@ fi
 start_validation_server
 
 OVERALL_EXIT=0
-if ! run_mode scheduler_off false; then
-  OVERALL_EXIT=1
+if [[ "$SCHEDULER_ON_ONLY" -eq 0 ]]; then
+  run_and_record_mode scheduler_off false
 fi
-if ! run_mode scheduler_on true; then
-  OVERALL_EXIT=1
-fi
+run_and_record_mode scheduler_on true
 
 generate_plots
 
 {
   echo
   echo "results:"
-  for label in scheduler_off scheduler_on; do
+  for label in "${MODE_LABELS[@]}"; do
     if [[ -f "$RUN_ROOT/$label/exit_code.txt" ]]; then
       echo "  $label: $(cat "$RUN_ROOT/$label/exit_code.txt")"
     else
@@ -506,7 +604,10 @@ generate_plots
   if [[ "$GENERATE_PLOTS" -eq 1 ]]; then
     echo "  plots: $PLOT_OUTPUT_DIR"
   fi
+  echo "  evidence: $EVIDENCE_DIR"
 } >> "$MANIFEST"
+
+collect_evidence postrun
 
 echo
 echo "Comparison written to: $RUN_ROOT"
@@ -514,4 +615,5 @@ echo "Manifest: $MANIFEST"
 if [[ "$GENERATE_PLOTS" -eq 1 ]]; then
   echo "Graphs: $PLOT_OUTPUT_DIR"
 fi
+echo "Evidence: $EVIDENCE_DIR"
 exit "$OVERALL_EXIT"

@@ -258,6 +258,76 @@ def _assignment_value(node: ast.AST) -> ast.expr | None:
     return None
 
 
+def _safe_unparse(node: ast.AST | None) -> str | None:
+    if node is None:
+        return None
+    try:
+        return ast.unparse(node)
+    except Exception:
+        return None
+
+
+def _literal_key(node: ast.AST | None) -> str | int | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, (str, int)):
+        return node.value
+    return None
+
+
+def _assignment_target_key(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, (ast.Attribute, ast.Subscript)):
+        return _safe_unparse(node)
+    return None
+
+
+def _collect_class_attribute_defaults(module: ast.Module) -> dict[str, dict[str, ast.expr]]:
+    defaults: dict[str, dict[str, ast.expr]] = {}
+    for node in module.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        attrs: dict[str, ast.expr] = {}
+        for stmt in node.body:
+            value = _assignment_value(stmt)
+            if value is None:
+                continue
+            targets = list(stmt.targets) if isinstance(stmt, ast.Assign) else [stmt.target] if isinstance(stmt, ast.AnnAssign) else []
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    attrs.setdefault(target.id, value)
+        if attrs:
+            defaults[node.name.lower()] = attrs
+    return defaults
+
+
+def _collect_static_assignments(module: ast.Module) -> dict[str, ast.expr]:
+    assignments: dict[str, ast.expr] = {}
+    class_defaults = _collect_class_attribute_defaults(module)
+    for node in ast.walk(module):
+        value = _assignment_value(node)
+        if value is None:
+            continue
+        targets = list(node.targets) if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+        for target in targets:
+            key = _assignment_target_key(target)
+            if key:
+                assignments.setdefault(key, value)
+            if not isinstance(target, ast.Name):
+                continue
+            if isinstance(value, ast.Call):
+                call_name = _call_name(value).rsplit(".", 1)[-1]
+                for attr, attr_value in class_defaults.get(call_name, {}).items():
+                    assignments.setdefault(f"{target.id}.{attr}", attr_value)
+                for keyword in value.keywords:
+                    if keyword.arg:
+                        assignments[f"{target.id}.{keyword.arg}"] = keyword.value
+                if call_name == "simplenamespace":
+                    for keyword in value.keywords:
+                        if keyword.arg:
+                            assignments[f"{target.id}.{keyword.arg}"] = keyword.value
+    return assignments
+
+
 def _resolve_static_int(expr: ast.expr | None, assignments: dict[str, ast.expr], seen: set[str] | None = None) -> int | None:
     if expr is None:
         return None
@@ -269,6 +339,36 @@ def _resolve_static_int(expr: ast.expr | None, assignments: dict[str, ast.expr],
             return None
         seen.add(expr.id)
         return _resolve_static_int(assignments.get(expr.id), assignments, seen)
+    if isinstance(expr, ast.Attribute):
+        key = _safe_unparse(expr)
+        if key:
+            seen = set(seen or ())
+            if key in seen:
+                return None
+            seen.add(key)
+            value = _resolve_static_int(assignments.get(key), assignments, seen)
+            if value is not None:
+                return value
+    if isinstance(expr, ast.Subscript):
+        key = _safe_unparse(expr)
+        if key:
+            seen = set(seen or ())
+            if key in seen:
+                return None
+            seen.add(key)
+            value = _resolve_static_int(assignments.get(key), assignments, seen)
+            if value is not None:
+                return value
+        container = expr.value
+        container_expr = assignments.get(container.id) if isinstance(container, ast.Name) else None
+        lookup_key = _literal_key(expr.slice)
+        if isinstance(container_expr, ast.Dict) and lookup_key is not None:
+            for key_node, value_node in zip(container_expr.keys, container_expr.values, strict=False):
+                if _literal_key(key_node) == lookup_key:
+                    return _resolve_static_int(value_node, assignments, seen)
+        if isinstance(container_expr, (ast.List, ast.Tuple)) and isinstance(lookup_key, int):
+            if 0 <= lookup_key < len(container_expr.elts):
+                return _resolve_static_int(container_expr.elts[lookup_key], assignments, seen)
     if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, (ast.UAdd, ast.USub)):
         value = _resolve_static_int(expr.operand, assignments, seen)
         if value is not None:
@@ -332,7 +432,7 @@ def analyze_training_batch_contract(code: str) -> TrainingBatchContract:
     except SyntaxError as exc:
         return TrainingBatchContract(unsupported_reason=f"syntax error: {exc.msg}")
 
-    assignments: dict[str, ast.expr] = {}
+    assignments = _collect_static_assignments(module)
     parent_targets: dict[int, str] = {}
     enclosing_functions: dict[int, ast.FunctionDef | ast.AsyncFunctionDef] = {}
     loader_factory_batch_parameters: dict[str, tuple[str, int]] = {}
@@ -382,7 +482,6 @@ def analyze_training_batch_contract(code: str) -> TrainingBatchContract:
         name = _assignment_name(node)
         value = _assignment_value(node)
         if name and value is not None:
-            assignments.setdefault(name, value)
             if isinstance(value, ast.Call):
                 parent_targets[id(value)] = name
 
@@ -418,11 +517,13 @@ def analyze_training_batch_contract(code: str) -> TrainingBatchContract:
             value = _resolve_static_int(expr, assignments)
             parameter_values: list[tuple[int, ast.expr]] = []
             enclosing = enclosing_functions.get(id(call))
-            if value is None and enclosing is not None and isinstance(expr, ast.Name):
+            if value is None and enclosing is not None:
                 parameters = [*enclosing.args.posonlyargs, *enclosing.args.args]
                 parameter_names = [parameter.arg for parameter in parameters]
-                if expr.id in parameter_names:
-                    parameter_index = parameter_names.index(expr.id)
+                referenced_parameters = sorted(_expr_names(expr) & set(parameter_names))
+                if len(referenced_parameters) == 1:
+                    parameter_name = referenced_parameters[0]
+                    parameter_index = parameter_names.index(parameter_name)
                     for caller in (node for node in ast.walk(module) if isinstance(node, ast.Call)):
                         caller_name = _call_name(caller).rsplit(".", 1)[-1]
                         if caller_name != enclosing.name.lower():
@@ -430,15 +531,18 @@ def analyze_training_batch_contract(code: str) -> TrainingBatchContract:
                         caller_expr = caller.args[parameter_index] if len(caller.args) > parameter_index else None
                         if caller_expr is None:
                             caller_expr = next(
-                                (keyword.value for keyword in caller.keywords if keyword.arg == expr.id),
+                                (keyword.value for keyword in caller.keywords if keyword.arg == parameter_name),
                                 None,
                             )
-                        caller_value = _resolve_static_int(caller_expr, assignments)
+                        parameter_assignments = dict(assignments)
+                        if caller_expr is not None:
+                            parameter_assignments[parameter_name] = caller_expr
+                        caller_value = _resolve_static_int(expr, parameter_assignments)
                         if caller_value is not None and caller_expr is not None:
                             parameter_values.append((caller_value, caller_expr))
                     if parameter_values:
                         value = max(item[0] for item in parameter_values)
-                        symbols.add(expr.id)
+                        symbols.add(parameter_name)
                         for _, caller_expr in parameter_values:
                             symbols.update(name for name in _expr_names(caller_expr) if _name_looks_like_train_batch(name))
                         if len({item[0] for item in parameter_values}) > 1:

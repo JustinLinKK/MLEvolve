@@ -1,0 +1,21 @@
+{
+  "classification": "mlevolve_search_loop_failure",
+  "code_references": [
+    "engine/search_node.py:336",
+    "engine/search_node.py:344",
+    "agents/draft_agent.py:94",
+    "run.py:431",
+    "run.py:476",
+    "run.py:478"
+  ],
+  "confidence": "high",
+  "first_observed_at_log_line": 221,
+  "genuine_bug": "yes",
+  "log_references": [
+    "reports/stress_test/20260720_214920/full_stress/runs/20260720_214957_dogs-vs-cats-redux-kernels-edition_current_stress_20260720_214920/logs/MLEvolve.log",
+    "reports/stress_test/20260720_214920/full_stress/scheduler_runtime/logs/events.jsonl"
+  ],
+  "primary_subsystem": "mlevolve_search_memory_and_live_scheduler_loop",
+  "repeat_count": 23053,
+  "root_cause": "A validation_unavailable child is treated as non-buggy but has metric.value=None. SearchNode.fetch_child_memory checks only that at least one child is non-buggy, then calls max() over metric-bearing children; the filtered iterable is empty. run.py catches the exception and immediately retries generation while a scheduler job is outstanding, producing a tight exception loop."
+}

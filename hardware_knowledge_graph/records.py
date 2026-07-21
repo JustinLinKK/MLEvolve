@@ -255,6 +255,32 @@ def validate_has_feature(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _match_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    return [item.lower() for item in _as_string_list(value if isinstance(value, list) else [value], field_name="hardware_match")]
+
+
+def _hardware_matches_feature_rule(hardware: dict[str, Any], rule: dict[str, Any]) -> bool:
+    if not isinstance(rule, dict) or not rule:
+        return False
+    vendor = _as_string(rule.get("vendor")).lower()
+    if vendor and vendor != _as_string(hardware.get("vendor")).lower():
+        return False
+    hardware_type = _as_string(rule.get("hardware_type")).upper()
+    if hardware_type and hardware_type != _as_string(hardware.get("hardware_type")).upper():
+        return False
+    architectures = _match_list(rule.get("architectures") or rule.get("architecture"))
+    if architectures and _as_string(hardware.get("architecture")).lower() not in architectures:
+        return False
+    stack_any = _match_list(rule.get("software_stack_any"))
+    if stack_any:
+        hardware_stack = {_as_string(item).lower() for item in hardware.get("software_stack") or []}
+        if not hardware_stack.intersection(stack_any):
+            return False
+    return True
+
+
 def load_feature_ontology(path: str | Path) -> dict[str, dict[str, Any]]:
     source = Path(path)
     if not source.exists():
@@ -298,6 +324,7 @@ def load_hardware_knowledge_from_graph_json(path: str | Path) -> dict[str, list[
     edges = list(payload.get("edges") or [])
     hardware_by_node_id: dict[str, dict[str, Any]] = {}
     feature_by_node_id: dict[str, dict[str, Any]] = {}
+    feature_source_props_by_node_id: dict[str, dict[str, Any]] = {}
     for node in nodes:
         label = str(node.get("label") or "")
         props = dict(node.get("properties") or {})
@@ -337,8 +364,10 @@ def load_hardware_knowledge_from_graph_json(path: str | Path) -> dict[str, list[
                 }
             )
             feature_by_node_id[str(node.get("id"))] = feature
+            feature_source_props_by_node_id[str(node.get("id"))] = props
 
     relationships: list[dict[str, Any]] = []
+    relationship_keys: set[tuple[str, str]] = set()
     for edge in edges:
         if edge.get("type") != "HAS_FEATURE":
             continue
@@ -346,6 +375,7 @@ def load_hardware_knowledge_from_graph_json(path: str | Path) -> dict[str, list[
         feature = feature_by_node_id.get(str(edge.get("to")))
         if not hardware or not feature:
             continue
+        relationship_keys.add((hardware["hardware_id"], feature["feature_id"]))
         props = dict(edge.get("properties") or {})
         relationships.append(
             validate_has_feature(
@@ -366,6 +396,37 @@ def load_hardware_knowledge_from_graph_json(path: str | Path) -> dict[str, list[
                 }
             )
         )
+
+    for node_id, feature in feature_by_node_id.items():
+        source_props = feature_source_props_by_node_id.get(node_id) or {}
+        match_rule = source_props.get("hardware_match")
+        if not isinstance(match_rule, dict):
+            continue
+        relationship_props = dict(source_props.get("default_relationship") or {})
+        for hardware in hardware_by_node_id.values():
+            key = (hardware["hardware_id"], feature["feature_id"])
+            if key in relationship_keys or not _hardware_matches_feature_rule(hardware, match_rule):
+                continue
+            relationship_keys.add(key)
+            relationships.append(
+                validate_has_feature(
+                    {
+                        "hardware_id": hardware["hardware_id"],
+                        "feature_id": feature["feature_id"],
+                        "support_level": relationship_props.get("support_level") or "supported",
+                        "recommended": relationship_props.get("recommended", False),
+                        "performance_impact": relationship_props.get("performance_impact") or "low",
+                        "min_driver_version": relationship_props.get("min_driver_version"),
+                        "min_framework_version": relationship_props.get("min_framework_version"),
+                        "software_requirements": relationship_props.get("software_requirements") or [],
+                        "limitations": relationship_props.get("limitations") or feature.get("when_not_to_use"),
+                        "hardware_specific_how_to_use": relationship_props.get("hardware_specific_how_to_use") or feature.get("how_to_use"),
+                        "hardware_specific_sample_code": relationship_props.get("hardware_specific_sample_code") or feature.get("sample_code"),
+                        "verified": relationship_props.get("verified", False),
+                        "last_verified_at": relationship_props.get("last_verified_at"),
+                    }
+                )
+            )
 
     return {
         "hardware": list(hardware_by_node_id.values()),

@@ -1,0 +1,407 @@
+data_dir: !!python/object/apply:pathlib.PosixPath
+- /
+- workspaces
+- MLEvolve
+- data
+- mle-bench
+- dogs-vs-cats-redux-kernels-edition
+- prepared
+- public
+dataset_dir: !!python/object/apply:pathlib.PosixPath
+- /
+- workspaces
+- MLEvolve
+- data
+- mle-bench
+desc_file: !!python/object/apply:pathlib.PosixPath
+- /
+- workspaces
+- MLEvolve
+- data
+- mle-bench
+- dogs-vs-cats-redux-kernels-edition
+- prepared
+- public
+- description.md
+goal: null
+eval: null
+log_dir: !!python/object/apply:pathlib.PosixPath
+- /
+- workspaces
+- MLEvolve
+- reports
+- stress_test
+- '20260720_214920'
+- full_stress
+- runs
+- 20260720_214957_dogs-vs-cats-redux-kernels-edition_current_stress_20260720_214920
+- logs
+log_level: INFO
+workspace_dir: !!python/object/apply:pathlib.PosixPath
+- /
+- workspaces
+- MLEvolve
+- reports
+- stress_test
+- '20260720_214920'
+- full_stress
+- runs
+- 20260720_214957_dogs-vs-cats-redux-kernels-edition_current_stress_20260720_214920
+- workspace
+preprocess_data: true
+copy_data: false
+exp_name: 20260720_214957_dogs-vs-cats-redux-kernels-edition_current_stress_20260720_214920
+exp_id: dogs-vs-cats-redux-kernels-edition
+torch_hub_dir: ''
+pretrain_model_dir: ''
+exec:
+  timeout: 120
+  agent_file_name: runfile.py
+scheduler:
+  enabled: true
+  settings_path: null
+  settings:
+    runtime_root: ./localml_scheduler/runtime
+    scheduler_poll_interval_seconds: 0.2
+    command_poll_limit: 100
+    aging_interval_seconds: 120
+    aging_priority_increment: 1
+    enable_priority_aging: true
+    preempt_check_interval_seconds: 0.2
+    baseline_cache:
+      warm_queue_policy: budget_only
+      warm_queue_top_k: 0
+      entry_capacity: 0
+      max_ram_percent: 0
+      memory_budget_bytes: 0
+    cache_server_host: 127.0.0.1
+    cache_server_port: 8765
+    cache_socket_name: cache_server.sock
+    redis_cache:
+      enabled: false
+      url: redis://127.0.0.1:6379/0
+      url_env: LOCALML_SCHEDULER_REDIS_URL
+      key_prefix: localml_scheduler
+      ttl_seconds: 300
+      max_entries: 4096
+      socket_timeout_seconds: 0.2
+      cache_graph_queries: true
+    auto_resume_recoverable: false
+    log_db:
+      provider: postgres
+      dsn_env: LOCALML_SCHEDULER_LOG_DSN
+      schema: scheduler_logs
+      enabled: false
+    prediction:
+      mode: branch_only
+      timeout_ms: 1000
+      unknown_value_policy: null
+      fallback_to_exclusive: true
+      branch:
+        enabled: true
+        fixed_confidence_if_uncalibrated: 0.55
+      ml:
+        enabled: false
+        shadow: false
+        hardware_key: rtx5090
+        checkpoint_path: null
+        calibration_path: null
+        device: cpu
+        cache_size: 1024
+      safety_margin:
+        branch: 1.2
+        ml_uncalibrated: 1.25
+        ml_calibrated: 1.0
+        explicit: 1.3
+        job_local_probe: 1.1
+    gpu_scheduler:
+      enabled: true
+      mode: auto
+      backend_priority:
+      - stream
+      - cuda_process
+      - exclusive
+      max_packed_jobs_per_gpu: 2
+      allow_three_way_packing: false
+      candidate_window_size: 8
+      fallback_cooldown_seconds: 900
+      concurrent_groups_enabled: false
+      concurrent_backend_allowlist:
+      - stream
+      idle_coalescing_window_seconds: 2.0
+      batch_probe_enabled: true
+      batch_probe_min_batch_size: 1
+      batch_probe_max_search_rounds: 4
+      batch_probe_max_batch_size: 32
+      batch_probe_search_mode: power_of_two
+      model_family_probe_enabled: false
+      model_family_probe_priority: 100
+      model_family_probe_timeout_seconds: 300
+      derivative_profile_safety_fraction: 0.85
+      auto_pack:
+        target_metric: vram
+        target_sm_fraction: 0.9
+        runtime_skew_guardrail_ratio: 2.0
+      profiling:
+        warmup_steps: 30
+        solo_probe_steps: 80
+        pair_probe_steps: 60
+        reuse_profile_if_confidence_ge: 0.8
+      memory:
+        vram_budget_fraction: 0.95
+      thresholds:
+        pack_prefer_sm_active_lt: 0.5
+        pack_reject_sm_active_ge: 0.8
+        pack_reject_max_slowdown: 1.3
+        latency_sensitive_max_slowdown: 1.15
+        min_aggregate_gain: 1.1
+      telemetry:
+        device_poll_ms: 500
+        pair_recheck_every_steps: 20
+      early_stop:
+        enabled: true
+        warmup_samples: 10
+        patience_samples: 10
+        min_delta: 0.0001
+        min_runtime_seconds: 120.0
+        min_global_step: 20
+        metric_key: null
+        direction: auto
+        plot_enabled: true
+      parallel_optimizer:
+        batch_search_mode: power_of_two
+        max_probe_jobs: 3
+        power_of_two_range_up: 5
+        power_of_two_range_down: 1
+      submission_defaults:
+        requires_gpu: true
+        estimated_vram_mb: null
+        estimated_ram_mb: null
+        packing_eligible: true
+        packing_family: mlevolve_script
+        packing_max_slowdown_ratio: null
+        backend_allowlist:
+        - stream
+        - cuda_process
+        batch_probe_enabled: true
+        batch_probe_model_key: null
+        batch_probe_probe_timeout_seconds: 45
+        batch_probe_startup_timeout_seconds: 90
+        batch_probe_step_timeout_seconds: 30
+        batch_probe_optimizer_steps: 1
+        batch_probe_poll_interval_seconds: 0.5
+        batch_probe_max_multiplier: 32
+        batch_probe_search_mode: power_of_two
+        runtime_probe_enabled: true
+        runtime_probe_target: null
+        runtime_probe_model_key: null
+        runtime_probe_strategy: epoch_1
+      mps:
+        enabled: false
+        compute_mode: EXCLUSIVE_PROCESS
+        default_primary_active_thread_pct: 60
+        default_secondary_active_thread_pct: 40
+        default_omp_num_threads: 6
+        default_mkl_num_threads: 6
+        pipe_directory: /tmp/nvidia-mps
+        log_directory: /tmp/nvidia-mps-log
+      cuda_process:
+        enabled: true
+        default_omp_num_threads: 6
+        default_mkl_num_threads: 6
+      stream:
+        enabled: false
+        host_poll_interval_seconds: 0.1
+        host_join_timeout_seconds: 3.0
+      startpoint_probe_enabled: false
+  runtime_root: /workspaces/MLEvolve/reports/stress_test/20260720_214920/full_stress/scheduler_runtime
+  start_service: true
+  wait_poll_interval_seconds: 1.0
+  wait_timeout_seconds: 150
+  preload_source_model_id: null
+  preload_source_model_path: null
+  preload_source_loader_target: null
+experiment:
+  mode: hardware_aware
+agent:
+  steps: 20
+  time_limit: 172800
+  initial_drafts: 3
+  seed: 5220
+  data_preview: true
+  code:
+    model: gpt-5.5
+    temp: 1.0
+    base_url: ''
+    api_key: <redacted>
+    provider: codex
+    executable: /home/vscode/.local/bin/codex
+    reasoning_effort: low
+    timeout_seconds: 300.0
+    ephemeral: true
+    ignore_user_config: true
+    isolated_home: true
+  feedback:
+    model: gpt-5.5
+    temp: 1.0
+    base_url: ''
+    api_key: <redacted>
+    provider: codex
+    executable: /home/vscode/.local/bin/codex
+    reasoning_effort: low
+    timeout_seconds: 300.0
+    ephemeral: true
+    ignore_user_config: true
+    isolated_home: true
+  check_data_leakage: true
+  fusion_vs_evolution_prob: 0.3
+  branch_fusion_trigger_prob: 1.0
+  max_fusion_drafts: 2
+  use_global_memory: false
+  memory_similarity_threshold: 0.7
+  memory_embedding_device: cuda
+  memory_embedding_model_path: BAAI/bge-base-en-v1.5
+  search:
+    max_debug_depth: 20
+    debug_prob: 1.0
+    num_drafts: 5
+    metric_improvement_threshold: 0.0001
+    back_debug_depth: 3
+    num_bugs: 1
+    num_improves: 3
+    topk_max_improves: 10
+    max_improve_failure: 3
+    parallel_search_num: 2
+    branch_stagnation_threshold: 3
+    topk_stagnation_threshold: 6
+    top_candidates_size: 20
+    stagnation_window: 4
+    num_gpus: 1
+    explore_switch_start: 0.5
+    explore_switch_end: 0.7
+    min_exploration_weight: 0.2
+    topk_early_k: 5
+    topk_early_max_per_branch: 3
+    topk_late_k: 3
+    topk_late_max_per_branch: 2
+    force_backprop_late_threshold: 0.8
+    force_backprop_late_prob: 0.5
+    force_backprop_mid_threshold: 0.4
+    force_backprop_mid_modulo: 3
+    recent_best_window: 4
+    fusion_min_time_hours: 6.0
+    fusion_max_time_hours: 10.0
+    fusion_min_successful_nodes: 2
+    fusion_min_branches: 2
+    repeated_failure_limit: 2
+  decay:
+    exploration_constant: 1.414
+    lower_bound: 0.5
+    alpha: 0.01
+    phase_ratios:
+    - 0.3
+    - 0.7
+  use_diff_mode: true
+  hardware_context_enabled: true
+  pipeline_decision_enabled: true
+  hardware_context_limit: 8
+  hardware_context_max_prompt_chars: 3500
+start_cpu_id: '0'
+cpu_number: '21'
+coldstart:
+  use_coldstart: true
+  task_json_path: engine/coldstart/competition_tag_classified.json
+  model_json_path: engine/coldstart/models_guidance_classified.json
+  description: '
+
+    Model1: Siglip2
+
+
+    Description:Siglip2 is an extended family of vision as well as multimodel foundation
+    model, has superior image classification, image-text retrieval, and downstream
+    vison transfer performance across all model scales.
+
+
+    Model API contract (authoritative for this repository runtime):
+
+    - Exact model id: `google/siglip2-so400m-patch16-256`
+
+    - Runtime: transformers 4.53.0; checkpoint resolves to `siglip`
+
+    - Load with: `AutoModel.from_pretrained("google/siglip2-so400m-patch16-256")`
+
+    - Preferred preprocessing: `AutoProcessor.from_pretrained("google/siglip2-so400m-patch16-256")`
+
+    - Required fixed image size: `256x256`
+
+    - Manual normalization fallback: mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]
+
+    - Image feature call: `image_features = model.get_image_features(pixel_values=pixel_values)`
+
+    - Feature return: torch.Tensor with shape `[batch, 1152]`; use this value directly.
+
+    - Do not access `.pooler_output`, `.last_hidden_state` on the feature-call result.
+
+    - Feature dimension config path: `model.config.vision_config.hidden_size`
+
+    - Invalid config assumptions for this checkpoint: `model.config.projection_dim`,
+    `model.config.hidden_size`
+
+    - Pre-training smoke assertion: `image_features.ndim == 2`
+
+    - Pre-training smoke assertion: `image_features.shape[-1] == model.config.vision_config.hidden_size`
+
+
+    Code template (MUST copy exactly — do NOT change model variant names or file paths):
+
+    ```python
+
+    from transformers import AutoProcessor, AutoModel
+
+    MODEL_ID = "google/siglip2-so400m-patch16-256"
+
+    processor = AutoProcessor.from_pretrained(MODEL_ID)
+
+    model = AutoModel.from_pretrained(MODEL_ID)
+
+    image_features = model.get_image_features(pixel_values=pixel_values)  # torch.Tensor
+    [batch, 1152]; use directly
+
+    feature_dim = model.config.vision_config.hidden_size
+
+    ```'
+monitor:
+  enabled: true
+  interval_seconds: 5.0
+  gpu_idle_util_threshold: 10.0
+  gpu_idle_memory_threshold_mb: 1024.0
+  cpu_idle_util_threshold: 20.0
+  adaptive_compression: true
+  max_csv_rows: 1000
+  compress_to_rows: 500
+use_grading_server: true
+init_solution:
+  use: false
+hardware_knowledge:
+  enabled: true
+  include_profile_evidence: true
+  probe_timeout_seconds: 10.0
+  settings:
+    runtime_root: ./hardware_knowledge_graph/runtime
+    branch_profile_db_path: null
+    graph:
+      enabled: false
+      provider: neo4j
+      uri: bolt://127.0.0.1:7688
+      username: neo4j
+      password_env: <redacted>
+      database: neo4j
+    redis_cache:
+      enabled: false
+      url: redis://127.0.0.1:6379/0
+      url_env: LOCALML_SCHEDULER_REDIS_URL
+      key_prefix: localml_hardware_knowledge
+      ttl_seconds: 300
+      max_entries: 4096
+      socket_timeout_seconds: 0.2
+      cache_graph_queries: true

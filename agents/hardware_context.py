@@ -133,6 +133,22 @@ _FEATURE_KEY_PAIR_FIELDS = {
     "not_recommended_feature_keys",
     "conditional_feature_keys",
 }
+_SCHEDULER_BACKEND_DISPLAY_FIELDS = (
+    "mode",
+    "effective_mode",
+    "backend_priority",
+    "enabled_backends",
+    "stream_mps_enabled",
+    "stream_enabled",
+    "mps_enabled",
+    "cuda_process_enabled",
+    "stream_mps_available",
+    "stream_available",
+    "mps_available",
+    "cuda_process_available",
+    "concurrent_groups_enabled",
+    "concurrent_backend_allowlist",
+)
 _STAGE_DIRECT_VALUE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "datatype": (
         "data",
@@ -316,7 +332,10 @@ def get_hardware_design_brief(agent: Any) -> HardwarePromptContext:
 
     raw_context = dict(raw_context or {})
     initial_compact = compact_model_design_context(raw_context)
-    selected_feature_ids = _select_hardware_feature_ids_for_design(agent, candidate, initial_compact)
+    selected_feature_ids = _scheduler_backend_feature_ids_for_design(initial_compact)
+    for feature_id in _select_hardware_feature_ids_for_design(agent, candidate, initial_compact):
+        if feature_id not in selected_feature_ids:
+            selected_feature_ids.append(feature_id)
     if selected_feature_ids and hasattr(hardware_client, "get_hardware_feature_details"):
         try:
             raw_context["selected_hardware_feature_ids"] = selected_feature_ids
@@ -1042,6 +1061,37 @@ def _select_hardware_feature_ids_for_design(
     return _parse_selected_feature_ids(response, available_set=available_set, max_features=max_features)
 
 
+def _scheduler_backend_feature_ids_for_design(compact: dict[str, Any]) -> list[str]:
+    hardware = compact.get("hardware_context") or {}
+    backend = hardware.get("backend_capabilities") or {}
+    if not backend:
+        return []
+
+    enabled = {str(item or "").strip().lower() for item in backend.get("enabled_backends") or []}
+    priority = {str(item or "").strip().lower() for item in backend.get("backend_priority") or []}
+    allowlist = {str(item or "").strip().lower() for item in backend.get("concurrent_backend_allowlist") or []}
+
+    def available(name: str) -> bool:
+        availability_key = f"{name}_available"
+        enabled_key = f"{name}_enabled"
+        if availability_key in backend:
+            return bool(backend.get(availability_key))
+        if enabled_key in backend:
+            return bool(backend.get(enabled_key))
+        return name in enabled
+
+    active = enabled or {name for name in priority if available(name)}
+    active |= {name for name in allowlist if available(name)}
+    selected: list[str] = []
+    if "stream" in active or "stream_mps" in active:
+        selected.append("cuda_stream_scheduler_compatibility")
+    if "cuda_process" in active:
+        selected.append("cuda_process_scheduler_compatibility")
+    if "mps" in active or "stream_mps" in active:
+        selected.append("mps_scheduler_compatibility")
+    return selected
+
+
 def _parse_selected_feature_ids(response: str, *, available_set: set[str], max_features: int) -> list[str]:
     text = str(response or "").strip()
     if not text:
@@ -1141,14 +1191,7 @@ def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 35
         if backend:
             backend_bits = _format_kv(
                 backend,
-                (
-                    "mode",
-                    "effective_mode",
-                    "backend_priority",
-                    "enabled_backends",
-                    "concurrent_groups_enabled",
-                    "concurrent_backend_allowlist",
-                ),
+                _SCHEDULER_BACKEND_DISPLAY_FIELDS,
             )
             if backend_bits:
                 lines.append(f"- Scheduler backend config: {backend_bits}")
@@ -1247,14 +1290,7 @@ def format_hardware_prompt_section(compact: dict[str, Any], *, max_chars: int = 
         if backend:
             backend_bits = _format_kv(
                 backend,
-                (
-                    "mode",
-                    "effective_mode",
-                    "backend_priority",
-                    "enabled_backends",
-                    "concurrent_groups_enabled",
-                    "concurrent_backend_allowlist",
-                ),
+                _SCHEDULER_BACKEND_DISPLAY_FIELDS,
             )
             if backend_bits:
                 lines.append(f"- Scheduler backend config: {backend_bits}")
@@ -1567,6 +1603,10 @@ def _compact_hardware_context(context: dict[str, Any]) -> dict[str, Any]:
                 "effective_mode",
                 "backend_priority",
                 "enabled_backends",
+                "stream_mps_enabled",
+                "stream_enabled",
+                "mps_enabled",
+                "cuda_process_enabled",
                 "stream_mps_available",
                 "stream_available",
                 "mps_available",
@@ -1934,14 +1974,7 @@ def _append_hardware_summary(lines: list[str], hardware: dict[str, Any]) -> None
     if backend:
         backend_bits = _format_kv(
             backend,
-            (
-                "mode",
-                "effective_mode",
-                "backend_priority",
-                "enabled_backends",
-                "concurrent_groups_enabled",
-                "concurrent_backend_allowlist",
-            ),
+            _SCHEDULER_BACKEND_DISPLAY_FIELDS,
         )
         if backend_bits:
             lines.append(f"- Scheduler backend config: {backend_bits}")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import Counter
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +18,7 @@ import sys
 import tempfile
 
 from localml_scheduler.adapters.mlevolve_runner import _materialize_instrumented_script
+from localml_scheduler.adapters.mlevolve import build_branch_profile_key, build_branch_shape_signature, normalize_branch_name
 from localml_scheduler.execution.process_utils import start_new_session_kwargs, terminate_process_tree
 
 from .timeline_fixture import FixturePaths, load_fixture
@@ -27,6 +30,30 @@ DEFAULT_FIXTURE_NAMES = (
     "histopathologic-cancer-detection_20260704_212842_clean_scripts_completed",
 )
 DEFAULT_ARCHIVE_ROOT = Path("replay_model_sources") / "histopathologic-cancer-detection_20260704_212842"
+DEFAULT_STRESS_SOURCE_FIXTURE = (
+    Path("scheduler_benchmark_test")
+    / "fixtures"
+    / "histopathologic-cancer-detection_20260704_212842_clean_scripts_completed"
+)
+DEFAULT_STRESS_DATA_ROOT = Path("scheduler_benchmark_test") / "stress_test_data"
+DEFAULT_STRESS_FIXTURE = (
+    DEFAULT_STRESS_DATA_ROOT
+    / "histopathologic-cancer-detection_20260704_212842_scheduler_stress_2epoch"
+)
+DEFAULT_STRESS_ARCHIVE_ROOT = DEFAULT_STRESS_FIXTURE
+STRESS_BRANCH_SHAPE_HINT_KEYS = {
+    "channels",
+    "feature_dim",
+    "framework",
+    "height",
+    "image_size",
+    "input_resolution",
+    "modality",
+    "num_classes",
+    "precision_mode",
+    "sequence_length",
+    "width",
+}
 RUNFILE_26_NODE_ID = "66b11d68876c4a768709a5a91ba8fa41"
 RUNFILE_29_NODE_ID = "4c400159969344d480b54aba0554b381"
 
@@ -43,6 +70,13 @@ class SmokeValidationResult:
     archive_root: Path
     report_path: Path
     report: dict[str, Any]
+
+
+@dataclass(slots=True)
+class StressFixtureResult:
+    fixture_root: Path
+    jobs_path: Path
+    summary: dict[str, Any]
 
 
 def default_fixture_dirs() -> list[Path]:
@@ -210,6 +244,338 @@ def validate_smoke_sources(
     return SmokeValidationResult(archive_root=archive, report_path=report, report=payload)
 
 
+def build_scheduler_stress_fixture(
+    *,
+    source_fixture: str | Path = DEFAULT_STRESS_SOURCE_FIXTURE,
+    output_fixture: str | Path = DEFAULT_STRESS_FIXTURE,
+    archive_root: str | Path = DEFAULT_STRESS_ARCHIVE_ROOT,
+    max_epochs: int = 2,
+    materialize: bool = True,
+) -> StressFixtureResult:
+    """Build a cold-profile scheduler stress fixture from archived generated scripts."""
+    source_root = Path(source_fixture).expanduser().resolve()
+    output = FixturePaths.from_root(Path(output_fixture).expanduser().resolve())
+    archive = Path(archive_root).expanduser().resolve()
+    actions, jobs_by_id, baseline, settings = load_fixture(source_root)
+    selected_jobs = [
+        job
+        for job in jobs_by_id.values()
+        if job.get("task_type") == "mlevolve_script"
+        and _job_script_path(job)
+        and Path(str(_job_script_path(job))).exists()
+    ]
+    if not selected_jobs:
+        if not materialize:
+            raise ValueError(f"No replayable mlevolve_script jobs found in {source_root}")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_fixture = Path(tmpdir) / "source_fixture"
+            shutil.copytree(source_root, temp_fixture)
+            materialize_sources(fixtures=[temp_fixture], archive_root=archive)
+            actions, jobs_by_id, baseline, settings = load_fixture(temp_fixture)
+            selected_jobs = [
+                job
+                for job in jobs_by_id.values()
+                if job.get("task_type") == "mlevolve_script"
+                and _job_script_path(job)
+                and Path(str(_job_script_path(job))).exists()
+            ]
+            if not selected_jobs:
+                raise ValueError(f"No replayable mlevolve_script jobs found in {source_root}")
+
+    selected_job_ids = {str(job["job_id"]) for job in selected_jobs}
+    action_by_job = {
+        str(action.get("job_id")): action
+        for action in actions
+        if action.get("action") == "SUBMIT" and str(action.get("job_id")) in selected_job_ids
+    }
+    used_destinations: dict[Path, str] = {}
+    sources_dir = archive / "sources"
+    stress_jobs = [
+        _stress_job_payload(
+            _localize_stress_job_sources(job, sources_dir=sources_dir, used_destinations=used_destinations),
+            max_epochs=max_epochs,
+        )
+        for job in selected_jobs
+    ]
+    stress_actions = _stress_submit_actions(stress_jobs, action_by_job)
+    stress_settings = _stress_scheduler_settings(settings)
+    summary = _stress_baseline_summary(
+        baseline,
+        source_fixture=source_root,
+        archive_root=archive,
+        jobs=stress_jobs,
+        actions=stress_actions,
+        max_epochs=max_epochs,
+    )
+
+    output.root.mkdir(parents=True, exist_ok=True)
+    _write_json(output.timeline, {"actions": stress_actions})
+    _write_jobs(output.jobs, stress_jobs)
+    _write_json(output.baseline_summary, summary)
+    _write_json(output.scheduler_settings, stress_settings)
+    return StressFixtureResult(fixture_root=output.root, jobs_path=output.jobs, summary=summary)
+
+
+def _job_script_path(job: dict[str, Any]) -> str | None:
+    return ((job.get("config") or {}).get("runner_kwargs") or {}).get("script_path")
+
+
+def _localize_stress_job_sources(
+    job: dict[str, Any],
+    *,
+    sources_dir: Path,
+    used_destinations: dict[Path, str],
+) -> dict[str, Any]:
+    payload = deepcopy(job)
+    payload.pop("pre_archive_baseline_model_path", None)
+    config = dict(payload.get("config") or {})
+    runner_kwargs = dict(config.get("runner_kwargs") or {})
+    metadata = dict(payload.get("metadata") or {})
+
+    script_path = runner_kwargs.get("script_path")
+    localized_script: Path | None = None
+    if script_path:
+        localized_script = _copy_stress_source_path(
+            script_path,
+            sources_dir=sources_dir,
+            used_destinations=used_destinations,
+        )
+        runner_kwargs.setdefault("pre_stress_script_path", script_path)
+        runner_kwargs["script_path"] = str(localized_script)
+
+    baseline_model_path = payload.get("baseline_model_path")
+    if baseline_model_path and Path(str(baseline_model_path)).exists():
+        localized_baseline = _copy_stress_source_path(
+            str(baseline_model_path),
+            sources_dir=sources_dir,
+            used_destinations=used_destinations,
+        )
+        metadata.setdefault("pre_stress_baseline_model_path", baseline_model_path)
+        payload["baseline_model_path"] = str(localized_baseline)
+    elif localized_script is not None:
+        metadata.setdefault("pre_stress_baseline_model_path", baseline_model_path)
+        payload["baseline_model_path"] = str(localized_script)
+
+    config["runner_kwargs"] = runner_kwargs
+    payload["config"] = config
+    payload["metadata"] = metadata
+    return payload
+
+
+def _copy_stress_source_path(
+    source_path: str,
+    *,
+    sources_dir: Path,
+    used_destinations: dict[Path, str],
+) -> Path:
+    source = Path(source_path).expanduser().resolve()
+    if not source.exists():
+        raise FileNotFoundError(f"Stress source path does not exist: {source_path}")
+    destination = _unique_destination(sources_dir / source.name, str(source), used_destinations).resolve()
+    if source != destination:
+        shutil.copy2(source, destination)
+    if destination.suffix == ".py":
+        compile_ok, compile_error = _compile_path(destination)
+        if not compile_ok:
+            raise SyntaxError(f"Stress source does not compile: {destination}: {compile_error}")
+    return destination
+
+
+def _family_for_stress_job(job: dict[str, Any]) -> str:
+    metadata = dict(job.get("metadata") or {})
+    batch_probe = dict(job.get("batch_probe") or {})
+    packing = dict(job.get("packing") or {})
+    raw = (
+        metadata.get("branch_name")
+        or metadata.get("model_family")
+        or batch_probe.get("model_key")
+        or packing.get("family")
+        or job.get("baseline_model_id")
+        or "unknown-branch"
+    )
+    return normalize_branch_name(str(raw))
+
+
+def _stress_branch_shape_hints(job: dict[str, Any], *, family: str) -> dict[str, Any]:
+    metadata = dict(job.get("metadata") or {})
+    batch_probe = dict(job.get("batch_probe") or {})
+    original_hints = dict(batch_probe.get("shape_hints") or {})
+    shape_hints = {
+        key: value
+        for key in sorted(STRESS_BRANCH_SHAPE_HINT_KEYS)
+        for value in (original_hints.get(key), metadata.get(key))
+        if value is not None
+    }
+    shape_hints["branch_name"] = family
+    shape_hints["model_family"] = family
+    return shape_hints
+
+
+def _stress_job_payload(job: dict[str, Any], *, max_epochs: int) -> dict[str, Any]:
+    payload = deepcopy(job)
+    payload.pop("pre_archive_baseline_model_path", None)
+    family = _family_for_stress_job(payload)
+    profile_namespace = build_branch_profile_key(family)
+
+    config = dict(payload.get("config") or {})
+    runner_kwargs = dict(config.get("runner_kwargs") or {})
+    runner_kwargs.pop("timeout", None)
+    runner_kwargs["max_epochs"] = int(max(1, max_epochs))
+    runner_kwargs["probe_max_epochs"] = int(max(1, max_epochs))
+    config["runner_kwargs"] = runner_kwargs
+    config["max_epochs"] = int(max(1, max_epochs))
+    payload["config"] = config
+    payload["max_epochs"] = int(max(1, max_epochs))
+
+    batch_probe = dict(payload.get("batch_probe") or {})
+    shape_hints = _stress_branch_shape_hints(payload, family=family)
+    shape_signature = build_branch_shape_signature(branch_name=family, shape_hints=shape_hints)
+    batch_probe.update(
+        {
+            "enabled": True,
+            "model_key": family,
+            "profile_key": None,
+            "profile_namespace": profile_namespace,
+            "reuse_only": False,
+            "shape_hints": shape_hints,
+            "shape_signature_override": shape_signature,
+            "contract_version": 2,
+        }
+    )
+    payload["batch_probe"] = batch_probe
+
+    metadata = dict(payload.get("metadata") or {})
+    for key in list(metadata):
+        if key.startswith("placement_") or key.startswith("runtime_") or key.startswith("scheduler_preemption_"):
+            metadata.pop(key, None)
+    for key in (
+        "batch_probe_key",
+        "batch_probe_source",
+        "batch_probe_device_type",
+        "batch_probe_reuse_miss",
+        "resolved_batch_size",
+    ):
+        metadata.pop(key, None)
+    metadata.update(
+        {
+            "branch_name": family,
+            "model_family": family,
+            "branch_profile_key": profile_namespace,
+            "model_family_profile_key": profile_namespace,
+            "branch_shape_signature": shape_signature,
+            "model_family_shape_signature": shape_signature,
+            "branch_profile_available": False,
+            "model_family_profile_available": False,
+            "branch_reuse_only": False,
+            "model_family_reuse_only": False,
+            "scheduler_stress_fixture": True,
+            "scheduler_stress_max_epochs": int(max(1, max_epochs)),
+            "scheduler_stress_timeout_policy": "no_normal_execution_timeout",
+            "scheduler_stress_profile_policy": "clean_profile_db_required",
+        }
+    )
+    payload["metadata"] = metadata
+
+    packing = dict(payload.get("packing") or {})
+    packing["family"] = family
+    payload["packing"] = packing
+    payload["status"] = "PENDING"
+    payload["status_reason"] = None
+    payload["status_timestamps"] = {}
+    payload["started_at"] = None
+    payload["finished_at"] = None
+    payload["last_dispatched_at"] = None
+    payload["last_heartbeat_at"] = None
+    payload["hold"] = False
+    return payload
+
+
+def _stress_submit_actions(
+    jobs: list[dict[str, Any]],
+    action_by_job: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    actions = []
+    for index, job in enumerate(jobs):
+        original = dict(action_by_job.get(str(job["job_id"])) or {})
+        action = {
+            **original,
+            "action": "SUBMIT",
+            "command_id": index + 1,
+            "final_cleanup": False,
+            "has_job_payload": True,
+            "job_id": job["job_id"],
+            "payload": {},
+            "queue_sequence": index + 1,
+            "relative_seconds": float(original.get("relative_seconds", index)),
+            "runner_target": (job.get("config") or {}).get("runner_target"),
+            "task_type": job.get("task_type"),
+            "mlevolve_node_id": (job.get("metadata") or {}).get("node_id")
+            or (job.get("metadata") or {}).get("mlevolve_node_id"),
+            "scheduler_stress_submit_index": index,
+        }
+        actions.append(action)
+    if actions:
+        base = min(float(action.get("relative_seconds") or 0.0) for action in actions)
+        for action in actions:
+            action["relative_seconds"] = max(0.0, float(action.get("relative_seconds") or 0.0) - base)
+    return actions
+
+
+def _stress_scheduler_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    payload = deepcopy(settings)
+    payload.pop("runtime_root", None)
+    gpu = dict(payload.get("gpu_scheduler") or {})
+    gpu["batch_probe_enabled"] = True
+    gpu["model_family_probe_timeout_seconds"] = None
+    gpu["max_packed_jobs_per_gpu"] = 0
+    gpu["auto_pack"] = {**dict(gpu.get("auto_pack") or {}), "target_metric": "vram"}
+    payload["gpu_scheduler"] = gpu
+    payload["log_db"] = {**dict(payload.get("log_db") or {}), "enabled": False}
+    payload["redis_cache"] = {**dict(payload.get("redis_cache") or {}), "enabled": False}
+    return payload
+
+
+def _stress_baseline_summary(
+    baseline: dict[str, Any],
+    *,
+    source_fixture: Path,
+    archive_root: Path,
+    jobs: list[dict[str, Any]],
+    actions: list[dict[str, Any]],
+    max_epochs: int,
+) -> dict[str, Any]:
+    script_paths = [str(_job_script_path(job)) for job in jobs if _job_script_path(job)]
+    family_counts = Counter((job.get("metadata") or {}).get("model_family") for job in jobs)
+    timeout_fields = [
+        key
+        for job in jobs
+        for key in ((job.get("config") or {}).get("runner_kwargs") or {})
+        if key == "timeout"
+    ]
+    return {
+        **baseline,
+        "scheduler_stress_fixture": True,
+        "stress_source_fixture": str(source_fixture),
+        "replay_source_archive": str(archive_root),
+        "stress_max_epochs": int(max(1, max_epochs)),
+        "stress_timeout_policy": "no normal execution timeout; replay waits for all submitted jobs",
+        "stress_profile_db_policy": "clean scheduler/profile DB before replay",
+        "job_count": len(jobs),
+        "submit_count": len(actions),
+        "command_count": len(actions),
+        "cancel_count": 0,
+        "script_path_count": len(script_paths),
+        "missing_script_path_count": sum(1 for path in script_paths if not Path(path).exists()),
+        "missing_script_paths": [path for path in script_paths if not Path(path).exists()],
+        "task_type_counts": dict(Counter(job.get("task_type") for job in jobs)),
+        "model_family_counts": dict(family_counts),
+        "batch_probe_reuse_only_false_count": sum(
+            1 for job in jobs if (job.get("batch_probe") or {}).get("reuse_only") is False
+        ),
+        "normal_timeout_field_count": len(timeout_fields),
+    }
+
+
 def _materialize_one_source(
     *,
     original_script_path: str,
@@ -360,48 +726,14 @@ def _runtime_repair_labels(before: str, after: str) -> list[str]:
         labels.append("tensor_float_before_numpy")
     if "from sklearn.metrics import roc_auc_score" in before and "_mlevolve_original_roc_auc_score" in after:
         labels.append("safe_single_class_roc_auc")
-    if "AutoModel.from_pretrained(" in before and "_mlevolve_probe_or_load_automodel(" in after:
-        labels.append("probe_safe_automodel_backbone")
     return labels
 
 
 def _repair_probe_automodel(source: str) -> str:
-    if "_mlevolve_probe_or_load_automodel" in source or "AutoModel.from_pretrained(" not in source:
-        return source
-    if "get_image_features" not in source:
-        return source
-    repaired = source.replace("AutoModel.from_pretrained(", "_mlevolve_probe_or_load_automodel(")
-    helper = (
-        "\n\n"
-        "class _MlevolveProbeVisionConfig:\n"
-        "    hidden_size = 1152\n\n\n"
-        "class _MlevolveProbeConfig:\n"
-        "    vision_config = _MlevolveProbeVisionConfig()\n\n\n"
-        "class _MlevolveProbeImageBackbone(nn.Module):\n"
-        "    def __init__(self, feature_dim=1152):\n"
-        "        super().__init__()\n"
-        "        self.config = _MlevolveProbeConfig()\n"
-        "        self.proj = nn.Linear(3, feature_dim)\n\n"
-        "    def get_image_features(self, pixel_values, *args, **kwargs):\n"
-        "        pooled = torch.nn.functional.adaptive_avg_pool2d(pixel_values.float(), (1, 1)).flatten(1)\n"
-        "        return self.proj(pooled)\n\n\n"
-        "def _mlevolve_probe_or_load_automodel(*args, **kwargs):\n"
-        "    if os.environ.get('MLEVOLVE_PROBE_MODE') == '1':\n"
-        "        return _MlevolveProbeImageBackbone()\n"
-        "    return AutoModel.from_pretrained(*args, **kwargs)\n"
-    )
-    if not re.search(r"^import os$", repaired, flags=re.M):
-        repaired = "import os\n" + repaired
-    patterns = (
-        r"^from transformers import .*\bAutoModel\b.*$",
-        r"^import transformers.*$",
-    )
-    for pattern in patterns:
-        match = re.search(pattern, repaired, flags=re.M)
-        if match:
-            insert_at = match.end()
-            return repaired[:insert_at] + helper + repaired[insert_at:]
-    return import_os + helper.lstrip("\n") + "\n\n" + repaired
+    # Family calibration must measure the real training model. Earlier stress
+    # fixtures swapped Hugging Face image backbones for a tiny probe-only stub,
+    # which made VRAM profiles too optimistic for scheduler packing.
+    return source
 
 
 def _recover_source_from_prompt(original: Path, job_payload: dict[str, Any]) -> tuple[str, str | None]:
@@ -623,6 +955,13 @@ def build_parser() -> argparse.ArgumentParser:
     smoke.add_argument("--archive-root", default=str(DEFAULT_ARCHIVE_ROOT))
     smoke.add_argument("--timeout-seconds", type=float, default=120.0)
     smoke.add_argument("--report", default=None)
+
+    stress = subparsers.add_parser("build-stress-fixture", help="Create a cold-profile scheduler stress fixture from archived scripts.")
+    stress.add_argument("--source-fixture", default=str(DEFAULT_STRESS_SOURCE_FIXTURE))
+    stress.add_argument("--output-fixture", default=str(DEFAULT_STRESS_FIXTURE))
+    stress.add_argument("--archive-root", default=str(DEFAULT_STRESS_ARCHIVE_ROOT))
+    stress.add_argument("--max-epochs", type=int, default=2)
+    stress.add_argument("--no-materialize", action="store_true", help="Assume the source fixture already points at archived scripts.")
     return parser
 
 
@@ -635,13 +974,36 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps({"manifest_path": str(result.manifest_path), **result.manifest["summary"]}, indent=2))
         return 0
-    result = validate_smoke_sources(
-        fixtures=[Path(path) for path in args.fixture] if args.fixture else None,
+    if args.command == "validate-smoke":
+        result = validate_smoke_sources(
+            fixtures=[Path(path) for path in args.fixture] if args.fixture else None,
+            archive_root=args.archive_root,
+            timeout_seconds=args.timeout_seconds,
+            report_path=args.report,
+        )
+        print(json.dumps({"report_path": str(result.report_path), **result.report["summary"]}, indent=2))
+        return 0
+    result = build_scheduler_stress_fixture(
+        source_fixture=args.source_fixture,
+        output_fixture=args.output_fixture,
         archive_root=args.archive_root,
-        timeout_seconds=args.timeout_seconds,
-        report_path=args.report,
+        max_epochs=args.max_epochs,
+        materialize=not args.no_materialize,
     )
-    print(json.dumps({"report_path": str(result.report_path), **result.report["summary"]}, indent=2))
+    print(
+        json.dumps(
+            {
+                "fixture_root": str(result.fixture_root),
+                "jobs_path": str(result.jobs_path),
+                "job_count": result.summary.get("job_count"),
+                "stress_max_epochs": result.summary.get("stress_max_epochs"),
+                "normal_timeout_field_count": result.summary.get("normal_timeout_field_count"),
+                "batch_probe_reuse_only_false_count": result.summary.get("batch_probe_reuse_only_false_count"),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0
 
 

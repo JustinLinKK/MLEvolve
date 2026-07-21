@@ -1,0 +1,17 @@
+{
+  "batch_probe_cache_miss": 2,
+  "batch_probe_result": 2,
+  "batch_probe_selected": 2,
+  "batch_probe_started": 2,
+  "batch_probe_trial": 3,
+  "batch_probe_warning": 2,
+  "job_candidate_failed": 2,
+  "job_dispatched": 2,
+  "job_ready": 2,
+  "job_started": 2,
+  "planner_decision_trace": 2,
+  "scheduler_auto_backend_probe": 1,
+  "scheduler_session_started": 1,
+  "worker_finished": 2,
+  "worker_launched": 2
+}

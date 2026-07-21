@@ -8,6 +8,7 @@ import engine.agent_search as agent_search_module
 from engine.agent_search import AgentSearch
 from engine.executor import ExecutionResult, SchedulerJobHandle
 from engine.search_node import Journal, SearchNode
+from run import _live_scheduler_empty_generation_action
 from utils.metric import MetricValue, WorstMetricValue
 
 
@@ -86,6 +87,13 @@ def _make_agent(tmp_path) -> AgentSearch:
     agent.pending_scheduler_nodes = {}
     agent.refresh_hardware_context = lambda node: None
     return agent
+
+
+def test_empty_live_scheduler_generation_waits_while_jobs_are_outstanding() -> None:
+    assert _live_scheduler_empty_generation_action(1, 2) == "wait"
+    assert _live_scheduler_empty_generation_action(5, 1) == "wait"
+    assert _live_scheduler_empty_generation_action(1, 0) == "retry"
+    assert _live_scheduler_empty_generation_action(3, 0) == "stop"
 
 
 def test_step_with_scheduler_handle_defers_journal_and_best_until_collection(monkeypatch, tmp_path) -> None:

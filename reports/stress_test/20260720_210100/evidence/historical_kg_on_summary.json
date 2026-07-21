@@ -1,0 +1,13 @@
+{
+  "available": true,
+  "buggy_nodes": 16,
+  "exc_type_counts": {
+    "None": 4,
+    "RuntimeError": 15,
+    "TimeoutError": 1
+  },
+  "metric_nodes": 4,
+  "note": "Historical graph-on run only; not an identical-code replay and old journal lacks modern outcome fields.",
+  "path": "runs/bug2_codex_stress20/20260718_125523_bug2_codex_stress20",
+  "total_nodes": 20
+}

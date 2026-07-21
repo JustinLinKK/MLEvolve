@@ -30,6 +30,9 @@ TRANSIENT_METADATA_PREFIXES = (
     "runtime_",
     "scheduler_preemption_",
 )
+REPLAY_BOOKKEEPING_JOB_KEYS = {
+    "pre_archive_baseline_model_path",
+}
 
 
 @dataclass(frozen=True)
@@ -151,6 +154,8 @@ def reset_job_payload_for_replay(payload: dict[str, Any]) -> dict[str, Any]:
     job["started_at"] = None
     job["finished_at"] = None
     job["hold"] = False
+    for key in REPLAY_BOOKKEEPING_JOB_KEYS:
+        job.pop(key, None)
     return job
 
 
