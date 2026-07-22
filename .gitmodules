@@ -1,0 +1,3 @@
+[submodule "PerfSeer-predictor"]
+	path = PerfSeer-predictor
+	url = https://github.com/JustinLinKK/PerfSeer-predictor.git

@@ -171,6 +171,7 @@ def replay_fixture(
 
         if wait_for_all:
             _wait_for_terminal(client, submitted_job_ids, timeout_seconds=None)
+            _wait_for_scheduler_idle(service, timeout_seconds=5.0)
         elif post_actions_wait_seconds > 0:
             _wait_for_terminal(client, submitted_job_ids, timeout_seconds=post_actions_wait_seconds)
         if not wait_for_all:
@@ -415,6 +416,17 @@ def _nonterminal_job_ids(client: SchedulerClient, job_ids: list[str]) -> list[st
         if job is not None and not job.status.is_terminal:
             outstanding.append(job_id)
     return outstanding
+
+
+def _wait_for_scheduler_idle(service: Any, *, timeout_seconds: float) -> None:
+    """Allow the scheduler to reap terminal workers and close placement groups."""
+    deadline = time.time() + max(0.0, timeout_seconds)
+    while time.time() < deadline:
+        active_groups = service.supervisor.active_groups()
+        active_runs = getattr(service, "_active_runs", {})
+        if not active_groups and not active_runs:
+            return
+        time.sleep(0.05)
 
 
 def _build_metrics(

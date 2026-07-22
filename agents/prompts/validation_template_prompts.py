@@ -6,11 +6,18 @@ Prompt templates for code review in search pipeline.
 
 from typing import Dict, Any
 from utils.response import wrap_code
+from .elastic_contract import elastic_contract_review_guidelines
 
 # ============================================================================
 # Code Review Prompts
 # ============================================================================
-def get_code_review_prompt(task_desc: str, code: str, data_preview: str | None = None) -> Dict[str, Any]:
+def get_code_review_prompt(
+    task_desc: str,
+    code: str,
+    data_preview: str | None = None,
+    *,
+    require_scheduler_contract: bool = False,
+) -> Dict[str, Any]:
     """Build full code review prompt dict from task description and code."""
     introduction = (
         "You are a Senior Data Science Code Reviewer. Your goal is to ensure the submission is legally valid and logically sound.\n\n"
@@ -29,6 +36,8 @@ def get_code_review_prompt(task_desc: str, code: str, data_preview: str | None =
         "Instructions": {},
     }
     prompt["Instructions"]["Code review guidelines"] = get_code_review_guidelines()
+    if require_scheduler_contract:
+        prompt["Instructions"]["Scheduler script contract"] = elastic_contract_review_guidelines()
     prompt["Instructions"]["Response format"] = get_code_review_response_format()
     return prompt
 

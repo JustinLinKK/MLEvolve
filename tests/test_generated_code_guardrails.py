@@ -7,6 +7,7 @@ from agents import code_review_agent
 from agents.prompts.validation_template_prompts import get_code_review_prompt
 from engine.executor import Interpreter
 from engine.search_node import SearchNode
+from localml_scheduler.runtime_environment import validate_generated_training_code
 from utils.data_preview import generate
 
 
@@ -63,6 +64,21 @@ def test_code_review_prompt_uses_data_preview_and_real_dependency_boundary():
     assert "XGBClassifier`/`XGBRegressor` construction" in guidelines
     assert "Low-precision export" in guidelines
     assert "tensor.detach().to(torch.float32).cpu().numpy()" in guidelines
+
+
+def test_code_review_prompt_includes_scheduler_contract_when_requested():
+    prompt = get_code_review_prompt(
+        task_desc="Train a model.",
+        data_preview="",
+        code="print('candidate')",
+        require_scheduler_contract=True,
+    )
+
+    contract = "\n".join(prompt["Instructions"]["Scheduler script contract"])
+    assert "session = ElasticTrainingSession.from_env()" in contract
+    assert "batch_size = 32" in contract
+    assert "same accumulation condition as the optimizer step" in contract
+    assert "batch_index=batch_index" in contract
 
 
 def test_interpreter_rejects_invalid_syntax_before_subprocess(tmp_path):
@@ -147,20 +163,24 @@ def test_code_review_retries_when_critical_runtime_finding_is_approved(monkeypat
     monkeypatch.setattr(
         code_review_agent,
         "validate_generated_training_code",
-        lambda code, stage, model_contracts=None: {
-            "ok": False,
-            "critical_count": 1,
-            "warning_count": 0,
-            "issues": [
-                {
-                    "severity": "critical",
-                    "category": "invalid_torch_scheduler_argument",
-                    "message": "CosineAnnealingLR received unsupported keyword argument(s): T_eta_min.",
-                    "evidence": "CosineAnnealingLR(optimizer, T_eta_min=1e-6, T_max=3)",
-                    "repair_hint": "Replace T_eta_min with eta_min for CosineAnnealingLR.",
-                }
-            ],
-        },
+        lambda code, stage, model_contracts=None, **_kwargs: (
+            {"ok": True, "critical_count": 0, "warning_count": 0, "issues": []}
+            if "fixed" in code
+            else {
+                "ok": False,
+                "critical_count": 1,
+                "warning_count": 0,
+                "issues": [
+                    {
+                        "severity": "critical",
+                        "category": "invalid_torch_scheduler_argument",
+                        "message": "CosineAnnealingLR received unsupported keyword argument(s): T_eta_min.",
+                        "evidence": "CosineAnnealingLR(optimizer, T_eta_min=1e-6, T_max=3)",
+                        "repair_hint": "Replace T_eta_min with eta_min for CosineAnnealingLR.",
+                    }
+                ],
+            }
+        ),
     )
     monkeypatch.setattr(
         code_review_agent,
@@ -231,3 +251,116 @@ def test_code_review_returns_deterministically_repaired_precision_export(monkeyp
 
     assert "preds.detach().to(torch.float32).cpu().numpy()" in reviewed
     assert "labels.cpu().numpy()" in reviewed
+
+
+def test_scheduler_code_review_revalidates_incomplete_repair_before_returning(monkeypatch):
+    calls = []
+    valid_code = """
+from localml_scheduler.elastic import ElasticTrainingSession
+MODEL_BRANCH = "linear-v1"
+batch_size = 4
+epochs = 1
+session = ElasticTrainingSession.from_env()
+train_loader = session.make_dataloader(train_dataset)
+session.register_training_state(model, optimizer)
+progress = session.restore_if_present()
+optimizer.step()
+session.optimizer_step_completed(4, 0, 0, progress["global_step"] + 1)
+""".strip()
+
+    monkeypatch.setattr(
+        code_review_agent,
+        "get_hardware_context_for_stage",
+        lambda *args, **kwargs: SimpleNamespace(prompt_section=""),
+    )
+    monkeypatch.setattr(code_review_agent, "get_internet_clarification", lambda *_args, **_kwargs: [])
+
+    def fake_query(**kwargs):
+        calls.append(kwargs["system_message"])
+        if len(calls) == 1:
+            return {
+                "needs_revision": True,
+                "reasoning": "The contract is missing. This first repair is intentionally incomplete.",
+                "revised_code": "# ElasticTrainingSession.from_env()\nprint('still invalid')",
+            }
+        return {
+            "needs_revision": True,
+            "reasoning": "The updated code still failed validation. This replacement implements the complete lifecycle.",
+            "revised_code": valid_code,
+        }
+
+    monkeypatch.setattr(code_review_agent, "query", fake_query)
+    agent = SimpleNamespace(
+        task_desc="Train a small PyTorch classifier.",
+        data_preview="",
+        scheduler_client=object(),
+        cfg=SimpleNamespace(pretrain_model_dir="", scheduler=SimpleNamespace(enabled=True)),
+        acfg=SimpleNamespace(use_diff_mode=False, code=SimpleNamespace(model="test", temp=0.0)),
+    )
+    node = SearchNode(code="print('missing contract')", stage="draft")
+
+    reviewed = code_review_agent.run(agent, node)
+
+    assert reviewed == valid_code
+    assert len(calls) == 2
+    assert "Scheduler script contract" in calls[0]["Instructions"]
+    assert "Post-repair validation retry 1" in calls[1]["Instructions"]
+    assert validate_generated_training_code(
+        reviewed,
+        require_scheduler_submission_contract=True,
+    )["ok"] is True
+
+
+def test_scheduler_code_review_applies_and_validates_authored_batch_diff(monkeypatch):
+    code = """
+import os
+from localml_scheduler.elastic import ElasticTrainingSession
+MODEL_BRANCH = "linear-v1"
+batch_size = int(os.environ.get("BATCH_SIZE", "4"))
+epochs = 1
+session = ElasticTrainingSession.from_env()
+train_loader = session.make_dataloader(train_dataset)
+session.register_training_state(model, optimizer)
+progress = session.restore_if_present()
+optimizer.step()
+session.optimizer_step_completed(4, 0, 0, progress["global_step"] + 1)
+""".strip()
+    monkeypatch.setattr(
+        code_review_agent,
+        "get_hardware_context_for_stage",
+        lambda *args, **kwargs: SimpleNamespace(prompt_section=""),
+    )
+    monkeypatch.setattr(code_review_agent, "get_internet_clarification", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        code_review_agent,
+        "query",
+        lambda **_: {
+            "needs_revision": True,
+            "reasoning": "The authored batch is environment-dependent. Replace it with the submitted literal.",
+            "revised_code": "\n".join(
+                [
+                    "<" * 7 + " SEARCH",
+                    'batch_size = int(os.environ.get("BATCH_SIZE", "4"))',
+                    "=" * 7,
+                    "batch_size = 4",
+                    ">" * 7 + " REPLACE",
+                ]
+            ),
+        },
+    )
+    agent = SimpleNamespace(
+        task_desc="Train a small PyTorch classifier.",
+        data_preview="",
+        scheduler_client=object(),
+        cfg=SimpleNamespace(pretrain_model_dir="", scheduler=SimpleNamespace(enabled=True)),
+        acfg=SimpleNamespace(use_diff_mode=True, code=SimpleNamespace(model="test", temp=0.0)),
+    )
+
+    reviewed = code_review_agent.run(agent, SearchNode(code=code, stage="draft"))
+
+    assert "batch_size = 4" in reviewed
+    assert "os.environ.get(\"BATCH_SIZE\"" not in reviewed
+    assert validate_generated_training_code(
+        reviewed,
+        require_scheduler_submission_contract=True,
+    )["ok"] is True

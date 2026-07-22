@@ -1323,23 +1323,23 @@ class Interpreter:
         elastic_validation = validate_generated_training_code(
             code,
             stage="scheduler_submission",
-            require_elastic_contract=True,
+            require_scheduler_submission_contract=True,
         )
         if not elastic_validation["ok"]:
             repair = repair_generated_training_code(
                 code,
                 stage="scheduler_submission_repair",
-                require_elastic_contract=True,
+                require_scheduler_submission_contract=True,
             )
             code = str(repair["code"])
             elastic_validation = dict(repair["validation"])
         if not elastic_validation["ok"]:
-            missing = [
-                issue.get("message")
+            critical_messages = [
+                str(issue.get("message") or issue.get("code") or "generated-script contract violation")
                 for issue in elastic_validation.get("issues", [])
-                if issue.get("code") == "elastic_training_contract_missing"
+                if issue.get("severity") == "critical"
             ]
-            raise ValueError("Generated candidate rejected: " + "; ".join(str(item) for item in missing))
+            raise ValueError("Generated candidate rejected: " + "; ".join(critical_messages))
 
         node_id = str(id)
         signature_code = code

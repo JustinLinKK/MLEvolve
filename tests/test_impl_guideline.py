@@ -58,3 +58,19 @@ def test_impl_guideline_requires_low_precision_export_boundary(monkeypatch) -> N
     text = "\n".join(guideline["Implementation guideline"])
     assert "Low-precision metric/export boundary" in text
     assert "tensor.detach().to(torch.float32).cpu().numpy()" in text
+
+
+def test_impl_guideline_contains_complete_scheduler_script_lifecycle(monkeypatch) -> None:
+    monkeypatch.setattr(impl_guideline.time, "time", lambda: 110.0)
+
+    guideline = impl_guideline.get_impl_guideline_from_agent(_agent(exec_timeout=5))
+
+    text = "\n".join(guideline["Implementation guideline"])
+    assert "top-level integer literal such as `batch_size = 32`" in text
+    assert "Never pass `batch_size=`" in text
+    assert "session.register_training_state" in text
+    assert "progress = session.restore_if_present()" in text
+    assert "same accumulation condition as the optimizer step" in text
+    assert "batch_index=batch_index" in text
+    assert "never `batch_idx`" in text
+    assert "must use a checkpointable PyTorch model and optimizer" in text

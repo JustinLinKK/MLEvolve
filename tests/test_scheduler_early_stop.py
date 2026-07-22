@@ -151,6 +151,10 @@ def test_scheduler_early_stops_plateauing_toy_job(tmp_path: Path) -> None:
         assert final_job.metadata["scheduler_early_stop_global_step"] < 50
         assert Path(final_job.metadata["scheduler_early_stop_plot_path"]).exists()
         assert api.list_events(job_id=job.job_id, event_type="scheduler_early_stop_requested")
+        wait_for(
+            lambda: bool(api.list_events(job_id=job.job_id, event_type="job_early_stopped")),
+            timeout=5.0,
+        )
         assert api.list_events(job_id=job.job_id, event_type="job_early_stopped")
     finally:
         service.stop()

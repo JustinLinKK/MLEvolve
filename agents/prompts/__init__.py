@@ -7,6 +7,7 @@ from .shared import (
     get_internet_clarification,
 )
 from .environment import get_prompt_environment
+from .elastic_contract import elastic_contract_review_guidelines, elastic_training_contract_guidelines
 from .impl_guideline import get_impl_guideline, get_impl_guideline_from_agent
 from .pipeline_decision import (
     PIPELINE_STAGE_ORDER,
@@ -23,6 +24,8 @@ __all__ = [
     "prompt_resp_fmt",
     "get_internet_clarification",
     "get_prompt_environment",
+    "elastic_contract_review_guidelines",
+    "elastic_training_contract_guidelines",
     "get_impl_guideline",
     "get_impl_guideline_from_agent",
     "PIPELINE_STAGE_ORDER",

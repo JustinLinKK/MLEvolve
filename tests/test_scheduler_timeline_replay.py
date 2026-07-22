@@ -331,6 +331,13 @@ def test_scheduler_replay_ignore_cancels_and_wait_for_all(tmp_path: Path) -> Non
     assert metrics["submitted_job_count"] == 2
     assert metrics["completed_job_count"] == 2
     assert metrics["cancelled_job_count"] == 0
+    events = [
+        json.loads(line)
+        for line in (output / "logs" / "scheduler_events.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert sum(event["event_type"] == "worker_launched" for event in events) == 2
+    assert sum(event["event_type"] == "worker_finished" for event in events) == 2
 
 
 def test_replay_clean_profile_db_removes_stale_runtime_db(tmp_path: Path) -> None:
@@ -647,7 +654,9 @@ def test_build_scheduler_stress_fixture_creates_cold_two_epoch_jobs(tmp_path: Pa
     assert job["max_epochs"] == 2
     assert job["config"]["max_epochs"] == 2
     assert runner_kwargs["max_epochs"] == 2
+    assert runner_kwargs["epochs"] == 2
     assert runner_kwargs["probe_max_epochs"] == 2
+    assert job["config"]["env"]["STANDARD_BENCH_EPOCHS"] == "2"
     assert "timeout" not in runner_kwargs
     assert archive_root.resolve() in Path(runner_kwargs["script_path"]).parents
     assert archive_root.resolve() in Path(job["baseline_model_path"]).parents
@@ -659,6 +668,7 @@ def test_build_scheduler_stress_fixture_creates_cold_two_epoch_jobs(tmp_path: Pa
     assert job["batch_probe"]["profile_key"] is None
     assert job["batch_probe"]["profile_namespace"].startswith("branch-profile:")
     assert job["batch_probe"]["shape_signature_override"].startswith("mlevolve-branch-shape:")
+    assert job["batch_probe"]["contract_version"] == 3
     assert job["metadata"]["scheduler_stress_fixture"] is True
     assert job["metadata"]["scheduler_stress_max_epochs"] == 2
     assert job["metadata"]["scheduler_stress_timeout_policy"] == "no_normal_execution_timeout"
@@ -722,8 +732,9 @@ def test_scheduler_replay_wrapper_stress_preset_dry_run(tmp_path: Path) -> None:
 
     metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
     assert "Preset: stress" in result.stdout
-    assert "stress_test_data" in result.stdout
-    assert "scheduler_stress_2epoch" in result.stdout
+    assert str(output / "stress_fixture") in result.stdout
+    assert "Stress epochs per job: 1" in result.stdout
+    assert "Stress job count: 12" in result.stdout
     assert "Runner mode: real" in result.stdout
     assert "Speedup: 1" in result.stdout
     assert "Post-actions wait: 0" in result.stdout
@@ -740,8 +751,16 @@ def test_scheduler_replay_wrapper_stress_preset_dry_run(tmp_path: Path) -> None:
     assert metrics["replay_submit_action_count"] == 12
     assert metrics["replay_cancel_action_count"] == 0
 
-    fixture = ROOT / "scheduler_benchmark_test" / "stress_test_data" / "histopathologic-cancer-detection_20260704_212842_scheduler_stress_2epoch"
+    fixture = output / "stress_fixture"
     _actions, jobs_by_id, _baseline, _settings = load_fixture(fixture)
+    assert len(jobs_by_id) == 12
+    assert {action["relative_seconds"] for action in _actions} == {0.0}
+    assert {job["max_epochs"] for job in jobs_by_id.values()} == {1}
+    assert {job["batch_probe"]["contract_version"] for job in jobs_by_id.values()} == {3}
+    assert all(
+        "ElasticTrainingSession" in Path(job["config"]["runner_kwargs"]["script_path"]).read_text(encoding="utf-8")
+        for job in jobs_by_id.values()
+    )
     signatures_by_family: dict[str, set[str]] = {}
     counts_by_family: dict[str, int] = {}
     for job in jobs_by_id.values():
@@ -886,7 +905,14 @@ def test_terminate_process_tree_stops_child_processes(tmp_path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    proc = subprocess.Popen([sys.executable, str(script), str(marker)], **start_new_session_kwargs())
+    pythonpath = os.pathsep.join(
+        item for item in (str(ROOT), os.environ.get("PYTHONPATH", "")) if item
+    )
+    proc = subprocess.Popen(
+        [sys.executable, str(script), str(marker)],
+        env={**os.environ, "PYTHONPATH": pythonpath},
+        **start_new_session_kwargs(),
+    )
     try:
         _wait_for(marker.exists)
         child_pid = int(marker.read_text(encoding="utf-8"))

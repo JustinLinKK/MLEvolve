@@ -10,10 +10,14 @@ cd "$ROOT"
 SOURCE_RUN="$ROOT/runs/profile_scheduler_compare_histopathologic-cancer-detection_20260704_212842"
 FULL_FIXTURE_DIR="$ROOT/scheduler_benchmark_test/fixtures/histopathologic-cancer-detection_20260704_212842"
 FAST_FIXTURE_DIR="$ROOT/scheduler_benchmark_test/fixtures/histopathologic-cancer-detection_20260704_212842_clean_scripts_completed"
-STRESS_FIXTURE_DIR="$ROOT/scheduler_benchmark_test/stress_test_data/histopathologic-cancer-detection_20260704_212842_scheduler_stress_2epoch"
-ARCHIVE_ROOT="$STRESS_FIXTURE_DIR"
+STRESS_SOURCE_FIXTURE_DIR="$ROOT/scheduler_benchmark_test/fixtures/standard_histopath_v1"
+STRESS_FIXTURE_DIR=""
+ARCHIVE_ROOT=""
 FIXTURE_DIR="$FULL_FIXTURE_DIR"
 OUTPUT_ROOT="$ROOT/runs/scheduler_replay_histopathologic-cancer-detection_$(date +%Y%m%d_%H%M%S)"
+DATA_ROOT="$ROOT/data/mle-bench/histopathologic-cancer-detection/prepared/public"
+STRESS_MAX_EPOCHS=1
+STRESS_JOB_LIMIT=12
 PRESET="full"
 RUNNER_MODE="real"
 SPEEDUP="1"
@@ -45,7 +49,7 @@ Usage:
 
 Options:
   --preset stress|quick|smoke|full   Replay preset. full preserves legacy defaults.
-                                      stress builds/uses the 2-epoch archived-source fixture,
+                                      stress builds a 1-epoch elastic fixture,
                                       submits all jobs immediately, ignores old cancels,
                                       waits for all jobs, and cleans scheduler/profile DBs.
                                       quick uses the original full fixture,
@@ -55,6 +59,9 @@ Options:
   --source-run PATH                  Original profile_scheduler_compare run root.
   --fixture-dir PATH                 Fixture directory. Created when missing.
   --output-root PATH                 Replay output root.
+  --data-root PATH                   Prepared histopathology dataset used by real stress jobs.
+  --max-epochs N                     Epochs per stress job. Defaults to 1.
+  --stress-job-limit N               Number of elastic jobs in the stress fixture. Defaults to 12.
   --runner-mode real|noop            Real generated scripts by default; noop for smoke tests.
   --speedup N                        Divide timeline sleeps by N. Defaults to 1.
   --until-seconds N                  Replay actions up to this original offset.
@@ -95,7 +102,9 @@ apply_preset_defaults() {
       [[ "$CANCEL_POLICY_SET" -eq 0 ]] && CANCEL_POLICY="ignore"
       ;;
     stress)
-      [[ "$FIXTURE_DIR_SET" -eq 0 ]] && FIXTURE_DIR="$STRESS_FIXTURE_DIR"
+      [[ "$FIXTURE_DIR_SET" -eq 0 ]] && FIXTURE_DIR="$OUTPUT_ROOT/stress_fixture"
+      STRESS_FIXTURE_DIR="$FIXTURE_DIR"
+      ARCHIVE_ROOT="$FIXTURE_DIR"
       [[ "$RUNNER_MODE_SET" -eq 0 ]] && RUNNER_MODE="real"
       [[ "$SPEEDUP_SET" -eq 0 ]] && SPEEDUP="1"
       [[ "$POST_ACTIONS_WAIT_SECONDS_SET" -eq 0 ]] && POST_ACTIONS_WAIT_SECONDS=0
@@ -141,6 +150,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --output-root)
       OUTPUT_ROOT="$(realpath -m "${2:?--output-root requires a value}")"
+      shift 2
+      ;;
+    --data-root)
+      DATA_ROOT="$(realpath -m "${2:?--data-root requires a value}")"
+      shift 2
+      ;;
+    --max-epochs)
+      STRESS_MAX_EPOCHS="${2:?--max-epochs requires a value}"
+      shift 2
+      ;;
+    --stress-job-limit)
+      STRESS_JOB_LIMIT="${2:?--stress-job-limit requires a value}"
       shift 2
       ;;
     --runner-mode)
@@ -219,20 +240,23 @@ done
 
 apply_preset_defaults
 
-if [[ ! -f "$FIXTURE_DIR/timeline.json" || ! -f "$FIXTURE_DIR/jobs.jsonl" ]]; then
-  if [[ "$PRESET" == "stress" ]]; then
-    echo "==> Building 2-epoch scheduler stress fixture"
-    python -m scheduler_benchmark_test.replay_model_sources build-stress-fixture \
-      --source-fixture "$FAST_FIXTURE_DIR" \
-      --output-fixture "$FIXTURE_DIR" \
-      --archive-root "$ARCHIVE_ROOT" \
-      --max-epochs 2
-  else
+if [[ "$PRESET" == "stress" ]]; then
+  if [[ ! -f "$DATA_ROOT/train_labels.csv" || ! -d "$DATA_ROOT/train" ]]; then
+    echo "Prepared histopathology dataset not found under: $DATA_ROOT" >&2
+    exit 2
+  fi
+  echo "==> Building ${STRESS_MAX_EPOCHS}-epoch elastic scheduler stress fixture (${STRESS_JOB_LIMIT} jobs)"
+  python -m scheduler_benchmark_test.replay_model_sources build-stress-fixture \
+    --source-fixture "$STRESS_SOURCE_FIXTURE_DIR" \
+    --output-fixture "$FIXTURE_DIR" \
+    --archive-root "$ARCHIVE_ROOT" \
+    --max-epochs "$STRESS_MAX_EPOCHS" \
+    --max-jobs "$STRESS_JOB_LIMIT"
+elif [[ ! -f "$FIXTURE_DIR/timeline.json" || ! -f "$FIXTURE_DIR/jobs.jsonl" ]]; then
     echo "==> Extracting scheduler replay fixture"
     python -m scheduler_benchmark_test.extract_scheduler_timeline \
       --source-run "$SOURCE_RUN" \
       --output-dir "$FIXTURE_DIR"
-  fi
 fi
 
 echo "Preset: $PRESET"
@@ -245,6 +269,12 @@ echo "Wait for all: $WAIT_FOR_ALL"
 echo "Cancel policy: $CANCEL_POLICY"
 echo "No sleep: $NO_SLEEP"
 echo "Clean profile DB: $CLEAN_PROFILE_DB"
+if [[ "$PRESET" == "stress" ]]; then
+  echo "Stress epochs per job: $STRESS_MAX_EPOCHS"
+  echo "Stress job count: $STRESS_JOB_LIMIT"
+  echo "Data root: $DATA_ROOT"
+  export HISTOPATH_DATA_ROOT="$DATA_ROOT"
+fi
 
 replay_cmd=(
   python -m scheduler_benchmark_test.replay_scheduler_timeline

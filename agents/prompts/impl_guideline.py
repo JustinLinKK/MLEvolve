@@ -4,6 +4,8 @@ import time
 
 import humanize
 
+from .elastic_contract import elastic_training_contract_guidelines
+
 
 def get_impl_guideline_from_agent(agent):
     """Build implementation guideline from agent config."""
@@ -61,15 +63,7 @@ def get_impl_guideline(
         "• CRITICAL CONSISTENCY REQUIREMENT: Ensure that validation and test inference use IDENTICAL processing logic. Any differences in how validation and test data are handled (such as post-processing, reconstruction, or formatting) can cause large performance gaps between validation and test sets. Maintain consistency across all data processing steps for both validation and test phases.",
         "",
         "**4. Scheduler Model Family Contract**",
-        "• MUST define a top-level constant `MODEL_BRANCH = \"mother_model_name\"` near the top of the file, e.g. `MODEL_BRANCH = \"resnet50\"`.",
-        "• Use `MODEL_BRANCH`; alternate legacy model-family aliases are not accepted by the adaptive scheduler.",
-        "• Use a stable, architecture-specific name, for example `resnet50_224`, `swin_b_384`, or `lightgbm_tabular_v1`.",
-        "• If you switch to a different mother model in an improvement/evolution, update `MODEL_BRANCH` to that canonical branch.",
-        "• If there is no more specific model/backbone name in the script, set the model name/key variable to the same value as `MODEL_BRANCH`.",
-        "• Import `ElasticTrainingSession` from `localml_scheduler.elastic` and create it with `session = ElasticTrainingSession.from_env()`.",
-        "• Use `session.batch_size` as the physical training batch and construct the training loader with `session.make_dataloader(...)`; keep validation/test loaders separate.",
-        "• Call `session.register_training_state(model, optimizer, lr_scheduler=..., scaler=..., extra_state=..., extra_state_loader=...)`, then `session.restore_if_present()` before training.",
-        "• Immediately after every completed optimizer step call `session.optimizer_step_completed(samples, epoch, batch_index, global_step, metrics=...)`. Never call it during partial gradient accumulation.",
+        *elastic_training_contract_guidelines(),
         "",
         "**5. Engineered Feature Dimension Contract**",
         "• If you build engineered/tabular/patch features, keep exactly one source of truth for the feature dimension.",

@@ -1,6 +1,6 @@
 # Hardware-Aware KG and Branch-Profile Scheduler Progress
 
-As of 2026-07-14.
+As of 2026-07-21.
 
 ## Summary
 
@@ -45,14 +45,17 @@ Done:
   telemetry, replay, and comparison tooling.
 - Added unified prediction contracts and a branch adapter that consumes
   precomputed `branch_prediction` job metadata.
-- Added router modes: `branch_only`, `ml_shadow`, `confidence_first`, and
-  `ml_primary`.
+- Replaced the experimental router variants with two strict modes:
+  `branch_profile` and `ml_predictor`.
+- Replaced legacy serial/parallel scheduler variants with the event-driven
+  `adaptive` planner, immutable authored batches, v3 profile curves, and
+  transactional checkpoint/restart repacking.
 - Refactored resource estimation to use live same-job correction, router
   predictions, explicit estimates, and same-job probe evidence instead of
   general cross-job profile reuse.
 - Planner traces include prediction traces when available.
-- PerfSeer integration is present as a fail-closed socket; no real ML predictor
-  is active yet.
+- PerfSeer integration remains available behind `ml_predictor`; unavailable
+  predictions fail closed unless explicit exclusive fallback is configured.
 
 Observed:
 

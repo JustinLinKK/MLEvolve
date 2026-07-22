@@ -283,6 +283,7 @@ def build_scheduler_stress_fixture(
     output_fixture: str | Path = DEFAULT_STRESS_FIXTURE,
     archive_root: str | Path = DEFAULT_STRESS_ARCHIVE_ROOT,
     max_epochs: int = 2,
+    max_jobs: int | None = None,
     materialize: bool = True,
 ) -> StressFixtureResult:
     """Build a cold-profile scheduler stress fixture from archived generated scripts."""
@@ -315,6 +316,11 @@ def build_scheduler_stress_fixture(
             if not selected_jobs:
                 raise ValueError(f"No replayable mlevolve_script jobs found in {source_root}")
 
+    if max_jobs is not None:
+        if int(max_jobs) < 1:
+            raise ValueError("max_jobs must be at least 1 when provided")
+        selected_jobs = selected_jobs[: int(max_jobs)]
+
     selected_job_ids = {str(job["job_id"]) for job in selected_jobs}
     action_by_job = {
         str(action.get("job_id")): action
@@ -339,6 +345,7 @@ def build_scheduler_stress_fixture(
         jobs=stress_jobs,
         actions=stress_actions,
         max_epochs=max_epochs,
+        max_jobs=max_jobs,
     )
 
     output.root.mkdir(parents=True, exist_ok=True)
@@ -451,10 +458,14 @@ def _stress_job_payload(job: dict[str, Any], *, max_epochs: int) -> dict[str, An
     profile_namespace = build_branch_profile_key(family)
 
     config = dict(payload.get("config") or {})
+    env = dict(config.get("env") or {})
     runner_kwargs = dict(config.get("runner_kwargs") or {})
     runner_kwargs.pop("timeout", None)
+    runner_kwargs["epochs"] = int(max(1, max_epochs))
     runner_kwargs["max_epochs"] = int(max(1, max_epochs))
     runner_kwargs["probe_max_epochs"] = int(max(1, max_epochs))
+    env["STANDARD_BENCH_EPOCHS"] = str(int(max(1, max_epochs)))
+    config["env"] = env
     config["runner_kwargs"] = runner_kwargs
     config["max_epochs"] = int(max(1, max_epochs))
     payload["config"] = config
@@ -472,7 +483,7 @@ def _stress_job_payload(job: dict[str, Any], *, max_epochs: int) -> dict[str, An
             "reuse_only": False,
             "shape_hints": shape_hints,
             "shape_signature_override": shape_signature,
-            "contract_version": 2,
+            "contract_version": 3,
         }
     )
     payload["batch_probe"] = batch_probe
@@ -505,6 +516,9 @@ def _stress_job_payload(job: dict[str, Any], *, max_epochs: int) -> dict[str, An
             "scheduler_stress_max_epochs": int(max(1, max_epochs)),
             "scheduler_stress_timeout_policy": "no_normal_execution_timeout",
             "scheduler_stress_profile_policy": "clean_profile_db_required",
+            "epochs": int(max(1, max_epochs)),
+            "total_epochs": int(max(1, max_epochs)),
+            "remaining_epochs": int(max(1, max_epochs)),
         }
     )
     payload["metadata"] = metadata
@@ -539,18 +553,15 @@ def _stress_submit_actions(
             "job_id": job["job_id"],
             "payload": {},
             "queue_sequence": index + 1,
-            "relative_seconds": float(original.get("relative_seconds", index)),
+            "relative_seconds": 0.0,
             "runner_target": (job.get("config") or {}).get("runner_target"),
             "task_type": job.get("task_type"),
             "mlevolve_node_id": (job.get("metadata") or {}).get("node_id")
             or (job.get("metadata") or {}).get("mlevolve_node_id"),
             "scheduler_stress_submit_index": index,
+            "scheduler_stress_original_relative_seconds": float(original.get("relative_seconds", index)),
         }
         actions.append(action)
-    if actions:
-        base = min(float(action.get("relative_seconds") or 0.0) for action in actions)
-        for action in actions:
-            action["relative_seconds"] = max(0.0, float(action.get("relative_seconds") or 0.0) - base)
     return actions
 
 
@@ -571,6 +582,7 @@ def _stress_scheduler_settings(settings: dict[str, Any]) -> dict[str, Any]:
         "thresholds",
         "telemetry",
         "early_stop",
+        "adaptive",
         "submission_defaults",
         "mps",
         "cuda_process",
@@ -598,6 +610,7 @@ def _stress_baseline_summary(
     jobs: list[dict[str, Any]],
     actions: list[dict[str, Any]],
     max_epochs: int,
+    max_jobs: int | None,
 ) -> dict[str, Any]:
     script_paths = [str(_job_script_path(job)) for job in jobs if _job_script_path(job)]
     family_counts = Counter((job.get("metadata") or {}).get("model_family") for job in jobs)
@@ -613,6 +626,8 @@ def _stress_baseline_summary(
         "stress_source_fixture": str(source_fixture),
         "replay_source_archive": str(archive_root),
         "stress_max_epochs": int(max(1, max_epochs)),
+        "stress_job_limit": int(max_jobs) if max_jobs is not None else None,
+        "simultaneous_submission": True,
         "stress_timeout_policy": "no normal execution timeout; replay waits for all submitted jobs",
         "stress_profile_db_policy": "clean scheduler/profile DB before replay",
         "job_count": len(jobs),
@@ -936,6 +951,7 @@ def build_parser() -> argparse.ArgumentParser:
     stress.add_argument("--output-fixture", default=str(DEFAULT_STRESS_FIXTURE))
     stress.add_argument("--archive-root", default=str(DEFAULT_STRESS_ARCHIVE_ROOT))
     stress.add_argument("--max-epochs", type=int, default=2)
+    stress.add_argument("--max-jobs", type=int, default=None)
     stress.add_argument("--no-materialize", action="store_true", help="Assume the source fixture already points at archived scripts.")
     return parser
 
@@ -963,6 +979,7 @@ def main(argv: list[str] | None = None) -> int:
         output_fixture=args.output_fixture,
         archive_root=args.archive_root,
         max_epochs=args.max_epochs,
+        max_jobs=args.max_jobs,
         materialize=not args.no_materialize,
     )
     print(
