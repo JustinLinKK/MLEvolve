@@ -10,16 +10,12 @@ from pathlib import Path
 from typing import Any
 import argparse
 import json
-import os
 import re
 import shutil
-import subprocess
-import sys
 import tempfile
 
-from localml_scheduler.adapters.mlevolve_runner import _materialize_instrumented_script
+from localml_scheduler.runtime_environment import validate_generated_training_code
 from localml_scheduler.adapters.mlevolve import build_branch_profile_key, build_branch_shape_signature, normalize_branch_name
-from localml_scheduler.execution.process_utils import start_new_session_kwargs, terminate_process_tree
 
 from .timeline_fixture import FixturePaths, load_fixture
 
@@ -77,6 +73,43 @@ class StressFixtureResult:
     fixture_root: Path
     jobs_path: Path
     summary: dict[str, Any]
+
+
+def _compile_text(source: str, filename: str) -> tuple[bool, str | None]:
+    try:
+        compile(source, filename, "exec")
+    except (SyntaxError, ValueError, TypeError) as exc:
+        return False, str(exc)
+    return True, None
+
+
+def _compile_path(path: Path) -> tuple[bool, str | None]:
+    try:
+        source = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return False, str(exc)
+    return _compile_text(source, str(path))
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def _write_jobs(path: Path, jobs: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(
+        "".join(json.dumps(job, sort_keys=True, default=str) + "\n" for job in jobs),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def _is_under_runs(path: str | Path) -> bool:
+    return "runs" in Path(path).expanduser().parts
 
 
 def default_fixture_dirs() -> list[Path]:
@@ -524,12 +557,34 @@ def _stress_submit_actions(
 def _stress_scheduler_settings(settings: dict[str, Any]) -> dict[str, Any]:
     payload = deepcopy(settings)
     payload.pop("runtime_root", None)
-    gpu = dict(payload.get("gpu_scheduler") or {})
+    original_gpu = dict(payload.get("gpu_scheduler") or {})
+    supported_gpu_keys = {
+        "backend_priority",
+        "device_index",
+        "fallback_cooldown_seconds",
+        "batch_probe_min_batch_size",
+        "batch_probe_max_search_rounds",
+        "batch_probe_max_batch_size",
+        "model_family_probe_priority",
+        "profiling",
+        "memory",
+        "thresholds",
+        "telemetry",
+        "early_stop",
+        "submission_defaults",
+        "mps",
+        "cuda_process",
+        "stream",
+    }
+    gpu = {key: value for key, value in original_gpu.items() if key in supported_gpu_keys}
+    gpu["enabled"] = True
+    gpu["mode"] = "adaptive"
     gpu["batch_probe_enabled"] = True
     gpu["model_family_probe_timeout_seconds"] = None
-    gpu["max_packed_jobs_per_gpu"] = 0
-    gpu["auto_pack"] = {**dict(gpu.get("auto_pack") or {}), "target_metric": "vram"}
+    gpu["max_packed_jobs_per_gpu"] = 8
+    gpu["candidate_window_size"] = 16
     payload["gpu_scheduler"] = gpu
+    payload["prediction"] = {"mode": "branch_profile"}
     payload["log_db"] = {**dict(payload.get("log_db") or {}), "enabled": False}
     payload["redis_cache"] = {**dict(payload.get("redis_cache") or {}), "enabled": False}
     return payload
@@ -846,101 +901,21 @@ def _first_existing_input_dir(fixture_roots: list[Path]) -> Path | None:
 
 
 def _run_source_smoke(source: Path, *, input_dir: Path | None, timeout_seconds: float) -> dict[str, Any]:
-    with tempfile.TemporaryDirectory(prefix="replay_source_smoke_") as temp_dir:
-        workspace = Path(temp_dir) / "workspace"
-        workspace.mkdir(parents=True)
-        (workspace / "working").mkdir()
-        (workspace / "submission").mkdir()
-        if input_dir is not None:
-            try:
-                os.symlink(str(input_dir), str(workspace / "input"), target_is_directory=True)
-            except OSError:
-                shutil.copytree(input_dir, workspace / "input", symlinks=True)
-        else:
-            (workspace / "input").mkdir()
-
-        instrumented = _materialize_instrumented_script(source, workspace)
-        if instrumented.syntax_error:
-            return {
-                "ok": False,
-                "returncode": None,
-                "timed_out": False,
-                "stdout_excerpt": "",
-                "stderr_excerpt": instrumented.syntax_error,
-            }
-
-        env = {
-            **os.environ,
-            "CUDA_VISIBLE_DEVICES": "",
-            "PYTHONUNBUFFERED": "1",
-            "MPLBACKEND": "Agg",
-            "TF_CPP_MIN_LOG_LEVEL": "2",
-            "TOKENIZERS_PARALLELISM": "false",
-            "MLEVOLVE_BATCH_SIZE_OVERRIDE": "1",
-            "MLEVOLVE_PROBE_MODE": "1",
-            "MLEVOLVE_PROBE_MAX_EPOCHS": "1",
-            "MLEVOLVE_PROBE_MAX_TRAIN_BATCHES": "1",
-        }
-        proc = subprocess.Popen(
-            [sys.executable, str(instrumented.path)],
-            cwd=str(workspace),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=env,
-            **start_new_session_kwargs(),
-        )
-        timed_out = False
-        try:
-            stdout, stderr = proc.communicate(timeout=max(1.0, float(timeout_seconds)))
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            terminate_process_tree(proc, timeout=1.0)
-            stdout, stderr = proc.communicate(timeout=1.0)
-        return {
-            "ok": proc.returncode == 0 and not timed_out,
-            "returncode": proc.returncode,
-            "timed_out": timed_out,
-            "stdout_excerpt": _excerpt(stdout),
-            "stderr_excerpt": _excerpt(stderr),
-        }
-
-
-def _is_under_runs(path: str) -> bool:
-    parts = Path(path).parts
-    return "runs" in parts
-
-
-def _compile_path(path: Path) -> tuple[bool, str | None]:
-    if not path.exists():
-        return False, "path does not exist"
-    return _compile_text(path.read_text(encoding="utf-8"), str(path))
-
-
-def _compile_text(source: str, filename: str) -> tuple[bool, str | None]:
-    try:
-        compile(source, filename, "exec")
-    except Exception as exc:
-        return False, str(exc)
-    return True, None
-
-
-def _excerpt(text: str, *, limit: int = 2000) -> str:
-    cleaned = str(text or "").strip()
-    return cleaned[:limit]
-
-
-def _write_jobs(path: Path, jobs: list[dict[str, Any]]) -> None:
-    path.write_text(
-        "".join(json.dumps(job, sort_keys=True, default=str) + "\n" for job in jobs),
-        encoding="utf-8",
+    """Cold-rollout smoke check: compile and enforce the elastic contract."""
+    del input_dir, timeout_seconds
+    validation = validate_generated_training_code(
+        source.read_text(encoding="utf-8"),
+        stage="replay_source_smoke",
+        require_elastic_contract=True,
     )
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
-
+    return {
+        "ok": bool(validation["ok"]),
+        "returncode": None,
+        "timed_out": False,
+        "stdout_excerpt": "",
+        "stderr_excerpt": "" if validation["ok"] else validation["summary"],
+        "elastic_contract_validation": validation,
+    }
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Archive and smoke-validate replay model sources.")

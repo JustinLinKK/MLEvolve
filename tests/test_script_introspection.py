@@ -1,7 +1,4 @@
-from pathlib import Path
-
 from engine.script_introspection import analyze_training_batch_contract, introspect_training_script
-from localml_scheduler.adapters.mlevolve_runner import _materialize_instrumented_script
 
 
 def test_training_batch_contract_detects_alias_and_minimum() -> None:
@@ -94,66 +91,6 @@ train(config.batch_size)
 
     assert contract.supported
     assert contract.initial_batch_size == 72
-
-
-def test_training_batch_contract_resolves_instrumented_caller_argument() -> None:
-    code = """
-from torch.utils.data import DataLoader
-
-_MLEVOLVE_BATCH_SIZE_OVERRIDE = None
-BATCH_SIZE = 128
-
-def get_dataloaders(batch_size, num_workers):
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=int(_MLEVOLVE_BATCH_SIZE_OVERRIDE) if _MLEVOLVE_BATCH_SIZE_OVERRIDE is not None else batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-    )
-    valid_loader = DataLoader(
-        valid_dataset,
-        batch_size=int(_MLEVOLVE_BATCH_SIZE_OVERRIDE) if _MLEVOLVE_BATCH_SIZE_OVERRIDE is not None else batch_size * 2,
-        shuffle=False,
-        num_workers=num_workers,
-    )
-    return train_loader, valid_loader
-
-get_dataloaders(
-    batch_size=int(_MLEVOLVE_BATCH_SIZE_OVERRIDE) if _MLEVOLVE_BATCH_SIZE_OVERRIDE is not None else BATCH_SIZE,
-    num_workers=4,
-)
-"""
-
-    contract = analyze_training_batch_contract(code)
-
-    assert contract.supported
-    assert contract.initial_batch_size == 128
-    assert contract.train_sites[0].lineno == 8
-
-
-def test_batch_instrumentation_is_scoped_to_training_loader(tmp_path: Path) -> None:
-    script = tmp_path / "candidate.py"
-    script.write_text(
-        """
-from torch.utils.data import DataLoader
-batch_size = 4
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-valid_loader = DataLoader(valid_dataset, batch_size=batch_size)
-test_loader = DataLoader(test_dataset, batch_size=batch_size)
-for labels in train_loader:
-    observed_batch_size = labels.size(0)
-""",
-        encoding="utf-8",
-    )
-
-    result = _materialize_instrumented_script(script, tmp_path)
-    materialized = result.path.read_text(encoding="utf-8")
-
-    assert result.had_batch_rewrite
-    assert materialized.count("_MLEVOLVE_BATCH_SIZE_OVERRIDE is not None") == 1
-    assert "valid_loader = DataLoader(valid_dataset, batch_size=batch_size)" in materialized
-    assert "test_loader = DataLoader(test_dataset, batch_size=batch_size)" in materialized
-    assert "observed_batch_size = labels.size(0)" in materialized
 
 
 def test_ambiguous_batch_variable_is_not_probeable() -> None:

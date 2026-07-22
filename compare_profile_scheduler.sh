@@ -47,7 +47,6 @@ Options:
   --plot-output-dir PATH      Graph output directory. Defaults to <run-root>/comparison_plots.
   --skip-plots, --no-plots    Do not generate comparison graph images after both runs.
   --scheduler-on-only         Run only scheduler_on with hardware knowledge enabled.
-  --disable-max-packing-limit Set max_packed_jobs_per_gpu=0 and use VRAM-targeted auto-pack.
   --dry-run                   Print commands without preparing or running.
   -h, --help                  Show this help.
 
@@ -77,7 +76,6 @@ START_VALIDATION_SERVER=1
 GENERATE_PLOTS=1
 PLOT_OUTPUT_DIR=""
 SCHEDULER_ON_ONLY=0
-DISABLE_MAX_PACKING_LIMIT=0
 DRY_RUN=0
 EXTRA_OVERRIDES=()
 
@@ -162,10 +160,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --scheduler-on-only|--only-scheduler-on)
       SCHEDULER_ON_ONLY=1
-      shift
-      ;;
-    --disable-max-packing-limit|--no-max-packing-limit)
-      DISABLE_MAX_PACKING_LIMIT=1
       shift
       ;;
     --dry-run)
@@ -435,23 +429,14 @@ run_mode() {
 
   if [[ "$scheduler_enabled" == "true" ]]; then
     cmd+=("scheduler.runtime_root=$scheduler_runtime")
-    if [[ "$DISABLE_MAX_PACKING_LIMIT" -eq 1 ]]; then
-      cmd+=(
-        "scheduler.settings.gpu_scheduler.mode=parallel_auto_pack"
-        "scheduler.settings.gpu_scheduler.max_packed_jobs_per_gpu=0"
-        "scheduler.settings.gpu_scheduler.auto_pack.target_metric=vram"
-      )
-    else
-      cmd+=(
-        "scheduler.settings.gpu_scheduler.candidate_window_size=2"
-        "scheduler.settings.gpu_scheduler.max_packed_jobs_per_gpu=2"
-      )
-    fi
     cmd+=(
+      "scheduler.settings.gpu_scheduler.mode=adaptive"
+      "scheduler.settings.prediction.mode=branch_profile"
+      "scheduler.settings.gpu_scheduler.candidate_window_size=16"
+      "scheduler.settings.gpu_scheduler.max_packed_jobs_per_gpu=8"
       "scheduler.settings.gpu_scheduler.batch_probe_max_search_rounds=4"
       "scheduler.settings.gpu_scheduler.profiling.warmup_steps=5"
       "scheduler.settings.gpu_scheduler.profiling.solo_probe_steps=10"
-      "scheduler.settings.gpu_scheduler.parallel_optimizer.power_of_two_range_up=2"
       "scheduler.settings.gpu_scheduler.submission_defaults.batch_probe_max_multiplier=4"
       "scheduler.settings.gpu_scheduler.submission_defaults.batch_probe_probe_timeout_seconds=20"
     )
@@ -558,7 +543,6 @@ MANIFEST="$RUN_ROOT/manifest.txt"
   echo "timeout_seconds: $TIMEOUT_SECONDS"
   echo "memory_index: $MEMORY_INDEX"
   echo "scheduler_on_only: $SCHEDULER_ON_ONLY"
-  echo "disable_max_packing_limit: $DISABLE_MAX_PACKING_LIMIT"
   echo "validation_server_port: $GRADING_SERVER_PORT"
   echo "extra_overrides: ${EXTRA_OVERRIDES[*]:-}"
   echo "run_root: $RUN_ROOT"

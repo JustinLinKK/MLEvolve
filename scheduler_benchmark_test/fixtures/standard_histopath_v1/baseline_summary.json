@@ -1,0 +1,16 @@
+{
+  "command_count": 100,
+  "dataset_id": "histopathologic-cancer-detection",
+  "dataset_size": 174464,
+  "epochs_per_job": 50,
+  "job_count": 100,
+  "original_input_dir": null,
+  "profile_state_policy": "cold isolated database per arm and repetition",
+  "reference_metrics": {},
+  "schema_version": "standard-histopath-v1",
+  "source_run_root": null,
+  "submit_count": 100,
+  "task_type_counts": {
+    "mlevolve_script": 100
+  }
+}

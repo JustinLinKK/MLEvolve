@@ -146,8 +146,8 @@ _SCHEDULER_BACKEND_DISPLAY_FIELDS = (
     "stream_available",
     "mps_available",
     "cuda_process_available",
-    "concurrent_groups_enabled",
-    "concurrent_backend_allowlist",
+    "candidate_window_size",
+    "max_packed_jobs_per_gpu",
 )
 _STAGE_DIRECT_VALUE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "datatype": (
@@ -1069,7 +1069,6 @@ def _scheduler_backend_feature_ids_for_design(compact: dict[str, Any]) -> list[s
 
     enabled = {str(item or "").strip().lower() for item in backend.get("enabled_backends") or []}
     priority = {str(item or "").strip().lower() for item in backend.get("backend_priority") or []}
-    allowlist = {str(item or "").strip().lower() for item in backend.get("concurrent_backend_allowlist") or []}
 
     def available(name: str) -> bool:
         availability_key = f"{name}_available"
@@ -1081,7 +1080,6 @@ def _scheduler_backend_feature_ids_for_design(compact: dict[str, Any]) -> list[s
         return name in enabled
 
     active = enabled or {name for name in priority if available(name)}
-    active |= {name for name in allowlist if available(name)}
     selected: list[str] = []
     if "stream" in active or "stream_mps" in active:
         selected.append("cuda_stream_scheduler_compatibility")
@@ -1530,7 +1528,7 @@ def _scheduler_backend_config(scheduler_client: Any | None) -> dict[str, Any]:
     gpu_scheduler = getattr(settings, "gpu_scheduler", None)
     if gpu_scheduler is None:
         return {}
-    probe_payload = _latest_auto_backend_probe_payload(scheduler_client)
+    probe_payload = _latest_adaptive_backend_probe_payload(scheduler_client)
     mode = getattr(gpu_scheduler, "mode", None)
     if probe_payload:
         mode = probe_payload.get("configured_mode", mode)
@@ -1544,11 +1542,8 @@ def _scheduler_backend_config(scheduler_client: Any | None) -> dict[str, Any]:
         "mode": mode,
         "effective_mode": effective_mode,
         "backend_priority": _probe_payload_list_or_setting(probe_payload, "backend_priority", gpu_scheduler),
-        "concurrent_backend_allowlist": _probe_payload_list_or_setting(
-            probe_payload,
-            "concurrent_backend_allowlist",
-            gpu_scheduler,
-        ),
+        "candidate_window_size": getattr(gpu_scheduler, "candidate_window_size", None),
+        "max_packed_jobs_per_gpu": getattr(gpu_scheduler, "max_packed_jobs_per_gpu", None),
     }
 
 
@@ -1558,14 +1553,14 @@ def _probe_payload_list_or_setting(probe_payload: dict[str, Any], key: str, sett
     return list(getattr(settings, key, []) or [])
 
 
-def _latest_auto_backend_probe_payload(scheduler_client: Any | None) -> dict[str, Any]:
+def _latest_adaptive_backend_probe_payload(scheduler_client: Any | None) -> dict[str, Any]:
     if scheduler_client is None:
         return {}
     events: list[dict[str, Any]] = []
     list_events = getattr(scheduler_client, "list_events", None)
     if callable(list_events):
         try:
-            events = list(list_events(event_type="scheduler_auto_backend_probe"))
+            events = list(list_events(event_type="scheduler_adaptive_backend_probe"))
         except Exception:
             events = []
     if not events:
@@ -1573,7 +1568,7 @@ def _latest_auto_backend_probe_payload(scheduler_client: Any | None) -> dict[str
         store_list_events = getattr(store, "list_events", None)
         if callable(store_list_events):
             try:
-                events = list(store_list_events(event_type="scheduler_auto_backend_probe"))
+                events = list(store_list_events(event_type="scheduler_adaptive_backend_probe"))
             except Exception:
                 events = []
     if not events:
@@ -1611,13 +1606,13 @@ def _compact_hardware_context(context: dict[str, Any]) -> dict[str, Any]:
                 "stream_available",
                 "mps_available",
                 "cuda_process_available",
-                "concurrent_groups_enabled",
-                "concurrent_backend_allowlist",
+                "candidate_window_size",
+                "max_packed_jobs_per_gpu",
             ),
         ),
         "scheduler_limits": _pick(
             limits,
-            ("safe_vram_budget_mb", "max_packed_jobs_per_gpu", "mode", "effective_mode", "backend_priority", "concurrent_backend_allowlist"),
+            ("safe_vram_budget_mb", "max_packed_jobs_per_gpu", "candidate_window_size", "mode", "effective_mode", "backend_priority"),
         ),
     }
     return {key: value for key, value in compact.items() if value not in (None, {}, [], "")}

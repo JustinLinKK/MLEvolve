@@ -141,11 +141,10 @@ def test_compact_context_formats_prompt_without_raw_bloat() -> None:
                 "summary_text": "RTX Test with 49152 MiB VRAM",
             },
             "backend_capabilities": {
-                "mode": "auto",
-                "effective_mode": "parallel_auto_pack",
+                "mode": "adaptive",
+                "effective_mode": "adaptive",
                 "backend_priority": ["stream_mps", "stream", "cuda_process", "exclusive"],
                 "enabled_backends": ["exclusive", "stream_mps", "stream", "cuda_process"],
-                "concurrent_backend_allowlist": ["stream_mps", "stream"],
             },
             "scheduler_limits": {"safe_vram_budget_mb": 30720, "max_packed_jobs_per_gpu": 2},
         },
@@ -384,7 +383,7 @@ def test_stage_specific_hardware_prompts_split_precision_and_training_focus() ->
                 "gpu_name": "RTX Test",
                 "summary_text": "RTX Test with tensor cores",
             },
-            "backend_capabilities": {"effective_mode": "parallel_auto_pack"},
+            "backend_capabilities": {"effective_mode": "adaptive"},
             "scheduler_limits": {"safe_vram_budget_mb": 24000},
         },
         "graph_evidence": {
@@ -824,9 +823,8 @@ def test_hardware_design_brief_fetches_only_selected_feature_details(monkeypatch
             self.detail_calls = []
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
-                    mode="parallel_auto_pack",
+                    mode="adaptive",
                     backend_priority=["stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream"],
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
@@ -926,9 +924,8 @@ def test_hardware_design_brief_adds_scheduler_backend_feature_details(monkeypatc
             self.detail_calls = []
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
-                    mode="auto",
+                    mode="adaptive",
                     backend_priority=["stream_mps", "stream", "cuda_process", "mps", "exclusive"],
-                    concurrent_backend_allowlist=["stream_mps", "stream"],
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
@@ -949,8 +946,8 @@ def test_hardware_design_brief_adds_scheduler_backend_feature_details(monkeypatc
                         "summary_text": "NVIDIA GeForce RTX 5090",
                     },
                     "backend_capabilities": {
-                        "mode": "auto",
-                        "effective_mode": "parallel_auto_pack",
+                        "mode": "adaptive",
+                        "effective_mode": "adaptive",
                         "backend_priority": ["stream_mps", "stream", "cuda_process", "mps", "exclusive"],
                         "enabled_backends": ["exclusive", "stream_mps", "stream", "cuda_process", "mps"],
                         "stream_mps_enabled": True,
@@ -1040,9 +1037,8 @@ def test_scheduler_lookup_is_non_fatal_and_uses_get_optimization_context() -> No
             self.calls = []
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
-                    mode="auto",
+                    mode="adaptive",
                     backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream_mps", "stream"],
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
@@ -1074,8 +1070,8 @@ def test_scheduler_lookup_is_non_fatal_and_uses_get_optimization_context() -> No
     candidate, limit = agent.scheduler_client.calls[0]
     assert candidate["stage"] == "draft"
     assert candidate["task_type"] == "vision_training"
-    assert candidate["scheduler_mode"] == "auto"
-    assert candidate["scheduler_effective_mode"] == "parallel_auto_pack"
+    assert candidate["scheduler_mode"] == "adaptive"
+    assert candidate["scheduler_effective_mode"] == "adaptive"
     assert candidate["backend_preference"] == "stream_mps"
     assert limit == 3
     assert context.prompt_section
@@ -1090,9 +1086,8 @@ def test_hardware_candidate_prefers_boot_resolved_auto_backend_probe() -> None:
         def __init__(self) -> None:
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
-                    mode="auto",
+                    mode="adaptive",
                     backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream_mps", "stream"],
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
@@ -1103,14 +1098,13 @@ def test_hardware_candidate_prefers_boot_resolved_auto_backend_probe() -> None:
             )
 
         def list_events(self, *, event_type=None, job_id=None):
-            assert event_type == "scheduler_auto_backend_probe"
+            assert event_type == "scheduler_adaptive_backend_probe"
             return [
                 {
                     "payload": {
-                        "configured_mode": "auto",
-                        "effective_scheduler_mode": "parallel_auto_pack",
+                        "configured_mode": "adaptive",
+                        "effective_scheduler_mode": "adaptive",
                         "backend_priority": ["cuda_process", "exclusive"],
-                        "concurrent_backend_allowlist": [],
                     }
                 }
             ]
@@ -1125,8 +1119,8 @@ def test_hardware_candidate_prefers_boot_resolved_auto_backend_probe() -> None:
 
     candidate = build_hardware_candidate(agent, "draft")
 
-    assert candidate["scheduler_mode"] == "auto"
-    assert candidate["scheduler_effective_mode"] == "parallel_auto_pack"
+    assert candidate["scheduler_mode"] == "adaptive"
+    assert candidate["scheduler_effective_mode"] == "adaptive"
     assert candidate["backend_preference"] == "cuda_process"
 
 
@@ -1135,22 +1129,20 @@ def test_scheduler_backend_config_preserves_empty_auto_probe_lists() -> None:
         def __init__(self) -> None:
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
-                    mode="auto",
+                    mode="adaptive",
                     backend_priority=["stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream"],
                 )
             )
 
         def list_events(self, *, event_type=None, job_id=None):
             del job_id
-            assert event_type == "scheduler_auto_backend_probe"
+            assert event_type == "scheduler_adaptive_backend_probe"
             return [
                 {
                     "payload": {
-                        "configured_mode": "auto",
-                        "effective_scheduler_mode": "parallel_auto_pack",
+                        "configured_mode": "adaptive",
+                        "effective_scheduler_mode": "adaptive",
                         "backend_priority": [],
-                        "concurrent_backend_allowlist": [],
                     }
                 }
             ]
@@ -1158,7 +1150,6 @@ def test_scheduler_backend_config_preserves_empty_auto_probe_lists() -> None:
     backend_config = _scheduler_backend_config(FakeScheduler())
 
     assert backend_config["backend_priority"] == []
-    assert backend_config["concurrent_backend_allowlist"] == []
 
 
 def test_hardware_design_brief_uses_scheduler_model_design_context() -> None:
@@ -1167,9 +1158,8 @@ def test_hardware_design_brief_uses_scheduler_model_design_context() -> None:
             self.calls = []
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
-                    mode="auto",
+                    mode="adaptive",
                     backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream_mps", "stream"],
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
@@ -1224,9 +1214,8 @@ def test_training_parameter_round_review_rewrites_safe_literals_and_records_deci
         def __init__(self) -> None:
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
-                    mode="auto",
+                    mode="adaptive",
                     backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream_mps", "stream"],
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
@@ -1287,9 +1276,8 @@ def test_training_parameter_round_review_does_not_increase_epochs() -> None:
         def __init__(self) -> None:
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
-                    mode="auto",
+                    mode="adaptive",
                     backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream_mps", "stream"],
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
@@ -1408,9 +1396,8 @@ def test_hardware_context_handles_unexecuted_root_parent() -> None:
             self.calls = []
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
-                    mode="auto",
+                    mode="adaptive",
                     backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream_mps", "stream"],
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",

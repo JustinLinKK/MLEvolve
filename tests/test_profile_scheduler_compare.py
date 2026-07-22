@@ -104,26 +104,24 @@ def test_profile_scheduler_dry_run_accepts_budget_overrides(tmp_path: Path) -> N
     assert "timeout_seconds: 7200" in manifest
 
 
-def test_profile_scheduler_dry_run_can_run_scheduler_on_only_with_unlimited_vram_pack(tmp_path: Path) -> None:
+def test_profile_scheduler_dry_run_can_run_scheduler_on_only_with_adaptive_defaults(tmp_path: Path) -> None:
     run_root = tmp_path / "compare"
 
     _run_dry_compare(
         run_root,
         "--scheduler-on-only",
-        "--disable-max-packing-limit",
     )
 
     assert not (run_root / "scheduler_off" / "command.txt").exists()
     scheduler_on = _command_text(run_root, "scheduler_on")
     assert "scheduler.enabled=true" in scheduler_on
-    assert "scheduler.settings.gpu_scheduler.mode=parallel_auto_pack" in scheduler_on
-    assert "scheduler.settings.gpu_scheduler.max_packed_jobs_per_gpu=0" in scheduler_on
-    assert "scheduler.settings.gpu_scheduler.auto_pack.target_metric=vram" in scheduler_on
-    assert "scheduler.settings.gpu_scheduler.candidate_window_size=2" not in scheduler_on
+    assert "scheduler.settings.gpu_scheduler.mode=adaptive" in scheduler_on
+    assert "scheduler.settings.prediction.mode=branch_profile" in scheduler_on
+    assert "scheduler.settings.gpu_scheduler.max_packed_jobs_per_gpu=8" in scheduler_on
+    assert "scheduler.settings.gpu_scheduler.candidate_window_size=16" in scheduler_on
 
     manifest = (run_root / "manifest.txt").read_text(encoding="utf-8")
     assert "scheduler_on_only: 1" in manifest
-    assert "disable_max_packing_limit: 1" in manifest
     assert "scheduler_off:" not in manifest
     assert "scheduler_on: dry-run" in manifest
 

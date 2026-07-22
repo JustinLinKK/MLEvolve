@@ -107,7 +107,7 @@ def test_scheduler_early_stops_plateauing_toy_job(tmp_path: Path) -> None:
         runtime_root=tmp_path / "runtime",
         scheduler_poll_interval_seconds=0.05,
         gpu_scheduler={
-            "mode": "serial_basic",
+            "mode": "adaptive",
             "backend_priority": ["exclusive"],
             "checkpoint_preemption_enabled": False,
             "early_stop": {
@@ -182,7 +182,7 @@ def test_scheduler_bridge_returns_early_stop_feedback(tmp_path: Path) -> None:
         node_id="node-early",
         result_path=result_path,
         runner_kwargs={},
-        scheduler_mode="serial_basic",
+        scheduler_mode="adaptive",
         detected_batch_size=None,
         proposed_epochs=None,
         model_key=None,

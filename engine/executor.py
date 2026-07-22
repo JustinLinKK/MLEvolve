@@ -24,14 +24,13 @@ from typing import Any
 import humanize
 from dataclasses_json import DataClassJsonMixin
 from engine.script_introspection import (
-    analyze_training_batch_contract as _analyze_training_batch_contract,
     detect_initial_batch_size as _detect_initial_batch_size,
     introspect_training_script as _introspect_training_script,
     normalized_mlevolve_script_signature as _normalized_mlevolve_script_signature,
 )
 from engine.coldstart import collect_model_contracts
 from localml_scheduler.execution.process_utils import signal_process_tree, start_new_session_kwargs, terminate_process_tree
-from localml_scheduler.runtime_environment import validate_model_api_contracts
+from localml_scheduler.runtime_environment import repair_generated_training_code, validate_generated_training_code, validate_model_api_contracts
 from utils.candidate_timing import instrument_code_for_phase_timing, parse_phase_timing_log
 
 logger = logging.getLogger("MLEvolve")
@@ -679,7 +678,7 @@ class Interpreter:
                 profile_namespace=model_family_profile_key,
                 shape_signature_override=shape_signature,
                 minimum_batch_size=int(shape_hints.get("minimum_batch_size") or 1),
-                contract_version=2,
+                contract_version=3,
                 reuse_only=False,
             )
             metadata = {
@@ -707,7 +706,7 @@ class Interpreter:
                     "script_signature": script_signature,
                 },
                 minimum_batch_size=int(shape_hints.get("minimum_batch_size") or 1),
-                contract_version=2,
+                contract_version=3,
             )
             metadata = {
                 "branch_reuse_only": False,
@@ -1321,6 +1320,27 @@ class Interpreter:
         start_time = time.time()
         logger.info("Prepared scheduler round submission slot: %s", process_id)
 
+        elastic_validation = validate_generated_training_code(
+            code,
+            stage="scheduler_submission",
+            require_elastic_contract=True,
+        )
+        if not elastic_validation["ok"]:
+            repair = repair_generated_training_code(
+                code,
+                stage="scheduler_submission_repair",
+                require_elastic_contract=True,
+            )
+            code = str(repair["code"])
+            elastic_validation = dict(repair["validation"])
+        if not elastic_validation["ok"]:
+            missing = [
+                issue.get("message")
+                for issue in elastic_validation.get("issues", [])
+                if issue.get("code") == "elastic_training_contract_missing"
+            ]
+            raise ValueError("Generated candidate rejected: " + "; ".join(str(item) for item in missing))
+
         node_id = str(id)
         signature_code = code
         code = self.isolate_submission_path(code=code, _id=id)
@@ -1417,15 +1437,15 @@ class Interpreter:
         }
         if self.timeout is not None:
             runner_kwargs["timeout"] = self.timeout
-        batch_contract = _analyze_training_batch_contract(code)
-        batch_probe_enabled = bool(submission_defaults.batch_probe_enabled) and batch_contract.supported
+        # The mandatory elastic contract owns batch injection and loader rebuilds.
+        elastic_batch_supported = detected_batch_size is not None and _is_power_of_two(detected_batch_size)
+        batch_probe_enabled = bool(submission_defaults.batch_probe_enabled) and elastic_batch_supported
         batch_probe_disabled_reason = None
         if not bool(submission_defaults.batch_probe_enabled):
             batch_probe_disabled_reason = "scheduler submission defaults disabled batch probing"
-        elif not batch_contract.supported:
-            batch_probe_disabled_reason = batch_contract.unsupported_reason or "batch contract unsupported"
+        elif not elastic_batch_supported:
+            batch_probe_disabled_reason = "elastic job does not declare a power-of-two authored batch"
         task_id = str(getattr(self.cfg, "exp_id", "mlevolve"))
-        workflow_id = str(getattr(self.cfg, "exp_name", "mlevolve"))
         script_shape_hints = self._script_shape_hints(
             script_metadata=script_metadata,
             task_id=task_id,
@@ -1437,7 +1457,6 @@ class Interpreter:
         branch_profile_key = getattr(node_context, "branch_profile_key", None)
         model_family_profile_key = branch_profile_key
         normalized_family = normalize_branch_name(branch_name) if branch_name else None
-        model_family_profile = None
         if normalized_family and model_family_profile_key is None:
             candidate_profile_key = build_branch_profile_key(normalized_family)
             model_family_profile_key = candidate_profile_key
@@ -1501,12 +1520,13 @@ class Interpreter:
             "script_signature": script_signature,
             "scheduler_mode": getattr(scheduler_settings.gpu_scheduler, "mode", None),
             "batch_probe_enabled": batch_probe_enabled,
-            "batch_probe_supported": batch_contract.supported,
+            "batch_probe_supported": elastic_batch_supported,
             "batch_probe_disabled_reason": batch_probe_disabled_reason,
-            "batch_probe_contract": batch_contract.to_dict(),
             "runtime_probe_enabled": bool(getattr(submission_defaults, "runtime_probe_enabled", False)),
             "packing_eligible": packing_eligible,
             "packing_backend_allowlist": packing_backend_allowlist,
+            "elastic_contract_validated": True,
+            "elastic_contract_version": 1,
         }
         job_metadata.update(batch_probe_metadata)
         if not batch_probe_enabled:
@@ -1523,7 +1543,6 @@ class Interpreter:
                     "model_family": model_family,
                     "model_family_profile_key": model_family_profile_key,
                     "script_signature": script_signature,
-                    "batch_contract": batch_contract.to_dict(),
                 },
             )
         job = build_mlevolve_job(

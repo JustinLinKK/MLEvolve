@@ -60,7 +60,6 @@ def _make_runtime(tmp_path: Path) -> Path:
         scheduler_poll_interval_seconds=0.02,
         gpu_scheduler={
             "backend_priority": ["exclusive"],
-            "idle_coalescing_window_seconds": 0.0,
             "stream": {"enabled": False},
             "cuda_process": {"enabled": False},
             "mps": {"enabled": False},
@@ -503,10 +502,20 @@ def test_materialize_replay_sources_rewrites_fixtures_and_validates_smoke(tmp_pa
     workspace = tmp_path / "source_run" / "workspace"
     workspace.mkdir(parents=True)
     (workspace / "input").mkdir()
+    elastic_stub = "\n".join(
+        [
+            "from localml_scheduler.elastic import ElasticTrainingSession",
+            "session = ElasticTrainingSession.from_env()",
+            "loader = session.make_dataloader(dataset)",
+            "session.register_training_state(model, optimizer)",
+            "session.restore_if_present()",
+            "session.optimizer_step_completed(1, 0, 0, 1)",
+        ]
+    )
     good_script = workspace / "runfile_1_good.py"
-    good_script.write_text("print('good replay source')\n", encoding="utf-8")
+    good_script.write_text(elastic_stub + "\nprint('good replay source')\n", encoding="utf-8")
     repaired_script = workspace / "runfile_29_4c400159969344d480b54aba0554b381_fix.py"
-    repaired_script.write_text("print('before')\n=======\nprint('after')\n", encoding="utf-8")
+    repaired_script.write_text(elastic_stub + "\nprint('before')\n=======\nprint('after')\n", encoding="utf-8")
     missing_script = workspace / "runfile_26_66b11d68876c4a768709a5a91ba8fa41_missing.py"
     prompt_dir = workspace.parent / "logs" / "prompts"
     prompt_dir.mkdir(parents=True)
@@ -517,7 +526,7 @@ def test_materialize_replay_sources_rewrites_fixtures_and_validates_smoke(tmp_pa
                 "user": "",
                 "assistant": (
                     "```python\n"
-                    "import os\n\n"
+                    f"{elastic_stub}\n\n"
                     "def run_pipeline():\n"
                     "    print('recovered replay source')\n\n"
                     "if __name__ == '__main__':\n"
@@ -656,8 +665,10 @@ def test_build_scheduler_stress_fixture_creates_cold_two_epoch_jobs(tmp_path: Pa
     assert job["metadata"]["branch_profile_available"] is False
     assert settings["gpu_scheduler"]["batch_probe_enabled"] is True
     assert settings["gpu_scheduler"]["model_family_probe_timeout_seconds"] is None
-    assert settings["gpu_scheduler"]["max_packed_jobs_per_gpu"] == 0
-    assert settings["gpu_scheduler"]["auto_pack"]["target_metric"] == "vram"
+    assert settings["gpu_scheduler"]["mode"] == "adaptive"
+    assert settings["gpu_scheduler"]["max_packed_jobs_per_gpu"] == 8
+    assert settings["gpu_scheduler"]["candidate_window_size"] == 16
+    assert settings["prediction"]["mode"] == "branch_profile"
 
 
 def test_scheduler_replay_wrapper_quick_preset_dry_run(tmp_path: Path) -> None:
@@ -859,6 +870,13 @@ def test_terminate_process_tree_stops_child_processes(tmp_path: Path) -> None:
     script.write_text(
         "\n".join(
             [
+                "from localml_scheduler.elastic import ElasticTrainingSession",
+                "if False:",
+                "    session = ElasticTrainingSession.from_env()",
+                "    session.make_dataloader(dataset)",
+                "    session.register_training_state(model, optimizer)",
+                "    session.restore_if_present()",
+                "    session.optimizer_step_completed(1, 0, 0, 1)",
                 "import pathlib, subprocess, sys, time",
                 "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])",
                 "pathlib.Path(sys.argv[1]).write_text(str(child.pid), encoding='utf-8')",
@@ -893,6 +911,13 @@ def test_scheduler_stop_terminates_raw_script_child_tree(tmp_path: Path) -> None
     script.write_text(
         "\n".join(
             [
+                "from localml_scheduler.elastic import ElasticTrainingSession",
+                "if False:",
+                "    session = ElasticTrainingSession.from_env()",
+                "    session.make_dataloader(dataset)",
+                "    session.register_training_state(model, optimizer)",
+                "    session.restore_if_present()",
+                "    session.optimizer_step_completed(1, 0, 0, 1)",
                 "import pathlib, subprocess, sys, time",
                 "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])",
                 "pathlib.Path('child.pid').write_text(str(child.pid), encoding='utf-8')",
@@ -907,7 +932,6 @@ def test_scheduler_stop_terminates_raw_script_child_tree(tmp_path: Path) -> None
         scheduler_poll_interval_seconds=0.02,
         gpu_scheduler={
             "backend_priority": ["exclusive"],
-            "idle_coalescing_window_seconds": 0.0,
             "stream": {"enabled": False},
             "cuda_process": {"enabled": False},
             "mps": {"enabled": False},

@@ -103,8 +103,9 @@ class _HardwareGpuMemorySettings:
 @dataclass(slots=True)
 class _HardwareGpuSettings:
     device_index: int = 0
-    mode: str = "auto"
-    max_packed_jobs_per_gpu: int = 0
+    mode: str = "adaptive"
+    max_packed_jobs_per_gpu: int = 8
+    candidate_window_size: int = 16
     backend_priority: list[str] = field(default_factory=list)
     memory: _HardwareGpuMemorySettings = field(default_factory=_HardwareGpuMemorySettings)
 

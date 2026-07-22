@@ -51,35 +51,21 @@ spec:
             - -lc
             - |
               set -euo pipefail
-              python -m pip install --no-cache-dir -r requirements_base.txt -r requirements_domain.txt -r requirements_ml.txt -r scheduler_benchmark_test/requirements.txt
+              python -m pip install --no-cache-dir -r requirements_base.txt
               bash k8s/nautilus/run_benchmark_job.sh
           env:
             - name: REPO_ROOT
               value: /workspace/repo
             - name: PYTHONUNBUFFERED
               value: "1"
-            - name: BENCH_ENABLE_MPS
-              value: "false"
-            - name: BENCH_GPU_SAMPLER
-              value: query
-            - name: BENCH_RUN_ROOT
-              value: /runtime/bench
-            - name: BENCH_RESULTS_ROOT
-              value: /results/scheduler_benchmark_test/main
-            - name: BENCH_TRACE_KIND
-              value: w3
-            - name: BENCH_CONFIG_ID
-              value: nautilus-stream-off
-            - name: BENCH_RUNNER
-              value: scheduler
-            - name: BENCH_MODE
-              value: parallel_default
-            - name: BENCH_BACKEND
-              value: stream
-            - name: BENCH_BATCH_SEARCH
-              value: "off"
-            - name: CASSAVA_ROOT
-              value: /datasets/cassava-leaf-disease-classification/prepared/public
+            - name: HISTOPATH_DATA_ROOT
+              value: /datasets/histopathologic-cancer-detection/prepared/public
+            - name: STANDARD_BENCH_RESULTS_ROOT
+              value: /results/scheduler_benchmark_test/standard_histopath_v1
+            - name: STANDARD_BENCH_REPETITIONS
+              value: "3"
+            - name: STANDARD_BENCH_RUNNER_MODE
+              value: real
           volumeMounts:
             - name: workspace
               mountPath: /workspace

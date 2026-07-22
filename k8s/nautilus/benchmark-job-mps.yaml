@@ -74,7 +74,7 @@ spec:
             - name: BENCH_RUNNER
               value: scheduler
             - name: BENCH_MODE
-              value: parallel_batch_optimized
+              value: adaptive
             - name: BENCH_BACKEND
               value: mps
             - name: BENCH_BATCH_SEARCH

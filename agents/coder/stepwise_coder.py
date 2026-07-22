@@ -651,6 +651,7 @@ def create_default_step_agents(
                 "Scheduler-aware training: adapt to the scheduler backend config in the Hardware/Profile Optimization Context. Do not hardcode CUDA process, CUDA stream, MPS, or backend selection in the script; keep code backend-compatible and configurable.",
                 "Hardware-aware training: use the hardware/profile context to choose physical batch size, accumulation, checkpoint cadence, and dataloader settings. If choosing a riskier setting for score reasons, include an explicit fallback path for OOM/timeout such as smaller batch size, accumulation, lower resolution, fewer epochs, or checkpoint resume.",
                 "When feasible, log resolved batch size, selected precision, elapsed time, throughput, and peak CUDA memory so later scheduler graph evidence can learn from this run.",
+                "Mandatory adaptive scheduler contract: import ElasticTrainingSession from localml_scheduler.elastic; create it with from_env(); use session.make_dataloader for the training loader; register model/optimizer/scheduler/scaler state; restore_if_present before training; and call optimizer_step_completed after every complete optimizer step.",
             ]
         )
     if pipeline_decision_aware:

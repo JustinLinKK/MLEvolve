@@ -19,7 +19,7 @@ import time
 
 from localml_scheduler.client import SchedulerClient
 from localml_scheduler.config import SchedulerSettings
-from localml_scheduler.domain import JobStatus, TrainingJob, utc_now
+from localml_scheduler.domain import TrainingJob, utc_now
 
 from .timeline_fixture import load_fixture, reset_job_payload_for_replay
 
@@ -58,6 +58,7 @@ def replay_fixture(
     wait_for_all: bool = False,
     cancel_policy: str = "replay",
     clean_profile_db: bool = False,
+    settings_overrides: dict[str, Any] | None = None,
 ) -> ReplayResult:
     if runner_mode not in {"real", "noop"}:
         raise ValueError(f"Unsupported runner mode: {runner_mode}")
@@ -88,6 +89,9 @@ def replay_fixture(
     skipped_actions: list[dict[str, Any]] = []
     submitted_job_ids: list[str] = []
     settings_payload = deepcopy(settings_payload)
+    if settings_overrides:
+        settings_payload = _deep_merge(settings_payload, settings_overrides)
+    settings_payload = _cold_rollout_adaptive_settings(settings_payload)
     settings_payload["runtime_root"] = str(runtime_root)
     settings = SchedulerSettings.from_dict(settings_payload)
 
@@ -120,6 +124,8 @@ def replay_fixture(
             [],
             skipped_actions,
             submitted_job_ids=[],
+            jobs=[],
+            events=[],
         )
 
     client = SchedulerClient(settings)
@@ -195,6 +201,8 @@ def replay_fixture(
         clean_profile_db=clean_profile_db,
     )
     samples = list(getattr(service, "_device_samples", []) or []) if service is not None else []
+    jobs = [job.to_dict() for job in client.list_jobs()]
+    events = client.list_events()
     return _write_outputs(
         output,
         log_dir,
@@ -204,6 +212,8 @@ def replay_fixture(
         samples,
         skipped_actions,
         submitted_job_ids=submitted_job_ids,
+        jobs=jobs,
+        events=events,
     )
 
 
@@ -224,6 +234,66 @@ def _select_actions(
             continue
         selected.append(action)
     return selected
+
+
+def _deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge a benchmark settings overlay without mutating inputs."""
+    merged = deepcopy(base)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
+def _cold_rollout_adaptive_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    """Explicitly migrate archived benchmark settings to the v3 cold rollout."""
+    migrated = deepcopy(payload)
+    original_gpu = dict(migrated.get("gpu_scheduler") or {})
+    supported_gpu_keys = {
+        "enabled",
+        "backend_priority",
+        "max_packed_jobs_per_gpu",
+        "candidate_window_size",
+        "device_index",
+        "fallback_cooldown_seconds",
+        "batch_probe_enabled",
+        "batch_probe_min_batch_size",
+        "batch_probe_max_search_rounds",
+        "batch_probe_max_batch_size",
+        "batch_probe_search_mode",
+        "model_family_probe_enabled",
+        "model_family_probe_priority",
+        "model_family_probe_timeout_seconds",
+        "checkpoint_preemption_enabled",
+        "checkpoint_preemption_cooldown_seconds",
+        "checkpoint_preemption_min_runtime_seconds",
+        "checkpoint_preemption_max_per_job",
+        "checkpoint_preemption_min_estimated_gain_seconds",
+        "checkpoint_preemption_overhead_multiplier",
+        "checkpoint_preemption_pause_timeout_seconds",
+        "startpoint_probe_enabled",
+        "startpoint_probe_max_models",
+        "derivative_profile_safety_fraction",
+        "profiling",
+        "memory",
+        "thresholds",
+        "telemetry",
+        "early_stop",
+        "adaptive",
+        "submission_defaults",
+        "mps",
+        "cuda_process",
+        "stream",
+    }
+    gpu = {key: value for key, value in original_gpu.items() if key in supported_gpu_keys}
+    gpu["mode"] = "adaptive"
+    gpu["max_packed_jobs_per_gpu"] = max(1, int(gpu.get("max_packed_jobs_per_gpu") or 8))
+    gpu["candidate_window_size"] = max(1, int(gpu.get("candidate_window_size") or 16))
+    migrated["gpu_scheduler"] = gpu
+    migrated["prediction"] = {"mode": "branch_profile"}
+    return migrated
 
 
 def _prepare_job(
@@ -275,6 +345,7 @@ def _prepare_job(
         job_payload.setdefault("batch_probe", {})["enabled"] = False
         job_payload.setdefault("runtime_probe", {})["enabled"] = False
         job_payload.setdefault("resource_requirements", {})["requires_gpu"] = False
+        job_payload.setdefault("packing", {})["eligible"] = False
 
     metadata = dict(job_payload.get("metadata") or {})
     metadata["replay_runner_mode"] = runner_mode
@@ -374,6 +445,7 @@ def _build_metrics(
     queue_wait = _queue_wait_seconds(jobs)
     probe_time = _probe_time_seconds(events)
     hardware_summary = _hardware_summary(list(getattr(service, "_device_samples", []) or []) if service is not None else [])
+    predictor_health = _predictor_health(service)
     status_counts = Counter(str(job.get("status")) for job in jobs)
     task_counts = Counter(str(job.get("task_type")) for job in jobs)
     backend_distribution = _backend_distribution(jobs, events)
@@ -431,6 +503,7 @@ def _build_metrics(
         "task_type_counts": dict(task_counts),
         "scheduler_backend_distribution": dict(backend_distribution),
         "scheduler_report": report,
+        "predictor_health": predictor_health,
         "baseline_source_run_root": baseline.get("source_run_root"),
         **hardware_summary,
     }
@@ -439,6 +512,30 @@ def _build_metrics(
         metrics,
     )
     return metrics
+
+
+def _predictor_health(service: Any | None) -> dict[str, Any]:
+    planner = getattr(service, "planner", None) if service is not None else None
+    estimator = getattr(planner, "estimator", None)
+    router = getattr(estimator, "prediction_router", None)
+    raw_results = list(getattr(estimator, "last_prediction_results", {}).values())
+    selected = [item for item in raw_results if item.get("selected")]
+    shadows = [prediction for item in raw_results for prediction in list(item.get("shadow_predictions") or [])]
+    failures = [failure for item in raw_results for failure in list(item.get("failures") or [])]
+    ml_provider = getattr(router, "ml_provider", None)
+    ml_health = ml_provider.to_dict() if ml_provider is not None and hasattr(ml_provider, "to_dict") else None
+    total = len(raw_results)
+    return {
+        "mode": getattr(router, "mode", None),
+        "request_count": total,
+        "selected_prediction_count": len(selected),
+        "selection_coverage": len(selected) / total if total else 0.0,
+        "usable_ml_prediction_count": len(shadows),
+        "adapter_failure_count": len(failures),
+        "adapter_failures": dict(Counter(str(item) for item in failures)),
+        "ml_provider": ml_health,
+        "plumbing_only": False,
+    }
 
 
 def _write_outputs(
@@ -450,16 +547,30 @@ def _write_outputs(
     samples: list[Any],
     skipped_actions: list[dict[str, Any]],
     submitted_job_ids: list[str],
+    jobs: list[dict[str, Any]],
+    events: list[dict[str, Any]],
 ) -> ReplayResult:
     metrics_path = log_dir / "comparison_metrics.json"
     summary_path = output / "replay_summary.json"
     hardware_path = log_dir / "hardware_samples.csv"
+    jobs_path = log_dir / "scheduler_jobs.jsonl"
+    events_path = log_dir / "scheduler_events.jsonl"
     metrics_path.write_text(json.dumps(metrics, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    jobs_path.write_text(
+        "".join(json.dumps(job, sort_keys=True, default=str) + "\n" for job in jobs),
+        encoding="utf-8",
+    )
+    events_path.write_text(
+        "".join(json.dumps(event, sort_keys=True, default=str) + "\n" for event in events),
+        encoding="utf-8",
+    )
     summary = {
         "output_root": str(output),
         "runtime_root": str(runtime_root),
         "metrics_path": str(metrics_path),
         "hardware_samples_path": str(hardware_path) if samples else None,
+        "jobs_path": str(jobs_path),
+        "events_path": str(events_path),
         "skipped_actions": skipped_actions,
         "metrics": metrics,
     }
@@ -678,7 +789,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--wait-for-all", action="store_true", help="Wait until all submitted jobs finish; do not cancel after the post-action wait.")
     parser.add_argument("--cancel-policy", choices=sorted(CANCEL_POLICIES), default="replay")
     parser.add_argument("--clean-profile-db", action="store_true", help="Remove replay scheduler/profile SQLite DBs before starting.")
+    parser.add_argument(
+        "--settings-overlay",
+        default=None,
+        help="Optional JSON object or JSON file recursively merged into scheduler_settings.replay.json.",
+    )
     return parser
+
+
+def _load_settings_overlay(value: str | None) -> dict[str, Any] | None:
+    if not value:
+        return None
+    candidate = Path(value).expanduser()
+    raw = candidate.read_text(encoding="utf-8") if candidate.exists() else value
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("--settings-overlay must resolve to a JSON object")
+    return payload
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -699,6 +826,7 @@ def main(argv: list[str] | None = None) -> int:
         wait_for_all=args.wait_for_all,
         cancel_policy=args.cancel_policy,
         clean_profile_db=args.clean_profile_db,
+        settings_overrides=_load_settings_overlay(args.settings_overlay),
     )
     print(
         json.dumps(
