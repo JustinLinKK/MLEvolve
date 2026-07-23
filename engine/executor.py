@@ -470,6 +470,7 @@ class Interpreter:
             resource_requirements = ResourceRequirements(
                 requires_gpu=bool(submission_defaults.requires_gpu),
                 estimated_vram_mb=submission_defaults.estimated_vram_mb,
+                estimated_avg_vram_mb=submission_defaults.estimated_avg_vram_mb,
                 estimated_ram_mb=submission_defaults.estimated_ram_mb,
             )
             preload_source_payload = _build_scheduler_preload_source(scheduler_cfg)
