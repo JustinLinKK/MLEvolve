@@ -6,6 +6,7 @@ ROBUSTNESS_GENERALIZATION_STRATEGY = {
         "**To improve model robustness and generalization on unseen data:**",
         "",
         "✅ **Architecture**: Match model inductive bias to data structure (e.g., CNNs/ViTs for spatial grids, Transformers/RNNs for sequences, GNNs/GCNs for graphs/topology)",
+        "✅ **Data Modality**: When the dataset provides multiple modalities, try to use all available modalities, especially those most relevant to the task target.",
         "✅ **Input Strategy**: Handle variable-length or large-scale inputs via **windowing strategies** or patch-based processing (consider overlap for smoother predictions)",
         "✅ **Regularization**: Consider using Dropout, Batch/Layer Norm, Weight Decay, or Label Smoothing",
         "✅ **Loss Function**: Inspect class distribution and adapt loss accordingly (e.g., weighted loss, FocalLoss, or task-specific objectives)",
@@ -56,7 +57,7 @@ def get_internet_clarification(pretrain_model_dir: str = ""):
     ]
     if pretrain_model_dir:
         lines.append(
-            f"- **Model paths under `{pretrain_model_dir}/` are GUARANTEED to exist and be available** (e.g., DINOv3, Siglip2 etc.). You can directly use them without `Path question`."
+            f"- **Model paths under `{pretrain_model_dir}/` are GUARANTEED to exist and be available** — specifically `dinov3_vitl16` (DINOv3) and `google/siglip2-so400m-patch16-256` (Siglip2). You can directly use these exact variants without `Path question`. Prefer the listed variants unless there is a clear reason to use a different one."
         )
     lines.append(
         "- **Do NOT question internet access concerns - all standard ML libraries and pretrained models are available during development."

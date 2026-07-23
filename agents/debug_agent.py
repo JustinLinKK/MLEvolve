@@ -1,124 +1,21 @@
 import logging
-import re
 from typing import Any, List, Tuple
 
 from llm import compile_prompt_to_md, generate
 from engine.search_node import SearchNode
-from agents.hardware_context import (
-    apply_hardware_context_to_node,
-    get_hardware_context_for_stage,
-    hardware_context_instructions,
-    training_curve_feedback_section,
-)
 from agents.coder import plan_and_code_query
-from utils.response import extract_plan_from_diff_response, trim_long_string, wrap_code
+from utils.response import extract_plan_from_diff_response, wrap_code
 from agents.prompts import (
     ROBUSTNESS_GENERALIZATION_STRATEGY,
-    apply_pipeline_decision_to_node,
-    build_pipeline_decision,
-    format_pipeline_decision_prompt_section,
     get_internet_clarification,
     get_impl_guideline_from_agent,
-    pipeline_decision_instructions,
 )
 
 from agents.coder.diff_coder import SearchReplacePatcher, DIFF_SYS_FORMAT
 from agents.planner import build_chat_prompt_for_model
 from agents.triggers import register_node
-from localml_scheduler.runtime_environment import validate_generated_training_code
 
 logger = logging.getLogger("MLEvolve")
-
-
-_DEBUG_REPORT_HEADING_RE = re.compile(
-    r"(?im)^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(Bug Report|Fix Report)\s*(?:\*\*)?\s*:?\s*(.*)$"
-)
-
-
-def _clean_report_section(text: str) -> str:
-    cleaned = str(text or "")
-    stop_tokens = ["<<<<<<< SEARCH", "< SEARCH", "```"]
-    stop_positions = [cleaned.find(token) for token in stop_tokens if cleaned.find(token) != -1]
-    if stop_positions:
-        cleaned = cleaned[: min(stop_positions)]
-    return re.sub(r"\n{3,}", "\n\n", cleaned.strip())
-
-
-def _extract_debug_reports(text: str) -> tuple[str, str]:
-    """Extract Bug Report and Fix Report sections from a debug-agent response."""
-    if not text:
-        return "", ""
-
-    matches = list(_DEBUG_REPORT_HEADING_RE.finditer(text))
-    if not matches:
-        return "", ""
-
-    sections: dict[str, str] = {}
-    for idx, match in enumerate(matches):
-        key = match.group(1).lower().replace(" ", "_")
-        inline_text = match.group(2).strip()
-        next_start = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
-        body_text = text[match.end():next_start].strip()
-        section_parts = [part for part in (inline_text, body_text) if part]
-        sections[key] = _clean_report_section("\n".join(section_parts))
-
-    return sections.get("bug_report", ""), sections.get("fix_report", "")
-
-
-def _fallback_bug_report(parent_node: SearchNode) -> str:
-    parent_report = str(getattr(parent_node, "bug_report", "") or "").strip()
-    if parent_report:
-        return parent_report
-    parts = []
-    if getattr(parent_node, "exc_type", None):
-        parts.append(f"Exception type: {parent_node.exc_type}")
-    if getattr(parent_node, "analysis", None):
-        parts.append(f"Agent analysis: {parent_node.analysis}")
-    if parent_node.term_out:
-        parts.append(
-            "Execution output: "
-            + trim_long_string(parent_node.term_out, threshold=1200, k=550)
-        )
-    return "\n".join(parts) or "The parent node failed or produced invalid output; no detailed error report was available."
-
-
-def _build_debug_reports(
-    *,
-    report_source_text: str | None,
-    parent_node: SearchNode,
-    plan: str | None,
-) -> tuple[str, str]:
-    bug_report, fix_report = _extract_debug_reports(report_source_text or "")
-    if not bug_report:
-        bug_report = _fallback_bug_report(parent_node)
-    if not fix_report:
-        fallback_plan = extract_plan_from_diff_response(report_source_text or "").strip()
-        fix_report = fallback_plan or (plan or "").strip()
-    if not fix_report:
-        fix_report = "Generated a debug revision intended to resolve the parent node failure."
-    return bug_report, fix_report
-
-
-def _runtime_validation_retry_note(validation: dict[str, Any]) -> str:
-    issues = [
-        issue
-        for issue in validation.get("issues", [])
-        if issue.get("severity") == "critical"
-    ]
-    if not issues:
-        return "The patched code failed static validation. Return a complete, syntactically valid repair."
-    lines = ["The patched code still has critical generated-code validation findings:"]
-    for issue in issues[:3]:
-        category = issue.get("category") or "runtime_compatibility"
-        message = issue.get("message") or "critical issue"
-        hint = issue.get("repair_hint") or "Fix this before returning code."
-        evidence = str(issue.get("evidence") or "").strip()
-        detail = f"- {category}: {message} Repair hint: {hint}"
-        if evidence:
-            detail += f" Evidence: {trim_long_string(evidence, threshold=300, k=140)}"
-        lines.append(detail)
-    lines.append("Return only complete SEARCH/REPLACE blocks that remove these issues from the CURRENT code.")
-    return "\n".join(lines)
 
 
 def _format_debug_memory_guidance(agent, similar_fixes: List[Tuple]) -> str:
@@ -142,22 +39,12 @@ def _format_debug_memory_guidance(agent, similar_fixes: List[Tuple]) -> str:
 
         if record.record_id in agent.global_memory.node_metadata_map:
             metadata = agent.global_memory.node_metadata_map[record.record_id]
-            bug_report = metadata.get("bug_report", "")
             parent_error = metadata.get("parent_error", "")
-            if bug_report:
-                error_preview = bug_report[:240] + ("..." if len(bug_report) > 240 else "")
-                guidance_parts.append(f"- Similar Bug Report: {error_preview}")
-            elif parent_error:
+            if parent_error:
                 error_preview = parent_error[:200] + ("..." if len(parent_error) > 200 else "")
                 guidance_parts.append(f"- Similar Error: {error_preview}")
 
-            fix_report = metadata.get("fix_report", "")
-            if fix_report:
-                guidance_parts.append(f"- Fix Report: {fix_report}")
-            else:
-                guidance_parts.append(f"- Fix Strategy: {record.description}")
-        else:
-            guidance_parts.append(f"- Fix Strategy: {record.description}")
+        guidance_parts.append(f"- Fix Strategy: {record.description}")
         guidance_parts.append("")
 
     if case_idx == 0:
@@ -169,7 +56,7 @@ def _format_debug_memory_guidance(agent, similar_fixes: List[Tuple]) -> str:
     return "\n".join(guidance_parts)
 
 
-def run(agent, parent_node: SearchNode) -> SearchNode | None:
+def run(agent, parent_node: SearchNode) -> SearchNode:
     debugging_standards = (
         "🔧 Debug SYSTEMATICALLY: Read error → Identify root cause → Apply minimal, targeted fix.\n\n"
         "**Do**: Fix root cause, preserve solution intent, maintain code quality.\n"
@@ -191,9 +78,8 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
         "   • Complete test inference and submission.csv generation\n"
         "   • Every line of code needed to run from beginning to end\n\n"
         "Your response format:\n"
-        "1. `Bug Report:` with the root cause, evidence from the previous output, and failing behavior.\n"
-        "2. `Fix Report:` with the exact fix strategy, what was changed, and how it preserves the original design intent.\n"
-        "3. A single markdown code block containing the COMPLETE executable solution with the bugfix applied.\n\n"
+        "1. A brief implementation outline (2-3 sentences) explaining the bugfix\n"
+        "2. A single markdown code block containing the COMPLETE executable solution with the bugfix applied\n\n"
     )
 
     bug_description = "Your previous solution encountered an issue — it either failed during execution, did not generate the required output files, or produced output in an incorrect format"
@@ -212,43 +98,14 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
         "Introduction": introduction,
         "Task description": agent.task_desc,
         "Previous (buggy) implementation": wrap_code(parent_node.code),
-        "Parent Bug Report": str(getattr(parent_node, "bug_report", "") or "").strip(),
-        "Parser Fix Hint": str(getattr(parent_node, "fix_report", "") or "").strip(),
         "Execution output": wrap_code(parent_node.term_out, lang=""),
         "Instructions": {},
     }
-    hardware_ctx = get_hardware_context_for_stage(agent, "debug", parent_node=parent_node)
-    hardware_section = hardware_ctx.prompt_section
-    curve_feedback_section = training_curve_feedback_section(parent_node)
-    if curve_feedback_section:
-        prompt["Training Curve Feedback"] = curve_feedback_section
-    pipeline_decision = build_pipeline_decision(
-        agent,
-        stage="debug",
-        data_preview=agent.data_preview,
-        hardware_contexts=[hardware_ctx],
-        parent_pipeline_decision=getattr(parent_node, "pipeline_decision", None),
-        previous_code=parent_node.code,
-        execution_output=parent_node.term_out,
-        stage_context=str(getattr(parent_node, "analysis", "") or ""),
-    )
-    pipeline_decision_section = format_pipeline_decision_prompt_section(pipeline_decision)
-    prompt["Pipeline Decision"] = pipeline_decision
-    prompt["Pipeline Decision Contract"] = pipeline_decision_section
-    prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
-    prompt["Instructions"] |= pipeline_decision_instructions(pipeline_decision)
     prompt["Instructions"] |= {
         "Bugfix improvement sketch guideline": [
             "- You should write a brief natural language description (2-3 sentences) of how the issue in the previous implementation can be fixed.\n",
             "- Don't suggest to do EDA.\n",
             "- Most libraries are stable and available. The bug is not caused by the library version mismatch. **Don't suggest to reinstall the core libraries.** (like pip install torch, pip upgrade transformers, !pip install tensorflow, subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'transformers', 'accelerate', 'pandas', 'torch', 'torchvision']))\n",
-        ],
-        "Debug report log": [
-            "- At the top of your response, before any code block or SEARCH/REPLACE block, include exactly two short sections headed `Bug Report:` and `Fix Report:`.\n",
-            "- `Bug Report:` should name the root cause, cite the concrete evidence from the previous execution output, and describe the failing behavior.\n",
-            "- `Fix Report:` should describe the targeted code changes, why they fix the root cause, and any design intent or assumptions preserved.\n",
-            "- Keep both reports concise and factual so they can be saved as run logs for later design refinement.\n",
-            "- Do not put report text between SEARCH/REPLACE blocks; after the report sections, output only the required code or diff format.\n",
         ],
     }
     prompt["Instructions"] |= get_impl_guideline_from_agent(agent)
@@ -288,41 +145,17 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
 
     base_instructions = "\n# Instructions\n\n"
     base_instructions += compile_prompt_to_md(prompt["Instructions"], 2)
-    parent_bug_report_section = ""
-    if prompt["Parent Bug Report"]:
-        parent_bug_report_section = (
-            "\n# Parent Bug Report\n"
-            f"{trim_long_string(prompt['Parent Bug Report'], threshold=1800, k=850)}\n"
-        )
-    parser_fix_hint_section = ""
-    if prompt["Parser Fix Hint"]:
-        parser_fix_hint_section = (
-            "\n# Parser Fix Hint\n"
-            f"{trim_long_string(prompt['Parser Fix Hint'], threshold=1000, k=460)}\n"
-        )
 
     def build_prompt_complete(instructions_with_format, use_full_code_requirement=False):
         current_introduction = introduction_base + (full_code_requirement if use_full_code_requirement else "")
-        user_prompt = (
-            f"\n# Task description\n{prompt['Task description']}\n"
-            f"{hardware_section}\n"
-            f"{curve_feedback_section}\n"
-            f"{pipeline_decision_section}\n"
-            f"{parent_bug_report_section}"
-            f"{parser_fix_hint_section}"
-            f"{instructions_with_format}"
-        )
-        bug_report_text = prompt["Parent Bug Report"] or str(parent_node.analysis or "")
-        assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nThe code that needs fixing:\n{prompt['Previous (buggy) implementation']}\nThe structured bug report:\n{wrap_code(bug_report_text, lang='')}\nThe error/issue encountered:\n{prompt['Execution output']}\nAnalyzing the root cause: {parent_node.analysis}\nI'll now fix this issue."
+        user_prompt = f"\n# Task description\n{prompt['Task description']}\n{instructions_with_format}"
+        assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nThe code that needs fixing:\n{prompt['Previous (buggy) implementation']}\nThe error/issue encountered:\n{prompt['Execution output']}\nAnalyzing the root cause: {parent_node.analysis}\nI'll now fix this issue."
         return build_chat_prompt_for_model(agent.acfg.code.model, current_introduction, user_prompt, assistant_prefix)
 
-    if not parent_node.add_expected_child_count(agent.scfg):
-        logger.info(f"Debug child limit reached for node {parent_node.id}, skipping generation.")
-        return None
+    parent_node.add_expected_child_count()
 
     plan, code = None, None
     prompt_complete = None
-    report_source_text = None
     max_diff_retries = 3
 
     if agent.acfg.use_diff_mode:
@@ -333,17 +166,11 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
             "Keep each SEARCH snippet minimal (ONLY the lines to be replaced, plus tiny context if needed). "
             "Prefer multiple small SEARCH/REPLACE blocks instead of one large block.\n\n"
         )
-        diff_instructions += (
-            "Before the first SEARCH/REPLACE block, include the required `Bug Report:` and `Fix Report:` sections. "
-            "After those sections, output only SEARCH/REPLACE blocks.\n\n"
-        )
         diff_instructions += f"Response format: {DIFF_SYS_FORMAT}"
 
         current_code = parent_node.code
         total_applied = 0
         retry_note = ""
-        last_generation_text = None
-        last_report_text = None
         for retry_idx in range(max_diff_retries):
             try:
                 logger.info(f"Attempting diff method (retry {retry_idx + 1}/{max_diff_retries}) for node {parent_node.id}")
@@ -369,9 +196,6 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
                     temperature=agent.acfg.code.temp,
                     cfg=agent.cfg
                 )
-                last_generation_text = response
-                if any(_extract_debug_reports(response or "")):
-                    last_report_text = response
 
                 if response and ("<<<<<<< SEARCH" in response or "< SEARCH" in response or "<<<<<<<" in response):
                     if "<<<<<<< SEARCH" in response:
@@ -392,17 +216,6 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
                         total_applied += count
 
                     if total_applied > 0 and current_code and current_code != parent_node.code and not has_incomplete_block:
-                        validation = validate_generated_training_code(current_code, stage="debug_diff")
-                        if not validation.get("ok", False):
-                            retry_note = _runtime_validation_retry_note(validation)
-                            logger.warning(
-                                f"Diff patch attempt {retry_idx + 1}/{max_diff_retries} left critical "
-                                f"generated-code findings: {validation.get('issues')}"
-                            )
-                            if retry_idx < max_diff_retries - 1:
-                                continue
-                            logger.warning("Last diff attempt still failed validation, will fallback to full rewrite")
-                            continue
                         plan = extract_plan_from_diff_response(response).strip()
                         if not plan:
                             error_parts = []
@@ -418,11 +231,6 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
 
                         code = current_code
                         prompt_complete = prompt_with_diff
-                        report_source_text = (
-                            response
-                            if any(_extract_debug_reports(response))
-                            else last_report_text or response
-                        )
                         logger.info(
                             f"Successfully applied {total_applied} diff patch(es) for node {parent_node.id} "
                             f"(last attempt applied={count}, retry {retry_idx + 1}/{max_diff_retries})"
@@ -477,37 +285,19 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
                     logger.warning(f"All {max_diff_retries} diff attempts failed, will fallback to full rewrite")
 
         if code is None and total_applied > 0:
-            validation = validate_generated_training_code(current_code, stage="debug_partial_diff")
-            if validation.get("ok", False):
-                code = current_code
-                if plan is None:
-                    plan = "Partial diff patches applied; continuing with partially fixed code."
-                report_source_text = last_report_text or last_generation_text or report_source_text
-            else:
-                logger.warning(
-                    "Partial diff patches for node %s were not accepted because validation still failed: %s",
-                    parent_node.id,
-                    validation.get("issues"),
-                )
+            code = current_code
+            if plan is None:
+                plan = "Partial diff patches applied; continuing with partially fixed code."
 
     if code is None:
         logger.info(f"Falling back to full code rewrite debugging method for node {parent_node.id}")
         prompt_complete = build_prompt_complete(base_instructions, use_full_code_requirement=True)
         plan, code = plan_and_code_query(agent, prompt_complete)
-        report_source_text = plan
 
     from_topk = getattr(parent_node, '_topk_triggered', False)
-    bug_report, fix_report = _build_debug_reports(
-        report_source_text=report_source_text,
-        parent_node=parent_node,
-        plan=plan,
-    )
 
     new_node = SearchNode(plan=plan, code=code, parent=parent_node, stage="debug",
-                        local_best_node=parent_node.local_best_node, from_topk=from_topk,
-                        bug_report=bug_report, fix_report=fix_report)
-    apply_hardware_context_to_node(new_node, hardware_ctx)
-    apply_pipeline_decision_to_node(new_node, pipeline_decision)
+                        local_best_node=parent_node.local_best_node, from_topk=from_topk)
     register_node(agent, new_node, prompt_complete, parent_node=parent_node)
 
     logger.info(f"[debug] {parent_node.id} → node {new_node.id}")

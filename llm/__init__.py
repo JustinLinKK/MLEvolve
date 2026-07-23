@@ -1,22 +1,9 @@
 import logging
-import time
 from . import gemini as _gemini
 from . import openai as _openai
-from . import codex_cli as _codex_cli
 from .gemini import FunctionSpec, OutputType, PromptType, compile_prompt_to_md
 from config import Config
 logger = logging.getLogger("MLEvolve")
-
-
-def _emit_llm_timing(event_type: str, payload: dict) -> None:
-    try:
-        from utils.pipeline_logging import get_process_pipeline_logger
-
-        pipeline_logger = get_process_pipeline_logger()
-        if pipeline_logger is not None:
-            pipeline_logger.emit(event_type, stage="llm", payload=payload)
-    except Exception:
-        return
 
 
 def _stage_config_for_model(cfg: Config | None, model: str):
@@ -37,8 +24,6 @@ def _provider(model: str, cfg: Config | None = None) -> str:
         return "openai"
     if provider in {"gemini", "google"}:
         return "gemini"
-    if provider in {"codex", "codex-cli"}:
-        return "codex"
     return "gemini" if (model or "").lower().startswith("gemini") else "openai"
 
 
@@ -75,8 +60,6 @@ def query(
     }
 
     logger.info("---Querying model---", extra={"verbose": True})
-    started_at = time.time()
-    provider = _provider(model, cfg)
     system_message = compile_prompt_to_md(system_message) if system_message else None
     if system_message:
         if len(system_message) > 1000:
@@ -92,64 +75,23 @@ def query(
     if func_spec:
         logger.info(f"function spec: {func_spec.to_dict()}", extra={"verbose": True})
 
-    try:
-        if provider == "openai":
-            output, req_time, in_tok_count, out_tok_count, info = _openai.query(
-                system_message=system_message,
-                user_message=user_message,
-                func_spec=func_spec,
-                cfg=cfg,
-                **model_kwargs,
-            )
-        elif provider == "codex":
-            output, req_time, in_tok_count, out_tok_count, info = _codex_cli.query(
-                system_message=system_message,
-                user_message=user_message,
-                func_spec=func_spec,
-                cfg=cfg,
-                **model_kwargs,
-            )
-        else:
-            output, req_time, in_tok_count, out_tok_count, info = _gemini.query(
-                system_message=system_message,
-                user_message=user_message,
-                func_spec=func_spec,
-                cfg=cfg,
-                **model_kwargs,
-            )
-    except Exception as exc:
-        _emit_llm_timing(
-            "llm_call_failed",
-            {
-                "provider": provider,
-                "model": model,
-                "interface": "query",
-                "wall_time_seconds": time.time() - started_at,
-                "system_prompt_chars": len(system_message or ""),
-                "user_prompt_chars": len(user_message or ""),
-                "has_function_spec": func_spec is not None,
-                "error_type": exc.__class__.__name__,
-                "error_message": str(exc)[:500],
-            },
+    provider = _provider(model, cfg)
+    if provider == "openai":
+        output, req_time, in_tok_count, out_tok_count, info = _openai.query(
+            system_message=system_message,
+            user_message=user_message,
+            func_spec=func_spec,
+            cfg=cfg,
+            **model_kwargs,
         )
-        raise
-    _emit_llm_timing(
-        "llm_call_completed",
-        {
-            "provider": provider,
-            "model": model,
-            "interface": "query",
-            "wall_time_seconds": time.time() - started_at,
-            "request_time_seconds": req_time,
-            "input_tokens": in_tok_count,
-            "output_tokens": out_tok_count,
-            "system_prompt_chars": len(system_message or ""),
-            "user_prompt_chars": len(user_message or ""),
-            "output_chars": len(str(output)) if output is not None else 0,
-            "has_function_spec": func_spec is not None,
-            "info": info,
-        },
-    )
+    else:
+        output, req_time, in_tok_count, out_tok_count, info = _gemini.query(
+            system_message=system_message,
+            user_message=user_message,
+            func_spec=func_spec,
+            cfg=cfg,
+            **model_kwargs,
+        )
     logger.info("---Query complete---", extra={"verbose": True})
 
     return output
@@ -167,70 +109,24 @@ def generate(
 ):
     """Streaming text generation. Dispatches to Gemini or OpenAI-compatible backend by cfg.agent.code.model."""
     model = getattr(cfg.agent.code, "model", "") or ""
-    provider = _provider(model, cfg)
-    started_at = time.time()
-    try:
-        if provider == "openai":
-            output = _openai.generate(
-                prompt=prompt,
-                cfg=cfg,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                stop_tokens=stop_tokens,
-                json_schema=json_schema,
-                max_retries=max_retries,
-                retry_delay=retry_delay,
-            )
-        elif provider == "codex":
-            output = _codex_cli.generate(
-                prompt=prompt,
-                cfg=cfg,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                stop_tokens=stop_tokens,
-                json_schema=json_schema,
-                max_retries=max_retries,
-                retry_delay=retry_delay,
-            )
-        else:
-            output = _gemini.generate(
-                prompt=prompt,
-                cfg=cfg,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                stop_tokens=stop_tokens,
-                json_schema=json_schema,
-                max_retries=max_retries,
-                retry_delay=retry_delay,
-            )
-    except Exception as exc:
-        _emit_llm_timing(
-            "llm_call_failed",
-            {
-                "provider": provider,
-                "model": model,
-                "interface": "generate",
-                "wall_time_seconds": time.time() - started_at,
-                "prompt_chars": len(compile_prompt_to_md(prompt) if not isinstance(prompt, str) else prompt),
-                "max_tokens": max_tokens,
-                "max_retries": max_retries,
-                "error_type": exc.__class__.__name__,
-                "error_message": str(exc)[:500],
-            },
+    if _provider(model, cfg) == "openai":
+        return _openai.generate(
+            prompt=prompt,
+            cfg=cfg,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stop_tokens=stop_tokens,
+            json_schema=json_schema,
+            max_retries=max_retries,
+            retry_delay=retry_delay,
         )
-        raise
-    _emit_llm_timing(
-        "llm_call_completed",
-        {
-            "provider": provider,
-            "model": model,
-            "interface": "generate",
-            "wall_time_seconds": time.time() - started_at,
-            "prompt_chars": len(compile_prompt_to_md(prompt) if not isinstance(prompt, str) else prompt),
-            "output_chars": len(output or ""),
-            "max_tokens": max_tokens,
-            "max_retries": max_retries,
-            "has_json_schema": json_schema is not None,
-        },
+    return _gemini.generate(
+        prompt=prompt,
+        cfg=cfg,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stop_tokens=stop_tokens,
+        json_schema=json_schema,
+        max_retries=max_retries,
+        retry_delay=retry_delay,
     )
-    return output

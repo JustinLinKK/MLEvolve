@@ -6,38 +6,27 @@ Prompt templates for code review in search pipeline.
 
 from typing import Dict, Any
 from utils.response import wrap_code
-from .elastic_contract import elastic_contract_review_guidelines
 
 # ============================================================================
 # Code Review Prompts
 # ============================================================================
-def get_code_review_prompt(
-    task_desc: str,
-    code: str,
-    data_preview: str | None = None,
-    *,
-    require_scheduler_contract: bool = False,
-) -> Dict[str, Any]:
+def get_code_review_prompt(task_desc: str, code: str) -> Dict[str, Any]:
     """Build full code review prompt dict from task description and code."""
     introduction = (
         "You are a Senior Data Science Code Reviewer. Your goal is to ensure the submission is legally valid and logically sound.\n\n"
         "⚠️ **CRITICAL INSTRUCTION**:\n"
         "You must strictly follow the [Code Review Guidelines] provided below.\n"
         "Do NOT rely on your general knowledge if it conflicts with the Environment Facts listed in the guidelines.\n"
-        "Your output must be a structured review focusing ONLY on Data Leakage, Critical Integrity, "
-        "and concrete hardware-critical execution risks when scheduler evidence is provided.\n"
+        "Your output must be a structured review focusing ONLY on Data Leakage and Critical Integrity."
         "**STRICTLY FORBIDDEN**: Do NOT replace the user's model architecture with other backbones (e.g., ResNet, VGG) just to make code executable. Do not question or change the user's model choice.\n"
     )
     prompt = {
         "Introduction": introduction,
         "Task description": task_desc,
-        "Data preview": data_preview or "",
         "Code to review": wrap_code(code),
         "Instructions": {},
     }
     prompt["Instructions"]["Code review guidelines"] = get_code_review_guidelines()
-    if require_scheduler_contract:
-        prompt["Instructions"]["Scheduler script contract"] = elastic_contract_review_guidelines()
     prompt["Instructions"]["Response format"] = get_code_review_response_format()
     return prompt
 
@@ -48,11 +37,11 @@ def get_code_review_guidelines() -> list:
         "",
         "## ✅ Environment Facts (TRUTH - Do NOT Flag)\n",
         "**Trust these facts absolutely. Overwrite your internal knowledge cutoff:**",
-        "  • **Base Paths**: `./input/`, `./working/`, `./submission/` exist. Task-specific children under `./input/` may be files, directories, or archives; trust the Data preview for the exact layout.",
+        "  • **Paths**: `./input/`, `./working/`, `./submission/` ALL EXIST. **Don't question the path.**",
         "  • **Submission File Location**: Must save the submission to `./submission/submission.csv`.",
-        "  • **Dependency Boundary**: Standard project packages are available, but optional libraries are not guaranteed. Do not assume dynamic `pip install` happens in the background.",
-        "  • **API Compatibility**: Use compatibility-safe APIs for installed packages; do not assume latest-only signatures.",
-        "  • **Model Availability**: Only explicitly configured local model paths or standard downloadable model identifiers are safe to assume.",
+        "  • **Bleeding Edge Environment**: Assume the environment has the LATEST versions of all libraries (transformers, torch, etc.).",
+        "  • **Dynamic Dependencies**: Assume necessary `pip install` commands are executed automatically in the background.",
+        "  • **Model Availability**: ALL models (including those released after your training data cutoff) are available and compatible.",
         "  • **STRICTLY FORBIDDEN**: Do NOT replace the user's model architecture with other backbones just to make code executable.\n",
         "  • **Unknown Models are Valid**: If you see a model name you don't recognize or think is too new, assume it is a private or SOTA model that works perfectly.",
         "  • Execution time: 9 hours available\n\n",
@@ -60,10 +49,10 @@ def get_code_review_guidelines() -> list:
                "## 🚫 STRICTLY FORBIDDEN (Zero Tolerance)\n",
         "**You will be penalized if you violate these:**",
         "  • **NO Model Downgrades**: Never replace a user's chosen model string with an 'older/safer' alternative (e.g., do not change a specific large model to a generic base model).",
-        "  • **NO Compatibility Speculation**: Do not flag unknown model names, but do flag concrete known-bad API calls listed below.",
+        "  • **NO Compatibility Speculation**: Do not flag issues based on 'library version requirements' or 'unknown model names'.",
         "  • **Immutable Variables**: Treat variables defining `model_name`, `backbone`, or `checkpoint` as CONSTANTS. You are NOT allowed to edit them.",
         "  • **Do NOT Question or Change Model**: Treat the user's model/backbone/checkpoint choice as final. Do not suggest alternatives, do not 'fix' model names, do not replace with ResNet/VGG/base. Only fix data leakage and critical logic bugs.",
-        "  • **Do not write to input**: Never create, unzip, cache, or overwrite files inside `./input/`; use `./working/` for generated or extracted files.",
+        "  **Don't question the path.**",
         "",
         "---\n",
         "## 🔴 P0 - Data Leakage (HIGHEST PRIORITY)\n",
@@ -99,21 +88,9 @@ def get_code_review_guidelines() -> list:
         "### P1.4 API Compatibility",
         "**Common API Issues to Fix:**",
         "  • LightGBM: Use `callbacks=[lgb.early_stopping(...)]` not `early_stopping_rounds=...` in fit()",
-        "  • XGBoost: Set `early_stopping_rounds` in `XGBClassifier`/`XGBRegressor` construction and pass `eval_set` to `fit()`; do not pass `early_stopping_rounds` to `fit()`",
-        "  • PyTorch CUDA: Use `torch.cuda.get_device_capability()`, not nonexistent `torch.cuda.get_ability()`",
+        "  • XGBoost: Use `XGBClassifier(early_stopping_rounds=...)` (correct) not `fit(early_stopping_rounds=...)`",
         "  • AdamW: Use `from torch.optim import AdamW` (not from transformers)",
-        "  • Low-precision export: BF16/FP16/FP8/MXFP8/NVFP4/MXFP4/Transformer Engine outputs must not go directly through `.cpu().numpy()` for validation metrics, sklearn, pandas, or submission export. Cast prediction/logit/probability tensors with `tensor.detach().to(torch.float32).cpu().numpy()`; labels/IDs can remain integer arrays.",
         "  • NO tqdm, NO verbose=1 in training",
-        "",
-        "### P1.5 Input Layout & Filesystem Safety",
-        "  • Compare hard-coded `./input/...` paths with the Data preview. If code calls `os.listdir`, `Path.iterdir`, image globbing, or `train_test_split` on an input path that the preview shows is a file/archive/missing path, mark it for revision.",
-        "  • If code needs files from a zip archive, it must extract to `./working/<name>/` with `zipfile`, then inspect whether the files are flat or nested before globbing; do not create directories under `./input/`.",
-        "  • Code should handle empty file lists before concatenation, split, DataLoader, or indexing; fail with a clear message or use the correct archive/file path.",
-        '  • On Windows, DataLoader workers require a main guard. Flag `num_workers>0` when the script has top-level executable training code and no `if __name__ == "__main__"` guard.',
-        "",
-        "### P1.6 Hardware-Critical Execution Risk",
-        "  • If a hardware/profile context section is provided, flag only concrete high-confidence risks such as fixed oversized batch size, missing OOM fallback around known risky settings, or timeout-prone training budgets.",
-        "  • Do NOT change model/backbone choices for hardware reasons. Prefer targeted fallbacks such as smaller batch size, AMP, gradient accumulation, lower resolution, fewer epochs, or checkpointing.",
         "",
         "---\n",
         "## 📋 Decision Rule\n",
@@ -121,7 +98,6 @@ def get_code_review_guidelines() -> list:
         "**needs_revision=True** ONLY IF:",
         "  • P0 data leakage found (MUST FIX)",
         "  • OR P1 critical bug found",
-        "  • OR concrete high-confidence hardware-critical execution risk found in the provided hardware/profile context",
         "",
         "**needs_revision=False** IF:",
         "  • No P0/P1 bugs found",

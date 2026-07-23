@@ -63,20 +63,13 @@ Shared ontology files live in `schema/ontology/` and connect graph evidence to v
 - `optimization_targets`
 - `api_symbols`
 
-## Hardware Knowledge Entry Point
+## MCP Entry Point
 
 Stage agents should prefer:
 
 ```python
-context = hardware_knowledge_client.get_optimization_context(candidate=candidate, limit=8)
+context = scheduler_client.get_optimization_context(candidate=candidate, limit=8)
 ```
-
-`hardware_knowledge_client` is independent from scheduler execution. It probes the
-current hardware in a lightweight subprocess, reads the standalone hardware
-knowledge graph, and may read historical profile evidence from
-`branch_profile.sqlite3` without starting the scheduler service.
-`SchedulerClient` keeps compatibility wrappers for profile and hardware context,
-but scheduler execution is no longer required for hardware-aware prompting.
 
 Response shape:
 
@@ -89,6 +82,10 @@ graph_evidence:
 derived_diagnosis:
   profile_symptoms: []
   optimization_targets: []
+vector_evidence:
+  recipes: []
+  docs: []
+  api_symbols: []
 recommendations: []
 risk_flags: []
 evidence_refs: []
@@ -98,7 +95,8 @@ confidence: 0.0
 Lower-level MCP helpers:
 
 - `get_profile_evidence(candidate, limit=8)`
-- `get_stage_hardware_features(hardware_key, pipeline_stage, limit=8)`
+- `search_code_knowledge(query, filters, record_types, limit=8)`
+- `get_code_optimization_context(candidate, graph_context=None, limit=8)`
 
 Compatibility wrappers remain available but are deprecated:
 
@@ -200,6 +198,7 @@ Future prompt integration should store compact hardware evidence on each search 
 - `hardware_context`
 - `graph_evidence`
 - `derived_diagnosis`
+- `vector_evidence`
 - `scheduler_risk_flags`
 - `scheduler_confidence`
 - `hardware_evidence_refs`
@@ -218,10 +217,11 @@ Recommended cache entries:
 
 - `get_hardware_context(hardware_key)`
 - `get_profile_evidence(candidate_hash)`
+- `search_code_knowledge(query_hash + filters_hash)`
+- `get_code_optimization_context(candidate_hash)`
 - `get_optimization_context(candidate_hash)`
 
-Cache keys should include hardware graph schema version, hardware key, candidate
-hash, and corpus version. Write paths and live queue state should not be cached.
+Cache keys should include graph schema version, vector collection names, embedding model, hardware key, candidate hash, and corpus version. Write paths and live queue state should not be cached.
 
 ## Feedback Loop
 

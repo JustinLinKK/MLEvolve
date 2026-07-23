@@ -21,14 +21,12 @@ from agents import (
 )
 from engine import node_selection, evaluation, execution, solution_manager
 from engine.conditions import is_branch_stagnant
-from engine.coldstart import collect_model_contracts
 from utils.data_preview import clean_task_desc
 
 logger = logging.getLogger("MLEvolve")
 
 
 ExecCallbackType = Callable[[str, bool], ExecutionResult]
-ExecManyCallbackType = Callable[[list[tuple[str, str]]], dict[str, ExecutionResult]]
 
 class AgentSearch:
     def __init__(
@@ -36,10 +34,8 @@ class AgentSearch:
             task_desc: str,
             cfg: Config,
             journal: Journal,
-            pipeline_logger=None,
     ):
         self.cfg = cfg
-        self.pipeline_logger = pipeline_logger
         self.acfg = cfg.agent
         self.scfg = cfg.agent.search
         self.task_desc = clean_task_desc(task_desc, cfg)
@@ -58,7 +54,7 @@ class AgentSearch:
         self.journal_lock = threading.Lock()
         self.save_node_lock = threading.Lock()
         self.start_time = time.time()
-        self.use_stepwise_generation = True
+        self.use_stepwise_generation = getattr(self.acfg, "use_stepwise_generation", True)
 
         self.next_branch_id = 1
         self.branch_all_nodes: Dict[int, List[SearchNode]] = {}
@@ -66,11 +62,6 @@ class AgentSearch:
         self.branch_node_count: Dict[int, int] = {}
         self.use_coldstart = cfg.coldstart.use_coldstart
         self.coldstart_description = cfg.coldstart.description
-        self.model_contracts = collect_model_contracts(cfg) if self.use_coldstart else []
-        self.scheduler_client = None
-        self.hardware_knowledge_client = None
-        self.hardware_cache_status: dict | None = None
-        self.pending_scheduler_nodes: Dict[str, SearchNode] = {}
 
         # Top-N candidates
         self.top_k = self.scfg.top_candidates_size
@@ -91,17 +82,6 @@ class AgentSearch:
         self.metric_maximize: bool | None = None
         self.metric_maximize_reasoning: str | None = None
         result_parse_agent.determine_metric_direction(self)
-        from utils.pipeline_logging import log_pipeline_event
-
-        log_pipeline_event(
-            self,
-            "agent_initialized",
-            payload={
-                "mode": getattr(getattr(cfg, "experiment", None), "mode", None),
-                "metric_maximize": self.metric_maximize,
-                "metric_maximize_reasoning": self.metric_maximize_reasoning,
-            },
-        )
 
         # Global memory
         self.global_memory = None
@@ -123,84 +103,6 @@ class AgentSearch:
                 self.global_memory = None
         else:
             logger.info("[AgentSearch] Global memory is disabled by config")
-
-    def attach_scheduler(self, scheduler_client) -> None:
-        """Attach the scheduler execution client."""
-        self.scheduler_client = scheduler_client
-        if getattr(self, "hardware_knowledge_client", None) is None:
-            self.hardware_cache_status = self._prewarm_current_hardware_context(scheduler_client)
-
-    def attach_hardware_knowledge(self, hardware_knowledge_client) -> None:
-        """Expose hardware/profile knowledge to stage agents independently of scheduling."""
-        self.hardware_knowledge_client = hardware_knowledge_client
-        self.hardware_cache_status = self._prewarm_current_hardware_context(hardware_knowledge_client)
-
-    def _hardware_context_enabled(self) -> bool:
-        experiment = getattr(self.cfg, "experiment", None)
-        mode = str(getattr(experiment, "mode", "") or "").strip().lower().replace("-", "_")
-        if mode in {"origin", "baseline"}:
-            return False
-        return bool(getattr(self.acfg, "hardware_context_enabled", True))
-
-    def _prewarm_current_hardware_context(self, scheduler_client) -> dict:
-        if not self._hardware_context_enabled():
-            return {"ok": False, "reason": "hardware context disabled"}
-        prewarm = getattr(scheduler_client, "prewarm_current_hardware_neighborhood", None)
-        if not callable(prewarm):
-            return {"ok": False, "reason": "hardware knowledge client has no prewarm hook"}
-        try:
-            configured_limit = int(getattr(self.acfg, "hardware_context_limit", 8) or 8)
-        except (TypeError, ValueError):
-            configured_limit = 8
-        limit = max(256, configured_limit * 32)
-        try:
-            status = dict(prewarm(hardware_id="current", limit=limit) or {})
-            status.setdefault("ok", bool(status.get("hardware_name") or status.get("hardware_id")))
-            status.setdefault("requested_hardware_id", "current")
-            status.setdefault("limit", limit)
-            if status.get("ok"):
-                logger.info(
-                    "Prewarmed hardware graph context for %s with %s feature(s) via %s.",
-                    status.get("hardware_name") or status.get("hardware_id") or "current hardware",
-                    status.get("feature_count", 0),
-                    status.get("source") or "unknown source",
-                )
-            else:
-                logger.info("Hardware graph prewarm completed without a matching node: %s", status.get("reason"))
-            return status
-        except Exception as exc:
-            logger.warning("Hardware graph prewarm failed; continuing with direct lookup fallback: %s", exc)
-            return {"ok": False, "requested_hardware_id": "current", "limit": limit, "reason": str(exc)}
-
-    def refresh_hardware_context(self, node: SearchNode) -> None:
-        """Refresh compact hardware/profile evidence for a generated node."""
-        try:
-            from agents.hardware_context import refresh_node_hardware_context
-
-            refresh_node_hardware_context(self, node)
-        except Exception as exc:
-            logger.debug("Skipping hardware/profile context refresh for node %s: %s", node.id, exc)
-
-    def has_selectable_work(self) -> bool:
-        return node_selection.has_selectable_work(self)
-
-    def _discard_unfinished_node(self, node: SearchNode) -> None:
-        """Remove a generated node that failed before execution/journal append."""
-        parent = node.parent
-        if parent is not None:
-            parent.children.discard(node)
-        if node.branch_id is not None:
-            branch_nodes = self.branch_all_nodes.get(node.branch_id)
-            if branch_nodes and node in branch_nodes:
-                branch_nodes.remove(node)
-                if not branch_nodes:
-                    self.branch_all_nodes.pop(node.branch_id, None)
-            successful_nodes = self.branch_successful_nodes.get(node.branch_id)
-            if successful_nodes and node in successful_nodes:
-                successful_nodes.remove(node)
-                if not successful_nodes:
-                    self.branch_successful_nodes.pop(node.branch_id, None)
-        node.lock = False
 
     def _serialize_prompt(self, prompt_complete) -> str | None:
         """Serialize prompt (str or dict) to string for saving in node."""
@@ -252,15 +154,12 @@ class AgentSearch:
                             result_node = None
                     else:
                         result_node = draft_agent.run(self, init_solution_path=init_solution_path)
-                        if result_node:
-                            result_node.lock = True
-                            logger.info(f"[_run_single_step] Draft node {result_node.id} is locked.")
-                        else:
-                            logger.info("Draft generation skipped because no child slot was available.")
-                elif parent_node.debug_eligible:
+                        result_node.lock = True
+                        logger.info(f"[_run_single_step] Draft node {result_node.id} is locked.")
+                elif parent_node.is_buggy or parent_node.is_valid is False:
                     result_node = debug_agent.run(self, parent_node)
 
-                elif parent_node.search_eligible:
+                elif parent_node.is_buggy is False:
                     can_use_fusion = False
                     if self.search_start_time:
                         elapsed_time = time.time() - self.search_start_time
@@ -272,26 +171,32 @@ class AgentSearch:
                         logger.info(f"🎯 Exploitation mode: using relaxed stagnation threshold ({stagnation_threshold} attempts)")
 
                     if is_branch_stagnant(self, parent_node.branch_id, threshold=stagnation_threshold):
-                        if can_use_fusion:
+                        evo_ok = getattr(self.acfg, "use_evolution", True)
+                        fus_ok = getattr(self.acfg, "use_fusion", True) and can_use_fusion
+                        if evo_ok and fus_ok:
                             if random.random() < self.acfg.fusion_vs_evolution_prob:
                                 logger.info(f"🎯 Triggering fusion for stagnant node {parent_node.id} (after 6h)")
                                 result_node = fusion_agent.run(self, parent_node)
                             else:
                                 logger.info(f"🎯 Triggering intra-branch evolution for stagnant node {parent_node.id} (after 6h)")
                                 result_node = evolution_agent.run(self, parent_node)
-                        else:
-                            logger.info(f"🔄 Using evolution for stagnant node {parent_node.id} (before 6h)")
+                        elif fus_ok:
+                            logger.info(f"🎯 Triggering fusion for stagnant node {parent_node.id} (evolution disabled)")
+                            result_node = fusion_agent.run(self, parent_node)
+                        elif evo_ok:
+                            logger.info(f"🔄 Using evolution for stagnant node {parent_node.id}")
                             result_node = evolution_agent.run(self, parent_node)
+                        else:
+                            logger.info(f"🔄 Stagnant but evolution/fusion both disabled, falling back to improve for node {parent_node.id}")
+                            result_node = improve_agent.run(self, parent_node)
                     else:
                         logger.info(f"🔄 Using normal improve for node {parent_node.id}")
                         result_node = improve_agent.run(self, parent_node)
 
                 else:
-                    parent_node.is_terminal = True
-                    logger.info("[_run_single_step] node %s is quarantined and not expandable", parent_node.id)
+                    logger.warning(f"[_run_single_step] node {parent_node.id} is_buggy is None.")
 
                 if result_node:
-                    self.refresh_hardware_context(result_node)
                     if init_solution_path:
                         logger.info(f"Node {result_node.id} from init_solution, skipping code review")
                     else:
@@ -299,78 +204,26 @@ class AgentSearch:
                         if reviewed_code.strip() != result_node.code.strip():
                             logger.info(f"Node {result_node.id} code has been reviewed and modified")
                             result_node.code = reviewed_code
-                            self.refresh_hardware_context(result_node)
                         else:
                             logger.info(f"Node {result_node.id} passed code review without changes")
-                    try:
-                        from engine.script_introspection import introspect_training_script
-                        from localml_scheduler.adapters.mlevolve import build_branch_profile_key, normalize_branch_name
-
-                        script_metadata = introspect_training_script(result_node.code)
-                        branch_name = script_metadata.get("branch_name") or script_metadata.get("model_family")
-                        if branch_name:
-                            result_node.branch_name = normalize_branch_name(str(branch_name))
-                            result_node.model_family = result_node.branch_name
-                            result_node.branch_profile_key = build_branch_profile_key(result_node.branch_name)
-                            result_node.active_profile_key = None
-                    except Exception as exc:
-                        logger.debug("Skipping node model-family metadata refresh: %s", exc)
 
                     if not execute_immediately:
                         logger.info(f"Node {result_node.id} code generated and reviewed, execution deferred")
                         result_node.pending_execution = True
-                        from utils.pipeline_logging import record_pipeline_node_action
-
-                        record_pipeline_node_action(self, result_node, "execution_deferred")
                         return _root, result_node
-                    from utils.pipeline_logging import record_pipeline_node_action
-
-                    record_pipeline_node_action(self, result_node, "execution_started")
-                    exe_res = exec_callback(result_node.code, result_node.id, True, node_context=result_node)
-                    if getattr(exe_res, "is_scheduler_handle", False):
-                        result_node.pending_execution = True
-                        result_node.scheduler_submitted = True
-                        result_node.scheduler_job_id = getattr(exe_res, "job_id", None)
-                        result_node.scheduler_handle = exe_res
-                        result_node.lock = True
-                        self.pending_scheduler_nodes[str(result_node.id)] = result_node
-                        payload = {
-                            "job_id": result_node.scheduler_job_id,
-                            "submission_label": getattr(exe_res, "submission_label", None),
-                        }
-                        record_pipeline_node_action(self, result_node, "execution_submitted", payload=payload)
-                        from utils.pipeline_logging import log_pipeline_event
-
-                        log_pipeline_event(
-                            self,
-                            "execution_submitted",
-                            node=result_node,
-                            job_id=result_node.scheduler_job_id,
-                            payload=payload,
-                        )
-                        return _root, result_node
+                    exe_res = exec_callback(result_node.code, result_node.id, True)
                     result_node = result_parse_agent.run(self,
                         node=result_node,
                         exec_result=exe_res
                     )
-                    if self.pipeline_logger is not None and result_node.metric is not None:
-                        self.pipeline_logger.update_job_packet_for_node(
-                            str(result_node.id),
-                            metric=result_node.metric.value,
-                            duration_seconds=result_node.exec_time,
-                            status="parsed_buggy" if result_node.is_buggy else "parsed_valid",
-                        )
                     execution.validate_executed_node(self, result_node)
                     logger.info(f"The metric value of node {result_node.id} is {result_node.metric.value}.")
                     result_node.finish_time = time.strftime("%Y-%m-%dT%H:%M:%S")
-                    record_pipeline_node_action(self, result_node, "execution_finished")
 
                     if parent_node.is_buggy and result_node.is_buggy is False:
                         parent_node.is_debug_success = True
 
                     _root = evaluation.check_improvement(self, result_node, parent_node)
-                    if result_node.stage in ["draft", "fusion_draft"]:
-                        result_node.lock = False
                     with self.journal_lock:
                         if self.best_node and result_node.metric.maximize and self.best_node.metric.maximize != result_node.metric.maximize:
                             logger.warning(
@@ -383,8 +236,6 @@ class AgentSearch:
             except Exception as e:
                 logger.warning(f"Step failed for parent {parent_node.id}, rolling back expected child count and propagating zero reward.")
                 evaluation.backpropagate(node=parent_node, value=0, add_to_tree=False)
-                if result_node is not None and result_node not in self.journal.nodes:
-                    self._discard_unfinished_node(result_node)
                 parent_node.sub_expected_child_count()
                 raise e
 
@@ -395,24 +246,17 @@ class AgentSearch:
 
     def step(
         self,
-        node: SearchNode | None = None,
-        exec_callback: ExecCallbackType | None = None,
+        node: SearchNode,
+        exec_callback: ExecCallbackType,
         execute_immediately: bool = True,
         init_solution_path: Optional[str] = None,
-    ) -> SearchNode | None:
-        if exec_callback is None:
-            raise ValueError("exec_callback is required")
-
+    ) -> SearchNode:
         if not self.journal.nodes or self.data_preview is None:
             self.update_data_preview()
             self.search_start_time = time.time()
 
         if not node or node.stage == "root":
             node = node_selection.select_with_soft_switch(self)
-            if node is None:
-                logger.info("[step] no selectable work available")
-                self.current_step = len(self.journal)
-                return None
 
         _root, result_node = self._run_single_step(
             node,
@@ -437,11 +281,10 @@ class AgentSearch:
         best_val = self.best_node.metric.value if (self.best_node and self.best_node.metric) else None
         logger.info(f"[stats] step={self.current_step}, nodes={total_nodes}, branches={n_branches}, best={best_val}")
 
-        if result_node is None:
-            return None
-        if _root:
+        if _root or result_node is None:
             return self.virtual_root
-        return result_node
+        else:
+            return result_node
 
     def execute_deferred_node(self, node: SearchNode, exec_callback: ExecCallbackType) -> SearchNode:
         """Execute a node that was generated and reviewed but not yet run (pending_execution=True)."""
@@ -453,35 +296,22 @@ class AgentSearch:
         parent_node = node.parent
 
         try:
-            from utils.pipeline_logging import record_pipeline_node_action
-
-            record_pipeline_node_action(self, node, "execution_started")
-            exe_res = exec_callback(node.code, node.id, True, node_context=node)
+            exe_res = exec_callback(node.code, node.id, True)
             node = result_parse_agent.run(self,
                 node=node,
                 exec_result=exe_res
             )
-            if self.pipeline_logger is not None and node.metric is not None:
-                self.pipeline_logger.update_job_packet_for_node(
-                    str(node.id),
-                    metric=node.metric.value,
-                    duration_seconds=node.exec_time,
-                    status="parsed_buggy" if node.is_buggy else "parsed_valid",
-                )
 
             execution.validate_executed_node(self, node)
 
             logger.info(f"Node {node.id} execution completed: metric={node.metric.value}, is_buggy={node.is_buggy}")
 
             node.finish_time = time.strftime("%Y-%m-%dT%H:%M:%S")
-            record_pipeline_node_action(self, node, "execution_finished")
 
             if parent_node and parent_node.is_buggy and node.is_buggy is False:
                 parent_node.is_debug_success = True
 
             _root = evaluation.check_improvement(self, node, parent_node)
-            if node.stage in ["draft", "fusion_draft"]:
-                node.lock = False
 
             with self.journal_lock:
                 if self.best_node and node.metric.maximize and self.best_node.metric.maximize != node.metric.maximize:
@@ -499,179 +329,5 @@ class AgentSearch:
         except Exception as e:
             logger.exception(f"Exception during deferred node execution: {e}")
             evaluation.backpropagate(node=parent_node, value=0, add_to_tree=False)
-            if node not in self.journal.nodes:
-                self._discard_unfinished_node(node)
             parent_node.sub_expected_child_count()
             raise e
-
-    def execute_deferred_nodes(
-        self,
-        nodes: list[SearchNode],
-        exec_many_callback: ExecManyCallbackType,
-    ) -> list[SearchNode]:
-        """Execute a scheduler round of deferred nodes and append successful parses to the journal."""
-        runnable_nodes = [node for node in nodes if getattr(node, "pending_execution", False)]
-        if not runnable_nodes:
-            return []
-
-        try:
-            from agents.hardware_context import optimize_training_parameters_for_round
-
-            decisions = optimize_training_parameters_for_round(self, runnable_nodes)
-            if decisions:
-                from utils.pipeline_logging import log_pipeline_event
-
-                log_pipeline_event(
-                    self,
-                    "hardware_round_review",
-                    payload={
-                        "node_ids": [str(node.id) for node in runnable_nodes],
-                        "decisions": decisions,
-                    },
-                )
-        except Exception as exc:
-            logger.debug("Skipping hardware-aware pre-submit round review: %s", exc)
-
-        from utils.pipeline_logging import record_pipeline_node_action
-
-        for node in runnable_nodes:
-            record_pipeline_node_action(self, node, "execution_started")
-
-        results = exec_many_callback(
-            [
-                {
-                    "code": node.code,
-                    "id": str(node.id),
-                    "node": node,
-                    "branch_id": getattr(node, "branch_id", None),
-                    "branch_name": getattr(node, "branch_name", None),
-                    "branch_profile_key": getattr(node, "branch_profile_key", None),
-                    "model_family": getattr(node, "model_family", None),
-                    "active_profile_key": getattr(node, "active_profile_key", None),
-                    "parent_branch_name": getattr(getattr(node, "parent", None), "branch_name", None)
-                    or getattr(getattr(node, "parent", None), "model_family", None),
-                    "parent_model_family": getattr(getattr(node, "parent", None), "model_family", None),
-                }
-                for node in runnable_nodes
-            ]
-        )
-        executed_nodes: list[SearchNode] = []
-
-        for node in runnable_nodes:
-            parent_node = node.parent
-            try:
-                exe_res = results.get(str(node.id))
-                if exe_res is None:
-                    exe_res = ExecutionResult(
-                        term_out=["Scheduler round did not return a result for this node."],
-                        exec_time=0.0,
-                        exc_type="RuntimeError",
-                        exc_info={"message": "missing scheduler round result"},
-                        exc_stack=[],
-                    )
-                node = result_parse_agent.run(self, node=node, exec_result=exe_res)
-                if self.pipeline_logger is not None and node.metric is not None:
-                    self.pipeline_logger.update_job_packet_for_node(
-                        str(node.id),
-                        metric=node.metric.value,
-                        duration_seconds=node.exec_time,
-                        status="parsed_buggy" if node.is_buggy else "parsed_valid",
-                    )
-
-                execution.validate_executed_node(self, node)
-                logger.info("Node %s round execution completed: metric=%s, is_buggy=%s", node.id, node.metric.value, node.is_buggy)
-
-                node.finish_time = time.strftime("%Y-%m-%dT%H:%M:%S")
-                record_pipeline_node_action(self, node, "execution_finished")
-
-                if parent_node and parent_node.is_buggy and node.is_buggy is False:
-                    parent_node.is_debug_success = True
-
-                evaluation.check_improvement(self, node, parent_node)
-                if node.stage in ["draft", "fusion_draft"]:
-                    node.lock = False
-
-                with self.journal_lock:
-                    if self.best_node and node.metric.maximize and self.best_node.metric.maximize != node.metric.maximize:
-                        logger.warning("New node's metric is inconsistent with metrics in the journal")
-                        raise ValueError("New node's metric is inconsistent with metrics in the journal")
-                    self.journal.append(node)
-                    logger.info("Node %s added to journal", node.id)
-
-                node.pending_execution = False
-                solution_manager.update_best_solution(self, node)
-                executed_nodes.append(node)
-            except Exception as exc:
-                logger.exception("Exception during scheduler round node execution for %s: %s", node.id, exc)
-                if parent_node is not None:
-                    evaluation.backpropagate(node=parent_node, value=0, add_to_tree=False)
-                    parent_node.sub_expected_child_count()
-                if node not in self.journal.nodes:
-                    self._discard_unfinished_node(node)
-        self.current_step = len(self.journal)
-        return executed_nodes
-
-    def finalize_scheduler_results(self, results: dict[str, ExecutionResult]) -> list[SearchNode]:
-        """Finalize previously submitted nonblocking scheduler jobs."""
-        executed_nodes: list[SearchNode] = []
-        for node_id, exe_res in results.items():
-            node = self.pending_scheduler_nodes.pop(str(node_id), None)
-            if node is None:
-                logger.warning("Scheduler returned result for unknown or already finalized node %s", node_id)
-                continue
-            finalized = self._finalize_submitted_scheduler_node(node, exe_res)
-            if finalized is not None:
-                executed_nodes.append(finalized)
-        self.current_step = len(self.journal)
-        return executed_nodes
-
-    def _finalize_submitted_scheduler_node(self, node: SearchNode, exe_res: ExecutionResult) -> SearchNode | None:
-        parent_node = node.parent
-        try:
-            from utils.pipeline_logging import record_pipeline_node_action
-
-            node = result_parse_agent.run(self, node=node, exec_result=exe_res)
-            if self.pipeline_logger is not None and node.metric is not None:
-                self.pipeline_logger.update_job_packet_for_node(
-                    str(node.id),
-                    metric=node.metric.value,
-                    duration_seconds=node.exec_time,
-                    status="parsed_buggy" if node.is_buggy else "parsed_valid",
-                )
-
-            execution.validate_executed_node(self, node)
-            logger.info("Scheduler node %s execution completed: metric=%s, is_buggy=%s", node.id, node.metric.value, node.is_buggy)
-
-            node.finish_time = time.strftime("%Y-%m-%dT%H:%M:%S")
-            record_pipeline_node_action(self, node, "execution_finished")
-
-            if parent_node and parent_node.is_buggy and node.is_buggy is False:
-                parent_node.is_debug_success = True
-
-            evaluation.check_improvement(self, node, parent_node)
-            node.lock = False
-
-            with self.journal_lock:
-                if self.best_node and node.metric.maximize and self.best_node.metric.maximize != node.metric.maximize:
-                    logger.warning("New node's metric is inconsistent with metrics in the journal")
-                    raise ValueError("New node's metric is inconsistent with metrics in the journal")
-                if node not in self.journal.nodes:
-                    self.journal.append(node)
-                    logger.info("Scheduler node %s added to journal", node.id)
-
-            node.pending_execution = False
-            node.scheduler_submitted = False
-            solution_manager.update_best_solution(self, node)
-            return node
-
-        except Exception as exc:
-            logger.exception("Exception while finalizing scheduler node %s: %s", node.id, exc)
-            if parent_node is not None:
-                evaluation.backpropagate(node=parent_node, value=0, add_to_tree=False)
-                parent_node.sub_expected_child_count()
-            node.pending_execution = False
-            node.scheduler_submitted = False
-            node.lock = False
-            if node not in self.journal.nodes:
-                self._discard_unfinished_node(node)
-            return None

@@ -8,8 +8,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from dataclasses_json import DataClassJsonMixin
 from engine.executor import ExecutionResult
@@ -18,19 +17,6 @@ from utils.metric import MetricValue
 from utils.response import trim_long_string
 
 logger = logging.getLogger("MLEvolve")
-
-
-class NodeOutcome(str, Enum):
-    VALID = "valid"
-    CANDIDATE_EXCEPTION = "candidate_exception"
-    EXECUTION_TIMEOUT = "execution_timeout"
-    ARTIFACT_INVALID = "artifact_invalid"
-    SUBMISSION_INVALID = "submission_invalid"
-    PROBE_FAILURE = "probe_failure"
-    VALIDATION_UNAVAILABLE = "validation_unavailable"
-    RESULT_PARSE_FAILURE = "result_parse_failure"
-    POLICY_REJECTED = "policy_rejected"
-    REPEATED_FAILURE = "repeated_failure"
 
 
 @dataclass(eq=False)
@@ -55,20 +41,12 @@ class SearchNode(DataClassJsonMixin):
     exc_type: str | None = field(default=None, kw_only=True)
     exc_info: dict | None = field(default=None, kw_only=True)
     exc_stack: list[tuple] | None = field(default=None, kw_only=True)
-    phase_timings: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
-    instrumentation: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
-    failure_diagnostic: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
 
     # ---- evaluation ----
     analysis: str = field(default=None, kw_only=True)  # type: ignore
     metric: MetricValue = field(default=None, kw_only=True)  # type: ignore
     is_buggy: bool = field(default=None, kw_only=True)  # type: ignore
     is_valid: bool = field(default=None, kw_only=True)  # type: ignore
-    outcome: Optional[str] = field(default=None, kw_only=True)
-    search_eligible: bool = field(default=False, kw_only=True)
-    debug_eligible: bool = field(default=False, kw_only=True)
-    failure_fingerprint: Optional[str] = field(default=None, kw_only=True)
-    quarantine_reason: Optional[str] = field(default=None, kw_only=True)
 
     # ---- search / MCTS ----
     stage: Literal["root", "improve", "debug", "draft", "fusion_draft", "evolution", "fusion"]
@@ -81,7 +59,7 @@ class SearchNode(DataClassJsonMixin):
     continue_improve: bool = field(default=False, kw_only=True)
     improve_failure_depth: int = field(default=0, kw_only=True)
     lock: bool = field(default=False, kw_only=True)
-    child_count_lock: Any = field(default_factory=threading.Lock, repr=False, compare=False)
+    child_count_lock: bool = threading.Lock()
     expected_child_count: int = field(default=0, kw_only=True)
     finish_time: str = field(default=None, kw_only=True)
     created_time: str = field(default=None, kw_only=True)
@@ -93,45 +71,14 @@ class SearchNode(DataClassJsonMixin):
     # ---- branch management ----
     branch_id: Optional[int] = field(default=None, kw_only=True)
     from_topk: bool = field(default=False, kw_only=True)
-    branch_name: Optional[str] = field(default=None, kw_only=True)
-    branch_profile_key: Optional[str] = field(default=None, kw_only=True)
-    model_family: Optional[str] = field(default=None, kw_only=True)
-    active_profile_key: Optional[str] = field(default=None, kw_only=True)
     code_summary: Optional[str] = field(default=None, kw_only=True)
     work_dir: Optional[str] = field(default=None, kw_only=True)
-
-    # ---- hardware/profile prompt evidence ----
-    hardware_context: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
-    graph_evidence: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
-    derived_diagnosis: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
-    scheduler_risk_flags: List[str] = field(default_factory=list, kw_only=True)
-    scheduler_confidence: float = field(default=0.0, kw_only=True)
-    hardware_evidence_refs: List[str] = field(default_factory=list, kw_only=True)
-    resolved_batch_size: Optional[int] = field(default=None, kw_only=True)
-    estimated_runtime_seconds: Optional[float] = field(default=None, kw_only=True)
-    peak_vram_mb: Optional[float] = field(default=None, kw_only=True)
-    backend_name: Optional[str] = field(default=None, kw_only=True)
-    hardware_decision: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
-    pipeline_decision: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
-    training_curve_feedback: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
-    stage_note_board: List[Dict[str, Any]] = field(default_factory=list, kw_only=True)
-    bug_report: Optional[str] = field(default=None, kw_only=True)
-    fix_report: Optional[str] = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         if self.parent is not None:
             self.parent.children.add(self)
-            if self.pipeline_decision is None and self.parent.pipeline_decision is not None:
-                self.pipeline_decision = copy.deepcopy(self.parent.pipeline_decision)
-            if not self.stage_note_board and self.parent.stage_note_board:
-                self.stage_note_board = copy.deepcopy(self.parent.stage_note_board)
         if self.stage not in ["root", "improve", "debug", "draft", "fusion_draft", "evolution", "fusion"]:
             raise ValueError(f"Invalid stage: {self.stage}")
-        if self.outcome is None:
-            if self.is_buggy is True:
-                self.debug_eligible = True
-            elif self.is_buggy is False and self.is_valid is not False and self.metric is not None:
-                self.search_eligible = True
 
     # ---- base node properties ----
 
@@ -140,7 +87,7 @@ class SearchNode(DataClassJsonMixin):
         """Inferred stage based on parent relationship."""
         if self.parent is None:
             return "draft"
-        return "debug" if self.parent.debug_eligible or self.parent.is_buggy else "improve"
+        return "debug" if self.parent.is_buggy else "improve"
 
     def absorb_exec_result(self, exec_result: ExecutionResult):
         """Absorb the result of executing the code from this node."""
@@ -149,49 +96,10 @@ class SearchNode(DataClassJsonMixin):
         self.exc_type = exec_result.exc_type
         self.exc_info = exec_result.exc_info
         self.exc_stack = exec_result.exc_stack
-        self.phase_timings = exec_result.phase_timings
-        self.instrumentation = exec_result.instrumentation
-        self.outcome = exec_result.outcome or self.outcome
-        self.failure_diagnostic = exec_result.failure_diagnostic
-        instrumentation = exec_result.instrumentation or {}
-        if isinstance(instrumentation, dict) and instrumentation.get("scheduler_early_stop"):
-            self.training_curve_feedback = dict(instrumentation.get("scheduler_early_stop") or {})
-        if isinstance(instrumentation, dict):
-            if instrumentation.get("failure_diagnostic") and self.failure_diagnostic is None:
-                self.failure_diagnostic = dict(instrumentation["failure_diagnostic"])
-            if instrumentation.get("batch_probe_key"):
-                self.active_profile_key = str(instrumentation["batch_probe_key"])
-
-    def apply_outcome(self, outcome: NodeOutcome | str, *, reason: str | None = None) -> None:
-        value = outcome.value if isinstance(outcome, NodeOutcome) else str(outcome)
-        self.outcome = value
-        debuggable = {
-            NodeOutcome.CANDIDATE_EXCEPTION.value,
-            NodeOutcome.EXECUTION_TIMEOUT.value,
-            NodeOutcome.ARTIFACT_INVALID.value,
-            NodeOutcome.SUBMISSION_INVALID.value,
-        }
-        self.is_valid = value == NodeOutcome.VALID.value
-        self.is_buggy = value in debuggable
-        self.search_eligible = value == NodeOutcome.VALID.value
-        self.debug_eligible = value in debuggable
-        if value in {
-            NodeOutcome.PROBE_FAILURE.value,
-            NodeOutcome.VALIDATION_UNAVAILABLE.value,
-            NodeOutcome.RESULT_PARSE_FAILURE.value,
-            NodeOutcome.POLICY_REJECTED.value,
-            NodeOutcome.REPEATED_FAILURE.value,
-        }:
-            self.is_terminal = True
-            self.quarantine_reason = reason or value
 
     @property
     def term_out(self) -> str:
-        if self._term_out is None:
-            return ""
-        if isinstance(self._term_out, str):
-            return trim_long_string(self._term_out)
-        return trim_long_string("".join(str(part) for part in self._term_out))
+        return trim_long_string("".join(self._term_out))
 
     @property
     def is_leaf(self) -> bool:
@@ -244,15 +152,15 @@ class SearchNode(DataClassJsonMixin):
     def reached_child_limit(self, scfg: SearchConfig, for_topk: bool = False) -> bool:
         """Whether this node has reached its child limit (draft/improve/debug). for_topk uses higher limit."""
         with self.child_count_lock:
-            if self.stage == "root" or self.step == 0:
+            if self.step == 0:
                 regular_draft_count = sum(1 for child in self.children if child.stage == "draft")
                 # expected_child_count includes in-flight children; estimate in-flight drafts
                 in_flight = max(0, self.expected_child_count - len(self.children))
                 regular_expected = regular_draft_count + in_flight
-                logger.debug(f"[reached_child_limit] node {self.id} regular_draft_count={regular_draft_count}, in_flight={in_flight}, limit={scfg.num_drafts}")
+                logger.info(f"[reached_child_limit] node {self.id} regular_draft_count={regular_draft_count}, in_flight={in_flight}, limit={scfg.num_drafts}")
                 return regular_expected >= scfg.num_drafts
             else:
-                if self.debug_eligible or self.is_buggy:
+                if self.is_buggy:
                     if self.has_no_bug_child():
                         return True
                     else:
@@ -341,19 +249,8 @@ class SearchNode(DataClassJsonMixin):
             if executed:
                 stats_parts.append(f"{len(executed)} executed")
                 if successful:
-                    successful_with_metric = [
-                        n for n in successful
-                        if n.metric and n.metric.value is not None
-                    ]
-                    metricless_successful = len(successful) - len(successful_with_metric)
-                    if successful_with_metric:
-                        best_metric = max(n.metric.value for n in successful_with_metric)
-                        detail = f"{len(successful)} successful (best: {best_metric:.4f}"
-                        if metricless_successful:
-                            detail += f", {metricless_successful} without metric"
-                        stats_parts.append(detail + ")")
-                    else:
-                        stats_parts.append(f"{len(successful)} successful without metric")
+                    best_metric = max(n.metric.value for n in successful if n.metric and n.metric.value is not None)
+                    stats_parts.append(f"{len(successful)} successful (best: {best_metric:.4f})")
                 else:
                     stats_parts.append(f"0 successful (all failed or buggy)")
 
@@ -443,48 +340,16 @@ class SearchNode(DataClassJsonMixin):
             summary.append(summary_part)
         return "\n-------------------------------\n".join(summary)
     
-    def add_expected_child_count(self, scfg: SearchConfig | None = None, for_topk: bool = False) -> bool:
+    def add_expected_child_count(self):
         with self.child_count_lock:
-            if scfg is not None:
-                if self.stage == "root" or self.step == 0:
-                    regular_draft_count = sum(1 for child in self.children if child.stage == "draft")
-                    in_flight = max(0, self.expected_child_count - len(self.children))
-                    if regular_draft_count + in_flight >= scfg.num_drafts:
-                        logger.debug(
-                            "child slot unavailable for %s: regular_draft_count=%s, in_flight=%s, limit=%s",
-                            self.id,
-                            regular_draft_count,
-                            in_flight,
-                            scfg.num_drafts,
-                        )
-                        return False
-                elif self.is_buggy:
-                    if self.has_no_bug_child() or self.expected_child_count >= scfg.num_bugs:
-                        logger.debug("child slot unavailable for buggy node %s", self.id)
-                        return False
-                elif for_topk:
-                    topk_max_improves = getattr(scfg, 'topk_max_improves', 10)
-                    if self.expected_child_count >= topk_max_improves:
-                        logger.debug("top-k child slot unavailable for node %s", self.id)
-                        return False
-                else:
-                    regular_expected = sum(
-                        1 for child in self.children
-                        if not getattr(child, 'from_topk', False)
-                    )
-                    regular_expected += (self.expected_child_count - len(self.children))
-                    if regular_expected >= scfg.num_improves:
-                        logger.debug("child slot unavailable for node %s", self.id)
-                        return False
             self.expected_child_count += 1
-            logger.debug(f"current {self.id} expected_child_count is {self.expected_child_count}.")
-            return True
+            logger.info(f"current {self.id} expected_child_count is {self.expected_child_count}.")
             
             
     def sub_expected_child_count(self):
         with self.child_count_lock:
-            self.expected_child_count = max(len(self.children), self.expected_child_count - 1)
-            logger.debug(f"current {self.id} expected_child_count is {self.expected_child_count}.")
+            self.expected_child_count -= 1
+            logger.info(f"current {self.id} expected_child_count is {self.expected_child_count}.")
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -510,10 +375,6 @@ class SearchNode(DataClassJsonMixin):
 
         if self.is_buggy is True:
             summary_part += f"Results: The implementation of this design has bugs.\n"
-            if self.bug_report:
-                summary_part += f"Bug Report: {self.bug_report}\n"
-            if self.fix_report:
-                summary_part += f"Fix Hint: {self.fix_report}\n"
             if self.analysis:
                 summary_part += f"Analysis: {self.analysis}\n"
         elif self.is_buggy is False:

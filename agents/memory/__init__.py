@@ -2,17 +2,9 @@
 Memory module: persistent context and global memory for the search process.
 """
 
+from .retriever import HybridRetriever
 from .record import MemRecord
-
-try:
-    from .retriever import HybridRetriever
-except ModuleNotFoundError:
-    HybridRetriever = None  # type: ignore
-
-try:
-    from .global_memory import GlobalMemoryLayer
-except ModuleNotFoundError:
-    GlobalMemoryLayer = None  # type: ignore
+from .global_memory import GlobalMemoryLayer
 
 __all__ = [
     'HybridRetriever',

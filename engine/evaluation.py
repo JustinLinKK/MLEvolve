@@ -54,13 +54,6 @@ def check_improvement(agent, cur_node: SearchNode, parent_node: SearchNode):
     improvement = 0
     should_backpropagate = False
 
-    if not cur_node.search_eligible and not cur_node.debug_eligible:
-        cur_node.is_terminal = True
-        reward = -1
-        backpropagate(cur_node, reward)
-        _log_evaluation(agent, cur_node, "quarantine", reward=reward, improvement=None)
-        return True
-
     if (agent.search_start_time and
         cur_node.stage != "root" and
         cur_node.branch_id is not None):
@@ -137,7 +130,6 @@ def check_improvement(agent, cur_node: SearchNode, parent_node: SearchNode):
 
                 reward = get_node_reward(agent, cur_node)
                 backpropagate(cur_node, reward)
-                _log_evaluation(agent, cur_node, "force_backprop", reward=reward, improvement=None)
                 return True
 
     local_best_node = cur_node.local_best_node
@@ -196,25 +188,6 @@ def check_improvement(agent, cur_node: SearchNode, parent_node: SearchNode):
     if should_backpropagate:
         reward = get_node_reward(agent, cur_node)
         backpropagate(cur_node, reward)
-        _log_evaluation(agent, cur_node, "backpropagate", reward=reward, improvement=improvement)
     else:
         agent.current_node_list.append(cur_node)
-        _log_evaluation(agent, cur_node, "continue", reward=None, improvement=improvement)
     return should_backpropagate
-
-
-def _log_evaluation(agent, node: SearchNode, action: str, *, reward: float | None, improvement: float | None) -> None:
-    try:
-        from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
-
-        payload = {
-            "action": action,
-            "reward": reward,
-            "improvement": improvement,
-            "continue_improve": node.continue_improve,
-            "is_terminal": node.is_terminal,
-        }
-        log_pipeline_event(agent, "backpropagation_decision", node=node, payload=payload)
-        record_pipeline_node_action(agent, node, "backpropagation_decision", payload=payload)
-    except Exception:
-        pass

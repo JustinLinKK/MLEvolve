@@ -1,0 +1,22 @@
+version: 1
+keys:
+  tensor_core:
+    description: NVIDIA Tensor Core acceleration.
+  bf16_support:
+    description: Native or accelerated BF16 support.
+  fp16_support:
+    description: Native or accelerated FP16 support.
+  tf32_support:
+    description: TF32 acceleration support for FP32 matmul/convolution paths.
+  high_bandwidth_memory:
+    description: High-bandwidth accelerator memory.
+  cuda_capability_80:
+    description: CUDA compute capability 8.0 or compatible feature baseline.
+  cuda_capability_90:
+    description: CUDA compute capability 9.0 or compatible feature baseline.
+  cuda_capability_120:
+    description: CUDA compute capability 12.0 or compatible feature baseline.
+  mps:
+    description: NVIDIA Multi-Process Service support.
+  cuda_graphs:
+    description: CUDA graph capture/replay support.

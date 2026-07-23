@@ -8,19 +8,9 @@ from typing import Any
 from llm import compile_prompt_to_md
 from engine.search_node import SearchNode
 from utils.response import wrap_code
-from agents.hardware_context import (
-    apply_hardware_context_to_node,
-    get_hardware_context_for_stage,
-    hardware_context_instructions,
-    training_curve_feedback_section,
-)
 from agents.triggers import get_patience_counter
 from agents.prompts import (
     ROBUSTNESS_GENERALIZATION_STRATEGY,
-    apply_pipeline_decision_to_node,
-    build_pipeline_decision,
-    format_pipeline_decision_prompt_section,
-    pipeline_decision_instructions,
     prompt_resp_fmt,
     get_impl_guideline_from_agent,
 )
@@ -50,7 +40,7 @@ def _get_branch_trajectory_for_evolution(parent_node: SearchNode) -> str:
     return f"Your Past Evolution trajectory:\n{trajectory}"
 
 
-def run(agent, parent_node: SearchNode) -> SearchNode | None:
+def run(agent, parent_node: SearchNode) -> SearchNode:
     branch_trajectory = _get_branch_trajectory_for_evolution(parent_node)
 
     if "Insufficient evolution history" in branch_trajectory or "No evolution history" in branch_trajectory or "No branch trajectory" in branch_trajectory:
@@ -71,28 +61,6 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
         "Branch Evolution History": branch_trajectory,
         "Instructions": {},
     }
-    hardware_ctx = get_hardware_context_for_stage(agent, "evolution", parent_node=parent_node)
-    hardware_section = hardware_ctx.prompt_section
-    if hardware_section:
-        prompt["Hardware/Profile Optimization Context"] = hardware_section
-    curve_feedback_section = training_curve_feedback_section(parent_node)
-    if curve_feedback_section:
-        prompt["Training Curve Feedback"] = curve_feedback_section
-    pipeline_decision = build_pipeline_decision(
-        agent,
-        stage="evolution",
-        data_preview=agent.data_preview,
-        hardware_contexts=[hardware_ctx],
-        parent_pipeline_decision=getattr(parent_node, "pipeline_decision", None),
-        previous_code=parent_node.code,
-        execution_output=parent_node.term_out,
-        stage_context=branch_trajectory,
-    )
-    pipeline_decision_section = format_pipeline_decision_prompt_section(pipeline_decision)
-    prompt["Pipeline Decision"] = pipeline_decision
-    prompt["Pipeline Decision Contract"] = pipeline_decision_section
-    prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
-    prompt["Instructions"] |= pipeline_decision_instructions(pipeline_decision)
     prompt["Previous solution"] = {
         "Code": wrap_code(parent_node.code),
     }
@@ -229,20 +197,11 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
     if prompt.get("Memory", "").strip():
         memory_section = f"\n# Memory\nBelow is a record of previous improvement attempts and their outcomes:\n {prompt['Memory']}\n"
 
-    user_prompt = (
-        f"\n# Task description\n{prompt['Task description']}{memory_section}"
-        f"{hardware_section}{curve_feedback_section}{pipeline_decision_section}"
-        f"{prompt['Branch Evolution History']}\n\n{instructions}"
-    )
+    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}{prompt['Branch Evolution History']}\n\n{instructions}"
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nThe current solution uses the following code:\n{prompt['Previous solution']['Code']}\nIts output was:\n{output}\nBuilding on this and my evolution trajectory, I'll develop an improved approach."
     prompt_complete = build_chat_prompt_for_model(agent.acfg.code.model, introduction, user_prompt, assistant_prefix)
 
-    from_topk = getattr(parent_node, '_topk_triggered', False)
-    if not parent_node.add_expected_child_count(agent.scfg, for_topk=from_topk):
-        logger.info(f"Evolution child limit reached for node {parent_node.id}, skipping generation.")
-        if hasattr(parent_node, '_topk_triggered'):
-            parent_node._topk_triggered = False
-        return None
+    parent_node.add_expected_child_count()
 
     if agent.acfg.use_diff_mode:
         try:
@@ -254,10 +213,10 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
     else:
         plan, code = plan_and_code_query(agent, prompt_complete)
 
+    from_topk = getattr(parent_node, '_topk_triggered', False)
+
     new_node = SearchNode(plan=plan, code=code, parent=parent_node, stage="evolution",
                         local_best_node=parent_node.local_best_node, from_topk=from_topk)
-    apply_hardware_context_to_node(new_node, hardware_ctx)
-    apply_pipeline_decision_to_node(new_node, pipeline_decision)
     register_node(agent, new_node, prompt_complete, parent_node=parent_node)
 
     if hasattr(parent_node, '_topk_triggered'):
@@ -308,9 +267,6 @@ def _diff_evolution(agent, prompt_base, data_preview, parent_node):
         "previous_code": parent_node.code,
         "execution_output": parent_node.term_out if hasattr(parent_node, 'term_out') else "",
         "branch_evolution_history": branch_history,
-        "hardware_prompt_section": prompt_base.get("Hardware/Profile Optimization Context", ""),
-        "training_curve_feedback": prompt_base.get("Training Curve Feedback", ""),
-        "pipeline_decision_section": prompt_base.get("Pipeline Decision Contract", ""),
     }
 
     planning_result = run_planner(
@@ -348,13 +304,5 @@ def _diff_evolution(agent, prompt_base, data_preview, parent_node):
         execution_output=context["execution_output"],
         introduction=_EVOLUTION_DIFF_INTRODUCTION,
         extra_context=extra_context,
-        extra_user_sections="\n".join(
-            section
-            for section in (
-                context.get("hardware_prompt_section", ""),
-                context.get("pipeline_decision_section", ""),
-            )
-            if section
-        ),
         learning_guidance="Learn from evolution trajectory - use the evolution history to guide your changes. Build on successful patterns and avoid repeating failed approaches from the trajectory.",
     )

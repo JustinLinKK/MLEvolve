@@ -4,7 +4,6 @@ Provides stepwise code generation using multi-agent collaboration where speciali
 agents handle different stages of the ML pipeline:
   - data_processing_and_feature_engineering
   - model_design
-  - datatype_precision (hardware-aware mode only)
   - training_evaluation
 
 Main entry: stepwise_plan_and_code_query()
@@ -13,8 +12,7 @@ Main entry: stepwise_plan_and_code_query()
 from __future__ import annotations
 
 import logging
-import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Tuple, Dict, Any
 
 from llm import generate, compile_prompt_to_md
@@ -28,19 +26,6 @@ from agents.planner.base_planner import (
 
 logger = logging.getLogger("MLEvolve")
 
-STEP_LOGICAL_STAGE: Dict[str, str] = {
-    "data_processing_and_feature_engineering": "stage1_candidate_construction",
-    "model_design": "stage1_candidate_construction",
-    "datatype_precision": "stage2_datatype_precision",
-    "training_evaluation": "stage3_training_evaluation",
-}
-
-STEP_LOGICAL_STAGE_LABEL: Dict[str, str] = {
-    "stage1_candidate_construction": "Stage 1 candidate construction",
-    "stage2_datatype_precision": "Stage 2 datatype/precision",
-    "stage3_training_evaluation": "Stage 3 training/evaluation",
-}
-
 
 @dataclass
 class StepwiseContext:
@@ -48,81 +33,6 @@ class StepwiseContext:
     memory: str = ""
     previous_code: str = ""
     execution_output: str = ""
-    hardware_brief: str = ""
-    hardware_stage_sections: Dict[str, str] = field(default_factory=dict)
-    hardware_candidate: Dict[str, Any] = field(default_factory=dict)
-    hardware_context: Dict[str, Any] = field(default_factory=dict)
-    pipeline_decision: Dict[str, Any] = field(default_factory=dict)
-    pipeline_decision_section: str = ""
-    stage_receipts: List[Dict[str, Any]] = field(default_factory=list)
-    stage_note_board: List[Dict[str, Any]] = field(default_factory=list)
-    used_prompts: List[Dict[str, str]] = field(default_factory=list)
-
-    def hardware_section_for(self, step_name: str) -> str:
-        return self.hardware_stage_sections.get(step_name) or self.hardware_brief
-
-    def logical_stage_for(self, step_name: str) -> str:
-        return STEP_LOGICAL_STAGE.get(step_name, step_name)
-
-    def note_board_section(self, step_name: str) -> str:
-        lines = [
-            "# Cross-Stage Note Board",
-            "- Purpose: preserve the candidate intent across Stage 1, Stage 2, and Stage 3 so later stages optimize toward the same target.",
-        ]
-        if self.stage_note_board:
-            lines.append("- Notes so far:")
-            for item in self.stage_note_board[-8:]:
-                stage = item.get("stage") or "stage"
-                stage_group = STEP_LOGICAL_STAGE_LABEL.get(str(item.get("stage_group") or ""), item.get("stage_group") or "")
-                baseline_change = item.get("baseline_change") or "not recorded"
-                purpose = item.get("purpose") or "not recorded"
-                hardware_keys = item.get("hardware_keys") or []
-                key_text = ", ".join(str(key) for key in hardware_keys[:8]) if hardware_keys else "none"
-                prefix = f"{stage_group} / {stage}" if stage_group else str(stage)
-                lines.append(
-                    f"  - {prefix}: baseline_change={baseline_change}; purpose={purpose}; hardware_keys={key_text}"
-                )
-        else:
-            current_group = STEP_LOGICAL_STAGE_LABEL.get(self.logical_stage_for(step_name), step_name)
-            lines.append(f"- No prior notes yet. This step is part of {current_group}; write concise notes for later stages.")
-        return "\n".join(lines) + "\n"
-
-    def stage_receipt_section(self, step_name: str, previous_steps: List[Dict[str, Any]]) -> str:
-        lines = [
-            "# Previous Stage Receipt",
-            "- Purpose: pass task constraints, output/metric requirements, public variables, and stage decisions forward without repeating the original task text.",
-        ]
-        if self.stage_receipts:
-            lines.append("- Receipts so far:")
-            for item in self.stage_receipts[-8:]:
-                stage = item.get("stage") or "stage"
-                stage_group = STEP_LOGICAL_STAGE_LABEL.get(str(item.get("stage_group") or ""), item.get("stage_group") or "")
-                receipt = item.get("receipt") or "No receipt recorded."
-                prefix = f"{stage_group} / {stage}" if stage_group else str(stage)
-                lines.append(f"  - {prefix}: {receipt}")
-        elif previous_steps:
-            lines.append("- Receipts so far:")
-            for step in previous_steps[-8:]:
-                stage = step.get("name") or "stage"
-                stage_group = STEP_LOGICAL_STAGE_LABEL.get(self.logical_stage_for(str(stage)), self.logical_stage_for(str(stage)))
-                summary = _compact_receipt_text(_first_sentence(step.get("plan", "")) or "Prior stage completed.")
-                lines.append(f"  - {stage_group} / {stage}: {summary}")
-        else:
-            current_group = STEP_LOGICAL_STAGE_LABEL.get(self.logical_stage_for(step_name), step_name)
-            lines.append(f"- No prior receipt yet. This first step is part of {current_group}; include a Stage receipt for later stages.")
-        return "\n".join(lines) + "\n"
-
-    def hardware_section_for_merge(self) -> str:
-        sections: list[str] = []
-        for step_name in (
-            "model_design",
-            "datatype_precision",
-            "training_evaluation",
-        ):
-            section = self.hardware_stage_sections.get(step_name, "")
-            if section.strip() and section not in sections:
-                sections.append(section)
-        return "\n".join(sections) or self.hardware_brief
 
 
 @dataclass
@@ -156,7 +66,6 @@ class StepAgent:
             previous_module_code=previous_module_code,
             improvement_strategy=improvement_strategy,
         )
-        context.used_prompts.append({"name": self.name, "prompt": prompt})
 
         completion_text = None
         for _ in range(retries):
@@ -173,7 +82,7 @@ class StepAgent:
 
             logger.debug(f"Extraction retry for {self.name}...")
         logger.warning(f"Code extraction failed after retries for {self.name}")
-        return f"Code extraction failed for {self.name}: no valid Python code block was produced.", ""
+        return "", completion_text  # type: ignore
 
     def _build_prompt(
         self,
@@ -250,11 +159,7 @@ class StepAgent:
         prompt_instructions["Response format"] = (
             "Your response should be:\n"
             "1. A brief plan (2-3 sentences) describing what you will do in this step\n"
-            "2. A `Stage receipt:` block with 3-6 bullets. Carry forward the task goal, evaluation/output contract, "
-            "public variables produced or consumed, and this stage's decisions so the next agent can work without the original task text.\n"
-            "3. A `Note board:` block with 1-3 bullets. Each bullet must use this exact shape: "
-            "`- baseline_change: <what changed from the baseline or prior step> | purpose: <why this supports the candidate target> | hardware_keys: <comma-separated local feature keys or none>`\n"
-            "4. A single markdown code block (wrapped in ```) containing ONLY the code for this step\n"
+            "2. A single markdown code block (wrapped in ```) containing ONLY the code for this step\n"
             "IMPORTANT: Do NOT write code for other steps. Only write code for the current step."
         )
 
@@ -278,10 +183,6 @@ class StepAgent:
             "Task description": task_desc,
             "Data preview": data_preview_str,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
-            "Hardware/Profile Optimization Context": context.hardware_section_for(self.name),
-            "Pipeline Decision Contract": context.pipeline_decision_section,
-            "Previous Stage Receipt": context.stage_receipt_section(self.name, previous_steps),
-            "Cross-Stage Note Board": context.note_board_section(self.name),
             "Previous steps": prev_summary,
             "Current step": {
                 "Name": self.name,
@@ -343,25 +244,13 @@ class StepAgent:
             else:
                 memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
 
-        hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
-        pipeline_decision_section = prompt.get("Pipeline Decision Contract", "")
-        stage_receipt_section = prompt.get("Previous Stage Receipt", "")
-        note_board_section = prompt.get("Cross-Stage Note Board", "")
-        task_description_section = ""
-        if not previous_steps:
-            task_description_section = f"\n# Task description\n{prompt['Task description']}\n\n"
-
         previous_solution_section = ""
         if context.stage == "improve" and "Previous solution" in prompt:
             previous_solution_section = f"\n# Previous solution\n{prompt['Previous solution']['Code']}\n"
 
         user_prompt = (
-            f"{task_description_section}"
+            f"\n# Task description\n{prompt['Task description']}\n\n"
             f"{memory_section}\n"
-            f"{hardware_section}\n"
-            f"{pipeline_decision_section}\n"
-            f"{stage_receipt_section}\n"
-            f"{note_board_section}\n"
             f"{previous_solution_section}"
             f"# Previous steps\n{prompt['Previous steps']}\n\n"
             f"# Current step: {prompt['Current step']['Name']}\n{prompt['Current step']['Description']}\n\n"
@@ -391,7 +280,6 @@ class MetaAgent:
             agent_instance=agent_instance,
             context=context,
         )
-        context.used_prompts.append({"name": "merge", "prompt": prompt})
 
         completion_text = None
         for _ in range(retries):
@@ -408,7 +296,7 @@ class MetaAgent:
 
             logger.debug("Extraction retry for MetaAgent merge...")
         logger.warning("Code extraction failed after retries for MetaAgent merge")
-        return "Code extraction failed during merge: no valid Python code block was produced.", ""
+        return "", completion_text 
 
     def _build_merge_prompt(
         self,
@@ -442,43 +330,23 @@ class MetaAgent:
             "There should be no additional headings or text in your response."
         )
 
-        has_datatype_step = any(result.get("name") == "datatype_precision" for result in step_results)
-        execution_flow = (
-            "data processing & feature engineering -> model design -> datatype/precision policy -> training & evaluation"
-            if has_datatype_step
-            else "data processing & feature engineering -> model design -> training & evaluation"
-        )
-        conflict_rule = (
-            "- Resolve conflicts between steps by following the earlier step's design: model_design defines the model/loss/interface, datatype_precision defines precision policy and any precision-required model adapters, and training_evaluation consumes both."
-            if has_datatype_step
-            else "- Resolve conflicts between steps by following the earlier step's design (e.g., model_design defines the model, training_evaluation trains it)"
-        )
-
         prompt_instructions["Merge guidelines"] = [
             "- Combine all code sections into a single, runnable Python script",
             "- CRITICAL: You are a MERGER, not a designer. Faithfully integrate the code from all steps. Do NOT introduce new models, algorithms, or approaches that were not in the original steps.",
             "- Ensure variable names are consistent across steps",
             "- Remove duplicate imports and definitions",
-            conflict_rule,
-            f"- Ensure the execution flow is logical: {execution_flow}",
+            "- Resolve conflicts between steps by following the earlier step's design (e.g., model_design defines the model, training_evaluation trains it)",
+            "- Ensure the execution flow is logical: data processing & feature engineering -> model design -> training & evaluation",
             "- Make sure the final code prints validation metric (must match task's Evaluation section) and saves submission.csv",
             "- The code should be a single-file Python program that can be executed as-is",
-            '- Prefer a `main()` function guarded by `if __name__ == "__main__": main()` for the executable portion, especially if PyTorch DataLoader workers or multiprocessing may be used.',
-            "- Preserve input safety: never create or extract files under `./input`; all generated, cached, or extracted files belong under `./working`.",
             "- Assume previous steps have NOT been executed; do not skip execution steps and only read files or outputs.",
             "- All parts must work together seamlessly",
-            "- Use hardware context only to preserve compatible precision, precision-required model adapters, batch, dataloader, and runtime choices. Do not redesign the selected model family, loss/interface, or optimizer during merge.",
-            "- Never emit merge-conflict markers such as <<<<<<<, =======, or >>>>>>>. Resolve conflicting snippets into ordinary Python before returning the final code.",
         ]
 
         prompt: Dict[str, Any] = {
             "Introduction": introduction,
             "Task description": task_desc,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
-            "Hardware/Profile Optimization Context": context.hardware_section_for_merge(),
-            "Pipeline Decision Contract": context.pipeline_decision_section,
-            "Previous Stage Receipt": context.stage_receipt_section("merge", step_results),
-            "Cross-Stage Note Board": context.note_board_section("merge"),
             "Data preview": data_preview_str,
             "Step results": "".join(steps_summary),
             "Instructions": prompt_instructions,
@@ -501,13 +369,6 @@ class MetaAgent:
                 memory_section = f"\n# Memory\nBelow is a record of previous improvement attempts and their outcomes:\n {prompt['Memory']}\n"
             else:
                 memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
-        hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
-        pipeline_decision_section = prompt.get("Pipeline Decision Contract", "")
-        stage_receipt_section = prompt.get("Previous Stage Receipt", "")
-        note_board_section = prompt.get("Cross-Stage Note Board", "")
-        task_description_section = ""
-        if prompt.get("Task description", "").strip():
-            task_description_section = f"\n# Task description\n{prompt['Task description']}\n\n"
 
         okay_text = "Let me approach this systematically.\nFirst, I'll examine the dataset:"
 
@@ -528,12 +389,8 @@ class MetaAgent:
             assistant_suffix = ""
 
         user_prompt = (
-            f"{task_description_section}"
+            f"\n# Task description\n{prompt['Task description']}\n\n"
             f"{memory_section}\n\n"
-            f"{hardware_section}\n"
-            f"{pipeline_decision_section}\n"
-            f"{stage_receipt_section}\n"
-            f"{note_board_section}\n"
             f"# Step results\n{prompt['Step results']}\n\n"
             f"{instructions}"
         )
@@ -547,431 +404,55 @@ class MetaAgent:
         return "\n".join(code_parts)
 
 
-def _hardware_reasoning_enabled(agent_instance) -> bool:
-    cfg = getattr(agent_instance, "cfg", None)
-    experiment = getattr(cfg, "experiment", None)
-    mode = str(getattr(experiment, "mode", "") or "").strip().lower().replace("-", "_")
-    if mode in {"origin", "baseline"}:
-        return False
-    acfg = getattr(agent_instance, "acfg", None)
-    return bool(getattr(acfg, "hardware_context_enabled", True))
-
-
-def create_default_step_agents(
-    *,
-    hardware_aware: bool = True,
-    pipeline_decision_aware: bool = True,
-) -> List[StepAgent]:
-    data_guidelines = [
-        "Your responsibility: Stage 1 candidate construction. Load data from `./input`, clean, create features (preprocessing, encoding, augmentation), and split dataset into train/validation/test.",
-        "Input layout safety: trust the Data preview. `./input` may contain files, directories, or zip archives; check `Path.is_dir()` / `Path.is_file()` before listing, globbing, splitting, or indexing paths.",
-        "Archive handling: if a needed split is in a `.zip` file, extract it with Python `zipfile` into `./working/<archive_name>/`, then inspect the extracted layout before globbing. Archives may store files directly at the extraction root or inside a nested folder, so use `.exists()` plus `rglob`/fallback checks instead of assuming `./working/<archive_name>/<archive_name>/` or any fixed child directory. Never create, overwrite, unzip, or cache files inside `./input`.",
-        "Stage 1 flow: hardware context lookup, data processing, and model design together define this round's candidate before datatype and training stages refine execution details.",
-        "CRITICAL: This step MUST include BOTH data loading AND feature engineering. Do NOT only load the raw data. You must actively create, transform, and enhance features to improve model performance.",
-        "IMPORTANT: Apply feature engineering techniques such as feature scaling, encoding, transformation, and data augmentation methods appropriate for the task. Explore and implement feature engineering strategies that can enhance the model's ability to learn from the data.",
-        "CRITICAL: Do NOT build models, write training code, choose optimizer, choose batch size, choose AMP/dtype policy, or perform evaluation. Focus ONLY on data preparation and feature engineering.",
-        "Note board: record what changed from the baseline data path and why, so model_design can complete the Stage 1 candidate target.",
-    ]
-    model_guidelines = [
-        "Your responsibility: Design the model architecture or choose reference pretrained model, loss function, and optimizer based on the task and the features from previous steps.",
-        "CRITICAL: Do NOT write the training loop, data processing, or feature engineering code. Only define the model, criterion, and optimizer objects.",
-        "IMPORTANT: Consider the evaluation metric and output contract carried forward in the Previous Stage Receipt or Pipeline Decision Contract when designing the model. The model output format should be compatible with the required evaluation metric calculation.",
-        "IMPORTANT: When designing custom model architectures, include appropriate regularization components (e.g., Dropout layers) to prevent overfitting.",
-    ]
-    training_guidelines = [
-        "Your responsibility: Write the training loop that uses the data, features, model, loss function, and optimizer from previous steps. Include validation, metric tracking, save the best model. Then load the best model, calculate validation metric (must match task's Evaluation section), perform test inference, and save `submission.csv` to `./submission/` directory.",
-        "CRITICAL: Assume that all previous code steps have already been executed. You should start directly from the training step. Do NOT redefine or reload the data, features, model, loss function, or optimizer. These components are already defined and available from the previous steps.",
-        "CRITICAL: You MUST use the variables and objects defined in previous steps AS-IS. Do NOT replace, redesign, or substitute them with different approaches. Your ONLY job is to write the training/evaluation code for what was already defined — not to introduce new models or pipelines.",
-        "IMPORTANT: Your code should assume the data preprocessing, feature engineering, and model design steps have been completed. Simply use the existing variables without copying them.",
-        "CRITICAL: Validation metric computation must use the same prediction method as test inference, using training data only as reference, to avoid data leakage and ensure the metric reflects true generalization performance.",
-        "CRITICAL CONSISTENCY REQUIREMENT: Ensure that validation and test inference use IDENTICAL processing logic. Any differences in how validation and test data are handled (such as post-processing, reconstruction, or formatting) can cause large performance gaps between validation and test sets. Maintain consistency across all data processing steps for both validation and test phases.",
-        "CRITICAL: You MUST actively prevent overfitting. Do NOT only focus on validation set metrics, as this can easily cause the model to overfit. You can consider to use standard anti-overfitting techniques as default modeling strategies, including:",
-        "  - Data augmentation (when applicable to the task)",
-        "  - Early stopping (monitor validation metric and stop when it stops improving)",
-        "  - Regularization (weight decay, L1/L2 regularization)",
-        "  - Dropout (if using neural networks)",
-        "  - Other appropriate regularization techniques for the specific model type",
-        "CRITICAL: You MUST implement the exact evaluation metric carried forward in the Previous Stage Receipt or Pipeline Decision Contract. Preserve the exact formula, calculation steps, and aggregation method described there.",
-        "CRITICAL: You MUST NOT use dummy, simplified, or approximate metrics. The validation metric must be a REAL and COMPLETE implementation of the task's evaluation metric as described in the Evaluation section, not an approximation, placeholder, or simplified version.",
-        "CRITICAL: If the Evaluation section specifies multiple thresholds, components, or aggregation steps, you MUST implement ALL of them. Do not skip any required calculation steps or use shortcuts.",
-        "CRITICAL: The metric calculation must match the Evaluation section exactly - use the same matching criteria, the same formula, the same thresholds (if any), and the same aggregation method as specified.",
-        "CRITICAL: The final line must be: `print(f'Final Validation Score: {{score}}')`. This is required for the score parser.",
-    ]
-    datatype_guidelines: List[str] = []
-    if hardware_aware:
-        data_guidelines.append(
-            "Hardware-aware data pipeline: when using GPU training, keep input resolution/sequence length configurable, use DataLoader settings compatible with the hardware brief, and prefer pin_memory/non-blocking transfers when tensors move to CUDA."
-        )
-        hardware_node_rule = (
-            "Hardware graph contract: the stage-specific hardware node response is already attached in the Hardware/Profile Optimization Context. "
-            "Do not query the hardware node again; query local feature-node details only for selected feature keys when deeper guidance is needed, and never fetch external URLs."
-        )
-        data_guidelines.append(hardware_node_rule)
-        model_guidelines = [
-            "Your responsibility: Stage 1 hardware-aware candidate construction. Complete the candidate target by choosing the model architecture or available pretrained model family, loss function, model output interface, and any model-local regularization needed for the task.",
-            "Stage 1 flow: consume the Stage 1 hardware context plus the data_processing notes; this model step finalizes the candidate that Stage 2 and Stage 3 must preserve.",
-            "CRITICAL: Do NOT write the training loop, data processing, feature engineering, optimizer, scheduler, batch size, epoch count, learning rate, dataloader worker settings, gradient accumulation, checkpoint cadence, or precision policy.",
-            "CRITICAL: Do NOT choose AMP, bf16, fp16, fp32, TF32, GradScaler, autocast, or tensor dtype settings in this step. The datatype_precision step owns those decisions.",
-            "IMPORTANT: Consider the evaluation metric and output contract carried forward in the Previous Stage Receipt or Pipeline Decision Contract when designing the model. The model output format should be compatible with the required evaluation metric calculation.",
-            "Hardware-aware model design: use the Hardware-Aware Model Design Brief to compare model families before choosing an architecture. Optimize for the task metric first, while treating lower training time and higher GPU utilization as persistent objectives.",
-            "Use the brief's compact hardware node, available feature keys, and selected feature details only when they are relevant to architecture, layer choice, tensor-core-friendly dimensions, or model-family feasibility.",
-            hardware_node_rule,
-            "Note board: Stage 1 notes are mandatory. Record what changed from the baseline model/data design and the purpose, because later stages must align precision and training choices to this target.",
-            "Do not invent pretrained checkpoint paths, Kaggle input directories, torch hub directories, or dummy model weights to satisfy hardware advice. If a model source is not explicitly available, choose an available baseline-compatible model family.",
-        ]
-        datatype_guidelines = [
-            "Your responsibility: Stage 2 hardware-aware datatype and tensor precision policy. Define reusable precision settings such as DEVICE, USE_AMP, AMP_DTYPE, USE_TF32, GradScaler behavior, Transformer Engine recipes/autocast helpers, precision-required model adapters, and full-precision fallback behavior.",
-            "Read the Cross-Stage Note Board first and preserve the Stage 1 candidate target; precision choices and adapters should support that target instead of changing the model/data design.",
-            "CRITICAL: Do NOT redesign model family, loss function, model output interface, data features, preprocessing, optimizer, scheduler, batch size, epochs, learning rate, dataloader workers, gradient accumulation, checkpoint cadence, validation metric, or submission logic.",
-            "Allowed precision-required model adaptations: wrap or replace compatible modules with Transformer Engine layers, add precision shape padding/config hooks, define TE FP8/MXFP8/NVFP4 autocast recipes, or keep selected layers in higher precision. These must preserve the Stage 1 model family, loss, data features, and output interface.",
-            "Use the Hardware/Profile Optimization Context to choose among fp32, tf32, fp16, bf16, TE FP8/MXFP8/NVFP4, or disabled AMP. Prefer low-precision TE modes only when hardware, framework/package availability, and model structure evidence support them; keep fp32 fallback for fragile losses or unsupported devices.",
-            hardware_node_rule,
-            "Note board: record how the precision policy and any precision-required adapter support the Stage 1 target and which feature keys drove the choice.",
-            "Keep precision configurable and backend-compatible. Do not hardcode scheduler backend choices, CUDA process modes, CUDA streams, or MPS behavior.",
-            "Expose simple variables/utilities and any adapted model object that the training_evaluation step can consume directly, and include lightweight logging of selected precision without batch-level noise.",
-        ]
-        training_guidelines = [
-            "Your responsibility: Stage 3 hardware-aware training hyperparameter optimization. Write the training loop using the data/features, model or precision-adapted model, loss/interface, and datatype_precision variables from previous steps. Define optimizer, learning rate, weight decay, scheduler, physical batch size, gradient accumulation, dataloader workers, checkpoint cadence, validation, test inference, and `submission.csv`.",
-            "Read the Cross-Stage Note Board first and align optimizer, batch, dataloader, runtime, and fallback choices with the Stage 1 candidate target and Stage 2 precision policy.",
-            "CRITICAL: Assume all previous code steps have already been executed. Do NOT redefine or reload data/features, redesign the model/loss, undo precision-required model adapters, or replace the datatype_precision policy. Consume those variables and utilities AS-IS.",
-            "CRITICAL: Own training hyperparameters in this step: batch size, effective batch size, accumulation steps, epochs, learning rate, weight decay, scheduler, early stopping, dataloader workers, pin_memory, persistent_workers, checkpointing, and runtime logging.",
-            "CRITICAL: Use the datatype_precision variables/utilities and any precision-adapted model object for autocast, GradScaler, TF32, TE recipes, and fallback handling. Do NOT choose a different dtype policy unless the previous precision settings are impossible to use, and then keep a safe fallback.",
-            hardware_node_rule,
-            "Note board: record how training/runtime choices preserve the Stage 1 target and use the Stage 2 precision policy.",
-            "CRITICAL: Validation metric computation must use the same prediction method as test inference, using training data only as reference, to avoid data leakage and ensure the metric reflects true generalization performance.",
-            "CRITICAL CONSISTENCY REQUIREMENT: Ensure that validation and test inference use IDENTICAL processing logic. Any differences in how validation and test data are handled can cause large performance gaps between validation and test sets.",
-            "CRITICAL: You MUST actively prevent overfitting. Use appropriate regularization, early stopping, and validation discipline without overfitting to the validation set.",
-            "CRITICAL: You MUST implement the exact evaluation metric carried forward in the Previous Stage Receipt or Pipeline Decision Contract. Do not use dummy, simplified, or approximate metrics.",
-            "CRITICAL: The final line must be: `print(f'Final Validation Score: {score}')`. This is required for the score parser.",
-        ]
-        training_guidelines.extend(
-            [
-                "Hardware-aware training: optimize runtime at fixed modeling intent. Do NOT increase epochs, folds, model size, input resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization unless the user explicitly asks for score improvement.",
-                "Allowed hardware optimizations in this stage: physical batch size, gradient accumulation while preserving effective batch size, dataloader workers, pin_memory, persistent_workers, channels_last, safe torch.compile, checkpointing, and runtime logging. Precision choices and precision-required model adapters must consume the datatype_precision policy.",
-                "Scheduler-aware training: adapt to the scheduler backend config in the Hardware/Profile Optimization Context. Do not hardcode CUDA process, CUDA stream, MPS, or backend selection in the script; keep code backend-compatible and configurable.",
-                "Hardware-aware training: use the hardware/profile context to choose physical batch size, accumulation, checkpoint cadence, and dataloader settings. If choosing a riskier setting for score reasons, include an explicit fallback path for OOM/timeout such as smaller batch size, accumulation, lower resolution, fewer epochs, or checkpoint resume.",
-                "When feasible, log resolved batch size, selected precision, elapsed time, throughput, and peak CUDA memory so later scheduler graph evidence can learn from this run.",
-                "Mandatory adaptive scheduler contract: import ElasticTrainingSession from localml_scheduler.elastic; create it with from_env(); use session.make_dataloader for the training loader; register model/optimizer/scheduler/scaler state; restore_if_present before training; and call optimizer_step_completed after every complete optimizer step.",
-            ]
-        )
-    if pipeline_decision_aware:
-        data_guidelines.extend(
-            [
-                "Pipeline decision: consume `datatype.modality`, `datatype.target_type`, and `datatype.shape_constraints` before choosing preprocessing or feature engineering.",
-                "Pipeline decision: use `tuning.dataloader_policy` only for data loading mechanics; do not choose the model family or optimizer in this step.",
-            ]
-        )
-        if hardware_aware:
-            model_guidelines.extend(
-                [
-                    "Pipeline decision: consume `datatype`, `model`, and `optimizer.loss` to define the model interface and criterion only; leave optimizer, scheduler, precision, and batch policy to later hardware-aware stages.",
-                    "Pipeline decision: do not use unavailable weights, packages, or hardware-only tricks to justify a model family.",
-                ]
-            )
-            datatype_guidelines.extend(
-                [
-                    "Pipeline decision: consume `tuning.precision_policy`, `tuning.precision_model_adaptation`, `evidence`, and the Hardware/Profile Optimization Context to define dtype, AMP/TF32, GradScaler, TE recipes/autocast, precision-required model adapters, and precision fallback behavior.",
-                    "Pipeline decision: do not change model family, loss, task output interface, optimizer, scheduler, dataloader policy, batch size, or validation/submission behavior in this step.",
-                ]
-            )
-            training_guidelines.extend(
-                [
-                    "Pipeline decision: consume `optimizer.optimizer`, `optimizer.scheduler`, `tuning.batch_size_policy`, `tuning.dataloader_policy`, `tuning.fallbacks`, and `evidence` for training, validation, checkpointing, submission generation, and runtime logging.",
-                    "Pipeline decision: when evidence is missing, implement the recorded safe fallbacks rather than inventing hardware claims.",
-                ]
-            )
-        else:
-            model_guidelines.extend(
-                [
-                    "Pipeline decision: consume `datatype`, `model`, and `optimizer.loss`/`optimizer.optimizer` to define only the model, criterion, and optimizer.",
-                    "Pipeline decision: do not use unavailable weights, packages, or hardware-only tricks to justify a model family.",
-                ]
-            )
-            training_guidelines.extend(
-                [
-                    "Pipeline decision: consume `optimizer`, `tuning`, and `evidence` for training, validation, checkpointing, submission generation, and runtime logging.",
-                    "Pipeline decision: when evidence is missing, implement the recorded safe fallbacks rather than inventing hardware claims.",
-                ]
-            )
-    step_agents = [
+def create_default_step_agents() -> List[StepAgent]:
+    return [
         StepAgent(
             name="data_processing_and_feature_engineering",
             introduction="You are a Data Preparation Specialist responsible for data loading, cleaning, and feature engineering.",
             description="Load data from `./input` directory, perform cleaning, feature engineering, and create train/validation/test splits.",
-            guidelines=data_guidelines,
+            guidelines=[
+                "Your responsibility: Load data from `./input`, clean, create features (preprocessing, encoding, augmentation), and split dataset into train/validation/test.",
+                "CRITICAL: This step MUST include BOTH data loading AND feature engineering. Do NOT only load the raw data. You must actively create, transform, and enhance features to improve model performance.",
+                "IMPORTANT: Apply feature engineering techniques such as feature scaling, encoding, transformation, and data augmentation methods appropriate for the task. Explore and implement feature engineering strategies that can enhance the model's ability to learn from the data.",
+                "CRITICAL: Do NOT build models, write training code, or perform evaluation. Focus ONLY on data preparation and feature engineering.",
+            ],
         ),
         StepAgent(
             name="model_design",
-            introduction="You are a Model Architect responsible for designing the model architecture, loss function, and output interface.",
-            description="Design the model architecture (including pretrained models), loss function, and output interface.",
-            guidelines=model_guidelines,
+            introduction="You are a Model Architect responsible for designing the model architecture, loss function, and optimizer.",
+            description="Design the model architecture (including pretrained models), and define the loss function and optimizer.",
+            guidelines=[
+                "Your responsibility: Design the model architecture or choose reference pretrained model, loss function, and optimizer based on the task and the features from previous steps.",
+                "CRITICAL: Do NOT write the training loop, data processing, or feature engineering code. Only define the model, criterion, and optimizer objects.",
+                "IMPORTANT: Consider the task's evaluation metric (from the task description's Evaluation section) when designing the model. The model output format should be compatible with the required evaluation metric calculation.",
+                "IMPORTANT: When designing custom model architectures, include appropriate regularization components (e.g., Dropout layers) to prevent overfitting.",
+            ],
         ),
-    ]
-    if hardware_aware:
-        step_agents.append(
-            StepAgent(
-                name="datatype_precision",
-                introduction="You are a Hardware Precision Specialist responsible for tensor datatype and mixed-precision policy.",
-                description="Define device, tensor dtype, AMP/autocast, TF32, GradScaler, fallback, and precision logging utilities.",
-                guidelines=datatype_guidelines,
-            )
-        )
-    step_agents.append(
         StepAgent(
             name="training_evaluation",
             introduction="You are a Training and Evaluation Expert responsible for implementing training, validation, and submission generation.",
             description="Implement the training loop, validation, metric tracking, model saving, and generate submission file.",
-            guidelines=training_guidelines,
+            guidelines=[
+                "Your responsibility: Write the training loop that uses the data, features, model, loss function, and optimizer from previous steps. Include validation, metric tracking, save the best model. Then load the best model, calculate validation metric (must match task's Evaluation section), perform test inference, and save `submission.csv` to `./submission/` directory.",
+                "CRITICAL: Assume that all previous code steps have already been executed. You should start directly from the training step. Do NOT redefine or reload the data, features, model, loss function, or optimizer. These components are already defined and available from the previous steps.",
+                "CRITICAL: You MUST use the variables and objects defined in previous steps AS-IS. Do NOT replace, redesign, or substitute them with different approaches. Your ONLY job is to write the training/evaluation code for what was already defined — not to introduce new models or pipelines.",
+                "IMPORTANT: Your code should assume the data preprocessing, feature engineering, and model design steps have been completed. Simply use the existing variables without copying them.",
+                "CRITICAL: Validation metric computation must use the same prediction method as test inference, using training data only as reference, to avoid data leakage and ensure the metric reflects true generalization performance.",
+                "CRITICAL CONSISTENCY REQUIREMENT: Ensure that validation and test inference use IDENTICAL processing logic. Any differences in how validation and test data are handled (such as post-processing, reconstruction, or formatting) can cause large performance gaps between validation and test sets. Maintain consistency across all data processing steps for both validation and test phases.",
+                "CRITICAL: You MUST actively prevent overfitting. Do NOT only focus on validation set metrics, as this can easily cause the model to overfit. You can consider to use standard anti-overfitting techniques as default modeling strategies, including:",
+                "  - Data augmentation (when applicable to the task)",
+                "  - Early stopping (monitor validation metric and stop when it stops improving)",
+                "  - Regularization (weight decay, L1/L2 regularization)",
+                "  - Dropout (if using neural networks)",
+                "  - Other appropriate regularization techniques for the specific model type",
+                "CRITICAL: You MUST implement the exact evaluation metric as specified in the task description's 'Evaluation' section. Read the Evaluation section carefully and implement it precisely according to the exact formula, calculation steps, and aggregation method described.",
+                "CRITICAL: You MUST NOT use dummy, simplified, or approximate metrics. The validation metric must be a REAL and COMPLETE implementation of the task's evaluation metric as described in the Evaluation section, not an approximation, placeholder, or simplified version.",
+                "CRITICAL: If the Evaluation section specifies multiple thresholds, components, or aggregation steps, you MUST implement ALL of them. Do not skip any required calculation steps or use shortcuts.",
+                "CRITICAL: The metric calculation must match the Evaluation section exactly - use the same matching criteria, the same formula, the same thresholds (if any), and the same aggregation method as specified.",
+                "CRITICAL: The final line must be: `print(f'Final Validation Score: {{score}}')`. This is required for the score parser.",
+            ],
         ),
-    )
-    return step_agents
-
-
-def _build_stepwise_metadata(
-    *,
-    step_results: List[Dict[str, str]],
-    context: StepwiseContext,
-    hardware_aware: bool,
-) -> Dict[str, Any]:
-    decisions = []
-    for result in step_results:
-        step_name = result.get("name", "")
-        hardware_section = context.hardware_section_for(step_name)
-        decisions.append(
-            {
-                "stage": step_name,
-                "plan": result.get("plan", ""),
-                "code_chars": len(result.get("code") or ""),
-                "hardware_context_used": bool(hardware_section.strip()),
-                "stage_group": STEP_LOGICAL_STAGE.get(step_name, step_name),
-                "stage_notes": list(result.get("stage_notes") or []),
-            }
-        )
-    return {
-        "stage": context.stage,
-        "hardware_aware": hardware_aware,
-        "step_order": [result.get("name", "") for result in step_results],
-        "decisions": decisions,
-        "hardware_candidate": dict(context.hardware_candidate or {}),
-        "hardware_context_keys": sorted((context.hardware_context or {}).keys()),
-        "stage_receipts": list(context.stage_receipts or []),
-        "stage_note_board": list(context.stage_note_board or []),
-    }
-
-
-def _extract_stage_receipt(
-    *,
-    step_name: str,
-    plan_text: str,
-    code: str,
-    context: StepwiseContext,
-) -> Dict[str, Any] | None:
-    receipt = _stage_receipt_block_text(plan_text)
-    if not receipt:
-        receipt = _fallback_stage_receipt(step_name=step_name, plan_text=plan_text, code=code)
-    if not receipt:
-        return None
-    return {
-        "stage": step_name,
-        "stage_group": context.logical_stage_for(step_name),
-        "receipt": _compact_receipt_text(receipt),
-    }
-
-
-def _stage_receipt_block_text(plan_text: str) -> str:
-    lines = str(plan_text or "").splitlines()
-    collecting = False
-    block: List[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if re.match(r"^(?:\d+\.\s*)?(?:#{1,6}\s*)?(?:stage\s+)?receipt\s*:?\s*$", stripped, flags=re.IGNORECASE):
-            collecting = True
-            continue
-        if not collecting:
-            continue
-        if stripped.startswith("```"):
-            break
-        if re.match(r"^(?:\d+\.\s*)?(?:#{1,6}\s*)?note board\s*:?\s*$", stripped, flags=re.IGNORECASE):
-            break
-        if re.match(r"^#{1,6}\s+\S+", stripped):
-            break
-        if stripped:
-            block.append(stripped)
-        elif block:
-            break
-    return " ".join(block).strip()
-
-
-def _fallback_stage_receipt(*, step_name: str, plan_text: str, code: str) -> str:
-    summary = _first_sentence(plan_text)
-    variables = _infer_public_names_from_code(code)
-    parts = []
-    if summary:
-        parts.append(f"summary: {summary}")
-    if variables:
-        parts.append(f"public_variables: {', '.join(variables[:12])}")
-    if not parts:
-        return ""
-    return " | ".join(parts)
-
-
-def _infer_public_names_from_code(code: str) -> List[str]:
-    names: List[str] = []
-    patterns = (
-        r"(?m)^([A-Z][A-Z0-9_]{1,60})\s*=",
-        r"(?m)^([a-zA-Z_][a-zA-Z0-9_]{1,60})\s*=",
-        r"(?m)^def\s+([a-zA-Z_][a-zA-Z0-9_]{1,60})\s*\(",
-        r"(?m)^class\s+([a-zA-Z_][a-zA-Z0-9_]{1,60})\s*[:(]",
-    )
-    for pattern in patterns:
-        for match in re.finditer(pattern, str(code or "")):
-            name = match.group(1)
-            if name.startswith("_"):
-                continue
-            if name not in names:
-                names.append(name)
-            if len(names) >= 16:
-                return names
-    return names
-
-
-def _compact_receipt_text(text: str, *, limit: int = 900) -> str:
-    cleaned = re.sub(r"https?://\S+", "", str(text or "").strip())
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: max(0, limit - 3)].rstrip() + "..."
-
-
-def _extract_stage_note_board(
-    *,
-    step_name: str,
-    plan_text: str,
-    code: str,
-    context: StepwiseContext,
-) -> List[Dict[str, Any]]:
-    block_lines = _note_board_block_lines(plan_text)
-    entries: List[Dict[str, Any]] = []
-    for line in block_lines[:3]:
-        parsed = _parse_note_board_line(line)
-        if not parsed:
-            continue
-        parsed["stage"] = step_name
-        parsed["stage_group"] = context.logical_stage_for(step_name)
-        entries.append(parsed)
-    if entries:
-        return entries
-    fallback = _fallback_stage_note(step_name=step_name, plan_text=plan_text, code=code, context=context)
-    return [fallback] if fallback else []
-
-
-def _note_board_block_lines(plan_text: str) -> List[str]:
-    lines = str(plan_text or "").splitlines()
-    collecting = False
-    block: List[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if re.match(r"^(?:\d+\.\s*)?(?:#{1,6}\s*)?note board\s*:?\s*$", stripped, flags=re.IGNORECASE):
-            collecting = True
-            continue
-        if not collecting:
-            continue
-        if re.match(r"^#{1,6}\s+\S+", stripped) and "note board" not in stripped.lower():
-            break
-        match = re.match(r"^[-*]\s+(.*)$", stripped)
-        if match:
-            block.append(match.group(1).strip())
-        elif stripped and block:
-            break
-    return block
-
-
-def _parse_note_board_line(line: str) -> Dict[str, Any]:
-    parts: Dict[str, str] = {}
-    for chunk in re.split(r"\s+\|\s+", line):
-        if ":" not in chunk:
-            continue
-        key, value = chunk.split(":", 1)
-        normalized_key = key.strip().lower().replace(" ", "_")
-        parts[normalized_key] = value.strip()
-    baseline_change = parts.get("baseline_change") or parts.get("change") or ""
-    purpose = parts.get("purpose") or parts.get("why") or ""
-    hardware_keys = _parse_note_hardware_keys(parts.get("hardware_keys") or parts.get("feature_keys") or "")
-    if not baseline_change and not purpose:
-        baseline_change = line.strip()
-    return {
-        "baseline_change": _compact_note_text(baseline_change),
-        "purpose": _compact_note_text(purpose),
-        "hardware_keys": hardware_keys,
-    }
-
-
-def _parse_note_hardware_keys(value: str) -> List[str]:
-    text = str(value or "").strip()
-    if not text or text.lower() in {"none", "n/a", "na", "-"}:
-        return []
-    text = text.strip("[]()")
-    keys: List[str] = []
-    for item in re.split(r"[,;]", text):
-        key = item.strip().strip("`'\"")
-        if key and key.lower() not in {"none", "n/a", "na"} and key not in keys:
-            keys.append(key)
-    return keys[:8]
-
-
-def _fallback_stage_note(
-    *,
-    step_name: str,
-    plan_text: str,
-    code: str,
-    context: StepwiseContext,
-) -> Dict[str, Any] | None:
-    summary = _first_sentence(plan_text) or "Generated this stage's implementation."
-    if not summary and not code:
-        return None
-    return {
-        "stage": step_name,
-        "stage_group": context.logical_stage_for(step_name),
-        "baseline_change": _compact_note_text(summary),
-        "purpose": _default_note_purpose(step_name),
-        "hardware_keys": _infer_hardware_keys_from_text(plan_text)[:8],
-    }
-
-
-def _first_sentence(text: str) -> str:
-    cleaned = re.sub(r"(?is)(?:\d+\.\s*)?(?:#{1,6}\s*)?note board\s*:.*$", "", str(text or "")).strip()
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    if not cleaned:
-        return ""
-    match = re.search(r"(.+?[.!?])(?:\s|$)", cleaned)
-    return (match.group(1) if match else cleaned[:180]).strip()
-
-
-def _default_note_purpose(step_name: str) -> str:
-    if step_name in {"data_processing_and_feature_engineering", "model_design"}:
-        return "Define the Stage 1 candidate target for later precision and training stages."
-    if step_name == "datatype_precision":
-        return "Support the Stage 1 candidate target with a compatible precision policy."
-    if step_name == "training_evaluation":
-        return "Train and evaluate the Stage 1 candidate using the selected precision policy."
-    return "Preserve cross-stage implementation intent."
-
-
-def _infer_hardware_keys_from_text(text: str) -> List[str]:
-    keys: List[str] = []
-    for match in re.finditer(r"`([a-zA-Z0-9][a-zA-Z0-9_:-]{1,80})`", str(text or "")):
-        key = match.group(1)
-        if "_" in key and key not in keys:
-            keys.append(key)
-    return keys
-
-
-def _compact_note_text(text: str, *, limit: int = 220) -> str:
-    cleaned = re.sub(r"https?://\S+", "", str(text or "").strip())
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: max(0, limit - 3)].rstrip() + "..."
+    ]
 
 
 def stepwise_plan_and_code_query(
@@ -979,8 +460,7 @@ def stepwise_plan_and_code_query(
     prompt_base: Dict[str, Any],
     data_preview: str,
     context: Dict[str, Any],
-    return_metadata: bool = False,
-    ) -> Tuple[str, str] | Tuple[str, str, Dict[str, Any]]:
+    ) -> Tuple[str, str]:
     logger.info("Using stepwise generation route.")
 
     stepwise_context = StepwiseContext(
@@ -988,21 +468,9 @@ def stepwise_plan_and_code_query(
         memory=context.get("memory", ""),
         previous_code=context.get("previous_code", ""),
         execution_output=context.get("execution_output", ""),
-        hardware_brief=context.get("hardware_prompt_section", ""),
-        hardware_stage_sections=context.get("hardware_stage_sections", {}) or {},
-        hardware_candidate=context.get("hardware_candidate", {}) or {},
-        hardware_context=context.get("hardware_context", {}) or {},
-        pipeline_decision=context.get("pipeline_decision", {}) or {},
-        pipeline_decision_section=context.get("pipeline_decision_section", ""),
-        stage_receipts=list(context.get("stage_receipts", []) or []),
-        stage_note_board=list(context.get("stage_note_board", []) or []),
     )
 
-    hardware_aware = _hardware_reasoning_enabled(agent_instance)
-    step_agents = create_default_step_agents(
-        hardware_aware=hardware_aware,
-        pipeline_decision_aware=bool(stepwise_context.pipeline_decision_section),
-    )
+    step_agents = create_default_step_agents()
     meta_agent = MetaAgent()
 
     step_results: List[Dict[str, str]] = []
@@ -1023,24 +491,6 @@ def stepwise_plan_and_code_query(
             "plan": plan,
             "code": code,
         })
-        stage_receipt = _extract_stage_receipt(
-            step_name=agent.name,
-            plan_text=plan,
-            code=code,
-            context=stepwise_context,
-        )
-        if stage_receipt:
-            stepwise_context.stage_receipts.append(stage_receipt)
-            step_results[-1]["stage_receipt"] = stage_receipt
-        stage_notes = _extract_stage_note_board(
-            step_name=agent.name,
-            plan_text=plan,
-            code=code,
-            context=stepwise_context,
-        )
-        if stage_notes:
-            stepwise_context.stage_note_board.extend(stage_notes)
-            step_results[-1]["stage_notes"] = stage_notes
 
     logger.info("Merging all steps...")
     final_plan, final_code = meta_agent.merge(
@@ -1054,12 +504,4 @@ def stepwise_plan_and_code_query(
 
     logger.info("Stepwise generation completed.")
 
-    context["used_prompt_sections"] = list(stepwise_context.used_prompts)
-    context["stage_receipts"] = list(stepwise_context.stage_receipts)
-    if return_metadata:
-        return final_plan, final_code, _build_stepwise_metadata(
-            step_results=step_results,
-            context=stepwise_context,
-            hardware_aware=hardware_aware,
-        )
     return final_plan, final_code

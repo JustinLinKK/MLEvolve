@@ -86,6 +86,9 @@ def parse_metric(metric_file: str) -> Tuple[float, bool, float]:
 
 UNSUPPORTED_TASK_TYPES = {"Detection", "Segmentation"}
 
+# Tasks where ensemble hurts (e.g., tiny test set → val-test uncorrelated)
+ENSEMBLE_SKIP_TASKS = {"rsna-miccai-brain-tumor-radiogenomic-classification"}
+
 _tag_cache: Optional[Dict[str, str]] = None
 
 
@@ -355,6 +358,12 @@ def ensemble(args):
         _copy_top1_as_ensemble(base_dir)
         return
 
+    # ── 2b. Skip tasks where ensemble is known to hurt ──
+    if args.task_id in ENSEMBLE_SKIP_TASKS:
+        print(f"[SKIP] '{args.task_id}' is in ensemble skip list, using top1 only.")
+        _copy_top1_as_ensemble(base_dir)
+        return
+
     # ── 3. Auto-detect format from first submission ──
     first_sub = pd.read_csv(os.path.join(all_dirs[0], "submission.csv"))
     fmt = detect_format(first_sub, cfg)
@@ -368,8 +377,32 @@ def ensemble(args):
     print(f"  Normalize (sum1): {fmt['normalize']}")
 
     # ── 4. Decide ensemble sizes to try ──
-    all_dirs = all_dirs[:cfg.max_candidates]
+    # Pre-filter: drop dirs with placeholder metric (e.g., -1.0 for lower-is-better tasks),
+    # so that lower-ranked valid candidates can fill up to max_candidates.
+    filtered_dirs = []
+    for td in all_dirs:
+        m_file = os.path.join(td, "metric.txt")
+        if not os.path.isfile(m_file):
+            continue
+        try:
+            m, maxim, _ = parse_metric(m_file)
+        except Exception:
+            continue
+        if not maxim and (m < 0 or (m == 0 and str(m).startswith('-'))):
+            print(f"[PRE-FILTER] {td}: metric={m} <= -0 for lower-is-better task (likely LLM placeholder)")
+            continue
+        filtered_dirs.append(td)
+
+    if len(filtered_dirs) < len(all_dirs):
+        print(f"[PRE-FILTER] kept {len(filtered_dirs)}/{len(all_dirs)} valid candidates after placeholder filter")
+
+    all_dirs = filtered_dirs[:cfg.max_candidates]
     n_valid = len(all_dirs)
+    if n_valid == 0:
+        print(f"[WARN] No valid candidates after filter. Falling back to top1 only.")
+        _copy_top1_as_ensemble(base_dir)
+        return
+
     if n_valid <= cfg.small_candidate_threshold:
         num_use = list(range(1, n_valid + 1))
     else:

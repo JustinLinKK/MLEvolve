@@ -44,7 +44,6 @@ nosetests.xml
 
 # ===== Type Checking =====
 .mypy_cache/
-.ruff_cache/
 .dmypy.json
 dmypy.json
 .pytype/
@@ -52,9 +51,6 @@ dmypy.json
 
 # ===== Jupyter =====
 .ipynb_checkpoints/
-
-# ===== Generated Analysis Metadata =====
-.understand-anything/*.json
 
 # ===== Model Weights & Artifacts =====
 *.pth
@@ -69,19 +65,8 @@ logs/
 *.pid
 *.out
 
-# ===== Databases & Runtime State =====
-*.db
-*.db-*
-*.sqlite
-*.sqlite-*
-*.sqlite3
-*.sqlite3-*
-
 # ===== Project Specific =====
-.codex_db/
 /cache/
-data/
-results/
 scripts/
 workspace/
 workspaces/
@@ -101,8 +86,3 @@ PROMPT_COMPARISON_REPORT.md
 kaggle.json
 config.yaml
 config/config.yaml
-localml_scheduler/configs/*.yaml
-localml_scheduler/runtime/
-
-# ===== Generated Scheduler Benchmark Outputs =====
-scheduler_benchmark_test/fixtures/*_scheduler_stress*/

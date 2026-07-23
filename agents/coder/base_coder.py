@@ -48,5 +48,5 @@ def plan_and_code_query(
 
         logger.debug("Extraction retry...")
 
-    logger.warning("Code extraction failed after retries; returning an empty script for executor validation")
-    return "Code extraction failed: no valid Python code block was produced.", ""
+    logger.warning("Code extraction failed after retries")
+    return "", completion_text  # type: ignore

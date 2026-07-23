@@ -5,7 +5,6 @@ Contains functions to manually generate a textual preview of some common file ty
 import json
 import os
 import logging
-import zipfile
 from pathlib import Path
 
 import humanize
@@ -17,7 +16,6 @@ from pandas.api.types import is_numeric_dtype
 code_files = {".py", ".sh", ".yaml", ".yml", ".md", ".html", ".xml", ".log", ".rst"}
 # we treat these files as text (rather than binary) files
 plaintext_files = {".txt", ".csv", ".json", ".tsv"} | code_files
-archive_files = {".zip"}
 
 
 def get_file_len_size(f: Path) -> tuple[int, str]:
@@ -151,88 +149,10 @@ def preview_json(p: Path, file_name: str):
     )
 
 
-def preview_zip(p: Path, file_name: str) -> str:
-    """Generate a lightweight preview of a zip archive without extracting it."""
-    try:
-        with zipfile.ZipFile(p, "r") as zip_ref:
-            infos = [info for info in zip_ref.infolist() if not info.is_dir()]
-            names = [info.filename for info in infos]
-    except Exception as exc:
-        return f"-> {file_name} is a zip archive but could not be inspected: {exc}"
-
-    sample_names = names[:12]
-    root_file_count = 0
-    top_dirs = []
-    for name in names:
-        if "/" not in name.rstrip("/"):
-            root_file_count += 1
-            continue
-        root = name.split("/", 1)[0]
-        if root and root not in top_dirs and len(top_dirs) < 8:
-            top_dirs.append(root)
-
-    out = [f"-> {file_name} is a zip archive with {len(names)} files."]
-    archive_stem = Path(file_name).stem
-    if root_file_count:
-        out.append(
-            f"{root_file_count} file(s) are stored at the archive root. "
-            f"If extracting to `./working/{archive_stem}/`, read files directly from that directory "
-            "or use `Path.rglob(...)`; do not assume an extra nested split directory exists."
-        )
-    if top_dirs:
-        out.append(f"Top-level archive directories include: {', '.join(top_dirs)}")
-    if sample_names:
-        out.append("Example files inside the archive:")
-        out.extend(f"  - {name}" for name in sample_names)
-    return "\n".join(out)
-
-
-def input_layout_guidance(base_path: Path) -> str:
-    """Describe top-level input path facts that generated code must respect."""
-    input_dir = base_path / "input"
-    if not input_dir.exists():
-        return ""
-
-    entries = sorted(input_dir.iterdir(), key=lambda item: item.name.lower())
-    if not entries:
-        return (
-            "**INPUT DATA LAYOUT FACTS**\n"
-            "- `./input/` exists but is currently empty. Do not assume task-specific files or directories exist."
-        )
-
-    lines = [
-        "**INPUT DATA LAYOUT FACTS - use these exact paths**",
-        "- `./input/` is read-only source data. Do not create, overwrite, or extract files inside `./input/`.",
-        "- Use `pathlib.Path` and check `.is_dir()` / `.is_file()` before calling `.iterdir()`, `.glob()`, or `os.listdir()`.",
-        "- If a needed dataset split is a zip archive, extract it with Python `zipfile` into `./working/<name>/`, then inspect that extracted directory. Archive contents may be flat or nested; use `.exists()` plus `rglob`/fallback checks before assuming paths like `./working/<name>/<name>/`.",
-        "- Do not assume `./input/train`, `./input/test`, or `./input/train_cleaned` are directories unless the facts below say so.",
-        "- Top-level `./input/` entries:",
-    ]
-
-    for item in entries[:30]:
-        rel = f"./input/{item.name}"
-        if item.is_dir():
-            lines.append(f"  - `{rel}/` is a directory.")
-        elif item.suffix.lower() in archive_files:
-            stem_path = f"./input/{item.stem}"
-            lines.append(
-                f"  - `{rel}` is a zip archive, not a directory. Do not call `os.listdir('{stem_path}')` unless that directory exists; extract to `./working/{item.stem}/` if needed, then inspect whether files are directly under `./working/{item.stem}/` or inside a nested folder."
-            )
-        else:
-            lines.append(f"  - `{rel}` is a file, not a directory.")
-    if len(entries) > 30:
-        lines.append(f"  - ... and {len(entries) - 30} more top-level entries.")
-    return "\n".join(lines)
-
-
 def generate(base_path, include_file_details=True, simple=False):
     """Generate a textual preview of a directory (structure + file previews)."""
     tree = f"```\n{file_tree(base_path)}```"
     out = [tree]
-    base_path_obj = Path(base_path)
-    layout_guidance = input_layout_guidance(base_path_obj)
-    if layout_guidance:
-        out.append(layout_guidance)
 
     if include_file_details:
         for fn in _walk(base_path):
@@ -242,16 +162,49 @@ def generate(base_path, include_file_details=True, simple=False):
                 out.append(preview_csv(fn, file_name, simple=simple))
             elif fn.suffix == ".json":
                 out.append(preview_json(fn, file_name))
-            elif fn.suffix.lower() in archive_files:
-                out.append(preview_zip(fn, file_name))
             elif fn.suffix in plaintext_files:
-                if get_file_len_size(fn)[0] < 30:
+                n_lines = get_file_len_size(fn)[0]
+                if n_lines < 30:
                     with open(fn) as f:
                         content = f.read()
                         if fn.suffix in code_files:
                             content = f"```\n{content}\n```"
                         out.append(f"-> {file_name} has content:\n\n{content}")
+                elif fn.suffix not in code_files:
+                    # Large non-code plaintext (.txt/.tsv/.csv-in-txt/.md-data): preview first 15 lines
+                    try:
+                        with open(fn) as f:
+                            head = []
+                            for _ in range(15):
+                                line = f.readline()
+                                if not line:
+                                    break
+                                if len(line) > 300:
+                                    line = line[:300] + "...(line truncated)\n"
+                                head.append(line)
+                        if not head:
+                            continue
+                        preview = "".join(head).rstrip()
+                        first = head[0].rstrip("\n")
+                        line2 = head[1].rstrip("\n") if len(head) > 1 else ""
+                        is_csv_like = fn.suffix == ".txt" and (
+                            (first.startswith('"') and '","' in first)
+                            or ("," in first and first.count('"') >= 2 and "," in line2)
+                        )
+                        if is_csv_like:
+                            out.append(
+                                f"-> ⚠️ {file_name} has extension `.txt` but its content is CSV-formatted. "
+                                f"First {len(head)} lines:\n{preview}\n"
+                                f"Parse it with `pd.read_csv('{fn.name}')` (NOT `open().splitlines()`) to correctly handle the header and quoted fields."
+                            )
+                        else:
+                            out.append(
+                                f"-> {file_name} ({n_lines} lines total) — first {len(head)} lines:\n{preview}"
+                            )
+                    except Exception:
+                        pass
 
+    base_path_obj = Path(base_path)
     input_dir = base_path_obj / "input"
 
     if input_dir.exists():
@@ -301,6 +254,20 @@ def clean_task_desc(task_desc: str, cfg) -> str:
     from llm import query
 
     acfg = cfg.agent
+    alignment_rule = (
+        "\n\n"
+        + "=" * 60 + "\n"
+        + "**TASK AND METRIC ALIGNMENT REQUIREMENT**\n"
+        + "=" * 60 + "\n"
+        + "Your solution must stay aligned with the official competition task and official evaluation metric.\n"
+        + "- Local validation must evaluate the same core task as the final submission.\n"
+        + "- The reported `Final Validation Score` must use the official metric definition, or a task-faithful implementation of that same metric.\n"
+        + "- Do NOT simplify the task into an easier proxy objective just to obtain a higher local score.\n"
+        + "- Do NOT use a proxy metric as the main score for comparing solutions, ranking candidates, or selecting the best solution.\n"
+        + "- The prediction target, output semantics, and post-processing used in validation must remain aligned with the required submission format.\n"
+        + "- In short: task goal and metric must match the official specification; lazy task redefinition is forbidden.\n"
+        + "=" * 60
+    )
 
     prompt = {
         "Task": "Remove ONLY useless environment information from the task description below. Keep all core task content.",
@@ -351,7 +318,7 @@ def clean_task_desc(task_desc: str, cfg) -> str:
                 submission_format = "\n\n" + "=" * 60 + "\n"
                 submission_format += "**REQUIRED SUBMISSION FORMAT**\n"
                 submission_format += "=" * 60 + "\n"
-                submission_format += f"The final submission file must match this format:\n\n"
+                submission_format += f"The final submission file must match this format (including column names and row order):\n\n"
                 submission_format += df.to_string(index=False)
                 submission_format += f"\n\n(Showing first {len(df)} rows as example)\n"
                 submission_format += "=" * 60
@@ -364,5 +331,6 @@ def clean_task_desc(task_desc: str, cfg) -> str:
             except Exception as e:
                 logger.warning(f"Failed to read {sample_path}: {e}")
                 continue
+    cleaned_desc += alignment_rule
     logger.info(f"Generating Task desc: \n  {cleaned_desc} \n")
     return cleaned_desc

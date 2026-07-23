@@ -25,6 +25,29 @@ PromptType = str | dict | list
 FunctionCallType = dict
 OutputType = str | FunctionCallType
 
+
+def _build_thinking_config(model_name: str, level: str = "high"):
+    """Return a ThinkingConfig appropriate for the model, or None if unsupported.
+
+    - Gemini 3.x: uses thinking_level ("minimal"/"low"/"medium"/"high")
+    - Gemini 2.5 Pro: uses thinking_budget (128-32768; cannot disable)
+    - Gemini 2.5 Flash/Flash-Lite: uses thinking_budget (0-24576; 0 disables)
+    - Other Gemini: no thinking config
+    """
+    name = (model_name or "").lower()
+    if name.startswith("gemini-3"):
+        return types.ThinkingConfig(thinking_level=level)
+    if name.startswith("gemini-2.5"):
+        # Map level → budget. "high" forces max thinking.
+        budget_map = {"minimal": 128, "low": 4096, "medium": 16384, "high": 32768}
+        budget = budget_map.get(level, 32768)
+        # Flash variants cap at 24576
+        if "flash" in name:
+            budget = min(budget, 24576)
+        return types.ThinkingConfig(thinking_budget=budget)
+    return None
+
+
 # ---------------------------------------------------------------------------
 #  Prompt & message helpers
 # ---------------------------------------------------------------------------
@@ -145,8 +168,10 @@ def query(
     config_params = {
         "temperature": filtered_kwargs.get("temperature", 1.0),
         "max_output_tokens": filtered_kwargs.get("max_tokens", 16384),
-        "thinking_config": types.ThinkingConfig(thinking_level="low")
     }
+    thinking_cfg = _build_thinking_config(filtered_kwargs.get("model", ""), level="low")
+    if thinking_cfg is not None:
+        config_params["thinking_config"] = thinking_cfg
 
     if func_spec is not None:
         config_params["response_mime_type"] = "application/json"
@@ -236,8 +261,10 @@ def generate(
         "temperature": temperature if temperature is not None else 1.0,
         "max_output_tokens": max_tokens if max_tokens is not None else 16384,
         "stop_sequences": stop_tokens,
-        "thinking_config": types.ThinkingConfig(thinking_level="high"),
     }
+    thinking_cfg = _build_thinking_config(cfg.agent.code.model, level="high")
+    if thinking_cfg is not None:
+        config_params["thinking_config"] = thinking_cfg
 
     if json_schema is not None:
         config_params["response_mime_type"] = "application/json"

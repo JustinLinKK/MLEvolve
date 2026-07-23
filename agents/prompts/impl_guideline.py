@@ -4,17 +4,11 @@ import time
 
 import humanize
 
-from .elastic_contract import elastic_training_contract_guidelines
-
 
 def get_impl_guideline_from_agent(agent):
     """Build implementation guideline from agent config."""
     tot_time_remaining = agent.acfg.time_limit - (time.time() - agent.start_time)
-    configured_timeout = getattr(getattr(agent.cfg, "exec", None), "timeout", None)
-    if configured_timeout is None:
-        exec_timeout = int(max(0, tot_time_remaining))
-    else:
-        exec_timeout = int(max(0, min(float(configured_timeout), tot_time_remaining)))
+    exec_timeout = int(min(agent.cfg.exec.timeout, tot_time_remaining))
     return get_impl_guideline(
         tot_time_remaining=tot_time_remaining,
         steps_remaining=agent.acfg.steps - agent.current_step,
@@ -62,42 +56,38 @@ def get_impl_guideline(
         "• Score MUST be computed on hold-out validation set using proper metric formula",
         "• CRITICAL CONSISTENCY REQUIREMENT: Ensure that validation and test inference use IDENTICAL processing logic. Any differences in how validation and test data are handled (such as post-processing, reconstruction, or formatting) can cause large performance gaps between validation and test sets. Maintain consistency across all data processing steps for both validation and test phases.",
         "",
-        "**4. Scheduler Model Family Contract**",
-        *elastic_training_contract_guidelines(),
+        "**4. Preserve Task Semantics in Local Validation**",
+        "• Your local validation must evaluate the SAME core task as the final submission, not an easier proxy sub-problem.",
+        "• ❌ FORBIDDEN: Silently redefining the task into a simpler objective (for example: multi-target -> single-target, detection -> presence-only classification, ranking -> plain classification, structured prediction -> one-field prediction).",
+        "• If the submission predicts structured outputs, your validation metric must cover the key predicted structure rather than only a weak sub-component.",
+        "• The validation target, prediction format, and post-processing logic must stay semantically aligned with the required submission format.",
         "",
-        "**5. Engineered Feature Dimension Contract**",
-        "• If you build engineered/tabular/patch features, keep exactly one source of truth for the feature dimension.",
-        "• Prefer `feature_dim = len(feature_names)` or derive it from a sample feature tensor shape; do not hand-code a separate `LayerNorm`, `Linear`, or config dimension that can drift from the feature vector.",
-        "• Assert the model input dimension matches the produced feature tensor before training.",
+        "**5. Make Validation Auditable**",
+        "• In code and logs, make the validation setup easy to audit: split method, metric formula, predicted target, and any threshold/post-processing used.",
+        "• The reported `Final Validation Score` must be computed with the official metric definition, or a task-faithful local implementation of that same metric.",
+        "• ❌ FORBIDDEN: Using a proxy metric as the main validation score for model comparison, search ranking, or best-solution selection.",
+        "• Do not report a validation score from a metric that ignores critical task dimensions required by the leaderboard.",
         "",
-        "**6. Runtime Budget Contract**",
-        "• The first runnable draft must finish within the execution budget. For expensive vision models, start with restrained epochs, image size, folds, and train batches, then scale only when previous runs completed.",
-        "• If a previous node timed out after making metric progress, preserve the useful model idea but reduce runtime with fewer epochs, smaller resolution, fewer folds/ensembles/TTA passes, or an explicit wall-clock guard.",
+        "📁 **Directories**: Input data in `./input/`, submission in `./submission/`, temp files in `./working/`",
         "",
-        "📁 **Directories**: Input data is read-only under `./input/`, submissions go in `./submission/`, and all temp/extracted/cache files go in `./working/`.",
-        "• Inspect the data preview and actual path type before use: `train.zip` is an archive, not `train/`; `train.csv` is a file, not a directory.",
-        "• Never create, overwrite, or extract files inside `./input/`. If a split is zipped, use Python `zipfile` to extract it into `./working/<split_name>/`, then inspect the extracted layout; archives may store files directly at the root or inside a nested folder. Use `.exists()` plus `rglob`/fallback checks before assuming `./working/<split_name>/<split_name>/` or any fixed child directory.",
-        "• Use `pathlib.Path` plus `.exists()`, `.is_file()`, and `.is_dir()` checks before `glob`, `iterdir`, `os.listdir`, or train/validation splitting.",
-        "",
-        f"📦 **Packages & Internet**: Prefer numpy, pandas, sklearn, torch, torchvision, transformers, timm, xgboost, lightgbm, OpenCV, Pillow, and the Python standard library. Optional packages may be missing; do not rely on `pip install` from the solution script. torch.hub.load(), HuggingFace, etc. are available during development when configured."
+        f"📦 **Packages & Internet**: numpy, pandas, sklearn, torch, transformers, timm, xgboost, lightgbm (all pre-installed). torch.hub.load(), HuggingFace, etc. available during development."
         + (f" Offline models at `{pretrain_model_dir}`" if pretrain_model_dir else ""),
         "",
-        "⚠️ **API Compatibility**: LightGBM/XGBoost: ❌ `fit(..., early_stopping_rounds=...)` → ✅ LightGBM: `fit(..., callbacks=[lgb.early_stopping(...)])` ✅ XGBoost: set `early_stopping_rounds` on `XGBClassifier`/`XGBRegressor` construction and pass `eval_set` to `fit()`.",
-        "• PyTorch CUDA capability: use `torch.cuda.get_device_capability()`, never `torch.cuda.get_ability()`.",
+        "⚠️ **API Compatibility**: LightGBM/XGBoost: ❌ `fit(..., early_stopping_rounds=...)` → ✅ LightGBM: `fit(..., callbacks=[lgb.early_stopping(...)])` ✅ XGBoost: `XGBClassifier(early_stopping_rounds=...)`",
         "• AdamW: ❌ `from transformers import AdamW` (deprecated) → ✅ `from torch.optim import AdamW`",
-        "• Low-precision metric/export boundary: BF16/FP16/FP8/MXFP8/NVFP4/MXFP4/Transformer Engine outputs may be used for forward/loss, but prediction/logit/probability tensors must use `tensor.detach().to(torch.float32).cpu().numpy()` before NumPy, sklearn, pandas, or submission CSV export. Labels/IDs may remain integer CPU arrays.",
         "",
         "🚫 **Execution Guidelines**:",
         "• NO tqdm (not installed), NO verbose=1",
         "• Print only 1 line per epoch (minimize logging)",
-        '• On Windows or in unguarded scripts, use PyTorch DataLoader `num_workers=0`. Only use worker processes (`num_workers>=2`) when executable code is protected by `if __name__ == "__main__":`.',
-        '• Prefer a `main()` function with an `if __name__ == "__main__": main()` guard for every complete runnable script.',
+        "• Use DataLoader with num_workers>=2 for speed",
         "",
         "⚠️  **Self-Check Before Finalizing**:",
         "□ Did predictions pass through model's learned weights during inference? (If NO → INVALID)",
         "□ Did I generate submission.csv in correct path with ALL test predictions?",
         "□ Did I print validation metric as the last line?",
         "□ Did I use the COMPLETE training dataset (not a tiny subset)?",
+        "□ Did my local validation preserve the original task semantics instead of a simpler proxy?",
+        "□ Is my reported `Final Validation Score` computed with the official metric definition rather than a proxy metric?",
     ]
     if expose_prediction:
         impl_guideline.append(

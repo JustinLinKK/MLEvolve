@@ -6,61 +6,12 @@ from typing import cast
 
 from llm import FunctionSpec, query
 from engine.search_node import SearchNode
-from utils.response import wrap_code
-from agents.hardware_context import (
-    get_hardware_context_for_stage,
-    hardware_context_instructions,
-)
 from agents.prompts.validation_template_prompts import get_code_review_prompt
 from agents.prompts import get_internet_clarification
-from localml_scheduler.runtime_environment import repair_generated_training_code, validate_generated_training_code
 
 from agents.coder.diff_coder import SearchReplacePatcher
 
 logger = logging.getLogger("MLEvolve")
-
-
-def _scheduler_contract_required(agent) -> bool:
-    scheduler_cfg = getattr(getattr(agent, "cfg", None), "scheduler", None)
-    return bool(getattr(agent, "scheduler_client", None) is not None or getattr(scheduler_cfg, "enabled", False))
-
-
-def _validate_review_code(agent, code: str, *, require_scheduler_contract: bool) -> dict:
-    return validate_generated_training_code(
-        code,
-        stage="code_review",
-        model_contracts=getattr(agent, "model_contracts", []),
-        require_scheduler_submission_contract=require_scheduler_contract,
-    )
-
-
-def _repair_and_validate_review_code(agent, code: str, *, require_scheduler_contract: bool) -> tuple[str, dict, dict]:
-    repair = repair_generated_training_code(
-        code,
-        stage="code_review",
-        require_scheduler_submission_contract=require_scheduler_contract,
-    )
-    repaired_code = str(repair.get("code") or code)
-    return repaired_code, _validate_review_code(
-        agent,
-        repaired_code,
-        require_scheduler_contract=require_scheduler_contract,
-    ), repair
-
-
-def _format_runtime_compatibility_findings(result: dict) -> str:
-    issues = list((result or {}).get("issues") or [])
-    if not issues:
-        return ""
-    lines = ["# Runtime Compatibility Findings", ""]
-    for issue in issues:
-        severity = str(issue.get("severity") or "warning").upper()
-        lines.append(f"- {severity} [{issue.get('category', 'compatibility')}]: {issue.get('message', '')}")
-        if issue.get("evidence"):
-            lines.append(f"  Evidence: {issue['evidence']}")
-        if issue.get("repair_hint"):
-            lines.append(f"  Required fix: {issue['repair_hint']}")
-    return "\n".join(lines)
 
 CODE_REVIEW_SPEC = FunctionSpec(
     name="submit_code_review",
@@ -112,46 +63,10 @@ CODE_REVIEW_SPEC = FunctionSpec(
 def run(agent, node: SearchNode) -> str:
     logger.debug(f"[review] node {node.id}")
 
-    require_scheduler_contract = _scheduler_contract_required(agent)
-    review_base_code, compatibility_result, repair_result = _repair_and_validate_review_code(
-        agent,
-        node.code,
-        require_scheduler_contract=require_scheduler_contract,
-    )
     prompt = get_code_review_prompt(
         task_desc=agent.task_desc,
-        code=review_base_code,
-        data_preview=getattr(agent, "data_preview", "") or "",
-        require_scheduler_contract=require_scheduler_contract,
+        code=node.code,
     )
-    critical_compatibility_count = int(compatibility_result.get("critical_count", 0) or 0)
-    compatibility_section = _format_runtime_compatibility_findings(compatibility_result)
-    if compatibility_section:
-        prompt["Runtime Compatibility Findings"] = compatibility_section
-        if "Instructions" not in prompt:
-            prompt["Instructions"] = {}
-        prompt["Instructions"]["Runtime compatibility fixes"] = [
-            "The Runtime Compatibility Findings section is authoritative for this installed Python/PyTorch stack.",
-            "Every CRITICAL finding must be fixed with a targeted SEARCH/REPLACE patch before execution.",
-            "WARNING findings should be fixed when the change is local and does not alter the solution design.",
-        ]
-    hardware_ctx = get_hardware_context_for_stage(
-        agent,
-        "code_review",
-        parent_node=getattr(node, "parent", None),
-        code=review_base_code,
-    )
-    hardware_section = hardware_ctx.prompt_section
-    if hardware_section:
-        prompt_instructions = prompt.pop("Instructions")
-        prompt["Hardware/Profile Optimization Context"] = hardware_section
-        prompt["Instructions"] = prompt_instructions
-        prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
-        prompt["Instructions"]["Hardware-aware review guidance"] = [
-            "Review concrete hardware-critical issues only when the provided profile evidence is strong.",
-            "Examples: obvious OOM/timeout risk from an oversized fixed batch size, missing fallback around known risky settings, or ignoring a high-confidence precision/dataloader recommendation.",
-            "Preserve the existing solution approach and model/backbone. Do not redesign the model to satisfy hardware guidance.",
-        ]
     internet_clarification = get_internet_clarification(getattr(agent.cfg, "pretrain_model_dir", ""))
     if "Instructions" not in prompt:
         prompt["Instructions"] = {}
@@ -184,51 +99,11 @@ def run(agent, node: SearchNode) -> str:
             needs_revision = review_response.get("needs_revision", False)
             reasoning = review_response.get("reasoning", "")
             revised_code = review_response.get("revised_code")
-            if critical_compatibility_count and not needs_revision:
-                if revised_code and revised_code.strip():
-                    logger.warning(
-                        "Code review returned revised code while needs_revision=False; "
-                        "treating it as required because critical runtime compatibility findings exist."
-                    )
-                    needs_revision = True
-                elif attempt < max_retries - 1:
-                    logger.warning(
-                        "Code review approved code despite critical runtime compatibility findings; "
-                        "retrying with required-fix reminder."
-                    )
-                    prompt["Instructions"][f"Runtime compatibility retry {attempt + 1}"] = [
-                        "Do not approve this code until every CRITICAL Runtime Compatibility Finding has a concrete SEARCH/REPLACE fix.",
-                    ]
-                    continue
-                else:
-                    logger.error(
-                        "Code review approved code despite critical runtime compatibility findings after max retries; "
-                        "returning original code because no usable patch was produced."
-                    )
             logger.info(f"Code review for node {node.id}: needs_revision={needs_revision}")
             logger.info(f"Reasoning: {reasoning}", extra={"verbose": True})
-            try:
-                from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
-
-                payload = {
-                    "attempt": attempt + 1,
-                    "needs_revision": bool(needs_revision),
-                    "reasoning": reasoning,
-                    "hardware_context_used": bool(hardware_section),
-                    "runtime_repair_changed": bool(repair_result.get("changed")),
-                    "runtime_repair_replacement_count": repair_result.get("replacement_count", 0),
-                    "runtime_compatibility_critical_count": compatibility_result.get("critical_count", 0),
-                    "runtime_compatibility_warning_count": compatibility_result.get("warning_count", 0),
-                    "revised_code_chars": len(revised_code or ""),
-                }
-                log_pipeline_event(agent, "code_review_completed", node=node, payload=payload)
-                record_pipeline_node_action(agent, node, "code_review_completed", payload=payload)
-            except Exception:
-                pass
 
             if needs_revision:
                 if revised_code and revised_code.strip():
-                    candidate_code: str | None = None
                     if use_diff_for_review and (
                         "<<<<<<< SEARCH" in revised_code or "< SEARCH" in revised_code
                         ):
@@ -236,81 +111,51 @@ def run(agent, node: SearchNode) -> str:
                             logger.info("Code review returned diff format, applying patch")
                             patcher = SearchReplacePatcher()
                             patched_code, count = patcher.apply_patch(
-                                revised_code, review_base_code, strict=False
+                                revised_code, node.code, strict=False
                             )
-                            if count > 0 and patched_code and patched_code != review_base_code:
+                            if count > 0 and patched_code and patched_code != node.code:
                                 logger.info(f"Successfully applied {count} review patch(es)")
-                                candidate_code = patched_code.strip()
-                            else:
-                                logger.warning(
-                                    f"Diff patch produced no applicable change (count={count})"
-                                )
+                                return patched_code.strip()
+                            logger.warning(
+                                f"Diff patch failed (count={count}), keeping original code to avoid writing raw diff to runfile"
+                            )
+                            return node.code
                         except Exception as e:
                             logger.warning(
-                                f"Failed to apply diff patch in code review: {e}"
+                                f"Failed to apply diff patch in code review: {e}, keeping original code to avoid writing raw diff to runfile"
                             )
+                            return node.code
                     else:
+                        # Full code revision (original behavior)
                         if use_diff_for_review:
-                            logger.warning("Code review returned full code while diff mode is enabled")
+                            return node.code
                         else:
                             logger.info("Using revised code from reviewer")
-                            candidate_code = revised_code.strip()
-
-                    if candidate_code:
-                        candidate_code, post_validation, candidate_repair = _repair_and_validate_review_code(
-                            agent,
-                            candidate_code,
-                            require_scheduler_contract=require_scheduler_contract,
-                        )
-                        if post_validation.get("ok"):
-                            logger.info("Reviewed candidate passed deterministic generated-script validation")
-                            return candidate_code
-
-                        review_base_code = candidate_code
-                        compatibility_result = post_validation
-                        critical_compatibility_count = int(post_validation.get("critical_count", 0) or 0)
-                        prompt["Code to review"] = wrap_code(review_base_code)
-                        prompt["Runtime Compatibility Findings"] = _format_runtime_compatibility_findings(post_validation)
-                        prompt["Instructions"][f"Post-repair validation retry {attempt + 1}"] = [
-                            "The previous patch was applied but still fails deterministic generated-script validation.",
-                            "Repair every remaining CRITICAL finding in the updated Code to review; do not repeat the prior incomplete patch.",
-                        ]
-                        repair_result = candidate_repair
-                        if attempt < max_retries - 1:
-                            logger.warning("Reviewed candidate still has critical findings; retrying against the patched code")
-                            continue
-                        logger.error("Reviewed candidate still fails deterministic validation after the final review attempt")
-                        return review_base_code
-
-                    if critical_compatibility_count and attempt < max_retries - 1:
-                        prompt["Instructions"][f"Patch application retry {attempt + 1}"] = [
-                            "The prior patch could not be applied. Copy SEARCH text exactly from the current Code to review and fix all CRITICAL findings.",
-                        ]
-                        continue
+                            return revised_code.strip()
 
                 if attempt < max_retries - 1:
                     logger.warning(f"Code review violation: needs_revision=True but revised_code is empty/None - Will retry ({attempt + 1}/{max_retries})")
                     logger.info(f"Reasoning detail: {reasoning}", extra={"verbose": True})
                     continue
-                logger.error(f"Code review violation: needs_revision=True but revised_code is empty/None - Max retries reached, returning reviewed base code")
+                logger.error(f"Code review violation: needs_revision=True but revised_code is empty/None - Max retries reached, returning original code")
                 logger.info(f"Reasoning detail: {reasoning}", extra={"verbose": True})
-                return review_base_code
+                return node.code
 
             if revised_code is not None and revised_code.strip():
                 logger.warning(
                     "Code review warning: needs_revision=False but revised_code was provided. "
-                    "Ignoring revised_code and using reviewed base code."
+                    "Ignoring revised_code and using original code."
                 )
-            logger.info("Code approved, using reviewed base code")
-            return review_base_code
+            logger.info("Code approved, using original code")
+            return node.code
 
         except Exception as e:
             error_msg = f"Code review failed with exception: {e}"
             if attempt < max_retries - 1:
                 logger.warning(f"{error_msg} - Will retry (attempt {attempt + 1}/{max_retries})")
                 continue
-            logger.error(f"{error_msg} - Max retries reached, returning reviewed base code")
-            return review_base_code
+            logger.error(f"{error_msg} - Max retries reached, returning original code")
+            return node.code
 
-    logger.error("Code review: Unexpected exit from retry loop, returning reviewed base code")
-    return review_base_code
+    logger.error("Code review: Unexpected exit from retry loop, returning original code")
+    return node.code
