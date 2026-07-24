@@ -1,0 +1,56 @@
+{
+  "architecture_counts": {
+    "bilstm": 5,
+    "conv_lstm": 5,
+    "conv_mlp": 5,
+    "convnext_compatible": 5,
+    "dense_mlp": 5,
+    "densenet": 5,
+    "depthwise_mlp": 5,
+    "efficient_residual": 5,
+    "gmlp_compatible": 5,
+    "mbconv": 5,
+    "mixer_mlp": 5,
+    "mobilenet_v2": 5,
+    "mobilenet_v3": 5,
+    "patch_gru": 5,
+    "patch_mlp": 5,
+    "residual_mlp": 5,
+    "resmlp_compatible": 5,
+    "resnet": 5,
+    "row_lstm": 5,
+    "vgg": 5
+  },
+  "dataset_name": "stress_test_data",
+  "dataset_version": "1.0",
+  "family_counts": {
+    "cnn": 20,
+    "efficient_cnn": 20,
+    "hybrid": 20,
+    "mlp": 20,
+    "recurrent": 20
+  },
+  "job_count": 100,
+  "joblist_sha256": "33cc8354fc6f23b2ee968198bc3829defb871c2cf8d5a4136b616a227ef8219a",
+  "precision_counts": {
+    "bf16_amp": 25,
+    "fp16_amp": 25,
+    "fp32_ieee": 25,
+    "tf32": 25
+  },
+  "schema_version": "stress-test-data-v1.0-manifest",
+  "source_path": "scheduler_benchmark_test/fixtures/stress_test_data_v1.0/model_source.py",
+  "source_sha256": "1a59908d114f25e50b3b626e4a5119f2b22fb1a7d6cb996a462fbe39898a9255",
+  "student_schema": {
+    "edge_dim": 3,
+    "global_dim": 40,
+    "node_dim": 53
+  },
+  "variant_counts": {
+    "gelu_deep_wide": 20,
+    "gelu_wide": 20,
+    "relu_base": 20,
+    "relu_compact": 20,
+    "silu_deep": 20
+  }
+}

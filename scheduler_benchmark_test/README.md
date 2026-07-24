@@ -2,6 +2,20 @@
 
 Benchmark harness for comparing `localml_scheduler` replay modes on the cassava workload trace, updated for the current scheduler settings layout and the RTX 5090 target machine.
 
+## Stress Test Data v1.0
+
+The deterministic 100-model, one-epoch predictor stress-test dataset lives at
+`fixtures/stress_test_data_v1.0/`. Its models are restricted to operation
+identities represented by the deployed A10 student, and its verifier runs all
+100 through source conversion and CPU TorchScript inference:
+
+```bash
+python -m scheduler_benchmark_test.standard.stress_test_data \
+  --check --verify-predictions
+```
+
+See `standard/README.md` for its acceptance criteria.
+
 ## Overview
 
 - All benchmark scripts now live under `scheduler_benchmark_test/`.
