@@ -73,6 +73,7 @@ workspaces/
 test_workspace/
 runs/
 dataset/
+reports/
 mle-bench/
 grading_servers/
 test/
