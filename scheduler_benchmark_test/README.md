@@ -6,8 +6,9 @@ Benchmark harness for comparing `localml_scheduler` replay modes on the cassava 
 
 The deterministic 100-model, one-epoch predictor stress-test dataset lives at
 `fixtures/stress_test_data_v1.0/`. Its models are restricted to operation
-identities represented by the deployed A10 student, and its verifier runs all
-100 through source conversion and CPU TorchScript inference:
+identities represented by the deployed student interface, and its verifier
+runs all 100 through source conversion and CPU TorchScript inference with
+either the A10 or RTX PRO 6000 Blackwell artifact:
 
 ```bash
 python -m scheduler_benchmark_test.standard.stress_test_data \

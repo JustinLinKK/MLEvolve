@@ -6,7 +6,7 @@ The active 100-model predictor stress-test dataset is:
 
 It contains 20 model structures with five variants each. Every job carries a
 complete `perfseer_model` source specification and is restricted to operation
-identities represented by the deployed A10 `53/3/40` student.
+identities represented by the deployed `53/3/40` student interface.
 
 Regenerate the deterministic list and manifest:
 
@@ -27,6 +27,15 @@ python -m scheduler_benchmark_test.standard.stress_test_data \
   --check \
   --verify-predictions \
   --output-report /tmp/stress-test-data-v1.0-verification.json
+```
+
+Verify the RTX PRO 6000 Blackwell CPU artifact explicitly:
+
+```bash
+python -m scheduler_benchmark_test.standard.stress_test_data \
+  --check \
+  --verify-predictions \
+  --artifact PerfSeer-predictor/models/nvidia_rtx_pro_6000_blackwell/student_rtx_pro_6000_blackwell_cpu.torchscript.pt
 ```
 
 Acceptance requires:

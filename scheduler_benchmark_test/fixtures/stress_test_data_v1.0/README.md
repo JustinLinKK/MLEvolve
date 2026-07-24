@@ -53,9 +53,17 @@ The CPU predictor compatibility verifier does not read the Kaggle images. The
 official dataset is needed when these model structures are used for the real
 Histopathologic Cancer Detection training stress test.
 
-Verify all 100 model structures with:
+Verify all 100 model structures with the default A10 artifact:
 
 ```bash
 python -m scheduler_benchmark_test.standard.stress_test_data \
   --check --verify-predictions
+```
+
+Verify the RTX PRO 6000 Blackwell artifact:
+
+```bash
+python -m scheduler_benchmark_test.standard.stress_test_data \
+  --check --verify-predictions \
+  --artifact PerfSeer-predictor/models/nvidia_rtx_pro_6000_blackwell/student_rtx_pro_6000_blackwell_cpu.torchscript.pt
 ```

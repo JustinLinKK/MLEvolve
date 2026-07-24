@@ -20,7 +20,21 @@ from . import REPOSITORY_ROOT, STRESS_TEST_DATA_JOB_COUNT, STRESS_TEST_DATA_V1_0
 
 
 MODEL_SOURCE = STRESS_TEST_DATA_V1_0_FIXTURE / "model_source.py"
-ARTIFACT = REPOSITORY_ROOT / "PerfSeer-predictor" / "models" / "nvidia_a10" / "student_a10_cpu.torchscript.pt"
+A10_ARTIFACT = (
+    REPOSITORY_ROOT
+    / "PerfSeer-predictor"
+    / "models"
+    / "nvidia_a10"
+    / "student_a10_cpu.torchscript.pt"
+)
+BLACKWELL_ARTIFACT = (
+    REPOSITORY_ROOT
+    / "PerfSeer-predictor"
+    / "models"
+    / "nvidia_rtx_pro_6000_blackwell"
+    / "student_rtx_pro_6000_blackwell_cpu.torchscript.pt"
+)
+DEFAULT_ARTIFACT = A10_ARTIFACT
 PERFSEER_SRC = REPOSITORY_ROOT / "PerfSeer-predictor" / "src"
 JOBLIST = STRESS_TEST_DATA_V1_0_FIXTURE / "joblist.json"
 MANIFEST = STRESS_TEST_DATA_V1_0_FIXTURE / "manifest.json"
@@ -155,7 +169,11 @@ def _load_jobs() -> list[dict[str, Any]]:
     return jobs
 
 
-def verify_predictions(*, batch_size: int = 2) -> dict[str, Any]:
+def verify_predictions(
+    *,
+    batch_size: int = 2,
+    artifact_path: str | Path | None = None,
+) -> dict[str, Any]:
     """Encode and infer every entry using the scheduler's real metadata parser."""
 
     if str(PERFSEER_SRC) not in sys.path:
@@ -167,7 +185,8 @@ def verify_predictions(*, batch_size: int = 2) -> dict[str, Any]:
     drift = write_fixture(check=True)
     if drift:
         raise ValueError(f"Stress Test Data v1.0 drift: {', '.join(drift)}")
-    runtime = StudentRuntime(ARTIFACT)
+    selected_artifact = Path(artifact_path or DEFAULT_ARTIFACT).expanduser().resolve()
+    runtime = StudentRuntime(selected_artifact)
     records: list[dict[str, Any]] = []
     before = torch.cuda.memory_allocated() if torch.cuda.is_available() else 0
     for item in _load_jobs():
@@ -244,6 +263,8 @@ def verify_predictions(*, batch_size: int = 2) -> dict[str, Any]:
         "schema_version": "stress-test-data-v1.0-verification",
         "dataset_name": "stress_test_data",
         "dataset_version": "1.0",
+        "artifact_path": str(selected_artifact),
+        "artifact_sha256": sha256(selected_artifact.read_bytes()).hexdigest(),
         "accepted": len(records) == STRESS_TEST_DATA_JOB_COUNT,
         "job_count": len(records),
         "finite_positive_prediction_count": sum(
@@ -262,6 +283,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--verify-predictions", action="store_true")
     parser.add_argument("--batch-size", type=int, default=2)
+    parser.add_argument(
+        "--artifact",
+        help="Compatible CPU TorchScript artifact; defaults to the registered A10 artifact.",
+    )
     parser.add_argument("--output-report")
     return parser
 
@@ -273,7 +298,10 @@ def main(argv: list[str] | None = None) -> int:
         print("Fixture drift: " + ", ".join(mismatches))
         return 1
     if args.verify_predictions:
-        report = verify_predictions(batch_size=max(1, args.batch_size))
+        report = verify_predictions(
+            batch_size=max(1, args.batch_size),
+            artifact_path=args.artifact,
+        )
         if args.output_report:
             Path(args.output_report).write_bytes(_json_bytes(report))
         print(
