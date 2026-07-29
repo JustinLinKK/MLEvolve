@@ -1,0 +1,898 @@
+\documentclass[11pt]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,longtable,array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{codeblue}{RGB}{25,70,120}
+\newcommand{\code}[1]{\textcolor{codeblue}{\texttt{#1}}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\eps}{\varepsilon}
+\newcommand{\argminlex}{\mathop{\mathrm{lex\mbox{-}arg\,min}}}
+
+\title{Current MLEvolve Scheduler Decision Logic\\
+       \large A Mathematical and Step-by-Step Description}
+\author{MLEvolve Engineering Documentation}
+\date{Implementation revision \code{2d845eb} --- 29 July 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report formalizes the decision logic implemented by the local single-GPU
+scheduler.  The current example configuration selects
+\code{parallel\_time\_aware}, whose central decision is a rolling-horizon
+minimization of normalized, priority-weighted predicted flow time.  Before that
+objective is evaluated, the scheduler applies hard constraints for queue
+eligibility, starvation, exclusive probes, concurrency, backend support,
+historical pair compatibility, batch-indexed runtime evidence, predicted GPU
+memory, and live-memory admission.  This document describes those operations in
+execution order, gives the exact objective and deterministic tie-break key, and
+then summarizes the alternative legacy mode branches.
+\end{abstract}
+
+\tableofcontents
+
+\section{Scope and implementation status}
+
+The scheduler is a non-preemptive, rolling-horizon dispatcher for one physical
+GPU.  On every service-loop iteration it first processes worker exits and user
+commands, updates cache and GPU telemetry, and then attempts to dispatch pending
+work.  In the current \code{parallel\_time\_aware} mode, an active training job
+is never paused merely because a higher-priority job or an exclusive probe has
+arrived.  New work is considered at the next legal decision boundary, while an
+exclusive probe waits for the current work to drain.
+
+The implemented objective version is
+\code{time\_v3\_flow\_only}.  Despite the field name
+\code{objective\_score}, a smaller value is better in this mode.  GPU/SM
+utilization, predicted co-run slowdown, makespan rewards, throughput rewards,
+and cached objectives from older policy versions do not affect this selection.
+
+The main implementation is split across the following files:
+
+\begin{itemize}[leftmargin=*]
+  \item \code{scheduler/service.py}: the polling, drain, admission, dispatch,
+        and runtime-fallback control flow;
+  \item \code{scheduler/placement\_planner.py}: queue-window construction,
+        mode branching, anchor selection, and final plan construction;
+  \item \code{scheduler/candidate\_generator.py}: group, backend, and batch
+        candidates;
+  \item \code{scheduler/resource\_estimator.py}: batch-indexed average-VRAM and
+        runtime estimates plus Pareto pruning;
+  \item \code{scheduler/time\_objective.py}: feasibility checks, rolling-horizon
+        flow cost, normalized score, search, and tie-breaking;
+  \item \code{scheduler/compatibility.py}: packing eligibility and historical
+        pair rejection;
+  \item \code{scheduler/telemetry.py}: live-memory hysteresis; and
+  \item \code{scheduler/supervisor.py}: the final backend and overlap gate.
+\end{itemize}
+
+\section{Notation}
+
+At a scheduling instant $t$, let:
+
+\begin{longtable}{>{$}l<{$} p{0.74\textwidth}}
+\toprule
+\text{Symbol} & Meaning \\
+\midrule
+\endhead
+Q(t) & Set of runnable jobs, excluding jobs that are already active. \\
+A(t) & Set of jobs currently running on the GPU. \\
+W(t) & Bounded planning window formed from priority, age, starvation, and probe subsets. \\
+G & A candidate group of new jobs, with $G\subseteq W(t)$. \\
+h & An execution backend, for example \code{cuda\_process}, \code{mps}, \code{stream}, or \code{exclusive}. \\
+p_i & User-supplied base priority of job $i$; larger values are more urgent. \\
+q_i & Durable FIFO queue sequence of job $i$; smaller values are older in FIFO order. \\
+s_i & Submission timestamp of job $i$. \\
+b_i^0 & Immutable originally requested batch size of job $i$. \\
+b_i & A candidate or selected batch size. \\
+\widehat m_{i,h}(b_i) & Predicted average GPU memory in MiB for job $i$, backend $h$, and batch $b_i$. \\
+\widehat e_{i,h}(b_i) & Predicted seconds per epoch. \\
+r_i & Remaining epoch count. \\
+\widehat p_{i,h}(b_i) & Predicted remaining runtime, equal to $r_i\widehat e_{i,h}(b_i)$. \\
+B_{\mathrm{pred}} & Predicted-memory admission budget in MiB. \\
+\eta & Priority-weight coefficient, currently $0.10$ in the example configuration. \\
+C & Optional cap on the total number of parallel jobs; $C=\infty$ when unset. \\
+\tau_{\mathrm{starve}} & Starvation timeout, currently $1800$ seconds in the example configuration. \\
+\bottomrule
+\end{longtable}
+
+All comparisons described below are deterministic once queue state, profiles,
+backend availability, telemetry state, and time $t$ are fixed.
+
+\section{Top-level decision cycle}
+
+One scheduler iteration performs the following ordered operations:
+
+\begin{enumerate}[label=\textbf{Step \arabic*:},leftmargin=*]
+  \item Poll active workers and record completed, failed, paused, or cancelled
+        exits.  A packed group that loses members is reduced to its surviving
+        members; one survivor is relabelled as an exclusive-shaped run.
+  \item Consume pending submit, pause, resume, cancel, and preload commands.
+        Only jobs in runnable persistent states enter $Q(t)$; recoverable jobs
+        are omitted unless automatic resume is enabled.
+  \item Warm likely baseline models.  This changes cache state but not the
+        mathematical placement score.
+  \item If work is active, sample device telemetry and update the live-memory
+        admission gate described in Section~\ref{sec:live-gate}.
+  \item Apply preemption logic.  This is deliberately a no-op in
+        \code{parallel\_time\_aware}; older modes may pause a single exclusive
+        job for a strictly higher effective-priority candidate.
+  \item Reserve an exclusive probe if necessary, or construct a placement plan.
+  \item Ask the worker supervisor to validate backend availability and overlap
+        legality, apply selected batch overrides, launch the workers, and persist
+        the full objective breakdown.
+  \item In a concurrent mode, repeat the planning step immediately while another
+        non-exclusive plan can legally be admitted.  Stop after an exclusive
+        dispatch, a failed dispatch, or a no-plan result.
+\end{enumerate}
+
+This ordering matters.  For example, worker exits free capacity before the next
+plan is scored, and the newest telemetry sample may close new admission without
+interrupting already-running work.
+
+\section{Time-aware placement algorithm}
+
+\subsection{Step 1: effective priority and queue ordering}
+
+For time-aware window construction, the effective priority is
+
+\begin{equation}
+  \pi_i(t)
+  = p_i
+  + \mathbf{1}_{\mathrm{aging}}
+    \left\lfloor
+      \frac{\max(0,t-s_i)}{T_{\mathrm{age}}}
+    \right\rfloor \Delta_{\mathrm{age}},
+  \label{eq:effective-priority}
+\end{equation}
+
+where $T_{\mathrm{age}}$ is the aging interval and
+$\Delta_{\mathrm{age}}$ is the configured priority increment.  If aging is
+disabled, if the interval is non-positive, or if the submission timestamp is
+unavailable, the added term is zero.  The priority ordering key is
+
+\begin{equation}
+  k_i^{\mathrm{priority}}(t)=\bigl(-\pi_i(t),q_i,\mathrm{id}_i\bigr),
+  \label{eq:priority-key}
+\end{equation}
+
+so higher effective priority wins, followed by FIFO sequence and job identifier.
+
+The generic queue policy also uses priority-first FIFO ordering.  The
+time-aware planner recomputes Equation~\eqref{eq:effective-priority} directly
+from the submission timestamp when building its bounded window.
+
+\subsection{Step 2: construct the rolling planning window}
+
+Let $Q_N(t)$ contain normal jobs.  If the exclusive-probe feature is disabled,
+jobs labelled as probes are treated as normal for this purpose.  Construct:
+
+\begin{align}
+  P_K(t) &= \text{first }K\text{ jobs of }Q_N(t)
+            \text{ under }k^{\mathrm{priority}}, \\
+  O_L(t) &= \text{oldest }L\text{ jobs under }(s_i,q_i,\mathrm{id}_i), \\
+  S(t)   &= \{i\in Q_N(t):t-s_i\ge \tau_{\mathrm{starve}}\}, \\
+  X(t)   &= \{i\in Q(t):i\text{ is an enabled exclusive probe}\}.
+\end{align}
+
+The deduplicated planning window is
+
+\begin{equation}
+  W(t)=\operatorname{sort}_{k^{\mathrm{priority}}}
+  \bigl(P_K(t)\cup O_L(t)\cup S(t)\cup X(t)\bigr).
+  \label{eq:window}
+\end{equation}
+
+The current example values are $K=8$ and $L=4$.  Notice that all starving jobs
+and all enabled probes are included even if this makes $|W(t)|>K+L$.
+
+If $S(t)\ne\varnothing$, define the mandatory anchor
+
+\begin{equation}
+  a^*(t)=\arg\min_{i\in S(t)}(s_i,q_i,\mathrm{id}_i).
+  \label{eq:mandatory-anchor}
+\end{equation}
+
+Every candidate group must contain $a^*(t)$.  Otherwise, the ordinary anchor is
+the first job in $W(t)$.  This rule is the scheduler's hard starvation
+protection: urgency can change objective weights, but starvation changes the
+feasible set itself.
+
+\subsection{Step 3: exclusive-probe drain rule}
+
+An enabled job with scheduling class \code{exclusive\_probe} reserves the next
+idle boundary.  The service chooses one runnable probe by priority-FIFO order
+and records its identifier durably.  Then:
+
+\begin{itemize}[leftmargin=*]
+  \item if $A(t)\ne\varnothing$, the planner returns no new dispatch and active
+        work drains without preemption;
+  \item once $A(t)=\varnothing$, the runnable set is restricted to the reserved
+        probe, which is dispatched alone on \code{exclusive}; and
+  \item normal admission resumes only after the reservation is cleared when the
+        probe finishes or disappears from the runnable queue.
+\end{itemize}
+
+Thus a probe is a control-plane barrier, not merely a high objective weight.
+
+\subsection{Step 4: concurrency and live-admission gates}
+
+For an ordinary time-aware decision, let the remaining job slots be
+
+\begin{equation}
+  c_{\mathrm{new}}=
+  \begin{cases}
+    \infty, & C=\infty,\\
+    C-|A(t)|, & C<\infty.
+  \end{cases}
+  \label{eq:remaining-slots}
+\end{equation}
+
+No candidate is generated when $c_{\mathrm{new}}\le 0$.  If active jobs exist,
+new admission is also rejected when either the live-memory gate is closed or an
+exclusive drain has been requested.  Precisely, the blocking condition is
+
+\begin{equation}
+  |A(t)|>0 \;\land\;
+  \bigl(\neg\mathrm{AdmissionOpen}(t)
+        \;\lor\;\mathrm{ExclusiveDrain}(t)\bigr).
+  \label{eq:active-block}
+\end{equation}
+
+The implementation applies the live gate only to adding work alongside an
+active run.  A closed gate does not, by itself, cancel active jobs or prevent an
+idle GPU from making its first dispatch.
+
+\subsection{Step 5: generate candidate job groups}
+
+Let $u=\min(|W(t)|,c_{\mathrm{new}})$.  When
+$u\le N_{\mathrm{exact}}$ (currently $N_{\mathrm{exact}}=3$), the candidate
+family is the exact non-empty subset family
+
+\begin{equation}
+  \mathcal G={G\subseteq W(t):1\le |G|\le u\}.
+  \label{eq:exact-groups}
+\end{equation}
+
+If there is a mandatory anchor, retain only groups containing it.
+
+For larger windows, the implementation uses a deterministic beam.  Starting
+from the empty state, or from $(a^*)$ when starvation supplies an anchor, each
+job in window order is either omitted or appended while $|G|<u$.  Duplicate
+states are removed, and only $B_{\mathrm{beam}}$ states are retained by the key
+
+\begin{equation}
+  k^{\mathrm{group\mbox{-}beam}}(G)
+  =\bigl(-|G|,(\mathrm{id}_i)_{i\in G}\bigr),
+  \label{eq:group-beam}
+\end{equation}
+
+with $B_{\mathrm{beam}}=64$ in the example configuration.  All retained
+non-empty intermediate states are emitted.  The beam is therefore bounded and
+deterministic, but it is an approximation rather than an exhaustive optimizer.
+
+\subsection{Step 6: enumerate legal backends}
+
+If the GPU is idle and $|G|=1$, the planner evaluates the job on
+\code{exclusive}.  Otherwise it considers each non-exclusive backend $h$ in
+configured priority order for which:
+
+\begin{equation}
+  \mathrm{Available}(h)=1
+  \quad\land\quad
+  \forall i\in G:\;\mathrm{AllowsBackend}(i,h)=1.
+  \label{eq:backend-filter}
+\end{equation}
+
+The supervisor later repeats the physical availability check.  When overlapping
+an active group, both the new and active backends must be non-exclusive and
+listed as overlap-capable for time-aware scheduling.  Exclusive groups never
+overlap any active group.
+
+\subsection{Step 7: generate and prune batch options}
+
+Time-aware scheduling uses the immutable requested batch $b_i^0$, not a batch
+override selected by an earlier dispatch.  It requires $b_i^0=2^{k_i}$ for an
+integer $k_i\ge0$.  With the configured exponent offsets
+$\Delta=\{-2,-1,0,1,2\}$, the pre-clipping proposals are
+
+\begin{equation}
+  \widetilde{\mathcal B}_i
+  =\left[2^{\max(0,k_i+\delta)}:\delta\in\Delta\right].
+  \label{eq:batch-proposals}
+\end{equation}
+
+Each proposal is clipped to an optional job/global maximum $b_i^{\max}$
+(take $b_i^{\max}=\infty$ when it is unset),
+clamped below by one, and deduplicated without changing order:
+
+\begin{equation}
+  \mathcal B_i
+  =\operatorname{unique}
+    \left(\max\{1,\min(\widetilde b,b_i^{\max})\}:
+    \widetilde b\in\widetilde{\mathcal B}_i\right).
+  \label{eq:batch-clipping}
+\end{equation}
+
+For each $b\in\mathcal B_i$, the estimator must obtain both positive average
+memory and positive epoch time.  With total epochs $E_i$ and completed epochs
+$e_i^{\mathrm{done}}$, it computes
+
+\begin{align}
+  r_i &= \max(0,E_i-e_i^{\mathrm{done}}), \\
+  \widehat p_{i,h}(b) &= r_i\widehat e_{i,h}(b).
+  \label{eq:remaining-runtime}
+\end{align}
+
+An option is discarded if the total epoch count, average memory, or runtime is
+missing.  Missing evidence is never converted into a zero-duration option.
+
+Memory evidence is obtained in this order: an enabled hardware-matched ML
+predictor; an exact batch observation; linear interpolation between the closest
+lower and upper observations; then, only at the originally requested batch, a
+solo profile or submitted estimate.  Runtime evidence comes from a matching
+runtime profile, with an exclusive-backend profile as fallback, then a batch
+observation containing seconds per epoch or step timing.  These source labels
+and confidence values are persisted for auditing.
+
+Option $b'$ dominates $b$ when
+
+\begin{equation}
+  \widehat m_{i,h}(b')\le\widehat m_{i,h}(b),\qquad
+  \widehat p_{i,h}(b')\le\widehat p_{i,h}(b),
+  \label{eq:dominance-weak}
+\end{equation}
+
+and at least one inequality is strict.  Dominated options are removed.  Let
+$\mathcal P_{i,h}\subseteq\mathcal B_i$ denote the retained Pareto frontier.
+
+For active job $j\in A(t)$, the current resolved batch is fixed; it is not
+re-optimized.  The estimator obtains its remaining runtime at that batch, or
+falls back to a job-level remaining-runtime profile.  Failure to obtain a
+positive active-job runtime makes the entire candidate infeasible.
+
+\subsection{Step 8: enforce compatibility and predicted memory}
+
+The candidate is evaluated as the combined set
+
+\begin{equation}
+  H=A(t)\cup G.
+\end{equation}
+
+When $|H|>1$, every member must be explicitly packing-eligible, have a stable
+packing signature, and allow backend $h$.  For every unordered pair
+$\{i,j\}\subseteq H$, a stored pair profile rejects the group if that profile is
+on cooldown or marked incompatible:
+
+\begin{equation}
+  \mathrm{Compatible}(H,h)
+  =\bigwedge_{\{i,j\}\subseteq H}
+   \left[
+     \neg\mathrm{HasPairProfile}_{ij,h}
+     \;\lor\;
+     \bigl(\neg\mathrm{Cooldown}_{ij,h}\land
+            \mathrm{PairCompatible}_{ij,h}\bigr)
+   \right].
+  \label{eq:pair-compatibility}
+\end{equation}
+
+An absent pair profile does not reject a time-aware group.  Unlike older
+packing modes, this compatibility predicate intentionally does not use SM
+utilization or a slowdown threshold.
+
+The predicted memory budget is
+
+\begin{equation}
+  B_{\mathrm{pred}}
+  =\rho_{\mathrm{pred}}M_{\mathrm{total}},
+  \label{eq:predicted-budget}
+\end{equation}
+
+where $M_{\mathrm{total}}$ is configured device VRAM when present, otherwise
+detected hardware VRAM, and $\rho_{\mathrm{pred}}=0.85$ in the current example.
+For a batch-option vector
+$\boldsymbol b=(b_i)_{i\in G}\in\prod_{i\in G}\mathcal P_{i,h}$, feasibility
+requires
+
+\begin{equation}
+  M_{\mathrm{active}}(t)
+  +\sum_{i\in G}\widehat m_{i,h}(b_i)
+  \le B_{\mathrm{pred}}+10^{-9}.
+  \label{eq:memory-feasibility}
+\end{equation}
+
+The $10^{-9}$ term is only a floating-point boundary tolerance.  The memory
+quantity is predicted average used VRAM, not peak allocation.
+
+\subsection{Step 9: calculate priority weights}
+
+Let the minimum effective priority in the window be
+
+\begin{equation}
+  \pi_{\min}(t)=\min_{i\in W(t)}\pi_i(t).
+\end{equation}
+
+Each waiting-window job receives the non-negative relative weight
+
+\begin{equation}
+  w_i(t)=1+\eta\bigl(\pi_i(t)-\pi_{\min}(t)\bigr),
+  \qquad i\in W(t).
+  \label{eq:priority-weight}
+\end{equation}
+
+Subtracting $\pi_{\min}$ makes the least urgent window job have weight one and
+preserves priority differences.  Active jobs normally do not belong to the
+runnable window; the implementation assigns such a job the default weight
+$\bar w_j=1$.  In general define
+
+\begin{equation}
+  \bar w_j=
+  \begin{cases}
+    w_j(t), & j\in W(t),\\
+    1, & j\notin W(t).
+  \end{cases}
+  \label{eq:active-weight}
+\end{equation}
+
+\subsection{Step 10: construct the exclusive-anchor baseline}
+
+Let $a$ be the mandatory anchor when one exists, otherwise the first job in the
+window.  Among the anchor's feasible exclusive batch options, choose the
+smallest predicted remaining runtime:
+
+\begin{equation}
+  p_a^{\mathrm{ex}}
+  =\min_{b\in\mathcal P_{a,\mathrm{exclusive}}:\,
+          \widehat m_{a,\mathrm{exclusive}}(b)\le B_{\mathrm{pred}}}
+    \widehat p_{a,\mathrm{exclusive}}(b).
+  \label{eq:exclusive-anchor-duration}
+\end{equation}
+
+If there are no batch-indexed options, a positive job-level exclusive runtime
+estimate is used.  The normalization baseline is the incremental flow cost of
+letting the exclusive anchor occupy the next drain interval:
+
+\begin{equation}
+  L_{\mathrm{ex}}
+  =p_a^{\mathrm{ex}}\sum_{i\in W(t)}w_i(t).
+  \label{eq:exclusive-baseline}
+\end{equation}
+
+If this baseline cannot be estimated, no time-aware comparison is possible.  On
+an idle GPU the planner falls back to the anchor alone on \code{exclusive}; if
+work is already active, it returns no dispatch.
+
+\subsection{Step 11: evaluate rolling-horizon predicted flow cost}
+
+For a feasible triple $(G,h,\boldsymbol b)$, let
+
+\begin{equation}
+  H=A(t)\cup G
+\end{equation}
+
+and assign completion offsets from the present decision time:
+
+\begin{equation}
+  d_j=
+  \begin{cases}
+    \widehat p_{j,h}(b_j), & j\in G,\\
+    \widehat p^{\mathrm{remaining}}_{j,h}, & j\in A(t).
+  \end{cases}
+  \label{eq:completion-offsets}
+\end{equation}
+
+The predicted drain time is
+
+\begin{equation}
+  D(G,h,\boldsymbol b)=\max_{j\in H}d_j.
+  \label{eq:drain-time}
+\end{equation}
+
+Selected and active jobs accrue their individual completion offsets.  Every
+window job not selected is assumed to wait throughout the complete drain
+interval.  Therefore the implemented one-horizon weighted flow cost is
+
+\begin{equation}
+  L_F(G,h,\boldsymbol b)
+  =\sum_{j\in H}\bar w_j d_j
+   +D(G,h,\boldsymbol b)
+      \sum_{i\in W(t)\setminus H}w_i(t).
+  \label{eq:flow-cost}
+\end{equation}
+
+The score is
+
+\begin{equation}
+  J(G,h,\boldsymbol b)
+  =\frac{L_F(G,h,\boldsymbol b)}{\max(10^{-9},L_{\mathrm{ex}})}.
+  \label{eq:normalized-score}
+\end{equation}
+
+The denominator is constant for all candidates in one call, so normalization
+does not change their ordering.  It gives the logged value an interpretable
+reference: $J<1$ predicts lower one-horizon weighted flow than running the
+anchor exclusively, $J=1$ is equal, and $J>1$ is worse.  There is no separate
+minimum-gain threshold in the implementation.
+
+This model uses solo/batch-indexed remaining times directly.  It does not inflate
+$d_j$ by a pairwise slowdown prediction.  Stored slowdown observations remain
+passive evidence for reports and do not enter Equations~\eqref{eq:drain-time}--
+\eqref{eq:normalized-score}.
+
+\subsection{Step 12: bounded search over batch vectors}
+
+For a group with at most $N_{\mathrm{exact}}$ new jobs, every vector in
+
+\begin{equation}
+  \mathcal V_{G,h}=\prod_{i\in G}\mathcal P_{i,h}
+\end{equation}
+
+is evaluated.  For larger groups, the batch-option search expands one job at a
+time and retains only $B_{\mathrm{beam}}$ partial vectors using
+
+\begin{equation}
+  k^{\mathrm{option\mbox{-}beam}}(\boldsymbol b)
+  =\left(
+     \sum_i\widehat p_{i,h}(b_i),
+     \sum_i\widehat m_{i,h}(b_i),
+     (b_i)_i
+   \right).
+  \label{eq:option-beam}
+\end{equation}
+
+This beam key favors low summed runtime, then low memory, then the
+lexicographically smaller batch vector.  The objective is evaluated only after
+the retained full vectors have been constructed.
+
+\subsection{Step 13: deterministic final selection}
+
+Each feasible candidate is compared with the lexicographic key
+
+\begin{equation}
+\begin{split}
+  K(G,h,\boldsymbol b)=\big(&J,
+    \min_{i\in G}s_i,
+    -|G|,
+    \sum_{i\in G}\widehat m_{i,h}(b_i),\\
+    &\operatorname{sort}(\mathrm{id}_i:i\in G),
+    \operatorname{sort}((\mathrm{id}_i,b_i):i\in G),
+    \operatorname{rank}(h),h\big).
+  \label{eq:tie-key}
+\end{split}
+\end{equation}
+
+The selected candidate is
+
+\begin{equation}
+  (G^*,h^*,\boldsymbol b^*)
+  =\argminlex_{(G,h,\boldsymbol b)\ \mathrm{feasible}}
+     K(G,h,\boldsymbol b).
+  \label{eq:final-choice}
+\end{equation}
+
+Thus exact score ties prefer, in order: the group with the oldest member; more
+new jobs; lower predicted candidate memory; lexicographically smaller job IDs;
+lexicographically smaller batch assignments; and only then the earlier backend
+in \code{backend\_priority}.  Backend priority is not a primary optimization
+term.
+
+The plan mode is \code{exclusive} for one idle job,
+\code{concurrent\_group} for one job added beside active work,
+\code{packed\_pair} for two new jobs, and \code{packed\_group} for three or more
+new jobs.
+
+\subsection{Step 14: no-feasible-candidate and runtime fallbacks}
+
+If no feasible candidate exists:
+
+\begin{itemize}[leftmargin=*]
+  \item with active work, return no plan and wait for a later scheduler cycle;
+  \item on an idle GPU, dispatch the anchor alone on \code{exclusive}; and
+  \item if starvation supplied $a^*$, preserve it as the mandatory anchor in the
+        audit record.
+\end{itemize}
+
+At launch time the supervisor again rejects an unknown or unavailable backend,
+an exclusive overlap, or an overlap involving a disallowed active backend.  If
+a non-exclusive backend launch raises an exception while there are no other
+active runs, the service makes one operational fallback attempt: the first
+selected job alone on \code{exclusive}.  This exception path is separate from
+the mathematical ranking.
+
+The planner also stores a deterministic fallback ordering of group members by
+
+\begin{equation}
+  \bigl(p_i,-\widehat p^{\mathrm{job}}_{i,h},
+        -\widehat m_{i,h}(b_i),q_i\bigr),
+  \label{eq:fallback-order}
+\end{equation}
+
+ascending.  Consequently, lower base priority sorts first; ties prefer longer
+job-level predicted remaining runtime (or zero when absent), then higher
+predicted memory, then FIFO sequence.  In the
+current code this order is persisted with group state and profiles; it is not a
+term in the time-aware objective.
+
+\section{Live-memory admission hysteresis}
+\label{sec:live-gate}
+
+Predicted feasibility in Equation~\eqref{eq:memory-feasibility} and live
+admission are distinct protections.  Let telemetry sample $k$ report used and
+total memory $(U_k,M_k)$, with fraction
+
+\begin{equation}
+  x_k=\frac{U_k}{M_k}.
+\end{equation}
+
+For the samples in the trailing window of length $T_{\mathrm{live}}$, define
+
+\begin{equation}
+  \overline x(t)=\frac{1}{n(t)}\sum_{k\in\mathcal I(t)}x_k,
+  \qquad
+  \mathcal I(t)=\{k:t-T_{\mathrm{live}}\le t_k\le t\}.
+  \label{eq:rolling-memory}
+\end{equation}
+
+With the example thresholds
+$\rho_{\mathrm{stop}}=0.90$,
+$\rho_{\mathrm{resume}}=0.85$, and
+$T_{\mathrm{live}}=10$ seconds:
+
+\begin{align}
+  \mathrm{open}\to\mathrm{closed}
+  &\quad\text{when a complete window exists and}\quad
+  \overline x(t)\ge\rho_{\mathrm{stop}}, \\
+  \mathrm{closed}\to\mathrm{open}
+  &\quad\text{after }\overline x(t)\le\rho_{\mathrm{resume}}
+  \text{ continuously for }T_{\mathrm{live}}.
+\end{align}
+
+If the average rises above the resume threshold during the second condition,
+the below-threshold timer resets.  This hysteresis prevents rapid open/closed
+oscillation.  The gate state and samples are persisted across scheduler restart.
+It blocks only additional admission beside active work and never pauses or kills
+active jobs.
+
+\section{Worked scoring example}
+
+Suppose the window contains jobs $1,2,3$ with effective priorities
+$(3,1,1)$ and $\eta=0.10$.  Then
+
+\begin{equation}
+  (w_1,w_2,w_3)=(1.2,1.0,1.0).
+\end{equation}
+
+Job $1$ is the anchor and its fastest feasible exclusive remaining time is
+$50$ seconds.  Therefore
+
+\begin{equation}
+  L_{\mathrm{ex}}=50(1.2+1+1)=160.
+\end{equation}
+
+Consider a feasible two-job pack $G=\{1,2\}$ with predicted offsets
+$(d_1,d_2)=(40,45)$ seconds.  Its drain time is $D=45$, while job $3$ remains
+unselected.  Equation~\eqref{eq:flow-cost} gives
+
+\begin{equation}
+  L_F=1.2(40)+1(45)+45(1)=138,
+  \qquad J=\frac{138}{160}=0.8625.
+\end{equation}
+
+If a different batch vector predicts $(d_1,d_2)=(40,60)$, then
+
+\begin{equation}
+  L_F=1.2(40)+1(60)+60(1)=168,
+  \qquad J=1.05.
+\end{equation}
+
+Provided both vectors satisfy backend, compatibility, and memory constraints,
+the first vector wins because $0.8625<1.05$.  This example also shows why the
+drain term matters: a longer co-run delays every unselected window job.
+
+\section{Compact algorithm listing}
+
+The following pseudocode summarizes the exact decision structure without the
+logging and persistence details.
+
+\begin{enumerate}[label=\textbf{\arabic*.},leftmargin=*]
+  \item Obtain runnable $Q$, active $A$, backend availability, predicted active
+        VRAM, live-gate state, and exclusive-probe reservation.
+  \item If a probe is reserved, return no plan until $A=\varnothing$; then run
+        the probe exclusively.
+  \item Build $W$ from top-priority, oldest, starving, and probe sets.  Set the
+        oldest starving job as mandatory anchor, otherwise use $W[0]$.
+  \item If active work exists and live admission is closed or a drain is
+        requested, return no plan.  Enforce the remaining parallel-job cap.
+  \item Compute $w_i$ and $L_{\mathrm{ex}}$.  If the baseline is missing, use
+        the exclusive idle fallback or return no plan when active.
+  \item Generate bounded candidate subsets $G$; enforce the mandatory anchor.
+  \item For every legal backend $h$, reject the combined active/new set if
+        packing eligibility or pair history is incompatible.
+  \item Generate five requested-batch-relative options, estimate memory and
+        remaining runtime, and Pareto-prune each job's options.
+  \item Enumerate or beam-search option vectors.  Reject vectors exceeding
+        $B_{\mathrm{pred}}$ after active memory is included.
+  \item Compute completion offsets, drain time, $L_F$, normalized score $J$, and
+        audit metadata.
+  \item Select the lexicographically minimum key in
+        Equation~\eqref{eq:tie-key}.  If none exists, wait when active or run the
+        anchor exclusively when idle.
+  \item Revalidate the plan in the supervisor, launch it, persist selected
+        batches and the objective breakdown, and repeat admission while legal.
+\end{enumerate}
+
+\section{Other configured scheduler modes}
+
+The planner retains five alternatives to \code{parallel\_time\_aware}.  They
+share the priority-FIFO queue and exclusive fallback, but use different group
+search and scoring rules.
+
+\subsection{Serial modes}
+
+Both \code{serial\_basic} and \code{serial\_batch\_optimized} select the first
+priority-FIFO job and return an exclusive plan.  Let
+$\pi_i^{\mathrm{policy}}(t)$ denote the generic policy's effective priority,
+whose aging clock uses \code{waiting\_since()} (and can therefore reflect a
+resume boundary).  Within the placement planner, their dispatch decision is
+identical:
+
+\begin{equation}
+  i^*=\arg\min_i\bigl(-\pi_i^{\mathrm{policy}}(t),q_i\bigr),
+  \qquad G^*=\{i^*\},\quad h^*=\mathrm{exclusive}.
+\end{equation}
+
+\subsection{Parallel default: fixed-batch VRAM fill}
+
+After compatibility and memory checks, the fixed-batch score is maximized:
+
+\begin{equation}
+  J_{\mathrm{fixed}}(G,h)
+  =\frac{\sum_{i\in G}\widehat m_{i,h}(b_i^{\mathrm{resolved}})}{B_{\mathrm{legacy}}}
+   +0.001|G|-0.0001\left(\frac{1}{|G|}\sum_{i\in G}\max(1,q_i)\right).
+  \label{eq:fixed-score}
+\end{equation}
+
+Unlike the time-aware score, larger is better.  Candidate groups come from a
+fixed prefix of the priority queue and are bounded by
+\code{max\_packed\_jobs\_per\_gpu}, with optional three-way packing.
+
+\subsection{Parallel batch optimized}
+
+This mode searches candidate batches and maximizes memory fill under a target
+budget:
+
+\begin{equation}
+  J_{\mathrm{batch}}(G,h,\boldsymbol b)
+  =\frac{\sum_{i\in G}\widehat m_{i,h}(b_i)}
+         {\rho_{\mathrm{target}}B_{\mathrm{legacy}}},
+  \qquad
+  \sum_{i\in G}\widehat m_{i,h}(b_i)
+  \le\rho_{\mathrm{target}}B_{\mathrm{legacy}}.
+  \label{eq:batch-optimized-score}
+\end{equation}
+
+It uses a Cartesian product for groups of at most three jobs.  For larger
+groups it evaluates a baseline vector and vectors that maximize one member's
+batch at a time.
+
+\subsection{Parallel auto-pack}
+
+Auto-pack can score singleton additions and groups.  It requires runtime-ready
+multi-job members, applies a runtime-skew penalty, and fills toward either a
+VRAM or SM target.  Its maximized score is
+
+\begin{equation}
+  J_{\mathrm{auto}}(G,h)
+  =1-\mathrm{gap}(G,h)+0.01|G|-P_{\mathrm{runtime}}(G,h)
+   +0.02\,\mathbf{1}[h\ne\mathrm{exclusive}].
+  \label{eq:auto-score}
+\end{equation}
+
+For a VRAM target,
+
+\begin{equation}
+  \mathrm{gap}
+  =\frac{|\rho_VM_{\mathrm{safe}}-(M_{\mathrm{active}}+M_G)|}
+         {\max(1,\rho_VM_{\mathrm{safe}})},
+\end{equation}
+
+and candidates above the target are rejected.  The SM form replaces memory by
+summed predicted SM utilization and uses an unnormalized absolute gap.  This is
+the only current placement mode whose scoring consumes the runtime-skew
+guardrail.
+
+\section{Interpretation, guarantees, and limitations}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Starvation protection is hard.}  Once the timeout is crossed,
+        the oldest starving job must appear in every candidate and is the idle
+        exclusive fallback.
+  \item \textbf{Priority is relative.}  Priority changes window membership and
+        the weighted-flow cost; it does not require strict dispatch order before
+        the starvation threshold.
+  \item \textbf{The horizon is local.}  Unselected jobs are charged one drain
+        interval, but the scheduler does not recursively optimize all later
+        dispatches.  It replans after state changes.
+  \item \textbf{Search is bounded.}  Exact enumeration is used only at the
+        configured small-job limit.  The two deterministic beams bound planning
+        latency but can omit the global optimum.
+  \item \textbf{Memory safety is predictive plus reactive.}  Candidate average
+        VRAM must fit the predicted budget, while sustained live memory can close
+        further overlap admission.  Neither is a proof against instantaneous
+        peaks or prediction error.
+  \item \textbf{Slowdown is not optimized.}  Co-run slowdown observations may be
+        recorded after execution, but they do not affect the current flow-only
+        decision unless they have already marked a pair incompatible or on
+        cooldown.
+  \item \textbf{Time-aware work is non-preemptive.}  Urgent jobs and probes wait
+        for drain boundaries.  This preserves active training progress but can
+        increase urgent-job latency.
+  \item \textbf{Early stopping is orthogonal.}  It may shorten realized runtime
+        at epoch-safe points, but the placement objective uses the remaining
+        runtime estimates available at the decision instant.
+\end{itemize}
+
+\section{Current example parameters}
+
+The repository's \code{configs/scheduler.example.yaml} currently supplies the
+following time-aware values.  The algorithm remains parameterized, and deployed
+configuration or detected hardware may differ.
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Parameter & Example value \\
+\midrule
+Mode & \code{parallel\_time\_aware} \\
+Backend priority & \code{mps}, \code{stream}, \code{cuda\_process}, \code{exclusive} \\
+Parallel job cap & unlimited (\code{null}) \\
+Priority-window size $K$ & $8$ \\
+Oldest-window size $L$ & $4$ \\
+Starvation timeout & $1800$ s \\
+Exact-search job limit & $3$ \\
+Beam width & $64$ \\
+Predicted-memory fraction & $0.85$ \\
+Live stop/resume fractions & $0.90/0.85$ \\
+Live averaging window & $10$ s \\
+Priority weight $\eta$ & $0.10$ \\
+Batch exponent offsets & $[-2,-1,0,1,2]$ \\
+Objective version & \code{time\_v3\_flow\_only} \\
+Exclusive probe policy & enabled, drain without preemption \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Code-to-equation traceability}
+
+\begin{longtable}{p{0.40\textwidth}p{0.52\textwidth}}
+\toprule
+Implementation location & Formalized behavior \\
+\midrule
+\endhead
+\code{placement\_planner.py:74--118} & Effective priority, union planning window, and mandatory starvation anchor; Equations~\eqref{eq:effective-priority}--\eqref{eq:mandatory-anchor}. \\
+\code{placement\_planner.py:120--142} & Exclusive-anchor normalization baseline; Equations~\eqref{eq:exclusive-anchor-duration}--\eqref{eq:exclusive-baseline}. \\
+\code{placement\_planner.py:144--258} & Probe handling, active-work gates, backend enumeration, selection, fallbacks, and priority weights. \\
+\code{candidate\_generator.py:63--107} & Immutable requested-batch proposals and clipping; Equations~\eqref{eq:batch-proposals}--\eqref{eq:batch-clipping}. \\
+\code{candidate\_generator.py:156--191} & Exact subset generation and group beam; Equations~\eqref{eq:exact-groups}--\eqref{eq:group-beam}. \\
+\code{resource\_estimator.py:43--54} & Time-aware predicted-memory budget; Equation~\eqref{eq:predicted-budget}. \\
+\code{resource\_estimator.py:81--125} & Batch option bundle and remaining runtime; Equation~\eqref{eq:remaining-runtime}. \\
+\code{resource\_estimator.py:127--288} & Evidence fallback order and Pareto dominance; Equation~\eqref{eq:dominance-weak}. \\
+\code{compatibility.py:95--112} & Time-aware eligibility and pair-history rejection; Equation~\eqref{eq:pair-compatibility}. \\
+\code{time\_objective.py:30--155} & Combined active/new feasibility, flow cost, normalized score, and candidate construction; Equations~\eqref{eq:memory-feasibility} and \eqref{eq:flow-cost}--\eqref{eq:normalized-score}. \\
+\code{time\_objective.py:157--188} & Option-vector beam and final lexicographic tie key; Equations~\eqref{eq:option-beam}--\eqref{eq:final-choice}. \\
+\code{telemetry.py:45--86} & Rolling live-memory hysteresis; Equation~\eqref{eq:rolling-memory}. \\
+\code{service.py:1112--1173} & Exclusive reservation and repeated concurrent admission loop. \\
+\code{supervisor.py:131--234} & Final backend availability and overlap validation. \\
+\bottomrule
+\end{longtable}
+
+\end{document}
