@@ -12,33 +12,53 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import shutil
+import statistics
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 REPO = os.environ.get("REPO_ROOT", str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, REPO)
 
-from benchmark_support import (
-    DEFAULT_BINARY_RANGE_DOWN,
-    DEFAULT_BINARY_RANGE_UP,
-    DEFAULT_CACHE_ENTRY_CAPACITY,
-    DEFAULT_CACHE_MAX_RAM_PERCENT,
-    DEFAULT_CACHE_MEMORY_BUDGET_GIB,
-    DEFAULT_CACHE_WARM_TOP_K,
-    DEFAULT_POWER_OF_TWO_RANGE_DOWN,
-    DEFAULT_POWER_OF_TWO_RANGE_UP,
-    DEFAULT_VRAM_BUDGET_GIB,
-)
+try:
+    from .benchmark_support import (
+        DEFAULT_BINARY_RANGE_DOWN,
+        DEFAULT_BINARY_RANGE_UP,
+        DEFAULT_CACHE_ENTRY_CAPACITY,
+        DEFAULT_CACHE_MAX_RAM_PERCENT,
+        DEFAULT_CACHE_MEMORY_BUDGET_GIB,
+        DEFAULT_CACHE_WARM_TOP_K,
+        DEFAULT_POWER_OF_TWO_RANGE_DOWN,
+        DEFAULT_POWER_OF_TWO_RANGE_UP,
+        DEFAULT_VRAM_BUDGET_GIB,
+    )
+except ImportError:  # Direct ``python scheduler_benchmark_test/replay_scheduler.py`` execution.
+    from benchmark_support import (
+        DEFAULT_BINARY_RANGE_DOWN,
+        DEFAULT_BINARY_RANGE_UP,
+        DEFAULT_CACHE_ENTRY_CAPACITY,
+        DEFAULT_CACHE_MAX_RAM_PERCENT,
+        DEFAULT_CACHE_MEMORY_BUDGET_GIB,
+        DEFAULT_CACHE_WARM_TOP_K,
+        DEFAULT_POWER_OF_TWO_RANGE_DOWN,
+        DEFAULT_POWER_OF_TWO_RANGE_UP,
+        DEFAULT_VRAM_BUDGET_GIB,
+    )
 from localml_scheduler.adapters.mlevolve import build_mlevolve_job
 from localml_scheduler.client import SchedulerClient
 from localml_scheduler.domain import (
     BatchProbeSpec,
+    BatchSizeObservation,
     CheckpointPolicy,
     ResourceRequirements,
+    SchedulingClass,
     SoloProfile,
+    TrainingJob,
+    build_batch_probe_shape_signature,
     parse_timestamp,
 )
 from localml_scheduler.config import (
@@ -51,6 +71,7 @@ from localml_scheduler.config import (
     SchedulerSettings,
     StreamSettings,
 )
+from localml_scheduler.observability.outcomes import classify_job_outcome
 
 
 def _mps_directory_env(var_name: str, default: str) -> str:
@@ -75,15 +96,26 @@ def build_settings(
     power_of_two_range_up: int,
     power_of_two_range_down: int,
     target_vram_fraction: float,
+    predicted_budget_fraction: float = 0.85,
 ) -> SchedulerSettings:
     gpu = GpuSchedulerSettings()
     gpu.mode = mode
     mps_pipe_directory = _mps_directory_env("BENCH_MPS_PIPE_DIRECTORY", "/tmp/nvidia-mps")
     mps_log_directory = _mps_directory_env("BENCH_MPS_LOG_DIRECTORY", "/tmp/nvidia-mps-log")
-    gpu.memory = GpuMemorySettings(
-        safe_vram_budget_gib=vram_budget_gib,
-        hard_stop_memory_fraction=0.92,
-    )
+    if mode == "parallel_time_aware":
+        gpu.memory = GpuMemorySettings(
+            safe_vram_budget_gib=vram_budget_gib,
+            predicted_budget_fraction=predicted_budget_fraction,
+            live_admission_stop_fraction=0.90,
+            live_admission_resume_fraction=0.85,
+        )
+    else:
+        gpu.memory = GpuMemorySettings(
+            safe_vram_budget_gib=vram_budget_gib,
+            predicted_budget_fraction=predicted_budget_fraction,
+            live_admission_stop_fraction=0.92,
+            live_admission_resume_fraction=0.87,
+        )
     gpu.profiling = GpuProfilingSettings(
         warmup_steps=3,
         solo_probe_steps=6,
@@ -91,6 +123,7 @@ def build_settings(
         reuse_profile_if_confidence_ge=0.8,
     )
     gpu.max_packed_jobs_per_gpu = max(1, int(max_packed_jobs_per_gpu))
+    gpu.parallel_job_cap = max(1, int(max_packed_jobs_per_gpu))
     gpu.allow_three_way_packing = gpu.max_packed_jobs_per_gpu >= 3
 
     if backend == "exclusive":
@@ -113,9 +146,8 @@ def build_settings(
     gpu.thresholds = GpuThresholdSettings(
         pack_prefer_sm_active_lt=0.70,
         pack_reject_sm_active_ge=0.95,
-        pack_reject_max_slowdown=1.50,
+        pack_reject_max_slowdown=(1.30 if mode == "parallel_time_aware" else 1.50),
         latency_sensitive_max_slowdown=1.30,
-        min_aggregate_gain=0.30,
     )
     gpu.parallel_optimizer = ParallelOptimizerSettings(
         batch_search_mode=batch_search or "binary",
@@ -141,9 +173,11 @@ def build_settings(
             "warm_queue_top_k": max(0, int(cache_warm_top_k)),
             "entry_capacity": cache_entry_capacity,
             "max_ram_percent": cache_max_ram_percent,
-            "memory_budget_bytes": max(0, int(float(cache_memory_budget_gib) * (1024 ** 3))),
+            "memory_budget_bytes": max(0, int(float(cache_memory_budget_gib) * (1024**3))),
         },
         gpu_scheduler=gpu,
+        graph_db={"enabled": False},
+        hardware_feature_db={"enabled": False},
     )
 
 
@@ -174,6 +208,199 @@ def _elapsed_seconds(started_at: str | None, finished_at: str | None) -> float |
     return round((finished - started).total_seconds(), 3)
 
 
+def _current_jobs(api: SchedulerClient, submitted_ids: list[str]) -> list[TrainingJob]:
+    submitted = set(submitted_ids)
+    return [job for job in api.list_jobs() if job.job_id in submitted]
+
+
+def _percentile(values: list[float], fraction: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    return ordered[max(0, math.ceil(fraction * len(ordered)) - 1)]
+
+
+def _trace_metrics(jobs: list[TrainingJob], *, starvation_timeout_seconds: float) -> dict[str, float | int | bool]:
+    completed = [job for job in jobs if parse_timestamp(job.submitted_at) and parse_timestamp(job.finished_at)]
+    flows = [
+        (parse_timestamp(job.finished_at) - parse_timestamp(job.submitted_at)).total_seconds()  # type: ignore[operator]
+        for job in completed
+    ]
+    waits = [
+        (parse_timestamp(job.started_at) - parse_timestamp(job.submitted_at)).total_seconds()  # type: ignore[operator]
+        for job in jobs
+        if parse_timestamp(job.started_at) and parse_timestamp(job.submitted_at)
+    ]
+    releases = [parse_timestamp(job.submitted_at) for job in completed]
+    finishes = [parse_timestamp(job.finished_at) for job in completed]
+    makespan = (
+        (max(finishes) - min(releases)).total_seconds()  # type: ignore[type-var,operator]
+        if releases and finishes
+        else 0.0
+    )
+    minimum_priority = min((job.priority for job in completed), default=0)
+    weights = [1.0 + 0.10 * (job.priority - minimum_priority) for job in completed]
+    weighted_flow = (
+        sum(weight * flow for weight, flow in zip(weights, flows, strict=True)) / sum(weights)
+        if weights
+        else 0.0
+    )
+    return {
+        "complete": len(completed) == len(jobs),
+        "makespan_seconds": makespan,
+        "total_flow_seconds": sum(flows),
+        "mean_flow_seconds": statistics.fmean(flows) if flows else 0.0,
+        "weighted_mean_flow_seconds": weighted_flow,
+        "median_flow_seconds": statistics.median(flows) if flows else 0.0,
+        "p95_flow_seconds": _percentile(flows, 0.95),
+        "max_wait_seconds": max(waits, default=0.0),
+        "starvation_count": sum(wait >= starvation_timeout_seconds for wait in waits),
+        "jobs_per_hour": 3600.0 * len(completed) / makespan if makespan > 0 else 0.0,
+    }
+
+
+def _load_time_aware_profiles(api: SchedulerClient, profile_path: Path) -> int:
+    payload = json.loads(profile_path.read_text(encoding="utf-8"))
+    if int(payload.get("schema_version", 0)) != 1:
+        raise ValueError(f"Unsupported time-aware profile schema in {profile_path}")
+    hardware = api.store.hardware_profile()
+    manifest_hardware = payload.get("hardware") or {}
+    if manifest_hardware.get("hardware_key") != hardware.hardware_key:
+        raise ValueError(
+            "Time-aware profile hardware mismatch: "
+            f"manifest={manifest_hardware.get('gpu_name')} ({manifest_hardware.get('hardware_key')}), "
+            f"current={hardware.gpu_name} ({hardware.hardware_key})"
+        )
+    observations = payload.get("batch_size_observations") or []
+    for raw in observations:
+        observation = BatchSizeObservation(**dict(raw))
+        if observation.hardware_key != hardware.hardware_key:
+            raise ValueError("Time-aware profile contains an observation for different hardware")
+        api.upsert_batch_size_observation(observation)
+    return len(observations)
+
+
+def _write_time_aware_profiles(
+    api: SchedulerClient,
+    profile_path: Path,
+    jobs: list[TrainingJob],
+) -> int:
+    hardware = api.store.hardware_profile()
+    observations: dict[str, BatchSizeObservation] = {}
+    for job in jobs:
+        for observation in api.list_batch_size_observations(
+            model_key=str(job.batch_probe.model_key or job.baseline_model_id),
+            shape_signature=build_batch_probe_shape_signature(job),
+            hardware_key=hardware.hardware_key,
+            backend_name="exclusive",
+        ):
+            observations[observation.observation_key] = observation
+    payload = {
+        "schema_version": 1,
+        "hardware": hardware.to_dict(),
+        "batch_size_observations": [
+            observations[key].to_dict() for key in sorted(observations)
+        ],
+    }
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return len(observations)
+
+
+def _placement_memory_metrics(
+    api: SchedulerClient,
+    jobs: list[TrainingJob],
+    *,
+    mode: str,
+    backend: str,
+    predicted_budget_fraction: float,
+) -> dict[str, float | int]:
+    submitted = {job.job_id for job in jobs}
+    jobs_by_id = {job.job_id: job for job in jobs}
+    predicted: list[float] = []
+    actual: list[float] = []
+    over_budget = 0
+    for profile in api.list_combination_profiles(
+        hardware_key=api.store.hardware_key(),
+        backend_name=backend,
+        scheduler_mode=mode,
+    ):
+        metadata = profile.metadata or {}
+        if not submitted.intersection(str(job_id) for job_id in metadata.get("job_ids", [])):
+            continue
+        breakdown = metadata.get("objective_breakdown") or {}
+        candidate_memory = breakdown.get("candidate_memory_mb")
+        if isinstance(candidate_memory, (int, float)):
+            predicted.append(float(candidate_memory))
+        else:
+            member_estimates = [
+                jobs_by_id[str(job_id)].resource_requirements.estimated_avg_vram_mb
+                for job_id in metadata.get("job_ids", [])
+                if str(job_id) in jobs_by_id
+            ]
+            if member_estimates and all(value is not None for value in member_estimates):
+                predicted.append(sum(float(value) for value in member_estimates if value is not None))
+        if profile.avg_vram_mb is not None:
+            actual.append(float(profile.avg_vram_mb))
+        if profile.avg_vram_mb is not None and profile.memory_total_mb:
+            budget = profile.memory_total_mb * predicted_budget_fraction
+            over_budget += int(profile.avg_vram_mb > budget)
+    if not actual:
+        for job in jobs:
+            if not job.packing.signature:
+                continue
+            profile = api.get_solo_profile(job.packing.signature)
+            if profile is None or profile.last_job_id != job.job_id or profile.avg_vram_mb is None:
+                continue
+            actual.append(float(profile.avg_vram_mb))
+            estimate = job.resource_requirements.estimated_avg_vram_mb
+            if estimate is not None:
+                predicted.append(float(estimate))
+            if profile.avg_vram_mb is not None and api.store.hardware_profile().total_vram_mb:
+                budget = api.store.hardware_profile().total_vram_mb * predicted_budget_fraction
+                over_budget += int(profile.avg_vram_mb > budget)
+    return {
+        "predicted_avg_vram_mb": statistics.fmean(predicted) if predicted else 0.0,
+        "actual_avg_vram_mb": statistics.fmean(actual) if actual else 0.0,
+        "actual_memory_over_budget_count": over_budget,
+        "measured_placement_count": len(actual),
+    }
+
+
+def _execution_metrics(api: SchedulerClient, jobs: list[TrainingJob], *, backend: str) -> dict[str, float | int]:
+    job_ids = {job.job_id for job in jobs}
+    slowdowns: list[float] = []
+    for profile in api.store.list_pair_profiles(
+        hardware_key=api.store.hardware_key(),
+        backend_name=backend,
+    ):
+        per_member = (profile.metadata or {}).get("per_member_slowdown") or {}
+        matched = [
+            float(value)
+            for job_id, value in per_member.items()
+            if str(job_id) in job_ids and isinstance(value, (int, float))
+        ]
+        if matched:
+            slowdowns.extend(matched)
+    return {
+        "average_slowdown": statistics.fmean(slowdowns) if slowdowns else 1.0,
+        "measured_slowdown_members": len(slowdowns),
+        "early_stopped_epochs_saved": sum(
+            int((job.metadata.get("early_stopping_result") or {}).get("epochs_saved", 0))
+            for job in jobs
+        ),
+        "early_stopped_wall_time_saved_seconds": sum(
+            float(
+                (job.metadata.get("early_stopping_result") or {}).get(
+                    "estimated_wall_time_saved_seconds",
+                    0.0,
+                )
+            )
+            for job in jobs
+        ),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config-id", required=True)
@@ -185,11 +412,17 @@ def main():
             "serial_batch_optimized",
             "parallel_default",
             "parallel_batch_optimized",
+            "parallel_time_aware",
         ],
     )
-    parser.add_argument("--backend", required=True, choices=["exclusive", "mps", "stream", "cuda_process"])
+    parser.add_argument(
+        "--backend",
+        required=True,
+        choices=["exclusive", "mps", "stream", "cuda_process"],
+    )
     parser.add_argument("--batch-search", default="off", choices=["off", "binary", "power_of_two"])
     parser.add_argument("--trace", required=True)
+    parser.add_argument("--data-root", help="Override each trace row's dataset root for this replay.")
     parser.add_argument("--vram-budget-gib", type=float, default=DEFAULT_VRAM_BUDGET_GIB)
     parser.add_argument("--max-packed-jobs-per-gpu", type=int, default=2)
     parser.add_argument("--runtime-root", required=True)
@@ -207,7 +440,31 @@ def main():
     parser.add_argument("--power-of-two-range-up", type=int, default=DEFAULT_POWER_OF_TWO_RANGE_UP)
     parser.add_argument("--power-of-two-range-down", type=int, default=DEFAULT_POWER_OF_TWO_RANGE_DOWN)
     parser.add_argument("--target-vram-fraction", type=float, default=0.97)
+    parser.add_argument("--predicted-budget-fraction", type=float, default=0.85)
+    parser.add_argument(
+        "--time-aware-profile-input",
+        help="Hardware-matched five-option profile manifest produced by a calibration replay.",
+    )
+    parser.add_argument(
+        "--time-aware-profile-output",
+        help="Write hardware-tagged five-option measurements collected by this replay.",
+    )
+    parser.add_argument(
+        "--calibrate-time-aware",
+        action="store_true",
+        help="Run every trace job as an exclusive five-option probe and skip its full training body.",
+    )
     args = parser.parse_args()
+
+    if args.calibrate_time_aware and args.mode != "parallel_time_aware":
+        parser.error("--calibrate-time-aware requires --mode parallel_time_aware")
+    if args.calibrate_time_aware and args.batch_search == "off":
+        parser.error("--calibrate-time-aware requires --batch-search power_of_two")
+    if args.mode == "parallel_time_aware" and not args.calibrate_time_aware and not args.time_aware_profile_input:
+        parser.error(
+            "measured parallel_time_aware replay requires --time-aware-profile-input; "
+            "create it with --calibrate-time-aware --time-aware-profile-output"
+        )
 
     Path(args.results_dir).mkdir(parents=True, exist_ok=True)
     Path(args.code_cache_dir).mkdir(parents=True, exist_ok=True)
@@ -219,7 +476,7 @@ def main():
     workdir_root = Path(os.environ.get("REPLAY_WORKDIR_ROOT", f"/tmp/replay_workdirs/{args.config_id}")).resolve()
     workdir_root.mkdir(parents=True, exist_ok=True)
 
-    trace: list[dict[str, object]] = []
+    trace: list[dict[str, Any]] = []
     with Path(args.trace).open("r", encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
@@ -254,16 +511,29 @@ def main():
         power_of_two_range_up=args.power_of_two_range_up,
         power_of_two_range_down=args.power_of_two_range_down,
         target_vram_fraction=args.target_vram_fraction,
+        predicted_budget_fraction=args.predicted_budget_fraction,
     )
 
     api = SchedulerClient(settings)
+    imported_profile_count = 0
+    if args.time_aware_profile_input:
+        imported_profile_count = _load_time_aware_profiles(api, Path(args.time_aware_profile_input))
     service = api.create_service().start(background=True)
 
-    seed_solo = args.mode == "parallel_batch_optimized"
+    seed_solo = args.mode in {"parallel_batch_optimized", "parallel_time_aware"}
     submitted_ids: list[str] = []
     submit_t0 = time.time()
+    deadline = submit_t0 + args.duration_s
     try:
-        for step in trace:
+        for step in sorted(trace, key=lambda item: (float(item.get("exec_submit_at") or 0.0), int(item["step_idx"]))):
+            release_offset = (
+                0.0
+                if args.calibrate_time_aware
+                else max(0.0, float(step.get("exec_submit_at") or 0.0))
+            )
+            remaining_delay = submit_t0 + release_offset - time.time()
+            if remaining_delay > 0:
+                time.sleep(remaining_delay)
             step_idx = int(step["step_idx"])
             startpoint_path = str(step["startpoint_path"])
             model_name = str(step["model_name"])
@@ -273,7 +543,7 @@ def main():
             working_dir = (workdir_root / f"step_{step_idx:03d}").resolve()
             working_dir.mkdir(parents=True, exist_ok=True)
             runner_kwargs = {
-                "data_root": str(step["data_root"]),
+                "data_root": str(args.data_root or step["data_root"]),
                 "subset_size": int(step.get("subset") or 4000),
                 "batch_size": batch_size,
                 "epochs": int(step.get("epochs") or 1),
@@ -287,9 +557,7 @@ def main():
             batch_probe = BatchProbeSpec(
                 enabled=batch_search in {"binary", "power_of_two"},
                 probe_target=(
-                    "localml_scheduler.examples.benchmark_timm_runner:probe_timm_benchmark_batch_size"
-                    if batch_search in {"binary", "power_of_two"}
-                    else None
+                    "localml_scheduler.examples.benchmark_timm_runner:probe_timm_benchmark_batch_size" if batch_search in {"binary", "power_of_two"} else None
                 ),
                 batch_param_name="batch_size",
                 model_key=str(step.get("startpoint_id") or model_name),
@@ -330,19 +598,32 @@ def main():
                     "bs": batch_size,
                     "max_bs": max_batch_size,
                     "code_path": code_paths.get(step_idx) or step.get("code_path"),
+                    "trace_release_offset_seconds": release_offset,
+                    "benchmark_probe_only": bool(args.calibrate_time_aware),
                 },
             )
+            if args.calibrate_time_aware and batch_size > 0 and (batch_size & (batch_size - 1)) == 0:
+                job.scheduling_class = SchedulingClass.EXCLUSIVE_PROBE
             job = api.submit(job)
             if seed_solo:
                 seed_solo_profile_for_job(api, job, vram_mb=vram_est)
             submitted_ids.append(job.job_id)
 
-        deadline = time.time() + args.duration_s
         while time.time() < deadline:
-            jobs = api.list_jobs()
+            jobs = _current_jobs(api, submitted_ids)
             if all(job.status.is_terminal for job in jobs):
                 break
             time.sleep(2.0)
+
+        # Workers persist terminal status before the service consumes their
+        # final snapshots. Give the scheduler loop a bounded chance to close
+        # run groups and write measured VRAM/slowdown profiles before reporting.
+        reconciliation_deadline = min(deadline, time.time() + 10.0)
+        while service._active_runs and time.time() < reconciliation_deadline:
+            time.sleep(max(0.05, settings.scheduler_poll_interval_seconds))
+
+        current_jobs = _current_jobs(api, submitted_ids)
+        deadline_reached = time.time() >= deadline and any(not job.status.is_terminal for job in current_jobs)
 
         treat_elapsed = time.time() - submit_t0
 
@@ -390,8 +671,11 @@ def main():
 
         per_job = []
         by_status: dict[str, int] = {}
-        for job in api.list_jobs():
+        by_outcome: dict[str, int] = {}
+        for job in current_jobs:
             by_status[job.status.value] = by_status.get(job.status.value, 0) + 1
+            outcome = classify_job_outcome(job, externally_timed_out=deadline_reached and not job.status.is_terminal)
+            by_outcome[outcome] = by_outcome.get(outcome, 0) + 1
             per_job.append(
                 {
                     "job_id": job.job_id,
@@ -402,6 +686,8 @@ def main():
                     "bs": (job.metadata or {}).get("bs"),
                     "resolved_batch_size": (job.metadata or {}).get("resolved_batch_size"),
                     "status": job.status.value,
+                    "outcome": outcome,
+                    "submitted_at": job.submitted_at,
                     "started_at": job.started_at,
                     "finished_at": job.finished_at,
                     "elapsed_s": _elapsed_seconds(job.started_at, job.finished_at),
@@ -409,6 +695,25 @@ def main():
             )
 
         cache_snapshot = api.cache_stats().get("stats", {})
+        trace_metrics = _trace_metrics(
+            current_jobs,
+            starvation_timeout_seconds=settings.gpu_scheduler.starvation_timeout_seconds,
+        )
+        memory_metrics = _placement_memory_metrics(
+            api,
+            current_jobs,
+            mode=args.mode,
+            backend=args.backend,
+            predicted_budget_fraction=args.predicted_budget_fraction,
+        )
+        execution_metrics = _execution_metrics(api, current_jobs, backend=args.backend)
+        exported_profile_count = 0
+        if args.time_aware_profile_output:
+            exported_profile_count = _write_time_aware_profiles(
+                api,
+                Path(args.time_aware_profile_output),
+                current_jobs,
+            )
         summary = {
             "config_id": args.config_id,
             "mode": args.mode,
@@ -419,7 +724,20 @@ def main():
             "trace_path": args.trace,
             "n_jobs": len(submitted_ids),
             "by_status": by_status,
+            "by_outcome": by_outcome,
+            "external_deadline_reached": deadline_reached,
             "treat_elapsed_s": round(treat_elapsed, 3),
+            "trace_metrics": trace_metrics,
+            "placement_memory_metrics": memory_metrics,
+            "execution_metrics": execution_metrics,
+            "hardware": api.store.hardware_profile().to_dict(),
+            "time_aware_profiles": {
+                "input": args.time_aware_profile_input,
+                "imported_observations": imported_profile_count,
+                "output": args.time_aware_profile_output,
+                "exported_observations": exported_profile_count,
+                "calibration_only": bool(args.calibrate_time_aware),
+            },
             "n_pack_dispatches": pack_events,
             "n_exclusive_dispatches": exclusive_events,
             "pack_rate": pack_events / max(1, pack_events + exclusive_events),
@@ -448,7 +766,12 @@ def main():
             "per_job": per_job,
         }
         Path(args.summary).write_text(json.dumps(summary, indent=2), encoding="utf-8")
-        print(json.dumps({key: value for key, value in summary.items() if key != "per_job"}, indent=2))
+        print(
+            json.dumps(
+                {key: value for key, value in summary.items() if key != "per_job"},
+                indent=2,
+            )
+        )
     finally:
         service.stop()
 

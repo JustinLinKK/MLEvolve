@@ -77,6 +77,38 @@ RESULTS_DIR=results/scheduler_benchmark_test/main_sweep_windows \
 python scheduler_benchmark_test/plot_results.py
 ```
 
+## Required repeated A10 comparison
+
+The completion-time scheduler comparison uses a dedicated driver rather than
+the older one-shot sweep:
+
+```bash
+python scheduler_benchmark_test/repeat_time_aware_benchmark.py \
+  --results-dir results/scheduler_benchmark_test/a10_time_aware \
+  --data-root "$CASSAVA_ROOT" \
+  --repetitions 3
+```
+
+The driver:
+
+1. verifies that the detected GPU name matches `NVIDIA A10`;
+2. calibrates the five batch proposals for every eligible power-of-two job and
+   writes a hardware-keyed profile manifest;
+3. performs isolated serial FIFO, previous VRAM-fill, and
+   `parallel_time_aware` runs for every repetition;
+4. replays every time-aware selected batch through a matched exclusive solo
+   control so slowdown is measured against the same batch size;
+5. respects each trace row's `exec_submit_at` release time; and
+6. writes `report.json` and `report.md` with raw runs, mean, sample variance,
+   standard deviation, makespan, flow/wait metrics, jobs/hour, and
+   predicted/actual packed VRAM.
+
+The default requires at least two repetitions. The process exits nonzero for a
+hardware mismatch, an incomplete trace, a failed child replay, or missing
+calibration measurements. Use `--allow-hardware-mismatch` only to validate the
+harness on another GPU; such a report is explicitly marked as not satisfying
+the A10 requirement.
+
 ## Runtime Controls
 
 The Linux benchmark wrappers now isolate each run under `scheduler_benchmark_test/runtime/` by default and support these overrides:

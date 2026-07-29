@@ -42,4 +42,6 @@
 - Mixer best backend: TBD
 
 ## Confidence intervals
-- Single seed → no error bars. Future work: rerun with seeds {42, 123, 456} for variance.
+- One-shot sweep rows have no error bars. Use
+  `repeat_time_aware_benchmark.py --repetitions 3` for the required raw runs,
+  sample variance, and standard deviation report.
