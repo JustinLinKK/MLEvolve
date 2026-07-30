@@ -144,8 +144,6 @@ def build_settings(
         raise ValueError(f"Unknown backend: {backend}")
 
     gpu.thresholds = GpuThresholdSettings(
-        pack_prefer_sm_active_lt=0.70,
-        pack_reject_sm_active_ge=0.95,
         pack_reject_max_slowdown=(1.30 if mode == "parallel_time_aware" else 1.50),
         latency_sensitive_max_slowdown=1.30,
     )
