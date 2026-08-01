@@ -1,0 +1,26 @@
+name: mlevolve
+
+services:
+  neo4j-hardware:
+    image: neo4j:5.26
+    restart: unless-stopped
+    ports:
+      - "${NEO4J_HARDWARE_HTTP_PORT:-7475}:7474"
+      - "${NEO4J_HARDWARE_BOLT_PORT:-7688}:7687"
+    environment:
+      NEO4J_AUTH: "neo4j/${HARDWARE_KNOWLEDGE_NEO4J_PASSWORD:-test12345}"
+      MLEVOLVE_NEO4J_PASSWORD: "${HARDWARE_KNOWLEDGE_NEO4J_PASSWORD:-test12345}"
+    volumes:
+      - neo4j_hardware_data:/data
+      - neo4j_hardware_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${MLEVOLVE_NEO4J_PASSWORD}\" 'RETURN 1;'"]
+      interval: 10s
+      timeout: 10s
+      retries: 18
+
+volumes:
+  neo4j_hardware_data:
+    name: mlevolve_neo4j_hardware_data
+  neo4j_hardware_logs:
+    name: mlevolve_neo4j_hardware_logs
