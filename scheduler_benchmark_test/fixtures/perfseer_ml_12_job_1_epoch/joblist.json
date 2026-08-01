@@ -1,0 +1,17 @@
+{
+  "description": "Synthetic one-epoch PerfSeer ML auto-pack stress fixture",
+  "jobs": [
+    {"id": "ml-stress-01", "entry": "build_conv", "shape": ["$batch", 3, 32, 32], "dtype": "float32", "width": 4},
+    {"id": "ml-stress-02", "entry": "build_conv", "shape": ["$batch", 3, 48, 48], "dtype": "float32", "width": 8},
+    {"id": "ml-stress-03", "entry": "build_residual", "shape": ["$batch", 3, 32, 32], "dtype": "float32", "width": 4},
+    {"id": "ml-stress-04", "entry": "build_residual", "shape": ["$batch", 3, 48, 48], "dtype": "float32", "width": 8},
+    {"id": "ml-stress-05", "entry": "build_depthwise", "shape": ["$batch", 3, 32, 32], "dtype": "float32", "width": 8},
+    {"id": "ml-stress-06", "entry": "build_depthwise", "shape": ["$batch", 3, 64, 64], "dtype": "float32", "width": 12},
+    {"id": "ml-stress-07", "entry": "build_mlp", "shape": ["$batch", 16], "dtype": "float32", "width": 16},
+    {"id": "ml-stress-08", "entry": "build_mlp", "shape": ["$batch", 16], "dtype": "float32", "width": 32},
+    {"id": "ml-stress-09", "entry": "build_embedding", "shape": ["$batch", 8], "dtype": "int64", "width": 8},
+    {"id": "ml-stress-10", "entry": "build_embedding", "shape": ["$batch", 8], "dtype": "int64", "width": 16},
+    {"id": "ml-stress-11", "entry": "build_conv", "shape": ["$batch", 3, 64, 64], "dtype": "float32", "width": 12},
+    {"id": "ml-stress-12-unsupported", "entry": "build_model", "shape": ["$batch", 3, 32, 32], "dtype": "float32", "width": null}
+  ]
+}

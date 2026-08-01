@@ -1,0 +1,1010 @@
+{
+  "target_peak_mib": 6500.0,
+  "device": "NVIDIA A10",
+  "avg_peak_mib": 4764.4,
+  "median_peak_mib": 4656.0,
+  "avg_job_total_gib": 5.39,
+  "jobs_to_fill_23gib_avg": 4.26,
+  "rows": [
+    {
+      "id": "stress-v1-001",
+      "architecture": "vgg",
+      "family": "cnn",
+      "variant": "relu_base",
+      "precision": "fp32_ieee",
+      "batch_size": 16384,
+      "ms_per_step": 119.87809700076468,
+      "peak_mib": 4316.0
+    },
+    {
+      "id": "stress-v1-002",
+      "architecture": "vgg",
+      "family": "cnn",
+      "variant": "gelu_wide",
+      "precision": "tf32",
+      "batch_size": 4096,
+      "ms_per_step": 71.13018599920906,
+      "peak_mib": 3824.0
+    },
+    {
+      "id": "stress-v1-003",
+      "architecture": "vgg",
+      "family": "cnn",
+      "variant": "silu_deep",
+      "precision": "bf16_amp",
+      "batch_size": 4096,
+      "ms_per_step": 132.74779725179542,
+      "peak_mib": 3388.0
+    },
+    {
+      "id": "stress-v1-004",
+      "architecture": "vgg",
+      "family": "cnn",
+      "variant": "relu_compact",
+      "precision": "fp16_amp",
+      "batch_size": 4096,
+      "ms_per_step": 121.9647432480997,
+      "peak_mib": 3406.0
+    },
+    {
+      "id": "stress-v1-005",
+      "architecture": "vgg",
+      "family": "cnn",
+      "variant": "gelu_deep_wide",
+      "precision": "fp32_ieee",
+      "batch_size": 1024,
+      "ms_per_step": 132.2229087490996,
+      "peak_mib": 5858.0
+    },
+    {
+      "id": "stress-v1-006",
+      "architecture": "resnet",
+      "family": "cnn",
+      "variant": "relu_base",
+      "precision": "tf32",
+      "batch_size": 16384,
+      "ms_per_step": 241.92133150063455,
+      "peak_mib": 6298.0
+    },
+    {
+      "id": "stress-v1-007",
+      "architecture": "resnet",
+      "family": "cnn",
+      "variant": "gelu_wide",
+      "precision": "bf16_amp",
+      "batch_size": 8192,
+      "ms_per_step": 224.7935025006882,
+      "peak_mib": 5830.0
+    },
+    {
+      "id": "stress-v1-008",
+      "architecture": "resnet",
+      "family": "cnn",
+      "variant": "silu_deep",
+      "precision": "fp16_amp",
+      "batch_size": 2048,
+      "ms_per_step": 144.0301049988193,
+      "peak_mib": 3652.0
+    },
+    {
+      "id": "stress-v1-009",
+      "architecture": "resnet",
+      "family": "cnn",
+      "variant": "relu_compact",
+      "precision": "fp32_ieee",
+      "batch_size": 2048,
+      "ms_per_step": 132.1125794966065,
+      "peak_mib": 3976.0
+    },
+    {
+      "id": "stress-v1-010",
+      "architecture": "resnet",
+      "family": "cnn",
+      "variant": "gelu_deep_wide",
+      "precision": "tf32",
+      "batch_size": 512,
+      "ms_per_step": 147.9632317495998,
+      "peak_mib": 5634.0
+    },
+    {
+      "id": "stress-v1-011",
+      "architecture": "densenet",
+      "family": "cnn",
+      "variant": "relu_base",
+      "precision": "bf16_amp",
+      "batch_size": 16384,
+      "ms_per_step": 150.97145824984182,
+      "peak_mib": 5662.0
+    },
+    {
+      "id": "stress-v1-012",
+      "architecture": "densenet",
+      "family": "cnn",
+      "variant": "gelu_wide",
+      "precision": "fp16_amp",
+      "batch_size": 4096,
+      "ms_per_step": 93.22458049791749,
+      "peak_mib": 4296.0
+    },
+    {
+      "id": "stress-v1-013",
+      "architecture": "densenet",
+      "family": "cnn",
+      "variant": "silu_deep",
+      "precision": "fp32_ieee",
+      "batch_size": 1024,
+      "ms_per_step": 86.9796357510495,
+      "peak_mib": 4298.0
+    },
+    {
+      "id": "stress-v1-014",
+      "architecture": "densenet",
+      "family": "cnn",
+      "variant": "relu_compact",
+      "precision": "tf32",
+      "batch_size": 2048,
+      "ms_per_step": 106.89086149795912,
+      "peak_mib": 5676.0
+    },
+    {
+      "id": "stress-v1-015",
+      "architecture": "densenet",
+      "family": "cnn",
+      "variant": "gelu_deep_wide",
+      "precision": "bf16_amp",
+      "batch_size": 512,
+      "ms_per_step": 93.92222775204573,
+      "peak_mib": 3566.0
+    },
+    {
+      "id": "stress-v1-016",
+      "architecture": "convnext_compatible",
+      "family": "cnn",
+      "variant": "relu_base",
+      "precision": "fp16_amp",
+      "batch_size": 8192,
+      "ms_per_step": 193.49354800215224,
+      "peak_mib": 5096.0
+    },
+    {
+      "id": "stress-v1-017",
+      "architecture": "convnext_compatible",
+      "family": "cnn",
+      "variant": "gelu_wide",
+      "precision": "fp32_ieee",
+      "batch_size": 1024,
+      "ms_per_step": 108.37009224997018,
+      "peak_mib": 6094.0
+    },
+    {
+      "id": "stress-v1-018",
+      "architecture": "convnext_compatible",
+      "family": "cnn",
+      "variant": "silu_deep",
+      "precision": "tf32",
+      "batch_size": 512,
+      "ms_per_step": 111.52232225140324,
+      "peak_mib": 5898.0
+    },
+    {
+      "id": "stress-v1-019",
+      "architecture": "convnext_compatible",
+      "family": "cnn",
+      "variant": "relu_compact",
+      "precision": "bf16_amp",
+      "batch_size": 2048,
+      "ms_per_step": 246.63215874898015,
+      "peak_mib": 6352.0
+    },
+    {
+      "id": "stress-v1-020",
+      "architecture": "convnext_compatible",
+      "family": "cnn",
+      "variant": "gelu_deep_wide",
+      "precision": "fp16_amp",
+      "batch_size": 256,
+      "ms_per_step": 90.17846674760222,
+      "peak_mib": 4844.0
+    },
+    {
+      "id": "stress-v1-021",
+      "architecture": "mobilenet_v2",
+      "family": "efficient_cnn",
+      "variant": "relu_base",
+      "precision": "fp32_ieee",
+      "batch_size": 8192,
+      "ms_per_step": 100.93216899986146,
+      "peak_mib": 3702.0
+    },
+    {
+      "id": "stress-v1-022",
+      "architecture": "mobilenet_v2",
+      "family": "efficient_cnn",
+      "variant": "gelu_wide",
+      "precision": "tf32",
+      "batch_size": 2048,
+      "ms_per_step": 70.06223250209587,
+      "peak_mib": 4082.0
+    },
+    {
+      "id": "stress-v1-023",
+      "architecture": "mobilenet_v2",
+      "family": "efficient_cnn",
+      "variant": "silu_deep",
+      "precision": "bf16_amp",
+      "batch_size": 2048,
+      "ms_per_step": 121.81835299998056,
+      "peak_mib": 5258.0
+    },
+    {
+      "id": "stress-v1-024",
+      "architecture": "mobilenet_v2",
+      "family": "efficient_cnn",
+      "variant": "relu_compact",
+      "precision": "fp16_amp",
+      "batch_size": 4096,
+      "ms_per_step": 189.69709600060014,
+      "peak_mib": 5200.0
+    },
+    {
+      "id": "stress-v1-025",
+      "architecture": "mobilenet_v2",
+      "family": "efficient_cnn",
+      "variant": "gelu_deep_wide",
+      "precision": "fp32_ieee",
+      "batch_size": 256,
+      "ms_per_step": 71.23169149781461,
+      "peak_mib": 4074.0
+    },
+    {
+      "id": "stress-v1-026",
+      "architecture": "mobilenet_v3",
+      "family": "efficient_cnn",
+      "variant": "relu_base",
+      "precision": "tf32",
+      "batch_size": 4096,
+      "ms_per_step": 112.26012949919095,
+      "peak_mib": 3510.0
+    },
+    {
+      "id": "stress-v1-027",
+      "architecture": "mobilenet_v3",
+      "family": "efficient_cnn",
+      "variant": "gelu_wide",
+      "precision": "bf16_amp",
+      "batch_size": 2048,
+      "ms_per_step": 100.57046650035772,
+      "peak_mib": 4220.0
+    },
+    {
+      "id": "stress-v1-028",
+      "architecture": "mobilenet_v3",
+      "family": "efficient_cnn",
+      "variant": "silu_deep",
+      "precision": "fp16_amp",
+      "batch_size": 1024,
+      "ms_per_step": 102.42384125012904,
+      "peak_mib": 4418.0
+    },
+    {
+      "id": "stress-v1-029",
+      "architecture": "mobilenet_v3",
+      "family": "efficient_cnn",
+      "variant": "relu_compact",
+      "precision": "fp32_ieee",
+      "batch_size": 1024,
+      "ms_per_step": 136.20207250278327,
+      "peak_mib": 4398.0
+    },
+    {
+      "id": "stress-v1-030",
+      "architecture": "mobilenet_v3",
+      "family": "efficient_cnn",
+      "variant": "gelu_deep_wide",
+      "precision": "tf32",
+      "batch_size": 128,
+      "ms_per_step": 69.56404049924458,
+      "peak_mib": 3798.0
+    },
+    {
+      "id": "stress-v1-031",
+      "architecture": "mbconv",
+      "family": "efficient_cnn",
+      "variant": "relu_base",
+      "precision": "bf16_amp",
+      "batch_size": 8192,
+      "ms_per_step": 183.00385050315526,
+      "peak_mib": 4680.0
+    },
+    {
+      "id": "stress-v1-032",
+      "architecture": "mbconv",
+      "family": "efficient_cnn",
+      "variant": "gelu_wide",
+      "precision": "fp16_amp",
+      "batch_size": 2048,
+      "ms_per_step": 102.28171599737834,
+      "peak_mib": 5578.0
+    },
+    {
+      "id": "stress-v1-033",
+      "architecture": "mbconv",
+      "family": "efficient_cnn",
+      "variant": "silu_deep",
+      "precision": "fp32_ieee",
+      "batch_size": 512,
+      "ms_per_step": 90.76236699911533,
+      "peak_mib": 5062.0
+    },
+    {
+      "id": "stress-v1-034",
+      "architecture": "mbconv",
+      "family": "efficient_cnn",
+      "variant": "relu_compact",
+      "precision": "tf32",
+      "batch_size": 1024,
+      "ms_per_step": 135.55805424766731,
+      "peak_mib": 4398.0
+    },
+    {
+      "id": "stress-v1-035",
+      "architecture": "mbconv",
+      "family": "efficient_cnn",
+      "variant": "gelu_deep_wide",
+      "precision": "bf16_amp",
+      "batch_size": 256,
+      "ms_per_step": 115.37767674963106,
+      "peak_mib": 4406.0
+    },
+    {
+      "id": "stress-v1-036",
+      "architecture": "efficient_residual",
+      "family": "efficient_cnn",
+      "variant": "relu_base",
+      "precision": "fp16_amp",
+      "batch_size": 16384,
+      "ms_per_step": 366.3854820006236,
+      "peak_mib": 6342.0
+    },
+    {
+      "id": "stress-v1-037",
+      "architecture": "efficient_residual",
+      "family": "efficient_cnn",
+      "variant": "gelu_wide",
+      "precision": "fp32_ieee",
+      "batch_size": 2048,
+      "ms_per_step": 209.57078199717216,
+      "peak_mib": 6398.0
+    },
+    {
+      "id": "stress-v1-038",
+      "architecture": "efficient_residual",
+      "family": "efficient_cnn",
+      "variant": "silu_deep",
+      "precision": "tf32",
+      "batch_size": 1024,
+      "ms_per_step": 165.4487705018255,
+      "peak_mib": 5730.0
+    },
+    {
+      "id": "stress-v1-039",
+      "architecture": "efficient_residual",
+      "family": "efficient_cnn",
+      "variant": "relu_compact",
+      "precision": "bf16_amp",
+      "batch_size": 4096,
+      "ms_per_step": 493.15657050101436,
+      "peak_mib": 6482.0
+    },
+    {
+      "id": "stress-v1-040",
+      "architecture": "efficient_residual",
+      "family": "efficient_cnn",
+      "variant": "gelu_deep_wide",
+      "precision": "fp16_amp",
+      "batch_size": 512,
+      "ms_per_step": 202.62842250303947,
+      "peak_mib": 4930.0
+    },
+    {
+      "id": "stress-v1-041",
+      "architecture": "patch_mlp",
+      "family": "mlp",
+      "variant": "relu_base",
+      "precision": "fp32_ieee",
+      "batch_size": 131072,
+      "ms_per_step": 60.79742124711629,
+      "peak_mib": 5694.0
+    },
+    {
+      "id": "stress-v1-042",
+      "architecture": "patch_mlp",
+      "family": "mlp",
+      "variant": "gelu_wide",
+      "precision": "tf32",
+      "batch_size": 32768,
+      "ms_per_step": 22.54289074699045,
+      "peak_mib": 2518.0
+    },
+    {
+      "id": "stress-v1-043",
+      "architecture": "patch_mlp",
+      "family": "mlp",
+      "variant": "silu_deep",
+      "precision": "bf16_amp",
+      "batch_size": 32768,
+      "ms_per_step": 49.89721224774257,
+      "peak_mib": 5860.0
+    },
+    {
+      "id": "stress-v1-044",
+      "architecture": "patch_mlp",
+      "family": "mlp",
+      "variant": "relu_compact",
+      "precision": "fp16_amp",
+      "batch_size": 32768,
+      "ms_per_step": 58.59490350121632,
+      "peak_mib": 6454.0
+    },
+    {
+      "id": "stress-v1-045",
+      "architecture": "patch_mlp",
+      "family": "mlp",
+      "variant": "gelu_deep_wide",
+      "precision": "fp32_ieee",
+      "batch_size": 16384,
+      "ms_per_step": 46.52574600186199,
+      "peak_mib": 5428.0
+    },
+    {
+      "id": "stress-v1-046",
+      "architecture": "mixer_mlp",
+      "family": "mlp",
+      "variant": "relu_base",
+      "precision": "tf32",
+      "batch_size": 131072,
+      "ms_per_step": 72.32041025054059,
+      "peak_mib": 6342.0
+    },
+    {
+      "id": "stress-v1-047",
+      "architecture": "mixer_mlp",
+      "family": "mlp",
+      "variant": "gelu_wide",
+      "precision": "bf16_amp",
+      "batch_size": 32768,
+      "ms_per_step": 33.681402001093375,
+      "peak_mib": 3810.0
+    },
+    {
+      "id": "stress-v1-048",
+      "architecture": "mixer_mlp",
+      "family": "mlp",
+      "variant": "silu_deep",
+      "precision": "fp16_amp",
+      "batch_size": 32768,
+      "ms_per_step": 60.73078124973108,
+      "peak_mib": 4944.0
+    },
+    {
+      "id": "stress-v1-049",
+      "architecture": "mixer_mlp",
+      "family": "mlp",
+      "variant": "relu_compact",
+      "precision": "fp32_ieee",
+      "batch_size": 32768,
+      "ms_per_step": 48.588877500151284,
+      "peak_mib": 5070.0
+    },
+    {
+      "id": "stress-v1-050",
+      "architecture": "mixer_mlp",
+      "family": "mlp",
+      "variant": "gelu_deep_wide",
+      "precision": "tf32",
+      "batch_size": 16384,
+      "ms_per_step": 59.276540003338596,
+      "peak_mib": 6346.0
+    },
+    {
+      "id": "stress-v1-051",
+      "architecture": "gmlp_compatible",
+      "family": "mlp",
+      "variant": "relu_base",
+      "precision": "bf16_amp",
+      "batch_size": 131072,
+      "ms_per_step": 85.02895325000281,
+      "peak_mib": 6470.0
+    },
+    {
+      "id": "stress-v1-052",
+      "architecture": "gmlp_compatible",
+      "family": "mlp",
+      "variant": "gelu_wide",
+      "precision": "fp16_amp",
+      "batch_size": 32768,
+      "ms_per_step": 35.697926501597976,
+      "peak_mib": 3430.0
+    },
+    {
+      "id": "stress-v1-053",
+      "architecture": "gmlp_compatible",
+      "family": "mlp",
+      "variant": "silu_deep",
+      "precision": "fp32_ieee",
+      "batch_size": 32768,
+      "ms_per_step": 46.83720324828755,
+      "peak_mib": 4932.0
+    },
+    {
+      "id": "stress-v1-054",
+      "architecture": "gmlp_compatible",
+      "family": "mlp",
+      "variant": "relu_compact",
+      "precision": "tf32",
+      "batch_size": 32768,
+      "ms_per_step": 55.50070825120201,
+      "peak_mib": 5404.0
+    },
+    {
+      "id": "stress-v1-055",
+      "architecture": "gmlp_compatible",
+      "family": "mlp",
+      "variant": "gelu_deep_wide",
+      "precision": "bf16_amp",
+      "batch_size": 8192,
+      "ms_per_step": 44.640128249739064,
+      "peak_mib": 4328.0
+    },
+    {
+      "id": "stress-v1-056",
+      "architecture": "resmlp_compatible",
+      "family": "mlp",
+      "variant": "relu_base",
+      "precision": "fp16_amp",
+      "batch_size": 131072,
+      "ms_per_step": 64.82308275008108,
+      "peak_mib": 5542.0
+    },
+    {
+      "id": "stress-v1-057",
+      "architecture": "resmlp_compatible",
+      "family": "mlp",
+      "variant": "gelu_wide",
+      "precision": "fp32_ieee",
+      "batch_size": 32768,
+      "ms_per_step": 43.6023602487694,
+      "peak_mib": 3842.0
+    },
+    {
+      "id": "stress-v1-058",
+      "architecture": "resmlp_compatible",
+      "family": "mlp",
+      "variant": "silu_deep",
+      "precision": "tf32",
+      "batch_size": 32768,
+      "ms_per_step": 51.98520924750483,
+      "peak_mib": 5492.0
+    },
+    {
+      "id": "stress-v1-059",
+      "architecture": "resmlp_compatible",
+      "family": "mlp",
+      "variant": "relu_compact",
+      "precision": "bf16_amp",
+      "batch_size": 16384,
+      "ms_per_step": 43.33607075022883,
+      "peak_mib": 4836.0
+    },
+    {
+      "id": "stress-v1-060",
+      "architecture": "resmlp_compatible",
+      "family": "mlp",
+      "variant": "gelu_deep_wide",
+      "precision": "fp16_amp",
+      "batch_size": 8192,
+      "ms_per_step": 39.266047249839175,
+      "peak_mib": 3878.0
+    },
+    {
+      "id": "stress-v1-061",
+      "architecture": "row_lstm",
+      "family": "recurrent",
+      "variant": "relu_base",
+      "precision": "fp32_ieee",
+      "batch_size": 65536,
+      "ms_per_step": 44.70170900094672,
+      "peak_mib": 3610.0
+    },
+    {
+      "id": "stress-v1-062",
+      "architecture": "row_lstm",
+      "family": "recurrent",
+      "variant": "gelu_wide",
+      "precision": "tf32",
+      "batch_size": 32768,
+      "ms_per_step": 27.296457497868687,
+      "peak_mib": 3046.0
+    },
+    {
+      "id": "stress-v1-063",
+      "architecture": "row_lstm",
+      "family": "recurrent",
+      "variant": "silu_deep",
+      "precision": "bf16_amp",
+      "batch_size": 32768,
+      "ms_per_step": 81.48965350119397,
+      "peak_mib": 6432.0
+    },
+    {
+      "id": "stress-v1-064",
+      "architecture": "row_lstm",
+      "family": "recurrent",
+      "variant": "relu_compact",
+      "precision": "fp16_amp",
+      "batch_size": 16384,
+      "ms_per_step": 45.19314800199936,
+      "peak_mib": 3626.0
+    },
+    {
+      "id": "stress-v1-065",
+      "architecture": "row_lstm",
+      "family": "recurrent",
+      "variant": "gelu_deep_wide",
+      "precision": "fp32_ieee",
+      "batch_size": 8192,
+      "ms_per_step": 31.013280498882523,
+      "peak_mib": 3484.0
+    },
+    {
+      "id": "stress-v1-066",
+      "architecture": "bilstm",
+      "family": "recurrent",
+      "variant": "relu_base",
+      "precision": "tf32",
+      "batch_size": 65536,
+      "ms_per_step": 49.40431075010565,
+      "peak_mib": 4122.0
+    },
+    {
+      "id": "stress-v1-067",
+      "architecture": "bilstm",
+      "family": "recurrent",
+      "variant": "gelu_wide",
+      "precision": "bf16_amp",
+      "batch_size": 32768,
+      "ms_per_step": 52.12424250203185,
+      "peak_mib": 4346.0
+    },
+    {
+      "id": "stress-v1-068",
+      "architecture": "bilstm",
+      "family": "recurrent",
+      "variant": "silu_deep",
+      "precision": "fp16_amp",
+      "batch_size": 32768,
+      "ms_per_step": 110.35571200045524,
+      "peak_mib": 5658.0
+    },
+    {
+      "id": "stress-v1-069",
+      "architecture": "bilstm",
+      "family": "recurrent",
+      "variant": "relu_compact",
+      "precision": "fp32_ieee",
+      "batch_size": 16384,
+      "ms_per_step": 34.016347501165,
+      "peak_mib": 3630.0
+    },
+    {
+      "id": "stress-v1-070",
+      "architecture": "bilstm",
+      "family": "recurrent",
+      "variant": "gelu_deep_wide",
+      "precision": "tf32",
+      "batch_size": 8192,
+      "ms_per_step": 39.84182775093359,
+      "peak_mib": 4344.0
+    },
+    {
+      "id": "stress-v1-071",
+      "architecture": "patch_gru",
+      "family": "recurrent",
+      "variant": "relu_base",
+      "precision": "bf16_amp",
+      "batch_size": 65536,
+      "ms_per_step": 83.58252075049677,
+      "peak_mib": 3866.0
+    },
+    {
+      "id": "stress-v1-072",
+      "architecture": "patch_gru",
+      "family": "recurrent",
+      "variant": "gelu_wide",
+      "precision": "fp16_amp",
+      "batch_size": 32768,
+      "ms_per_step": 45.81700449853088,
+      "peak_mib": 4060.0
+    },
+    {
+      "id": "stress-v1-073",
+      "architecture": "patch_gru",
+      "family": "recurrent",
+      "variant": "silu_deep",
+      "precision": "fp32_ieee",
+      "batch_size": 32768,
+      "ms_per_step": 56.97873450117186,
+      "peak_mib": 6166.0
+    },
+    {
+      "id": "stress-v1-074",
+      "architecture": "patch_gru",
+      "family": "recurrent",
+      "variant": "relu_compact",
+      "precision": "tf32",
+      "batch_size": 16384,
+      "ms_per_step": 34.664373750274535,
+      "peak_mib": 3626.0
+    },
+    {
+      "id": "stress-v1-075",
+      "architecture": "patch_gru",
+      "family": "recurrent",
+      "variant": "gelu_deep_wide",
+      "precision": "bf16_amp",
+      "batch_size": 8192,
+      "ms_per_step": 59.32249125180533,
+      "peak_mib": 5282.0
+    },
+    {
+      "id": "stress-v1-076",
+      "architecture": "conv_lstm",
+      "family": "recurrent",
+      "variant": "relu_base",
+      "precision": "fp16_amp",
+      "batch_size": 65536,
+      "ms_per_step": 39.26434149980196,
+      "peak_mib": 3354.0
+    },
+    {
+      "id": "stress-v1-077",
+      "architecture": "conv_lstm",
+      "family": "recurrent",
+      "variant": "gelu_wide",
+      "precision": "fp32_ieee",
+      "batch_size": 32768,
+      "ms_per_step": 45.25423000086448,
+      "peak_mib": 4774.0
+    },
+    {
+      "id": "stress-v1-078",
+      "architecture": "conv_lstm",
+      "family": "recurrent",
+      "variant": "silu_deep",
+      "precision": "tf32",
+      "batch_size": 16384,
+      "ms_per_step": 33.86193824917427,
+      "peak_mib": 3482.0
+    },
+    {
+      "id": "stress-v1-079",
+      "architecture": "conv_lstm",
+      "family": "recurrent",
+      "variant": "relu_compact",
+      "precision": "bf16_amp",
+      "batch_size": 16384,
+      "ms_per_step": 67.9041072507971,
+      "peak_mib": 5728.0
+    },
+    {
+      "id": "stress-v1-080",
+      "architecture": "conv_lstm",
+      "family": "recurrent",
+      "variant": "gelu_deep_wide",
+      "precision": "fp16_amp",
+      "batch_size": 8192,
+      "ms_per_step": 41.08298324717907,
+      "peak_mib": 4638.0
+    },
+    {
+      "id": "stress-v1-081",
+      "architecture": "conv_mlp",
+      "family": "hybrid",
+      "variant": "relu_base",
+      "precision": "fp32_ieee",
+      "batch_size": 16384,
+      "ms_per_step": 91.69248375110328,
+      "peak_mib": 4056.0
+    },
+    {
+      "id": "stress-v1-082",
+      "architecture": "conv_mlp",
+      "family": "hybrid",
+      "variant": "gelu_wide",
+      "precision": "tf32",
+      "batch_size": 8192,
+      "ms_per_step": 101.63991100125713,
+      "peak_mib": 6290.0
+    },
+    {
+      "id": "stress-v1-083",
+      "architecture": "conv_mlp",
+      "family": "hybrid",
+      "variant": "silu_deep",
+      "precision": "bf16_amp",
+      "batch_size": 4096,
+      "ms_per_step": 121.27636775039718,
+      "peak_mib": 4348.0
+    },
+    {
+      "id": "stress-v1-084",
+      "architecture": "conv_mlp",
+      "family": "hybrid",
+      "variant": "relu_compact",
+      "precision": "fp16_amp",
+      "batch_size": 8192,
+      "ms_per_step": 173.14243975124555,
+      "peak_mib": 5728.0
+    },
+    {
+      "id": "stress-v1-085",
+      "architecture": "conv_mlp",
+      "family": "hybrid",
+      "variant": "gelu_deep_wide",
+      "precision": "fp32_ieee",
+      "batch_size": 1024,
+      "ms_per_step": 95.42246400087606,
+      "peak_mib": 5318.0
+    },
+    {
+      "id": "stress-v1-086",
+      "architecture": "depthwise_mlp",
+      "family": "hybrid",
+      "variant": "relu_base",
+      "precision": "tf32",
+      "batch_size": 8192,
+      "ms_per_step": 88.07403374885325,
+      "peak_mib": 3982.0
+    },
+    {
+      "id": "stress-v1-087",
+      "architecture": "depthwise_mlp",
+      "family": "hybrid",
+      "variant": "gelu_wide",
+      "precision": "bf16_amp",
+      "batch_size": 4096,
+      "ms_per_step": 90.40991100118845,
+      "peak_mib": 4506.0
+    },
+    {
+      "id": "stress-v1-088",
+      "architecture": "depthwise_mlp",
+      "family": "hybrid",
+      "variant": "silu_deep",
+      "precision": "fp16_amp",
+      "batch_size": 2048,
+      "ms_per_step": 113.26949525027885,
+      "peak_mib": 4966.0
+    },
+    {
+      "id": "stress-v1-089",
+      "architecture": "depthwise_mlp",
+      "family": "hybrid",
+      "variant": "relu_compact",
+      "precision": "fp32_ieee",
+      "batch_size": 2048,
+      "ms_per_step": 96.38681824799278,
+      "peak_mib": 4172.0
+    },
+    {
+      "id": "stress-v1-090",
+      "architecture": "depthwise_mlp",
+      "family": "hybrid",
+      "variant": "gelu_deep_wide",
+      "precision": "tf32",
+      "batch_size": 256,
+      "ms_per_step": 70.60457850093371,
+      "peak_mib": 4100.0
+    },
+    {
+      "id": "stress-v1-091",
+      "architecture": "residual_mlp",
+      "family": "hybrid",
+      "variant": "relu_base",
+      "precision": "bf16_amp",
+      "batch_size": 16384,
+      "ms_per_step": 263.89101025051787,
+      "peak_mib": 5312.0
+    },
+    {
+      "id": "stress-v1-092",
+      "architecture": "residual_mlp",
+      "family": "hybrid",
+      "variant": "gelu_wide",
+      "precision": "fp16_amp",
+      "batch_size": 4096,
+      "ms_per_step": 175.34096675080946,
+      "peak_mib": 4624.0
+    },
+    {
+      "id": "stress-v1-093",
+      "architecture": "residual_mlp",
+      "family": "hybrid",
+      "variant": "silu_deep",
+      "precision": "fp32_ieee",
+      "batch_size": 1024,
+      "ms_per_step": 102.3535037493275,
+      "peak_mib": 3880.0
+    },
+    {
+      "id": "stress-v1-094",
+      "architecture": "residual_mlp",
+      "family": "hybrid",
+      "variant": "relu_compact",
+      "precision": "tf32",
+      "batch_size": 2048,
+      "ms_per_step": 188.74212024820736,
+      "peak_mib": 4674.0
+    },
+    {
+      "id": "stress-v1-095",
+      "architecture": "residual_mlp",
+      "family": "hybrid",
+      "variant": "gelu_deep_wide",
+      "precision": "bf16_amp",
+      "batch_size": 512,
+      "ms_per_step": 141.23433049826417,
+      "peak_mib": 3682.0
+    },
+    {
+      "id": "stress-v1-096",
+      "architecture": "dense_mlp",
+      "family": "hybrid",
+      "variant": "relu_base",
+      "precision": "fp16_amp",
+      "batch_size": 16384,
+      "ms_per_step": 225.00974600188783,
+      "peak_mib": 6204.0
+    },
+    {
+      "id": "stress-v1-097",
+      "architecture": "dense_mlp",
+      "family": "hybrid",
+      "variant": "gelu_wide",
+      "precision": "fp32_ieee",
+      "batch_size": 2048,
+      "ms_per_step": 89.55641974898754,
+      "peak_mib": 5298.0
+    },
+    {
+      "id": "stress-v1-098",
+      "architecture": "dense_mlp",
+      "family": "hybrid",
+      "variant": "silu_deep",
+      "precision": "tf32",
+      "batch_size": 1024,
+      "ms_per_step": 84.3317395010672,
+      "peak_mib": 4808.0
+    },
+    {
+      "id": "stress-v1-099",
+      "architecture": "dense_mlp",
+      "family": "hybrid",
+      "variant": "relu_compact",
+      "precision": "bf16_amp",
+      "batch_size": 2048,
+      "ms_per_step": 122.97815000056289,
+      "peak_mib": 4152.0
+    },
+    {
+      "id": "stress-v1-100",
+      "architecture": "dense_mlp",
+      "family": "hybrid",
+      "variant": "gelu_deep_wide",
+      "precision": "fp16_amp",
+      "batch_size": 512,
+      "ms_per_step": 96.03731449897168,
+      "peak_mib": 3820.0
+    }
+  ]
+}
