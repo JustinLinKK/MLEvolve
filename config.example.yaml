@@ -122,6 +122,19 @@ scheduler:
         ml_calibrated: 1.0
         explicit: 1.3
         job_local_probe: 1.1
+    # Evaluated at epoch safe points. Scheduler-aware example runners emit
+    # `loss`; use `val_loss` instead when the runner reports validation loss.
+    early_stopping:
+      enabled: true
+      metric_name: loss
+      mode: min
+      patience_epochs: 5
+      min_delta: 0.001
+      min_epochs: 10
+      save_best_checkpoint: true
+      # Generic runners must explicitly restore the protected best checkpoint.
+      restore_best_checkpoint: false
+      missing_metric_policy: ignore
     gpu_scheduler:
       enabled: true
       mode: auto
@@ -169,16 +182,6 @@ scheduler:
       telemetry:
         device_poll_ms: 500
         pair_recheck_every_steps: 20
-      early_stop:
-        enabled: true
-        warmup_samples: 10
-        patience_samples: 10
-        min_delta: 0.0001
-        min_runtime_seconds: 120.0
-        min_global_step: 20
-        metric_key: null
-        direction: auto
-        plot_enabled: true
       parallel_optimizer:
         batch_search_mode: power_of_two
         max_probe_jobs: 3
