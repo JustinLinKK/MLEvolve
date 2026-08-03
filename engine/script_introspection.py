@@ -893,6 +893,58 @@ def infer_model_family(model_key: str | None, code: str = "") -> str | None:
     return None
 
 
+def infer_architecture_family(model_key: str | None, code: str = "") -> str | None:
+    """Infer the broad architecture family used to invalidate placement replay."""
+    branch = infer_branch_name(model_key, code)
+    branch_lower = str(branch or "").lower()
+    if branch_lower.startswith(("vit", "swin", "deit")):
+        return "transformer"
+    if branch_lower.startswith(
+        (
+            "resnet",
+            "efficientnet",
+            "convnext",
+            "densenet",
+            "mobilenet",
+            "unet",
+            "deeplab",
+            "cnn",
+        )
+    ):
+        return "cnn"
+    code_without_precision_backend = re.sub(
+        r"transformer[_\. -]?engine",
+        "",
+        code or "",
+        flags=re.IGNORECASE,
+    )
+    text = f"{branch or ''} {model_key or ''} {code_without_precision_backend}".lower()
+    if any(
+        token in text
+        for token in ("vit", "swin", "deit", "transformer", "bert", "roberta", "llama", "gpt")
+    ):
+        return "transformer"
+    if any(
+        token in text
+        for token in (
+            "resnet",
+            "efficientnet",
+            "convnext",
+            "cnn",
+            "densenet",
+            "mobilenet",
+            "unet",
+            "deeplab",
+        )
+    ):
+        return "cnn"
+    if any(token in text for token in ("diffusion", "stable-diffusion", "vae")):
+        return "diffusion"
+    if any(token in text for token in ("xgboost", "lightgbm", "catboost", "randomforest")):
+        return "gbdt"
+    return None
+
+
 def introspect_training_script(code: str) -> dict[str, Any]:
     """Extract scheduler/MCP candidate hints from generated code."""
     code = code or ""
@@ -910,6 +962,8 @@ def introspect_training_script(code: str) -> dict[str, Any]:
     )
     model_family = branch_name
     model_family_source = branch_name_source
+    architecture_key = branch_name or _canonical_branch_name(model_key)
+    architecture_family = infer_architecture_family(model_key or architecture_key, code)
     if not explicit_branch_name and not explicit_model_family and inferred_branch_name:
         logger.warning(
             "Generated script is missing MODEL_BRANCH; inferred branch_name=%s from model key/code.",
@@ -922,6 +976,8 @@ def introspect_training_script(code: str) -> dict[str, Any]:
         "branch_name_source": branch_name_source,
         "model_family": model_family,
         "model_family_source": model_family_source,
+        "architecture_key": architecture_key,
+        "architecture_family": architecture_family,
         "proposed_batch_size": detect_initial_batch_size(code),
         "minimum_batch_size": batch_contract.minimum_batch_size if batch_contract.supported else None,
         "batch_probe_supported": batch_contract.supported,

@@ -21,6 +21,24 @@ while BASE_BATCH_SIZE >= 8:
     assert introspect_training_script(code)["proposed_batch_size"] == 64
 
 
+def test_introspection_populates_exact_and_broad_architecture_identity() -> None:
+    cnn = introspect_training_script(
+        'MODEL_NAME = "resnet50"\nBATCH_SIZE = 4\ntrain_loader = DataLoader(train, batch_size=BATCH_SIZE, shuffle=True)\n'
+    )
+    transformer = introspect_training_script(
+        'MODEL_NAME = "vit_b16"\nBATCH_SIZE = 4\ntrain_loader = DataLoader(train, batch_size=BATCH_SIZE, shuffle=True)\n'
+    )
+    cnn_with_transformer_engine = introspect_training_script(
+        'MODEL_NAME = "resnet50"\nimport transformer_engine.pytorch as te\n'
+    )
+
+    assert cnn["architecture_key"] == "resnet50"
+    assert cnn["architecture_family"] == "cnn"
+    assert transformer["architecture_key"] == "vit-b16"
+    assert transformer["architecture_family"] == "transformer"
+    assert cnn_with_transformer_engine["architecture_family"] == "cnn"
+
+
 def test_training_batch_contract_resolves_function_parameter_fallbacks() -> None:
     code = """
 PHYSICAL_BATCH_SIZE = 48

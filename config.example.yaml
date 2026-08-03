@@ -171,6 +171,12 @@ scheduler:
         solo_probe_steps: 80
         pair_probe_steps: 60
         reuse_profile_if_confidence_ge: 0.8
+      colocation:
+        decision_replay:
+          enabled: true
+          min_stable_observations: 3
+          training_time_change_fraction: 0.25
+          vram_change_fraction: 0.25
       memory:
         vram_budget_fraction: 0.95
       thresholds:
