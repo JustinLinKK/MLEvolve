@@ -21,7 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from localml_scheduler.scheduler import trace_simulator as ts
 
 from scheduler_benchmark_test.test_trace_policies import (
-    TRACE_PATH,
+    TRACES_DIR,
+    WORKLOADS,
     load_trace,
     trace_to_problem,
 )
@@ -35,6 +36,8 @@ ARCH_COLORS = {
     "resnet101": "#55A868",
     "resnet50": "#C44E52",
     "swin_tiny_patch4_window7_224": "#8172B3",
+    "tabular_mlp_w128_d1_b512": "#4C72B0",
+    "tabular_mlp_w256_d2_b1024": "#DD8452",
 }
 
 
@@ -111,7 +114,10 @@ def draw_gantt(panels, arch_by_job, out_path, *, max_jobs=40):
         ax.set_title(title)
         ax.grid(axis="x", alpha=0.3)
 
-    handles = [Patch(facecolor=c, label=a) for a, c in ARCH_COLORS.items()]
+    present = sorted(set(arch_by_job.values()))
+    handles = [
+        Patch(facecolor=ARCH_COLORS.get(a, "#999999"), label=a) for a in present
+    ]
     handles.append(
         Patch(facecolor="white", edgecolor="black", linewidth=1.4, label="packed (N>1)")
     )
@@ -124,11 +130,17 @@ def draw_gantt(panels, arch_by_job, out_path, *, max_jobs=40):
 
 
 def main():
-    raw_jobs = load_trace(TRACE_PATH)
+    workload = sys.argv[1] if len(sys.argv) > 1 else "cnn"
+    if workload not in WORKLOADS:
+        raise SystemExit(f"unknown workload {workload!r}; choose from {sorted(WORKLOADS)}")
+    trace_name, pair_slowdown = WORKLOADS[workload]
+
+    raw_jobs = load_trace(TRACES_DIR / trace_name)
     arch_by_job = {j["job_id"]: j["architecture"] for j in raw_jobs}
-    problem = trace_to_problem(raw_jobs, early_stop=False)
+    problem = trace_to_problem(raw_jobs, early_stop=False, pair_slowdown=pair_slowdown)
 
     total_solo = sum(j["options"][0]["solo_seconds"] for j in raw_jobs)
+    print(f"Workload: {workload}   trace: {trace_name}   pair slowdown: {pair_slowdown}")
     print(f"Jobs: {len(raw_jobs)}   total solo compute: {total_solo:.0f}s")
     print(f"Arrival span: 0 - {raw_jobs[-1]['release_seconds']:.1f}s\n")
 
@@ -158,7 +170,9 @@ def main():
 
     RECORDS_DIR.mkdir(exist_ok=True)
     out = draw_gantt(
-        [(t, d) for t, _, d in results], arch_by_job, RECORDS_DIR / "scheduling_gantt_v100.png"
+        [(t, d) for t, _, d in results],
+        arch_by_job,
+        RECORDS_DIR / f"scheduling_gantt_v100_{workload}.png",
     )
     print(f"\nGantt chart: {out}")
 

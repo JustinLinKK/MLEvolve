@@ -27,9 +27,23 @@ from localml_scheduler.scheduler.trace_simulator import (
 )
 
 
-TRACE_PATH = Path(__file__).resolve().parent.parent / "traces" / "mlebench_v100_100jobs.jsonl"
+TRACES_DIR = Path(__file__).resolve().parent.parent / "traces"
+TRACE_PATH = TRACES_DIR / "mlebench_v100_100jobs.jsonl"
 MEMORY_BUDGET_MB = 31000.0
+
+# Pair slowdown measured on one V100 (no MPS). The simulator composes a member's
+# slowdown as 1 + sum(pair_slowdown - 1) over co-runners, so the pair value is
+# derived from the N=5 measurement as 1 + (sd_n5 - 1) / 4.
+#   CNN trace      : sd_n5 ~ 5.0  -> pair 4.0
+#   tabular trace  : sd_n5 = 1.067 -> pair 1.017
 V100_PACKING_SLOWDOWN = 4.0
+V100_TABULAR_SLOWDOWN = 1.017
+
+# Named workloads: (trace filename, pair slowdown).
+WORKLOADS = {
+    "cnn": ("mlebench_v100_100jobs.jsonl", V100_PACKING_SLOWDOWN),
+    "tabular": ("mlebench_tabular_v100_100jobs.jsonl", V100_TABULAR_SLOWDOWN),
+}
 
 
 def load_trace(path: Path) -> list[dict]:
@@ -40,12 +54,18 @@ def load_trace(path: Path) -> list[dict]:
     return jobs
 
 
-def trace_to_problem(raw_jobs: list[dict], *, early_stop: bool = False) -> TraceProblem:
+def trace_to_problem(
+    raw_jobs: list[dict],
+    *,
+    early_stop: bool = False,
+    pair_slowdown: float = V100_PACKING_SLOWDOWN,
+) -> TraceProblem:
     """Convert raw JSONL trace to TraceProblem.
 
     Args:
-        raw_jobs   : list[dict], loaded from JSONL trace
-        early_stop : bool, enable early stopping simulation
+        raw_jobs      : list[dict], loaded from JSONL trace
+        early_stop    : bool, enable early stopping simulation
+        pair_slowdown : float, measured per-pair colocation slowdown
 
     Returns:
         TraceProblem with TraceJob objects
@@ -80,7 +100,7 @@ def trace_to_problem(raw_jobs: list[dict], *, early_stop: bool = False) -> Trace
         jobs=tuple(trace_jobs),
         memory_budget_mb=MEMORY_BUDGET_MB,
         parallel_cap=5,
-        default_slowdown=V100_PACKING_SLOWDOWN,
+        default_slowdown=pair_slowdown,
         colocation_trial_epochs=2,
         colocation_min_gain=1.0,
         early_stopping_enabled=early_stop,

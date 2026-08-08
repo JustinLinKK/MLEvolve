@@ -1,5 +1,7 @@
 # V100 CNN Packing Concurrency Test
 
+> Scope: this record covers **image** MLEBench-Lite tasks only. The tabular and text tasks were measured separately in [v100_tabular_packing.md](v100_tabular_packing.md) and **do** pack 4-5 jobs on V100. Do not read the conclusion below as applying to MLEBench-Lite as a whole.
+
 ## Goal
 
 - Determine if 4-5 concurrent CNN training jobs can pack on V100-SXM2-32GB within scheduler's 1.15x slowdown gate
