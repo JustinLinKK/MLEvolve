@@ -169,6 +169,64 @@ def main() -> None:
             print(f"    {name:<26s} makespan={ratio:.3f}x  flow_ratio={flow:.3f}")
         print()
 
+    records = Path(__file__).resolve().parent.parent / "records"
+    records.mkdir(exist_ok=True)
+    out = records / "scheduling_gantt_mlevolve_leaf.png"
+    draw_gantt(retime_poisson(rows, 4.0), pair_slowdown, out)
+    print(f"Gantt chart (lambda=4/min): {out}")
+
+
+def draw_gantt(rows: list[dict], pair_slowdown: float, out_path) -> None:
+    """Render serial / time_aware / recursive_time_aware for the re-timed trace."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+
+    from scheduler_benchmark_test.run_trace_experiment import run_with_dispatches
+
+    colors = {"mlp": "#4C72B0", "cnn": "#DD8452"}
+    arch = {r["job_id"]: (r.get("family") or "other") for r in rows}
+    problem = rows_to_problem(rows, pair_slowdown=pair_slowdown)
+
+    panels = []
+    for title, runner in (
+        ("serial (priority-FIFO)", lambda p: ts.simulate_policy(p, "serial", ts._serial_choice)),
+        ("time_aware (SRT-first)", lambda p: ts.simulate_policy(p, "time_aware", ts._time_aware_choice)),
+        ("recursive_time_aware (packing)", ts.simulate_recursive_time_aware),
+    ):
+        _, dispatches = run_with_dispatches(problem, runner)
+        panels.append((title, dispatches))
+
+    fig, axes = plt.subplots(len(panels), 1, figsize=(14, 3.6 * len(panels)), squeeze=False)
+    for ax, (title, dispatches) in zip(axes[:, 0], panels):
+        order: dict[str, int] = {}
+        for _, pack in dispatches:
+            for member in pack.members:
+                order.setdefault(member.job_id, len(order))
+        for start, pack in dispatches:
+            packed = len(pack.members) > 1
+            for member, offset in zip(pack.members, pack.completion_offsets):
+                ax.barh(
+                    order[member.job_id], offset, left=start, height=0.7,
+                    color=colors.get(arch.get(member.job_id), "#999999"),
+                    edgecolor="black" if packed else "none",
+                    linewidth=1.4 if packed else 0,
+                )
+        ax.set_yticks(range(len(order)))
+        ax.set_yticklabels(list(order), fontsize=7)
+        ax.invert_yaxis()
+        ax.set_xlabel("time (s)")
+        ax.set_title(title)
+        ax.grid(axis="x", alpha=0.3)
+
+    handles = [Patch(facecolor=c, label=f) for f, c in colors.items()]
+    handles.append(Patch(facecolor="white", edgecolor="black", linewidth=1.4, label="packed (N>1)"))
+    axes[0, 0].legend(handles=handles, loc="upper right", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=140)
+    plt.close(fig)
+
 
 if __name__ == "__main__":
     main()
