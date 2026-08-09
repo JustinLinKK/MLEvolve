@@ -171,7 +171,7 @@ def main() -> None:
 
     records = Path(__file__).resolve().parent.parent / "records"
     records.mkdir(exist_ok=True)
-    out = records / "scheduling_gantt_mlevolve_leaf.png"
+    out = records / f"scheduling_gantt_{path.stem}.png"
     draw_gantt(retime_poisson(rows, 4.0), pair_slowdown, out)
     print(f"Gantt chart (lambda=4/min): {out}")
 

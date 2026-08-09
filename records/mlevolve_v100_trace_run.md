@@ -136,6 +136,59 @@
 
 - That is the same defect already documented in [v100_trace_scheduler_test.md](v100_trace_scheduler_test.md): these jobs have no per-epoch metrics recorded, so `planned_epochs` defaults to 1, below `colocation_trial_epochs = 2`, and `run_trial` returns before the `colocation_min_gain` check runs
 
+## Re-record at Native Parallelism
+
+> Why the first trace was invalid
+
+- The first recorder pinned `max_parallel_run` to 1 so that device-level VRAM sampling could be attributed to a single job
+
+- That pin did more than serialize execution: `release_seconds` was stamped on entry to `Interpreter.run`, and with a one-worker pool that call blocks until the previous job finishes
+
+- The recorded arrivals were therefore gated by the pin, not produced by the agent, which is why the offered load came out at 0.28 with 100-350 s gaps
+
+- That trace does not describe original MLEvolve, so the run was repeated with `agent.search.parallel_search_num=2`, MLEvolve's configured default, confirmed in the log as `ThreadPool max_workers set to: 2`
+
+> Recorder changes
+
+- Arrival and dispatch are now separate fields: `ready_at` when the agent has code, `dispatch_at` when a slot frees, and `queue_delay_s` between them
+
+- Each row records `concurrent_jobs`, `concurrency_degree`, and `ran_solo`, so colocation can be measured from the trace rather than assumed
+
+- Per-process GPU attribution was attempted through NVML's compute-process list and abandoned: `nvmlDeviceGetComputeRunningProcesses` returns zero processes in this container while `nvmlDeviceGetMemoryInfo` reports 273.9 MiB in use, because the PID namespace hides them. Device-level sampling with a baseline subtraction is used instead, and is only attributable to one job on rows where `ran_solo` is true
+
+> Trace: `traces/mlevolve_leaf_v100_mp2.jsonl`
+
+| Quantity | Value |
+|---|---|
+| executions | 14 (10 non-buggy) |
+| concurrency degree 1 / 2 | 7 / 7 |
+| mean duration, solo vs packed | 139.3 s vs 111.3 s |
+| mean device SM, solo vs packed | 33.6 % vs 17.5 % |
+| mean device peak VRAM, solo vs packed | 519 vs 1058 MiB |
+
+- Half the executions genuinely overlapped, so this trace reflects MLEvolve's own concurrency
+
+- Device SM reaches 33.6 % on solo rows here, well above the 1.9-4.7 % seen in the pinned run, so those earlier low figures reflected which scripts that run happened to generate rather than a property of the task
+
+- `delta_peak_vram_mib` reads 0.0 on several rows because a previous job's memory was still resident when the window opened; `device_peak_vram_mib` is the trustworthy column
+
+> Replay, pair slowdown 1.237
+
+| Arrivals | Policy | Makespan (s) | Mean flow (s) | Avg slowdown | vs serial |
+|---|---|---|---|---|---|
+| as recorded (load 0.60) | serial | 2841.0 | 155.2 | 1.00 | 1.000x |
+| as recorded | time_aware | 2841.0 | 155.2 | 1.00 | 1.000x |
+| as recorded | recursive_time_aware | 2749.1 | 129.6 | 1.11 | 1.033x |
+| lambda = 4/min | serial | 1225.2 | 473.9 | 1.00 | 1.000x |
+| lambda = 4/min | time_aware | 1225.2 | 349.5 | 1.00 | 1.000x |
+| lambda = 4/min | recursive_time_aware | 786.3 | 245.4 | 1.21 | 1.558x |
+
+- With real concurrency the recorded arrivals now carry an offered load of 0.60 rather than 0.28, so packing wins slightly (1.033x) even without re-timing, which the pinned trace could not show
+
+- At the 4 jobs/min rate the packing policy reaches 1.558x
+
+- Gantt chart: `records/scheduling_gantt_mlevolve_leaf_v100_mp2.png`
+
 ## Status
 
 - Steps completed: MLEvolve runs on Nautilus without an API key, a real trace is recorded, and the trace replays through the scheduler with no predictor involved
