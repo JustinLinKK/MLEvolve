@@ -25,7 +25,7 @@ POST_ACTIONS_WAIT_SECONDS=60
 NO_SLEEP=0
 WAIT_FOR_ALL=0
 CANCEL_POLICY="replay"
-CLEAN_PROFILE_DB=0
+CLEAN_SCHEDULER_STATE=0
 EXTRA_ARGS=()
 
 FIXTURE_DIR_SET=0
@@ -36,7 +36,7 @@ INCLUDE_FINAL_CLEANUP_SET=0
 NO_SLEEP_SET=0
 WAIT_FOR_ALL_SET=0
 CANCEL_POLICY_SET=0
-CLEAN_PROFILE_DB_SET=0
+CLEAN_SCHEDULER_STATE_SET=0
 
 usage() {
   cat <<'EOF'
@@ -47,7 +47,7 @@ Options:
   --preset stress|quick|smoke|full   Replay preset. full preserves legacy defaults.
                                       stress builds/uses the 2-epoch archived-source fixture,
                                       submits all jobs immediately, ignores old cancels,
-                                      waits for all jobs, and cleans scheduler/profile DBs.
+                                      waits for all jobs, and cleans scheduler state.
                                       quick uses the original full fixture,
                                       real runner, speedup 100, ignores cancels,
                                       and waits for all jobs to finish.
@@ -64,7 +64,7 @@ Options:
   --wait-for-all                     Wait for every submitted job to finish; do not cleanup-cancel.
   --no-wait-for-all                  Use post-action wait/cancel behavior even if a preset enables wait-for-all.
   --cancel-policy replay|ignore      Replay or ignore CANCEL actions. Defaults to replay.
-  --clean-profile-db                 Remove replay scheduler/profile SQLite DBs before starting.
+  --clean-scheduler-state            Remove persisted replay scheduler state before starting.
   --no-sleep                         Submit selected actions immediately. Intended for smoke checks only.
   --dry-run                          Build summary without starting the scheduler.
   --skip-plots, --no-plots           Skip comparison plot summary generation.
@@ -103,7 +103,7 @@ apply_preset_defaults() {
       [[ "$NO_SLEEP_SET" -eq 0 ]] && NO_SLEEP=1
       [[ "$WAIT_FOR_ALL_SET" -eq 0 ]] && WAIT_FOR_ALL=1
       [[ "$CANCEL_POLICY_SET" -eq 0 ]] && CANCEL_POLICY="ignore"
-      [[ "$CLEAN_PROFILE_DB_SET" -eq 0 ]] && CLEAN_PROFILE_DB=1
+      [[ "$CLEAN_SCHEDULER_STATE_SET" -eq 0 ]] && CLEAN_SCHEDULER_STATE=1
       ;;
     smoke)
       [[ "$FIXTURE_DIR_SET" -eq 0 ]] && FIXTURE_DIR="$FAST_FIXTURE_DIR"
@@ -182,9 +182,9 @@ while [[ $# -gt 0 ]]; do
       CANCEL_POLICY_SET=1
       shift 2
       ;;
-    --clean-profile-db)
-      CLEAN_PROFILE_DB=1
-      CLEAN_PROFILE_DB_SET=1
+    --clean-scheduler-state)
+      CLEAN_SCHEDULER_STATE=1
+      CLEAN_SCHEDULER_STATE_SET=1
       shift
       ;;
     --no-sleep)
@@ -244,7 +244,7 @@ echo "Post-actions wait: $POST_ACTIONS_WAIT_SECONDS"
 echo "Wait for all: $WAIT_FOR_ALL"
 echo "Cancel policy: $CANCEL_POLICY"
 echo "No sleep: $NO_SLEEP"
-echo "Clean profile DB: $CLEAN_PROFILE_DB"
+echo "Clean scheduler state: $CLEAN_SCHEDULER_STATE"
 
 replay_cmd=(
   python -m scheduler_benchmark_test.replay_scheduler_timeline
@@ -270,8 +270,8 @@ fi
 if [[ "$WAIT_FOR_ALL" -eq 1 ]]; then
   replay_cmd+=(--wait-for-all)
 fi
-if [[ "$CLEAN_PROFILE_DB" -eq 1 ]]; then
-  replay_cmd+=(--clean-profile-db)
+if [[ "$CLEAN_SCHEDULER_STATE" -eq 1 ]]; then
+  replay_cmd+=(--clean-scheduler-state)
 fi
 replay_cmd+=(--cancel-policy "$CANCEL_POLICY")
 replay_cmd+=("${EXTRA_ARGS[@]}")

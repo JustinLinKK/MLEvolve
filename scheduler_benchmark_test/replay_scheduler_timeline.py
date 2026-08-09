@@ -23,7 +23,6 @@ from localml_scheduler.domain import JobStatus, TrainingJob, utc_now
 
 from .timeline_fixture import load_fixture, reset_job_payload_for_replay
 
-
 NOOP_RUNNER_TARGET = "scheduler_benchmark_test.noop_runner:run_noop_job"
 NOOP_LOADER_TARGET = "scheduler_benchmark_test.noop_runner:load_noop_baseline"
 DEFAULT_MODE = "scheduler_replay"
@@ -65,7 +64,7 @@ def replay_fixture(
     no_sleep: bool = False,
     wait_for_all: bool = False,
     cancel_policy: str = "replay",
-    clean_profile_db: bool = False,
+    clean_scheduler_state: bool = False,
     settings_overlay: str | Path | None = None,
 ) -> ReplayResult:
     if runner_mode not in {"real", "noop"}:
@@ -91,8 +90,8 @@ def replay_fixture(
         cancel_policy=cancel_policy,
     )
     _prepare_workspace(workspace, baseline)
-    if clean_profile_db and not dry_run:
-        _clean_replay_databases(runtime_root)
+    if clean_scheduler_state and not dry_run:
+        _clean_scheduler_state(runtime_root)
 
     skipped_actions: list[dict[str, Any]] = []
     submitted_job_ids: list[str] = []
@@ -121,7 +120,7 @@ def replay_fixture(
             dry_run=True,
             wait_for_all=wait_for_all,
             cancel_policy=cancel_policy,
-            clean_profile_db=clean_profile_db,
+            clean_scheduler_state=clean_scheduler_state,
         )
         return _write_outputs(
             output,
@@ -154,7 +153,9 @@ def replay_fixture(
                     skipped = {**action, "skip_reason": "missing job payload"}
                     skipped_actions.append(skipped)
                     if strict_missing_jobs:
-                        raise KeyError(f"Missing job payload for submitted job {action['job_id']}")
+                        raise KeyError(
+                            f"Missing job payload for submitted job {action['job_id']}"
+                        )
                     continue
                 try:
                     job = _prepare_job(
@@ -163,7 +164,8 @@ def replay_fixture(
                         runner_mode=runner_mode,
                         allow_missing_scripts=allow_missing_scripts,
                         use_instrumented_fallback=use_instrumented_fallback,
-                        fixture_sources=Path(fixture).expanduser().resolve() / "sources",
+                        fixture_sources=Path(fixture).expanduser().resolve()
+                        / "sources",
                     )
                 except FileNotFoundError as exc:
                     skipped = {**action, "skip_reason": str(exc)}
@@ -179,13 +181,19 @@ def replay_fixture(
         if wait_for_all:
             _wait_for_terminal(client, submitted_job_ids, timeout_seconds=None)
         elif post_actions_wait_seconds > 0:
-            _wait_for_terminal(client, submitted_job_ids, timeout_seconds=post_actions_wait_seconds)
+            _wait_for_terminal(
+                client, submitted_job_ids, timeout_seconds=post_actions_wait_seconds
+            )
         if not wait_for_all:
             outstanding = _nonterminal_job_ids(client, submitted_job_ids)
             if outstanding:
                 for job_id in outstanding:
                     client.cancel(job_id)
-                _wait_for_terminal(client, outstanding, timeout_seconds=min(10.0, post_actions_wait_seconds))
+                _wait_for_terminal(
+                    client,
+                    outstanding,
+                    timeout_seconds=min(10.0, post_actions_wait_seconds),
+                )
     finally:
         if service is not None:
             service.stop()
@@ -205,9 +213,13 @@ def replay_fixture(
         dry_run=False,
         wait_for_all=wait_for_all,
         cancel_policy=cancel_policy,
-        clean_profile_db=clean_profile_db,
+        clean_scheduler_state=clean_scheduler_state,
     )
-    samples = list(getattr(service, "_device_samples", []) or []) if service is not None else []
+    samples = (
+        list(getattr(service, "_device_samples", []) or [])
+        if service is not None
+        else []
+    )
     return _write_outputs(
         output,
         log_dir,
@@ -233,13 +245,18 @@ def _select_actions(
             continue
         if action.get("final_cleanup") and not include_final_cleanup_cancels:
             continue
-        if until_seconds is not None and float(action["relative_seconds"]) > until_seconds:
+        if (
+            until_seconds is not None
+            and float(action["relative_seconds"]) > until_seconds
+        ):
             continue
         selected.append(action)
     return selected
 
 
-def _remap_to_fixture_sources(path_value: str | None, fixture_sources: Path | None) -> str | None:
+def _remap_to_fixture_sources(
+    path_value: str | None, fixture_sources: Path | None
+) -> str | None:
     if not path_value or fixture_sources is None:
         return path_value
     path = Path(path_value)
@@ -272,7 +289,9 @@ def _prepare_job(
     config = dict(job_payload.get("config") or {})
     runner_kwargs = dict(config.get("runner_kwargs") or {})
     if runner_kwargs.get("script_path"):
-        runner_kwargs["script_path"] = _remap_to_fixture_sources(str(runner_kwargs["script_path"]), fixture_sources)
+        runner_kwargs["script_path"] = _remap_to_fixture_sources(
+            str(runner_kwargs["script_path"]), fixture_sources
+        )
     original_working_dir = runner_kwargs.get("working_dir")
     if original_working_dir:
         runner_kwargs["original_working_dir"] = original_working_dir
@@ -281,10 +300,15 @@ def _prepare_job(
     result_path = runner_kwargs.get("result_path")
     if result_path:
         runner_kwargs["original_result_path"] = result_path
-        runner_kwargs["result_path"] = str(output_workspace / "working" / "scheduler_results" / Path(result_path).name)
+        runner_kwargs["result_path"] = str(
+            output_workspace / "working" / "scheduler_results" / Path(result_path).name
+        )
     elif runner_mode == "noop":
         runner_kwargs["result_path"] = str(
-            output_workspace / "working" / "scheduler_results" / f"result_{job_payload['job_id']}.json"
+            output_workspace
+            / "working"
+            / "scheduler_results"
+            / f"result_{job_payload['job_id']}.json"
         )
 
     script_path = runner_kwargs.get("script_path")
@@ -329,7 +353,12 @@ def _resolve_script_path(
         return path
     fallback = None
     if use_instrumented_fallback and original_working_dir:
-        candidate = Path(original_working_dir) / "working" / "instrumented_scripts" / f"{path.stem}_instrumented.py"
+        candidate = (
+            Path(original_working_dir)
+            / "working"
+            / "instrumented_scripts"
+            / f"{path.stem}_instrumented.py"
+        )
         if candidate.exists():
             fallback = candidate
     if fallback is not None:
@@ -349,21 +378,29 @@ def _prepare_workspace(workspace: Path, baseline: dict[str, Any]) -> None:
         return
     if original_input and Path(original_input).exists():
         try:
-            os.symlink(str(Path(original_input).resolve()), str(input_path), target_is_directory=True)
+            os.symlink(
+                str(Path(original_input).resolve()),
+                str(input_path),
+                target_is_directory=True,
+            )
         except OSError:
             # Avoid copying a large dataset; real replay will fail clearly if the
             # platform disallows symlinks.
             pass
 
 
-def _clean_replay_databases(runtime_root: Path) -> None:
+def _clean_scheduler_state(runtime_root: Path) -> None:
     db_dir = runtime_root / "db"
     if db_dir.exists():
         shutil.rmtree(db_dir)
 
 
-def _wait_for_terminal(client: SchedulerClient, job_ids: list[str], *, timeout_seconds: float | None) -> None:
-    deadline = None if timeout_seconds is None else time.time() + max(0.0, timeout_seconds)
+def _wait_for_terminal(
+    client: SchedulerClient, job_ids: list[str], *, timeout_seconds: float | None
+) -> None:
+    deadline = (
+        None if timeout_seconds is None else time.time() + max(0.0, timeout_seconds)
+    )
     while deadline is None or time.time() < deadline:
         if not _nonterminal_job_ids(client, job_ids):
             return
@@ -394,7 +431,7 @@ def _build_metrics(
     dry_run: bool,
     wait_for_all: bool,
     cancel_policy: str,
-    clean_profile_db: bool,
+    clean_scheduler_state: bool,
 ) -> dict[str, Any]:
     jobs = [job.to_dict() for job in client.list_jobs()] if client is not None else []
     events = client.list_events() if client is not None else []
@@ -406,7 +443,11 @@ def _build_metrics(
     makespan = _interval_makespan(intervals)
     queue_wait = _queue_wait_seconds(jobs)
     probe_time = _probe_time_seconds(events)
-    hardware_summary = _hardware_summary(list(getattr(service, "_device_samples", []) or []) if service is not None else [])
+    hardware_summary = _hardware_summary(
+        list(getattr(service, "_device_samples", []) or [])
+        if service is not None
+        else []
+    )
     status_counts = Counter(str(job.get("status")) for job in jobs)
     task_counts = Counter(str(job.get("task_type")) for job in jobs)
     backend_distribution = _backend_distribution(jobs, events)
@@ -426,33 +467,53 @@ def _build_metrics(
         "replay_dry_run": dry_run,
         "replay_wait_for_all": wait_for_all,
         "replay_cancel_policy": cancel_policy,
-        "replay_clean_profile_db": clean_profile_db,
+        "replay_clean_scheduler_state": clean_scheduler_state,
         "replay_action_count": len(selected_actions),
-        "replay_submit_action_count": sum(1 for action in selected_actions if action["action"] == "SUBMIT"),
-        "replay_cancel_action_count": sum(1 for action in selected_actions if action["action"] == "CANCEL"),
+        "replay_submit_action_count": sum(
+            1 for action in selected_actions if action["action"] == "SUBMIT"
+        ),
+        "replay_cancel_action_count": sum(
+            1 for action in selected_actions if action["action"] == "CANCEL"
+        ),
         "replay_skipped_action_count": len(skipped_actions),
         "total_run_wall_time_seconds": total_wall,
         "total_wall_time_seconds": total_wall,
         "total_candidate_execution_time_seconds": candidate_total,
         "total_job_execution_time_seconds": candidate_total,
         "execution_time_seconds": candidate_total,
-        "median_candidate_execution_time_seconds": median(durations) if durations else None,
+        "median_candidate_execution_time_seconds": (
+            median(durations) if durations else None
+        ),
         "median_job_execution_time_seconds": median(durations) if durations else None,
         "candidate_execution_makespan_seconds": makespan,
-        "candidate_execution_parallelism_ratio": (candidate_total / makespan) if makespan and makespan > 0 else None,
-        "non_candidate_overhead_wall_time_seconds": max(0.0, total_wall - makespan) if makespan is not None else None,
+        "candidate_execution_parallelism_ratio": (
+            (candidate_total / makespan) if makespan and makespan > 0 else None
+        ),
+        "non_candidate_overhead_wall_time_seconds": (
+            max(0.0, total_wall - makespan) if makespan is not None else None
+        ),
         "total_scheduler_queue_wait_seconds": queue_wait,
         "queue_wait_seconds": queue_wait,
         "total_scheduler_probe_time_seconds": probe_time,
         "probe_time_seconds": probe_time,
         "packed_dispatch_count": sum(
-            1 for event in events if event.get("event_type") in {"packed_pair_dispatched", "packed_group_dispatched"}
+            1
+            for event in events
+            if event.get("event_type")
+            in {"packed_pair_dispatched", "packed_group_dispatched"}
         ),
         "packed_fallback_count": sum(
-            1 for event in events if event.get("event_type") in {"packed_pair_fallback", "packed_group_fallback"}
+            1
+            for event in events
+            if event.get("event_type")
+            in {"packed_pair_fallback", "packed_group_fallback"}
         ),
-        "batch_probe_hit_count": sum(1 for event in events if event.get("event_type") == "batch_probe_cache_hit"),
-        "batch_probe_trial_count": sum(1 for event in events if event.get("event_type") == "batch_probe_trial"),
+        "batch_probe_hit_count": sum(
+            1 for event in events if event.get("event_type") == "batch_probe_cache_hit"
+        ),
+        "batch_probe_trial_count": sum(
+            1 for event in events if event.get("event_type") == "batch_probe_trial"
+        ),
         "concurrent_gpu_active_seconds": _concurrent_active_seconds(jobs),
         "node_count": int(task_counts.get("mlevolve_script", 0)),
         "scheduler_job_count": len(jobs),
@@ -487,7 +548,10 @@ def _write_outputs(
     metrics_path = log_dir / "comparison_metrics.json"
     summary_path = output / "replay_summary.json"
     hardware_path = log_dir / "hardware_samples.csv"
-    metrics_path.write_text(json.dumps(metrics, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    metrics_path.write_text(
+        json.dumps(metrics, indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
     summary = {
         "output_root": str(output),
         "runtime_root": str(runtime_root),
@@ -496,7 +560,10 @@ def _write_outputs(
         "skipped_actions": skipped_actions,
         "metrics": metrics,
     }
-    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    summary_path.write_text(
+        json.dumps(summary, indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
     if samples:
         _write_hardware_samples(hardware_path, samples)
 
@@ -547,9 +614,17 @@ def _write_hardware_samples(path: Path, samples: list[Any]) -> None:
                     "cpu_percent_max": "",
                     "ram_percent": "",
                     "gpu_memory_used_mb": memory_used,
-                    "gpu_memory_percent": (memory_used / memory_total * 100.0) if memory_total > 0 else "",
-                    "gpu_util_percent": float(getattr(sample, "gpu_utilization", 0.0) or 0.0) * 100.0,
-                    "gpu_memory_util_percent": float(getattr(sample, "memory_utilization", 0.0) or 0.0) * 100.0,
+                    "gpu_memory_percent": (
+                        (memory_used / memory_total * 100.0) if memory_total > 0 else ""
+                    ),
+                    "gpu_util_percent": float(
+                        getattr(sample, "gpu_utilization", 0.0) or 0.0
+                    )
+                    * 100.0,
+                    "gpu_memory_util_percent": float(
+                        getattr(sample, "memory_utilization", 0.0) or 0.0
+                    )
+                    * 100.0,
                     "gpu_power_draw_w": "",
                     "sample_count": 1,
                 }
@@ -565,7 +640,9 @@ def _job_duration_seconds(job: dict[str, Any]) -> float | None:
 
 
 def _job_interval(job: dict[str, Any]) -> tuple[float, float] | None:
-    started = _timestamp_seconds(job.get("started_at") or (job.get("status_timestamps") or {}).get("RUNNING"))
+    started = _timestamp_seconds(
+        job.get("started_at") or (job.get("status_timestamps") or {}).get("RUNNING")
+    )
     finished = _timestamp_seconds(job.get("finished_at"))
     if started is None or finished is None or finished < started:
         return None
@@ -575,14 +652,21 @@ def _job_interval(job: dict[str, Any]) -> tuple[float, float] | None:
 def _interval_makespan(intervals: list[tuple[float, float]]) -> float | None:
     if not intervals:
         return None
-    return max(end for _start, end in intervals) - min(start for start, _end in intervals)
+    return max(end for _start, end in intervals) - min(
+        start for start, _end in intervals
+    )
 
 
 def _queue_wait_seconds(jobs: list[dict[str, Any]]) -> float:
     total = 0.0
     for job in jobs:
-        submitted = _parse_time(job.get("submitted_at") or (job.get("status_timestamps") or {}).get("PENDING"))
-        started = _parse_time(job.get("started_at") or (job.get("status_timestamps") or {}).get("RUNNING"))
+        submitted = _parse_time(
+            job.get("submitted_at")
+            or (job.get("status_timestamps") or {}).get("PENDING")
+        )
+        started = _parse_time(
+            job.get("started_at") or (job.get("status_timestamps") or {}).get("RUNNING")
+        )
         if submitted and started:
             total += max(0.0, (started - submitted).total_seconds())
     return total
@@ -599,7 +683,10 @@ def _probe_time_seconds(events: list[dict[str, Any]]) -> float:
             continue
         if event_type == "batch_probe_started":
             started_by_job[job_id] = created_at
-        elif event_type in {"batch_probe_selected", "batch_probe_failed"} and job_id in started_by_job:
+        elif (
+            event_type in {"batch_probe_selected", "batch_probe_failed"}
+            and job_id in started_by_job
+        ):
             total += max(0.0, (created_at - started_by_job.pop(job_id)).total_seconds())
     return total
 
@@ -625,7 +712,9 @@ def _concurrent_active_seconds(jobs: list[dict[str, Any]]) -> float:
     return total
 
 
-def _backend_distribution(jobs: list[dict[str, Any]], events: list[dict[str, Any]]) -> Counter:
+def _backend_distribution(
+    jobs: list[dict[str, Any]], events: list[dict[str, Any]]
+) -> Counter:
     counter: Counter = Counter()
     for job in jobs:
         metadata = job.get("metadata") or {}
@@ -645,9 +734,16 @@ def _backend_distribution(jobs: list[dict[str, Any]], events: list[dict[str, Any
 def _hardware_summary(samples: list[Any]) -> dict[str, Any]:
     if not samples:
         return {}
-    memory_used = [float(getattr(sample, "memory_used_mb", 0) or 0.0) for sample in samples]
-    memory_total = [float(getattr(sample, "memory_total_mb", 0) or 0.0) for sample in samples]
-    gpu_util = [float(getattr(sample, "gpu_utilization", 0) or 0.0) * 100.0 for sample in samples]
+    memory_used = [
+        float(getattr(sample, "memory_used_mb", 0) or 0.0) for sample in samples
+    ]
+    memory_total = [
+        float(getattr(sample, "memory_total_mb", 0) or 0.0) for sample in samples
+    ]
+    gpu_util = [
+        float(getattr(sample, "gpu_utilization", 0) or 0.0) * 100.0
+        for sample in samples
+    ]
     memory_percent = [
         (used / total * 100.0)
         for used, total in zip(memory_used, memory_total, strict=True)
@@ -657,7 +753,9 @@ def _hardware_summary(samples: list[Any]) -> dict[str, Any]:
         "hardware_sample_count": len(samples),
         "avg_gpu_util_percent": sum(gpu_util) / len(gpu_util) if gpu_util else None,
         "max_gpu_util_percent": max(gpu_util) if gpu_util else None,
-        "avg_gpu_memory_percent": sum(memory_percent) / len(memory_percent) if memory_percent else None,
+        "avg_gpu_memory_percent": (
+            sum(memory_percent) / len(memory_percent) if memory_percent else None
+        ),
         "max_gpu_memory_percent": max(memory_percent) if memory_percent else None,
         "peak_gpu_memory_used_mb": max(memory_used) if memory_used else None,
     }
@@ -667,7 +765,9 @@ def _metric_deltas(left: dict[str, Any], right: dict[str, Any]) -> dict[str, flo
     deltas = {}
     for key, right_value in right.items():
         left_value = left.get(key)
-        if isinstance(left_value, (int, float)) and isinstance(right_value, (int, float)):
+        if isinstance(left_value, (int, float)) and isinstance(
+            right_value, (int, float)
+        ):
             deltas[key] = float(right_value) - float(left_value)
     return deltas
 
@@ -695,22 +795,54 @@ def _run_id(runner_mode: str) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Replay a persisted scheduler timeline without the MLEvolve agent.")
-    parser.add_argument("--fixture", required=True, help="Fixture directory containing timeline.json and jobs.jsonl.")
-    parser.add_argument("--output-root", required=True, help="Output directory for replay runtime, logs, and metrics.")
+    parser = argparse.ArgumentParser(
+        description="Replay a persisted scheduler timeline without the MLEvolve agent."
+    )
+    parser.add_argument(
+        "--fixture",
+        required=True,
+        help="Fixture directory containing timeline.json and jobs.jsonl.",
+    )
+    parser.add_argument(
+        "--output-root",
+        required=True,
+        help="Output directory for replay runtime, logs, and metrics.",
+    )
     parser.add_argument("--runner-mode", choices=["real", "noop"], default="real")
-    parser.add_argument("--speedup", type=float, default=1.0, help="Scale timeline sleeps by this factor.")
-    parser.add_argument("--until-seconds", type=float, default=None, help="Only replay actions at or before this original offset.")
+    parser.add_argument(
+        "--speedup",
+        type=float,
+        default=1.0,
+        help="Scale timeline sleeps by this factor.",
+    )
+    parser.add_argument(
+        "--until-seconds",
+        type=float,
+        default=None,
+        help="Only replay actions at or before this original offset.",
+    )
     parser.add_argument("--include-final-cleanup-cancels", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--post-actions-wait-seconds", type=float, default=60.0)
     parser.add_argument("--allow-missing-scripts", action="store_true")
     parser.add_argument("--no-instrumented-fallback", action="store_true")
     parser.add_argument("--strict-missing-jobs", action="store_true")
-    parser.add_argument("--no-sleep", action="store_true", help="Submit selected actions immediately.")
-    parser.add_argument("--wait-for-all", action="store_true", help="Wait until all submitted jobs finish; do not cancel after the post-action wait.")
-    parser.add_argument("--cancel-policy", choices=sorted(CANCEL_POLICIES), default="replay")
-    parser.add_argument("--clean-profile-db", action="store_true", help="Remove replay scheduler/profile SQLite DBs before starting.")
+    parser.add_argument(
+        "--no-sleep", action="store_true", help="Submit selected actions immediately."
+    )
+    parser.add_argument(
+        "--wait-for-all",
+        action="store_true",
+        help="Wait until all submitted jobs finish; do not cancel after the post-action wait.",
+    )
+    parser.add_argument(
+        "--cancel-policy", choices=sorted(CANCEL_POLICIES), default="replay"
+    )
+    parser.add_argument(
+        "--clean-scheduler-state",
+        action="store_true",
+        help="Remove persisted replay scheduler state before starting.",
+    )
     parser.add_argument(
         "--settings-overlay",
         default=None,
@@ -736,7 +868,7 @@ def main(argv: list[str] | None = None) -> int:
         no_sleep=args.no_sleep,
         wait_for_all=args.wait_for_all,
         cancel_policy=args.cancel_policy,
-        clean_profile_db=args.clean_profile_db,
+        clean_scheduler_state=args.clean_scheduler_state,
         settings_overlay=args.settings_overlay,
     )
     print(

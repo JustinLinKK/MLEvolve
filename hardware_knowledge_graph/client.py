@@ -18,8 +18,6 @@ from localml_scheduler.runtime_environment import (
     detect_runtime_environment,
     validate_generated_training_code as _validate_generated_training_code,
 )
-from localml_scheduler.storage import BranchProfileReader
-
 
 _PIPELINE_HARDWARE_STAGES = ("model_structure", "datatype", "training_parameters")
 
@@ -67,7 +65,11 @@ _AGENT_STAGE_HARDWARE_STAGES = {
 
 def _sanitize_agent_response(value: Any) -> Any:
     if isinstance(value, list):
-        return [_sanitize_agent_response(item) for item in value if item not in (None, "", [], {})]
+        return [
+            _sanitize_agent_response(item)
+            for item in value
+            if item not in (None, "", [], {})
+        ]
     if isinstance(value, dict):
         return {
             key: cleaned
@@ -79,7 +81,9 @@ def _sanitize_agent_response(value: Any) -> Any:
 
 
 class _EmptyProfileStore:
-    def __init__(self, settings: HardwareKnowledgeSettings, client: "HardwareKnowledgeClient") -> None:
+    def __init__(
+        self, settings: HardwareKnowledgeSettings, client: "HardwareKnowledgeClient"
+    ) -> None:
         self.settings = settings
         self._client = client
 
@@ -114,21 +118,6 @@ class _EmptyProfileStore:
         return []
 
 
-class _ProfileReaderProxy(_EmptyProfileStore):
-    def __init__(self, reader: BranchProfileReader, client: "HardwareKnowledgeClient", *, include_profile_evidence: bool) -> None:
-        super().__init__(reader.settings, client)
-        self._reader = reader
-        self._include_profile_evidence = include_profile_evidence
-
-    def get_job(self, *_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    def __getattr__(self, name: str) -> Any:
-        if name.startswith("list_") and not self._include_profile_evidence:
-            return lambda *args, **kwargs: []
-        return getattr(self._reader, name)
-
-
 class HardwareKnowledgeClient:
     """Prompt/evidence client that is independent of scheduler storage."""
 
@@ -150,22 +139,33 @@ class HardwareKnowledgeClient:
         self._probe_status: dict[str, Any] | None = None
         self._scheduler_client: Any | None = None
         self._hardware_knowledge_store: HardwareKnowledgeGraphStore | None = None
-        self._hardware_neighborhood_cache = RedisLRUCache.from_settings(self.settings) if graph_cache_enabled(self.settings) else None
-        self.store = self._build_profile_store()
-        self.knowledge = SchedulerKnowledgeBase(self.store, redis_cache=self._hardware_neighborhood_cache)
+        self._hardware_neighborhood_cache = (
+            RedisLRUCache.from_settings(self.settings)
+            if graph_cache_enabled(self.settings)
+            else None
+        )
+        self.store = _EmptyProfileStore(self.settings, self)
+        self.knowledge = SchedulerKnowledgeBase(
+            self.store, redis_cache=self._hardware_neighborhood_cache
+        )
         self.profile_evidence_used = False
 
-    def _build_profile_store(self) -> _EmptyProfileStore:
-        path = Path(self.settings.branch_profile_db_path)
-        if not self.include_profile_evidence or not path.exists():
-            return _EmptyProfileStore(self.settings, self)
-        try:
-            return _ProfileReaderProxy(BranchProfileReader(self.settings), self, include_profile_evidence=True)
-        except Exception:
-            return _EmptyProfileStore(self.settings, self)
-
     def attach_scheduler_client(self, scheduler_client: Any | None) -> None:
+        """Attach live scheduler state as the optional source of profile evidence.
+
+        Hardware facts remain usable without a scheduler. When a scheduler is
+        attached, its active state store supplies runtime and placement profiles;
+        this avoids maintaining a second, stale branch-profile database.
+        """
         self._scheduler_client = scheduler_client
+        if self.include_profile_evidence and scheduler_client is not None:
+            self.store = scheduler_client.store
+        else:
+            self.store = _EmptyProfileStore(self.settings, self)
+        self.knowledge = SchedulerKnowledgeBase(
+            self.store, redis_cache=self._hardware_neighborhood_cache
+        )
+        self.profile_evidence_used = False
 
     @property
     def probe_status(self) -> dict[str, Any]:
@@ -187,7 +187,9 @@ class HardwareKnowledgeClient:
         recreate: bool = False,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        return self._hardware_graph_store().ingest_schema_root(schema_root=schema_root, recreate=recreate, dry_run=dry_run)
+        return self._hardware_graph_store().ingest_schema_root(
+            schema_root=schema_root, recreate=recreate, dry_run=dry_run
+        )
 
     def probe_current_hardware(self) -> dict[str, Any]:
         if self._probe_status is not None:
@@ -203,7 +205,11 @@ class HardwareKnowledgeClient:
         env = os.environ.copy()
         repo_root = str(Path(__file__).resolve().parents[1])
         existing_pythonpath = env.get("PYTHONPATH")
-        env["PYTHONPATH"] = repo_root if not existing_pythonpath else f"{repo_root}{os.pathsep}{existing_pythonpath}"
+        env["PYTHONPATH"] = (
+            repo_root
+            if not existing_pythonpath
+            else f"{repo_root}{os.pathsep}{existing_pythonpath}"
+        )
         try:
             completed = subprocess.run(
                 [sys.executable, "-c", script, str(device_index)],
@@ -219,7 +225,9 @@ class HardwareKnowledgeClient:
                 "source": "hardware_probe_subprocess",
                 "device_index": device_index,
                 "reason": f"hardware probe timed out after {self.probe_timeout_seconds:g}s",
-                "stderr": (exc.stderr or "")[-1000:] if isinstance(exc.stderr, str) else "",
+                "stderr": (
+                    (exc.stderr or "")[-1000:] if isinstance(exc.stderr, str) else ""
+                ),
             }
             return self._probe_status
         except Exception as exc:
@@ -279,8 +287,14 @@ class HardwareKnowledgeClient:
     def search_hardware(self, **kwargs: Any) -> list[dict[str, Any]]:
         return _sanitize_agent_response(self.knowledge.search_hardware(**kwargs))
 
-    def get_hardware_context(self, hardware_key: str = "current", include_scheduler_limits: bool = True) -> dict[str, Any]:
-        probe = self.probe_current_hardware() if str(hardware_key or "current") == "current" else {}
+    def get_hardware_context(
+        self, hardware_key: str = "current", include_scheduler_limits: bool = True
+    ) -> dict[str, Any]:
+        probe = (
+            self.probe_current_hardware()
+            if str(hardware_key or "current") == "current"
+            else {}
+        )
         if str(hardware_key or "current") == "current" and not probe.get("ok"):
             return {
                 "found": False,
@@ -294,33 +308,55 @@ class HardwareKnowledgeClient:
                 "hardware_probe_success": False,
                 "reason": probe.get("reason"),
             }
-        expose_scheduler = bool(include_scheduler_limits and self._scheduler_client is not None)
+        expose_scheduler = bool(
+            include_scheduler_limits and self._scheduler_client is not None
+        )
         result = _sanitize_agent_response(
-            self.knowledge.get_hardware_context(hardware_key=hardware_key, include_scheduler_limits=expose_scheduler)
+            self.knowledge.get_hardware_context(
+                hardware_key=hardware_key, include_scheduler_limits=expose_scheduler
+            )
         )
         if not expose_scheduler:
             result["backend_capabilities"] = {}
             result["scheduler_limits"] = {}
         result["hardware_probe_source"] = probe.get("source")
         result["hardware_probe_success"] = probe.get("ok")
-        result["profile_evidence_enabled"] = self.include_profile_evidence
+        result["profile_evidence_enabled"] = bool(
+            self.include_profile_evidence and self.scheduler_context_attached
+        )
         return result
 
-    def get_job_design_context(self, *, candidate: dict[str, Any], limit: int = 5) -> dict[str, Any]:
+    def get_job_design_context(
+        self, *, candidate: dict[str, Any], limit: int = 5
+    ) -> dict[str, Any]:
         return self.knowledge.get_job_design_context(candidate=candidate, limit=limit)
 
-    def get_profile_evidence(self, *, candidate: dict[str, Any], limit: int = 8) -> dict[str, Any]:
-        if not self.include_profile_evidence:
+    def get_profile_evidence(
+        self, *, candidate: dict[str, Any], limit: int = 8
+    ) -> dict[str, Any]:
+        if not self.include_profile_evidence or not self.scheduler_context_attached:
             return {
-                "hardware_context": self.get_hardware_context("current", include_scheduler_limits=False),
-                "graph_evidence": {"exact_profiles": [], "similar_profiles": [], "packed_profiles": []},
-                "derived_diagnosis": {"profile_symptoms": [], "optimization_targets": []},
+                "hardware_context": self.get_hardware_context(
+                    "current", include_scheduler_limits=False
+                ),
+                "graph_evidence": {
+                    "exact_profiles": [],
+                    "similar_profiles": [],
+                    "packed_profiles": [],
+                },
+                "derived_diagnosis": {
+                    "profile_symptoms": [],
+                    "optimization_targets": [],
+                },
                 "evidence_refs": [],
                 "confidence": 0.0,
             }
         result = self.knowledge.get_profile_evidence(candidate=candidate, limit=limit)
         graph = result.get("graph_evidence") or {}
-        self.profile_evidence_used = any(graph.get(key) for key in ("exact_profiles", "similar_profiles", "packed_profiles"))
+        self.profile_evidence_used = any(
+            graph.get(key)
+            for key in ("exact_profiles", "similar_profiles", "packed_profiles")
+        )
         return result
 
     @staticmethod
@@ -335,7 +371,15 @@ class HardwareKnowledgeClient:
     def _normalize_hardware_stage_list(cls, value: Any) -> list[str]:
         if value is None:
             return []
-        raw_items = list(value) if isinstance(value, (list, tuple, set)) else [item for item in str(value).replace(";", ",").split(",") if str(item).strip()]
+        raw_items = (
+            list(value)
+            if isinstance(value, (list, tuple, set))
+            else [
+                item
+                for item in str(value).replace(";", ",").split(",")
+                if str(item).strip()
+            ]
+        )
         stages: list[str] = []
         for item in raw_items:
             normalized = str(item or "").strip().lower().replace("-", "_")
@@ -352,20 +396,32 @@ class HardwareKnowledgeClient:
 
     @classmethod
     def _hardware_stages_for_candidate(cls, candidate: dict[str, Any]) -> list[str]:
-        for key in ("hardware_pipeline_stages", "hardware_pipeline_stage", "pipeline_stages", "pipeline_stage"):
+        for key in (
+            "hardware_pipeline_stages",
+            "hardware_pipeline_stage",
+            "pipeline_stages",
+            "pipeline_stage",
+        ):
             stages = cls._normalize_hardware_stage_list(candidate.get(key))
             if stages:
                 return stages
-        agent_stage = str(candidate.get("stage") or "").strip().lower().replace("-", "_")
+        agent_stage = (
+            str(candidate.get("stage") or "").strip().lower().replace("-", "_")
+        )
         if agent_stage in _AGENT_STAGE_HARDWARE_STAGES:
             return list(_AGENT_STAGE_HARDWARE_STAGES[agent_stage])
         direct_stage = cls._normalize_hardware_stage_name(agent_stage)
         return [direct_stage] if direct_stage else []
 
     @staticmethod
-    def _stage_feature_context_from_static_graph(*, hardware_name: str, stages: list[str], limit: int) -> dict[str, Any]:
+    def _stage_feature_context_from_static_graph(
+        *, hardware_name: str, stages: list[str], limit: int
+    ) -> dict[str, Any]:
         try:
-            from hardware_knowledge_graph.feature_filter import query_hardware_features, query_hardware_node
+            from hardware_knowledge_graph.feature_filter import (
+                query_hardware_features,
+                query_hardware_node,
+            )
         except Exception as exc:
             return {
                 "found": False,
@@ -387,17 +443,28 @@ class HardwareKnowledgeClient:
             node_payload = query_hardware_node(hardware_name, stage)
             feature_payload = query_hardware_features(hardware_name, stage)
             if not node_payload.get("found") and not feature_payload.get("found"):
-                reason = str(node_payload.get("reason") or feature_payload.get("reason") or reason)
+                reason = str(
+                    node_payload.get("reason")
+                    or feature_payload.get("reason")
+                    or reason
+                )
                 continue
             if hardware_payload is None:
                 hardware_payload = {
-                    "gpu_name": node_payload.get("gpu_name") or feature_payload.get("gpu_name"),
+                    "gpu_name": node_payload.get("gpu_name")
+                    or feature_payload.get("gpu_name"),
                     "architecture": node_payload.get("architecture"),
                     "vram_MB": node_payload.get("vram_MB"),
                     "compute_capability": node_payload.get("compute_capability"),
                 }
-                hardware_payload = {key: value for key, value in hardware_payload.items() if value not in (None, "", [], {})}
-            stage_features = list(feature_payload.get("features") or [])[:per_stage_limit]
+                hardware_payload = {
+                    key: value
+                    for key, value in hardware_payload.items()
+                    if value not in (None, "", [], {})
+                }
+            stage_features = list(feature_payload.get("features") or [])[
+                :per_stage_limit
+            ]
             for feature in stage_features:
                 feature_id = str(feature.get("feature_id") or "")
                 key = feature_id if feature_id else repr(feature)
@@ -410,7 +477,9 @@ class HardwareKnowledgeClient:
                     "stage": stage,
                     "node": node_payload,
                     "features": stage_features,
-                    "feature_count": int(feature_payload.get("feature_count") or len(stage_features)),
+                    "feature_count": int(
+                        feature_payload.get("feature_count") or len(stage_features)
+                    ),
                 }
             )
         return _sanitize_agent_response(
@@ -420,7 +489,9 @@ class HardwareKnowledgeClient:
                 "stage_filter": stages[0] if len(stages) == 1 else list(stages),
                 "stages": stage_payloads,
                 "features": merged_features,
-                "feature_count": sum(int(item.get("feature_count") or 0) for item in stage_payloads),
+                "feature_count": sum(
+                    int(item.get("feature_count") or 0) for item in stage_payloads
+                ),
                 "source": "hardware_knowledge_graph.json",
                 "reason": None if stage_payloads else reason,
             }
@@ -436,21 +507,31 @@ class HardwareKnowledgeClient:
         stages = self._normalize_hardware_stage_list(pipeline_stage)
         if not stages:
             stages = list(_PIPELINE_HARDWARE_STAGES)
-        hardware_context = self.get_hardware_context(hardware_id, include_scheduler_limits=False)
+        hardware_context = self.get_hardware_context(
+            hardware_id, include_scheduler_limits=False
+        )
         hardware = hardware_context.get("hardware") or {}
-        hardware_name = str(hardware.get("gpu_name") or hardware.get("hardware_key") or hardware_id)
-        result = self._stage_feature_context_from_static_graph(hardware_name=hardware_name, stages=stages, limit=limit)
+        hardware_name = str(
+            hardware.get("gpu_name") or hardware.get("hardware_key") or hardware_id
+        )
+        result = self._stage_feature_context_from_static_graph(
+            hardware_name=hardware_name, stages=stages, limit=limit
+        )
         result["hardware_context"] = hardware_context
         return result
 
     @staticmethod
-    def _feature_index_from_stage_context(stage_context: dict[str, Any]) -> list[dict[str, Any]]:
+    def _feature_index_from_stage_context(
+        stage_context: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         index: list[dict[str, Any]] = []
         for item in stage_context.get("features") or []:
             index.append(
                 {
                     "feature_id": item.get("feature_id"),
-                    "feature_name": item.get("feature_name") or item.get("name") or item.get("title"),
+                    "feature_name": item.get("feature_name")
+                    or item.get("name")
+                    or item.get("title"),
                     "category": item.get("category"),
                     "support_level": item.get("support_level"),
                     "recommended": bool(item.get("recommended")),
@@ -462,25 +543,52 @@ class HardwareKnowledgeClient:
             )
         return index
 
-    def get_hardware_feature_index(self, hardware_id: str = "current", limit: int = 256) -> dict[str, Any]:
-        context = self.get_stage_hardware_features(hardware_id, pipeline_stage=list(_PIPELINE_HARDWARE_STAGES), limit=max(1, int(limit)))
+    def get_hardware_feature_index(
+        self, hardware_id: str = "current", limit: int = 256
+    ) -> dict[str, Any]:
+        context = self.get_stage_hardware_features(
+            hardware_id,
+            pipeline_stage=list(_PIPELINE_HARDWARE_STAGES),
+            limit=max(1, int(limit)),
+        )
         return _sanitize_agent_response(
             {
                 "found": bool(context.get("found")),
                 "hardware": context.get("hardware"),
-                "features": self._feature_index_from_stage_context(context)[: max(1, int(limit))],
+                "features": self._feature_index_from_stage_context(context)[
+                    : max(1, int(limit))
+                ],
                 "feature_count": context.get("feature_count"),
                 "source": context.get("source"),
             }
         )
 
-    def get_hardware_feature_details(self, *, hardware_id: str = "current", feature_ids: list[str], limit: int = 64) -> dict[str, Any]:
+    def get_hardware_feature_details(
+        self, *, hardware_id: str = "current", feature_ids: list[str], limit: int = 64
+    ) -> dict[str, Any]:
         requested = [str(item) for item in feature_ids or [] if str(item).strip()]
         if not requested:
-            return {"found": False, "hardware": None, "features": [], "requested_feature_ids": [], "missing_feature_ids": [], "source": "empty_request"}
-        context = self.get_stage_hardware_features(hardware_id, pipeline_stage=list(_PIPELINE_HARDWARE_STAGES), limit=max(int(limit), len(requested), 64))
-        by_id = {str(item.get("feature_id")): item for item in context.get("features") or [] if item.get("feature_id")}
-        selected = [by_id[feature_id] for feature_id in requested if feature_id in by_id]
+            return {
+                "found": False,
+                "hardware": None,
+                "features": [],
+                "requested_feature_ids": [],
+                "missing_feature_ids": [],
+                "source": "empty_request",
+            }
+        context = self.get_stage_hardware_features(
+            hardware_id,
+            pipeline_stage=list(_PIPELINE_HARDWARE_STAGES),
+            limit=max(int(limit), len(requested), 64),
+        )
+        by_id = {
+            str(item.get("feature_id")): item
+            for item in context.get("features") or []
+            if item.get("feature_id")
+        }
+        selected = [
+            by_id[feature_id] for feature_id in requested if feature_id in by_id
+        ]
         missing = [feature_id for feature_id in requested if feature_id not in by_id]
         return _sanitize_agent_response(
             {
@@ -493,7 +601,9 @@ class HardwareKnowledgeClient:
             }
         )
 
-    def prewarm_current_hardware_neighborhood(self, hardware_id: str = "current", *, limit: int = 256) -> dict[str, Any]:
+    def prewarm_current_hardware_neighborhood(
+        self, hardware_id: str = "current", *, limit: int = 256
+    ) -> dict[str, Any]:
         result = self.get_hardware_feature_index(hardware_id=hardware_id, limit=limit)
         return {
             "ok": bool(result.get("found")),
@@ -501,11 +611,20 @@ class HardwareKnowledgeClient:
             "hardware_name": ((result.get("hardware") or {}).get("gpu_name")),
             "feature_count": len(result.get("features") or []),
             "source": result.get("source"),
-            "cache_namespace": "hardware:neighborhood" if self._hardware_neighborhood_cache is not None else None,
+            "cache_namespace": (
+                "hardware:neighborhood"
+                if self._hardware_neighborhood_cache is not None
+                else None
+            ),
             "reason": result.get("reason"),
         }
 
-    def get_runtime_environment(self, *, include_package_versions: bool = True, include_precision_checks: bool = True) -> dict[str, Any]:
+    def get_runtime_environment(
+        self,
+        *,
+        include_package_versions: bool = True,
+        include_precision_checks: bool = True,
+    ) -> dict[str, Any]:
         return _sanitize_agent_response(
             detect_runtime_environment(
                 include_package_versions=include_package_versions,
@@ -514,16 +633,31 @@ class HardwareKnowledgeClient:
             )
         )
 
-    def validate_generated_training_code(self, code: str, stage: str = "code_review") -> dict[str, Any]:
-        return _sanitize_agent_response(_validate_generated_training_code(code, stage=stage))
+    def validate_generated_training_code(
+        self, code: str, stage: str = "code_review"
+    ) -> dict[str, Any]:
+        return _sanitize_agent_response(
+            _validate_generated_training_code(code, stage=stage)
+        )
 
     @staticmethod
     def _default_model_families_for_workload(workload_type: str | None) -> list[str]:
         workload = str(workload_type or "").lower()
         if "vision" in workload:
-            return ["resnet50", "efficientnet-b0", "convnext-tiny", "vit-base", "swin-tiny"]
+            return [
+                "resnet50",
+                "efficientnet-b0",
+                "convnext-tiny",
+                "vit-base",
+                "swin-tiny",
+            ]
         if "transformer" in workload or "text" in workload or "nlp" in workload:
-            return ["transformer", "small-transformer", "lora-transformer", "sequence-cnn"]
+            return [
+                "transformer",
+                "small-transformer",
+                "lora-transformer",
+                "sequence-cnn",
+            ]
         if "audio" in workload:
             return ["cnn", "conformer", "spectrogram-transformer"]
         if "tabular" in workload:
@@ -534,15 +668,26 @@ class HardwareKnowledgeClient:
     def _hardware_feature_words(features: list[dict[str, Any]]) -> list[str]:
         words: list[str] = []
         for item in features:
-            for value in (item.get("feature_id"), item.get("category"), item.get("name"), item.get("feature_name")):
+            for value in (
+                item.get("feature_id"),
+                item.get("category"),
+                item.get("name"),
+                item.get("feature_name"),
+            ):
                 text = str(value or "").strip()
                 if text and text not in words:
                     words.append(text)
         return words
 
     @staticmethod
-    def _model_family_rationale(family: str, workload_type: str | None, feature_words: list[str]) -> str:
-        feature_text = ", ".join(feature_words[:4]) if feature_words else "the current hardware profile"
+    def _model_family_rationale(
+        family: str, workload_type: str | None, feature_words: list[str]
+    ) -> str:
+        feature_text = (
+            ", ".join(feature_words[:4])
+            if feature_words
+            else "the current hardware profile"
+        )
         return f"{family} is a candidate branch for {workload_type or 'this workload'} with context from {feature_text}."
 
     def get_model_design_hardware_context(
@@ -559,20 +704,32 @@ class HardwareKnowledgeClient:
             hardware_key,
             include_scheduler_limits=self.scheduler_context_attached,
         )
-        feature_context = self.get_stage_hardware_features(hardware_key, pipeline_stage="model_structure", limit=max(4, int(limit)))
-        feature_words = self._hardware_feature_words(list(feature_context.get("features") or []))
-        families = candidate_families or self._default_model_families_for_workload(workload)
+        feature_context = self.get_stage_hardware_features(
+            hardware_key, pipeline_stage="model_structure", limit=max(4, int(limit))
+        )
+        feature_words = self._hardware_feature_words(
+            list(feature_context.get("features") or [])
+        )
+        families = candidate_families or self._default_model_families_for_workload(
+            workload
+        )
         options = [
             {
                 "model_family": family,
                 "branch_name": family,
                 "score": round(0.2 + min(0.5, 0.05 * len(feature_words)), 3),
                 "confidence": round(0.25 + min(0.5, 0.03 * len(feature_words)), 3),
-                "rationale": self._model_family_rationale(family, workload, feature_words),
+                "rationale": self._model_family_rationale(
+                    family, workload, feature_words
+                ),
                 "hardware_features": feature_words[:8],
                 "expected_benefits": [],
                 "risks": [],
-                "evidence_refs": [f"hardware_feature:{item.get('feature_id')}" for item in feature_context.get("features") or [] if item.get("feature_id")][:4],
+                "evidence_refs": [
+                    f"hardware_feature:{item.get('feature_id')}"
+                    for item in feature_context.get("features") or []
+                    if item.get("feature_id")
+                ][:4],
             }
             for family in families[: max(1, int(limit))]
         ]
@@ -592,34 +749,62 @@ class HardwareKnowledgeClient:
                     "Reuse existing branch profiles when branch_name matches the mother model.",
                 ],
                 "risk_flags": [],
-                "evidence_refs": sorted({ref for option in options for ref in option.get("evidence_refs", [])}),
-                "confidence": round(max([float(item.get("confidence") or 0.0) for item in options] or [0.0]), 3),
+                "evidence_refs": sorted(
+                    {
+                        ref
+                        for option in options
+                        for ref in option.get("evidence_refs", [])
+                    }
+                ),
+                "confidence": round(
+                    max(
+                        [float(item.get("confidence") or 0.0) for item in options]
+                        or [0.0]
+                    ),
+                    3,
+                ),
             }
         )
 
-    def get_optimization_context(self, *, candidate: dict[str, Any], limit: int = 8) -> dict[str, Any]:
+    def get_optimization_context(
+        self, *, candidate: dict[str, Any], limit: int = 8
+    ) -> dict[str, Any]:
         graph_context = self.get_profile_evidence(candidate=candidate, limit=limit)
         pipeline_stages = self._hardware_stages_for_candidate(candidate)
         stage_hardware_features = (
-            self.get_stage_hardware_features("current", pipeline_stage=pipeline_stages, limit=max(2, int(limit)))
+            self.get_stage_hardware_features(
+                "current", pipeline_stage=pipeline_stages, limit=max(2, int(limit))
+            )
             if pipeline_stages
             else {}
         )
         recommendations: list[str] = []
         risks: list[str] = list(graph_context.get("risk_flags") or [])
         batch_recommendation = graph_context.get("batch_size_recommendation") or {}
-        if batch_recommendation.get("found") and batch_recommendation.get("recommended_batch_size") is not None:
-            recommendations.append(f"Use profile-recommended physical batch size {batch_recommendation['recommended_batch_size']} as the starting point.")
+        if (
+            batch_recommendation.get("found")
+            and batch_recommendation.get("recommended_batch_size") is not None
+        ):
+            recommendations.append(
+                f"Use profile-recommended physical batch size {batch_recommendation['recommended_batch_size']} as the starting point."
+            )
         epoch_recommendation = graph_context.get("epoch_recommendation") or {}
-        if epoch_recommendation.get("found") and epoch_recommendation.get("recommended_epochs") is not None:
-            recommendations.append(f"Use historical epoch budget {epoch_recommendation['recommended_epochs']} unless the scoring metric suggests otherwise.")
+        if (
+            epoch_recommendation.get("found")
+            and epoch_recommendation.get("recommended_epochs") is not None
+        ):
+            recommendations.append(
+                f"Use historical epoch budget {epoch_recommendation['recommended_epochs']} unless the scoring metric suggests otherwise."
+            )
         for feature in stage_hardware_features.get("features") or []:
             if feature.get("recommended") and feature.get("name"):
                 recommendations.append(str(feature["name"]))
         result = {
             "hardware_context": graph_context.get("hardware_context"),
-            "graph_evidence": graph_context.get("graph_evidence") or {"exact_profiles": [], "similar_profiles": [], "packed_profiles": []},
-            "derived_diagnosis": graph_context.get("derived_diagnosis") or {"profile_symptoms": [], "optimization_targets": []},
+            "graph_evidence": graph_context.get("graph_evidence")
+            or {"exact_profiles": [], "similar_profiles": [], "packed_profiles": []},
+            "derived_diagnosis": graph_context.get("derived_diagnosis")
+            or {"profile_symptoms": [], "optimization_targets": []},
             "stage_hardware_features": stage_hardware_features,
             "recommendations": recommendations[: max(1, int(limit))],
             "risk_flags": risks,
@@ -628,15 +813,26 @@ class HardwareKnowledgeClient:
         }
         return _sanitize_agent_response(result)
 
-    def plan_job_packet(self, *, candidates: list[dict[str, Any]], limit: int = 8) -> dict[str, Any]:
+    def plan_job_packet(
+        self, *, candidates: list[dict[str, Any]], limit: int = 8
+    ) -> dict[str, Any]:
         jobs: list[dict[str, Any]] = []
         evidence_refs: list[str] = []
         confidences: list[float] = []
         for index, candidate in enumerate(list(candidates or [])):
-            context = self.get_optimization_context(candidate=dict(candidate or {}), limit=limit)
+            context = self.get_optimization_context(
+                candidate=dict(candidate or {}), limit=limit
+            )
             evidence_refs.extend(str(ref) for ref in context.get("evidence_refs") or [])
             confidences.append(float(context.get("confidence") or 0.0))
-            jobs.append({"index": index, "node_id": candidate.get("node_id"), "candidate": candidate, "optimization_context": context})
+            jobs.append(
+                {
+                    "index": index,
+                    "node_id": candidate.get("node_id"),
+                    "candidate": candidate,
+                    "optimization_context": context,
+                }
+            )
         return {
             "found": bool(jobs),
             "jobs": jobs,
@@ -646,14 +842,30 @@ class HardwareKnowledgeClient:
             "confidence": round(max(confidences) if confidences else 0.0, 3),
         }
 
-    def optimize_job_packet(self, *, candidates: list[dict[str, Any]], limit: int = 8) -> dict[str, Any]:
+    def optimize_job_packet(
+        self, *, candidates: list[dict[str, Any]], limit: int = 8
+    ) -> dict[str, Any]:
         return self.plan_job_packet(candidates=candidates, limit=limit)
 
-    def search_hardware_features(self, *, query: str, hardware_key: str = "current", architecture: str | None = None, vendor: str | None = None, workload_type: str | None = None, framework: str | None = "pytorch", limit: int = 8) -> list[dict[str, Any]]:
+    def search_hardware_features(
+        self,
+        *,
+        query: str,
+        hardware_key: str = "current",
+        architecture: str | None = None,
+        vendor: str | None = None,
+        workload_type: str | None = None,
+        framework: str | None = "pytorch",
+        limit: int = 8,
+    ) -> list[dict[str, Any]]:
         del workload_type
-        hardware_context = self.get_hardware_context(hardware_key, include_scheduler_limits=False)
+        hardware_context = self.get_hardware_context(
+            hardware_key, include_scheduler_limits=False
+        )
         hardware = hardware_context.get("hardware") or {}
-        hardware_lookup = str(hardware.get("gpu_name") or hardware.get("hardware_key") or hardware_key)
+        hardware_lookup = str(
+            hardware.get("gpu_name") or hardware.get("hardware_key") or hardware_key
+        )
         try:
             return _sanitize_agent_response(
                 self._hardware_graph_store().search(
@@ -668,10 +880,40 @@ class HardwareKnowledgeClient:
         except Exception:
             return []
 
-    def get_hardware_feature_context(self, *, hardware_key: str = "current", workload_type: str | None = None, model_family: str | None = None, framework: str | None = "pytorch", limit: int = 8) -> dict[str, Any]:
-        query = " ".join(part for part in (workload_type or "", model_family or "", framework or "", "training optimization precision memory") if part)
-        matches = self.search_hardware_features(query=query, hardware_key=hardware_key, workload_type=workload_type, framework=framework, limit=limit)
-        return {"found": bool(matches), "hardware_context": self.get_hardware_context(hardware_key), "query": query, "matches": matches}
+    def get_hardware_feature_context(
+        self,
+        *,
+        hardware_key: str = "current",
+        workload_type: str | None = None,
+        model_family: str | None = None,
+        framework: str | None = "pytorch",
+        limit: int = 8,
+    ) -> dict[str, Any]:
+        query = " ".join(
+            part
+            for part in (
+                workload_type or "",
+                model_family or "",
+                framework or "",
+                "training optimization precision memory",
+            )
+            if part
+        )
+        matches = self.search_hardware_features(
+            query=query,
+            hardware_key=hardware_key,
+            workload_type=workload_type,
+            framework=framework,
+            limit=limit,
+        )
+        return {
+            "found": bool(matches),
+            "hardware_context": self.get_hardware_context(hardware_key),
+            "query": query,
+            "matches": matches,
+        }
 
-    def get_hardware_optimization_context(self, *, candidate: dict[str, Any], limit: int = 8) -> dict[str, Any]:
+    def get_hardware_optimization_context(
+        self, *, candidate: dict[str, Any], limit: int = 8
+    ) -> dict[str, Any]:
         return self.get_optimization_context(candidate=candidate, limit=limit)

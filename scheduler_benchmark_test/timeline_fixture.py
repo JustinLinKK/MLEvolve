@@ -4,16 +4,19 @@ from __future__ import annotations
 
 from collections import Counter
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 import json
 import sqlite3
 
+from localml_scheduler.config import SchedulerSettings
 
 REPLAY_PENDING_TIMESTAMP = "1970-01-01T00:00:00+00:00"
-DEFAULT_SOURCE_RUN = Path("runs/profile_scheduler_compare_histopathologic-cancer-detection_20260704_212842")
+DEFAULT_SOURCE_RUN = Path(
+    "runs/profile_scheduler_compare_histopathologic-cancer-detection_20260704_212842"
+)
 
 TRANSIENT_METADATA_KEYS = {
     "batch_probe_device_type",
@@ -98,7 +101,10 @@ def extract_fixture(source: str | Path, output_dir: str | Path) -> FixturePaths:
 
     _write_json(output.timeline, {"actions": timeline})
     output.jobs.write_text(
-        "".join(json.dumps(payload, sort_keys=True, default=str) + "\n" for payload in job_payloads),
+        "".join(
+            json.dumps(payload, sort_keys=True, default=str) + "\n"
+            for payload in job_payloads
+        ),
         encoding="utf-8",
     )
     _write_json(output.baseline_summary, baseline_summary)
@@ -106,7 +112,12 @@ def extract_fixture(source: str | Path, output_dir: str | Path) -> FixturePaths:
     return output
 
 
-def load_fixture(root: str | Path) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, Any], dict[str, Any]]:
+def load_fixture(
+    root: str | Path,
+) -> tuple[
+    list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, Any], dict[str, Any]
+]:
+    """Load a fixture and normalize archived payloads to the current schema."""
     paths = FixturePaths.from_root(root)
     timeline_payload = json.loads(paths.timeline.read_text(encoding="utf-8"))
     jobs_by_id: dict[str, dict[str, Any]] = {}
@@ -114,11 +125,61 @@ def load_fixture(root: str | Path) -> tuple[list[dict[str, Any]], dict[str, dict
         for line in handle:
             if not line.strip():
                 continue
-            payload = json.loads(line)
+            payload = normalize_replay_job_payload(json.loads(line))
             jobs_by_id[str(payload["job_id"])] = payload
     baseline = json.loads(paths.baseline_summary.read_text(encoding="utf-8"))
-    settings = json.loads(paths.scheduler_settings.read_text(encoding="utf-8"))
+    settings = normalize_replay_settings(
+        json.loads(paths.scheduler_settings.read_text(encoding="utf-8"))
+    )
     return list(timeline_payload.get("actions") or []), jobs_by_id, baseline, settings
+
+
+def normalize_replay_job_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Drop fields used by pre-refactor job schemas from an archived job."""
+    job = deepcopy(payload)
+    batch_probe = dict(job.get("batch_probe") or {})
+    for key in (
+        "contract_version",
+        "profile_key",
+        "profile_namespace",
+        "reuse_only",
+        "shape_signature_override",
+    ):
+        batch_probe.pop(key, None)
+    job["batch_probe"] = batch_probe
+
+    checkpoint_policy = dict(job.get("checkpoint_policy") or {})
+    checkpoint_policy.pop("preemptible", None)
+    job["checkpoint_policy"] = checkpoint_policy
+    return job
+
+
+def normalize_replay_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    """Retain only settings understood by the current scheduler dataclasses."""
+    raw = dict(payload or {})
+    raw.pop("runtime_root", None)
+    raw.pop("redis_cache", None)
+    return _known_dataclass_fields(raw, SchedulerSettings())
+
+
+def _known_dataclass_fields(payload: dict[str, Any], template: Any) -> dict[str, Any]:
+    """Recursively filter a mapping using an initialized dataclass as schema."""
+    cleaned: dict[str, Any] = {}
+    for field_info in fields(template):
+        if not field_info.init or field_info.name not in payload:
+            continue
+        value = payload[field_info.name]
+        current = getattr(template, field_info.name)
+        if field_info.name == "prediction" and isinstance(value, dict):
+            try:
+                cleaned[field_info.name] = current.from_dict(value).to_dict()
+            except (TypeError, ValueError):
+                cleaned[field_info.name] = current.to_dict()
+        elif is_dataclass(current) and isinstance(value, dict):
+            cleaned[field_info.name] = _known_dataclass_fields(value, current)
+        else:
+            cleaned[field_info.name] = value
+    return cleaned
 
 
 def reset_job_payload_for_replay(payload: dict[str, Any]) -> dict[str, Any]:
@@ -138,9 +199,13 @@ def reset_job_payload_for_replay(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
     for key in list(metadata):
-        if key in TRANSIENT_METADATA_KEYS or key.startswith(TRANSIENT_METADATA_PREFIXES):
+        if key in TRANSIENT_METADATA_KEYS or key.startswith(
+            TRANSIENT_METADATA_PREFIXES
+        ):
             metadata.pop(key, None)
-    metadata["replay_original"] = {key: value for key, value in replay_original.items() if value is not None}
+    metadata["replay_original"] = {
+        key: value for key, value in replay_original.items() if value is not None
+    }
     metadata["replay_fixture_source"] = "scheduler_timeline"
 
     job["metadata"] = metadata
@@ -169,13 +234,11 @@ def _infer_source_root(runtime_root: Path) -> Path:
 
 
 def _load_jobs(connection: sqlite3.Connection) -> list[dict[str, Any]]:
-    rows = connection.execute(
-        """
+    rows = connection.execute("""
         SELECT job_id, status, priority, baseline_model_id, submitted_at, queue_sequence, payload_json, updated_at
         FROM jobs
         ORDER BY queue_sequence ASC
-        """
-    ).fetchall()
+        """).fetchall()
     jobs = []
     for row in rows:
         payload = json.loads(row["payload_json"])
@@ -184,13 +247,11 @@ def _load_jobs(connection: sqlite3.Connection) -> list[dict[str, Any]]:
 
 
 def _load_commands(connection: sqlite3.Connection) -> list[dict[str, Any]]:
-    rows = connection.execute(
-        """
+    rows = connection.execute("""
         SELECT command_id, job_id, command_type, payload_json, created_at, processed_at
         FROM commands
         ORDER BY command_id ASC
-        """
-    ).fetchall()
+        """).fetchall()
     commands = []
     for row in rows:
         payload = json.loads(row["payload_json"] or "{}")
@@ -199,13 +260,11 @@ def _load_commands(connection: sqlite3.Connection) -> list[dict[str, Any]]:
 
 
 def _load_events(connection: sqlite3.Connection) -> list[dict[str, Any]]:
-    rows = connection.execute(
-        """
+    rows = connection.execute("""
         SELECT event_id, job_id, event_type, payload_json, created_at
         FROM events
         ORDER BY event_id ASC
-        """
-    ).fetchall()
+        """).fetchall()
     events = []
     for row in rows:
         payload = json.loads(row["payload_json"] or "{}")
@@ -213,12 +272,18 @@ def _load_events(connection: sqlite3.Connection) -> list[dict[str, Any]]:
     return events
 
 
-def _build_timeline(commands: list[dict[str, Any]], jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _build_timeline(
+    commands: list[dict[str, Any]], jobs: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     if not commands:
         return []
     base = _parse_time(commands[0]["created_at"])
     last_submit_index = max(
-        (index for index, command in enumerate(commands) if command["command_type"] == "SUBMIT"),
+        (
+            index
+            for index, command in enumerate(commands)
+            if command["command_type"] == "SUBMIT"
+        ),
         default=-1,
     )
     jobs_by_id = {job["job_id"]: job["payload"] for job in jobs}
@@ -227,7 +292,9 @@ def _build_timeline(commands: list[dict[str, Any]], jobs: list[dict[str, Any]]) 
         created_at = _parse_time(command["created_at"])
         job_payload = jobs_by_id.get(command["job_id"])
         metadata = (job_payload or {}).get("metadata") or {}
-        final_cleanup = command["command_type"] == "CANCEL" and index > last_submit_index
+        final_cleanup = (
+            command["command_type"] == "CANCEL" and index > last_submit_index
+        )
         timeline.append(
             {
                 "command_id": command["command_id"],
@@ -239,10 +306,17 @@ def _build_timeline(commands: list[dict[str, Any]], jobs: list[dict[str, Any]]) 
                 "payload": command["payload"],
                 "final_cleanup": final_cleanup,
                 "has_job_payload": job_payload is not None,
-                "queue_sequence": job_payload.get("queue_sequence") if job_payload else None,
+                "queue_sequence": (
+                    job_payload.get("queue_sequence") if job_payload else None
+                ),
                 "task_type": job_payload.get("task_type") if job_payload else None,
-                "runner_target": ((job_payload.get("config") or {}).get("runner_target") if job_payload else None),
-                "mlevolve_node_id": metadata.get("node_id") or metadata.get("mlevolve_node_id"),
+                "runner_target": (
+                    (job_payload.get("config") or {}).get("runner_target")
+                    if job_payload
+                    else None
+                ),
+                "mlevolve_node_id": metadata.get("node_id")
+                or metadata.get("mlevolve_node_id"),
             }
         )
     return timeline
@@ -254,7 +328,7 @@ def _load_replay_settings(runtime_root: Path) -> dict[str, Any]:
         payload = json.loads(settings_path.read_text(encoding="utf-8"))
     else:
         payload = {}
-    payload.pop("runtime_root", None)
+    payload = normalize_replay_settings(payload)
     payload.setdefault("gpu_scheduler", {})
     payload.setdefault("baseline_cache", {})
     for legacy_key in (
@@ -264,8 +338,7 @@ def _load_replay_settings(runtime_root: Path) -> dict[str, Any]:
     ):
         payload.pop(legacy_key, None)
     payload["log_db"] = {**dict(payload.get("log_db") or {}), "enabled": False}
-    payload["redis_cache"] = {**dict(payload.get("redis_cache") or {}), "enabled": False}
-    payload["redis_cache"].pop("cache_" + "vector_queries", None)
+    payload.pop("redis_cache", None)
     payload["baseline_cache"] = {
         **dict(payload.get("baseline_cache") or {}),
         "warm_queue_policy": "budget_only",
@@ -291,15 +364,21 @@ def _build_baseline_summary(
     event_counts = Counter(event["event_type"] for event in events)
     status_counts = Counter(job["payload"].get("status") for job in jobs)
     task_type_counts = Counter(job["payload"].get("task_type") for job in jobs)
-    runner_counts = Counter((job["payload"].get("config") or {}).get("runner_target") for job in jobs)
+    runner_counts = Counter(
+        (job["payload"].get("config") or {}).get("runner_target") for job in jobs
+    )
     script_paths = _script_paths(job["payload"] for job in jobs)
     missing_script_paths = [path for path in script_paths if not Path(path).exists()]
     original_workspace = _common_working_dir(job["payload"] for job in jobs)
     reference_metrics = _load_reference_metrics(source_root)
 
-    final_cleanup_actions = [action for action in timeline if action.get("final_cleanup")]
+    final_cleanup_actions = [
+        action for action in timeline if action.get("final_cleanup")
+    ]
     mid_run_cancel_count = sum(
-        1 for action in timeline if action["action"] == "CANCEL" and not action.get("final_cleanup")
+        1
+        for action in timeline
+        if action["action"] == "CANCEL" and not action.get("final_cleanup")
     )
 
     return {
@@ -307,7 +386,9 @@ def _build_baseline_summary(
         "scheduler_runtime_root": str(runtime_root),
         "scheduler_db_path": str(db_path),
         "original_workspace": original_workspace,
-        "original_input_dir": str(Path(original_workspace) / "input") if original_workspace else None,
+        "original_input_dir": (
+            str(Path(original_workspace) / "input") if original_workspace else None
+        ),
         "first_command_at": commands[0]["created_at"] if commands else None,
         "last_command_at": commands[-1]["created_at"] if commands else None,
         "command_count": len(commands),
@@ -327,14 +408,22 @@ def _build_baseline_summary(
         "runner_target_counts": dict(runner_counts),
         "event_counts": dict(event_counts),
         "batch_probe_trial_count": int(event_counts.get("batch_probe_trial", 0)),
-        "batch_probe_cache_hit_count": int(event_counts.get("batch_probe_cache_hit", 0)),
-        "packed_pair_dispatch_count": int(event_counts.get("packed_pair_dispatched", 0)),
-        "packed_group_dispatch_count": int(event_counts.get("packed_group_dispatched", 0)),
+        "batch_probe_cache_hit_count": int(
+            event_counts.get("batch_probe_cache_hit", 0)
+        ),
+        "packed_pair_dispatch_count": int(
+            event_counts.get("packed_pair_dispatched", 0)
+        ),
+        "packed_group_dispatch_count": int(
+            event_counts.get("packed_group_dispatched", 0)
+        ),
         "packed_dispatch_count": int(
-            event_counts.get("packed_pair_dispatched", 0) + event_counts.get("packed_group_dispatched", 0)
+            event_counts.get("packed_pair_dispatched", 0)
+            + event_counts.get("packed_group_dispatched", 0)
         ),
         "packed_fallback_count": int(
-            event_counts.get("packed_pair_fallback", 0) + event_counts.get("packed_group_fallback", 0)
+            event_counts.get("packed_pair_fallback", 0)
+            + event_counts.get("packed_group_fallback", 0)
         ),
         "script_path_count": len(script_paths),
         "missing_script_path_count": len(missing_script_paths),
@@ -371,7 +460,10 @@ def _load_reference_metrics(source_root: Path) -> dict[str, Any]:
         return {}
     try:
         payload = json.loads(summary_path.read_text(encoding="utf-8"))
-        return dict(((payload.get("modes") or {}).get("scheduler_on") or {}).get("metrics") or {})
+        return dict(
+            ((payload.get("modes") or {}).get("scheduler_on") or {}).get("metrics")
+            or {}
+        )
     except Exception:
         return {}
 
@@ -385,4 +477,7 @@ def _parse_time(value: str) -> datetime:
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 import os
 import sys
+import warnings
 
 
 @dataclass(slots=True)
@@ -23,8 +24,13 @@ class HardwareKnowledgeRedisCacheSettings:
     def __post_init__(self) -> None:
         self.enabled = bool(self.enabled)
         self.url = str(self.url or "redis://127.0.0.1:6379/0").strip()
-        self.url_env = str(self.url_env or "LOCALML_HARDWARE_KNOWLEDGE_REDIS_URL").strip()
-        self.key_prefix = str(self.key_prefix or "localml_hardware_knowledge").strip().strip(":") or "localml_hardware_knowledge"
+        self.url_env = str(
+            self.url_env or "LOCALML_HARDWARE_KNOWLEDGE_REDIS_URL"
+        ).strip()
+        self.key_prefix = (
+            str(self.key_prefix or "localml_hardware_knowledge").strip().strip(":")
+            or "localml_hardware_knowledge"
+        )
         if self.ttl_seconds is not None:
             self.ttl_seconds = max(1, int(self.ttl_seconds))
         if self.max_entries is not None:
@@ -33,7 +39,9 @@ class HardwareKnowledgeRedisCacheSettings:
         self.cache_graph_queries = bool(self.cache_graph_queries)
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any] | None) -> "HardwareKnowledgeRedisCacheSettings":
+    def from_dict(
+        cls, payload: dict[str, Any] | None
+    ) -> "HardwareKnowledgeRedisCacheSettings":
         return cls(**(payload or {}))
 
     def resolved_url(self) -> str:
@@ -74,7 +82,9 @@ class HardwareKnowledgeGraphSettings:
         self.database = str(self.database or "").strip()
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any] | None) -> "HardwareKnowledgeGraphSettings":
+    def from_dict(
+        cls, payload: dict[str, Any] | None
+    ) -> "HardwareKnowledgeGraphSettings":
         return cls(**(payload or {}))
 
     def to_dict(self) -> dict[str, Any]:
@@ -106,15 +116,20 @@ class _HardwareGpuSettings:
     mode: str = "auto"
     max_packed_jobs_per_gpu: int = 0
     backend_priority: list[str] = field(default_factory=list)
-    memory: _HardwareGpuMemorySettings = field(default_factory=_HardwareGpuMemorySettings)
+    memory: _HardwareGpuMemorySettings = field(
+        default_factory=_HardwareGpuMemorySettings
+    )
 
 
 @dataclass(slots=True)
 class HardwareKnowledgeSettings:
     runtime_root: Path = Path("hardware_knowledge_graph/runtime")
-    graph: HardwareKnowledgeGraphSettings | dict[str, Any] = field(default_factory=HardwareKnowledgeGraphSettings)
-    redis_cache: HardwareKnowledgeRedisCacheSettings | dict[str, Any] = field(default_factory=HardwareKnowledgeRedisCacheSettings)
-    branch_profile_db_path: Path | str | None = None
+    graph: HardwareKnowledgeGraphSettings | dict[str, Any] = field(
+        default_factory=HardwareKnowledgeGraphSettings
+    )
+    redis_cache: HardwareKnowledgeRedisCacheSettings | dict[str, Any] = field(
+        default_factory=HardwareKnowledgeRedisCacheSettings
+    )
     device_index: int = 0
     sqlite_busy_timeout_ms: int = 10_000
     python_executable: str = field(default_factory=lambda: sys.executable)
@@ -131,33 +146,40 @@ class HardwareKnowledgeSettings:
         if self.redis_cache is None:
             self.redis_cache = HardwareKnowledgeRedisCacheSettings()
         if isinstance(self.redis_cache, dict):
-            self.redis_cache = HardwareKnowledgeRedisCacheSettings.from_dict(self.redis_cache)
+            self.redis_cache = HardwareKnowledgeRedisCacheSettings.from_dict(
+                self.redis_cache
+            )
         self.runtime_root = Path(self.runtime_root).resolve()
         self.db_dir = self.runtime_root / "db"
         self.db_path = self.db_dir / "hardware_knowledge.sqlite3"
-        if self.branch_profile_db_path is not None:
-            self.branch_profile_db_path = Path(self.branch_profile_db_path).expanduser().resolve()
-        else:
-            self.branch_profile_db_path = self.db_dir / "branch_profile.sqlite3"
-        self.gpu_scheduler = _HardwareGpuSettings(device_index=int(self.device_index or 0))
+        self.gpu_scheduler = _HardwareGpuSettings(
+            device_index=int(self.device_index or 0)
+        )
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any] | None = None, **overrides: Any) -> "HardwareKnowledgeSettings":
+    def from_dict(
+        cls, payload: dict[str, Any] | None = None, **overrides: Any
+    ) -> "HardwareKnowledgeSettings":
         data = dict(payload or {})
         data.update(overrides)
+        if data.pop("branch_profile_db_path", None) is not None:
+            warnings.warn(
+                "hardware_knowledge.settings.branch_profile_db_path is ignored; "
+                "profile evidence now comes from an attached scheduler client",
+                UserWarning,
+                stacklevel=2,
+            )
         return cls(**data)
 
     def ensure_runtime_layout(self) -> None:
         self.runtime_root.mkdir(parents=True, exist_ok=True)
         self.db_dir.mkdir(parents=True, exist_ok=True)
-        Path(self.branch_profile_db_path).parent.mkdir(parents=True, exist_ok=True)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "runtime_root": str(self.runtime_root),
             "graph": self.graph.to_dict(),
             "redis_cache": self.redis_cache.to_dict(),
-            "branch_profile_db_path": str(self.branch_profile_db_path),
             "device_index": self.device_index,
             "sqlite_busy_timeout_ms": self.sqlite_busy_timeout_ms,
             "python_executable": self.python_executable,

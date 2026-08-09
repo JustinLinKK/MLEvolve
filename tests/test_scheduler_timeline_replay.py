@@ -12,9 +12,21 @@ import time
 import pytest
 from localml_scheduler.client import SchedulerClient
 from localml_scheduler.config import SchedulerSettings
-from localml_scheduler.domain import BatchProbeSpec, JobStatus, PackingSpec, ResourceRequirements, RuntimeProbeSpec, TrainingJob
-from localml_scheduler.execution.process_utils import start_new_session_kwargs, terminate_process_tree
-from scheduler_benchmark_test.replay_multiprocess_baseline import replay_multiprocess_baseline
+from localml_scheduler.domain import (
+    BatchProbeSpec,
+    JobStatus,
+    PackingSpec,
+    ResourceRequirements,
+    RuntimeProbeSpec,
+    TrainingJob,
+)
+from localml_scheduler.execution.process_utils import (
+    start_new_session_kwargs,
+    terminate_process_tree,
+)
+from scheduler_benchmark_test.replay_multiprocess_baseline import (
+    replay_multiprocess_baseline,
+)
 from scheduler_benchmark_test.replay_model_sources import (
     build_scheduler_stress_fixture,
     materialize_sources,
@@ -23,7 +35,6 @@ from scheduler_benchmark_test.replay_model_sources import (
 from scheduler_benchmark_test.replay_scheduler_timeline import replay_fixture
 from scheduler_benchmark_test.timeline_fixture import extract_fixture, load_fixture
 from scheduler_benchmark_test.validate_replay_fixture import validate_fixture
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -42,7 +53,12 @@ def _wait_for(predicate, *, timeout: float = 5.0, interval: float = 0.05) -> Non
 
 
 def _process_is_running(pid: int) -> bool:
-    result = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], check=False, capture_output=True, text=True)
+    result = subprocess.run(
+        ["ps", "-o", "stat=", "-p", str(pid)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
     status = result.stdout.strip()
     return bool(status and not status.startswith("Z"))
 
@@ -60,13 +76,11 @@ def _make_runtime(tmp_path: Path) -> Path:
         scheduler_poll_interval_seconds=0.02,
         gpu_scheduler={
             "backend_priority": ["exclusive"],
-            "idle_coalescing_window_seconds": 0.0,
             "stream": {"enabled": False},
             "cuda_process": {"enabled": False},
             "mps": {"enabled": False},
         },
         log_db={"enabled": False},
-        redis_cache={"enabled": False},
     )
     settings.ensure_runtime_layout()
     (runtime_root / "scheduler_settings.json").write_text(
@@ -77,20 +91,34 @@ def _make_runtime(tmp_path: Path) -> Path:
 
     job1 = _job("job-1", script, workspace, task_type="mlevolve_script", priority=1)
     job1.metadata.update({"placement_backend": "stream", "resolved_batch_size": 64})
-    job2 = _job("job-2", script, workspace, task_type="mlevolve_model_family_probe", priority=100)
-    job2.metadata.update({"kind": "mlevolve_model_family_probe", "placement_mode": "exclusive"})
+    job2 = _job(
+        "job-2",
+        script,
+        workspace,
+        task_type="mlevolve_model_family_probe",
+        priority=100,
+    )
+    job2.metadata.update(
+        {"kind": "mlevolve_model_family_probe", "placement_mode": "exclusive"}
+    )
 
     client.submit(job1)
     client.cancel(job1.job_id)
     client.submit(job2)
     client.cancel(job2.job_id)
-    client.store.set_job_status(job1.job_id, JobStatus.COMPLETED, reason="original complete")
-    client.store.set_job_status(job2.job_id, JobStatus.FAILED, reason="original failed", hold=True)
+    client.store.set_job_status(
+        job1.job_id, JobStatus.COMPLETED, reason="original complete"
+    )
+    client.store.set_job_status(
+        job2.job_id, JobStatus.FAILED, reason="original failed", hold=True
+    )
     _rewrite_command_times(settings.db_path, [0.0, 10.0, 20.0, 30.0])
     return runtime_root
 
 
-def _job(job_id: str, script: Path, workspace: Path, *, task_type: str, priority: int) -> TrainingJob:
+def _job(
+    job_id: str, script: Path, workspace: Path, *, task_type: str, priority: int
+) -> TrainingJob:
     return TrainingJob.create(
         job_id=job_id,
         runner_target="localml_scheduler.adapters.mlevolve_runner:run_mlevolve_script_job",
@@ -99,7 +127,9 @@ def _job(job_id: str, script: Path, workspace: Path, *, task_type: str, priority
         runner_kwargs={
             "script_path": str(script),
             "working_dir": str(workspace),
-            "result_path": str(workspace / "working" / "scheduler_results" / f"result_{job_id}.json"),
+            "result_path": str(
+                workspace / "working" / "scheduler_results" / f"result_{job_id}.json"
+            ),
             "batch_size": 8,
         },
         priority=priority,
@@ -115,7 +145,6 @@ def _job(job_id: str, script: Path, workspace: Path, *, task_type: str, priority
             enabled=True,
             probe_target="localml_scheduler.adapters.mlevolve_runner:probe_mlevolve_script_job",
             model_key="unit-model",
-            profile_key=f"profile-{job_id}",
         ),
         runtime_probe=RuntimeProbeSpec(enabled=True),
     )
@@ -124,7 +153,12 @@ def _job(job_id: str, script: Path, workspace: Path, *, task_type: str, priority
 def _rewrite_command_times(db_path: Path, offsets: list[float]) -> None:
     base = datetime(2026, 7, 5, 0, 0, tzinfo=timezone.utc)
     with sqlite3.connect(str(db_path)) as connection:
-        command_ids = [row[0] for row in connection.execute("SELECT command_id FROM commands ORDER BY command_id")]
+        command_ids = [
+            row[0]
+            for row in connection.execute(
+                "SELECT command_id FROM commands ORDER BY command_id"
+            )
+        ]
         for command_id, offset in zip(command_ids, offsets, strict=True):
             timestamp = (base + timedelta(seconds=offset)).isoformat()
             connection.execute(
@@ -142,7 +176,12 @@ def test_extract_fixture_resets_jobs_and_marks_final_cleanup(tmp_path: Path) -> 
     actions, jobs_by_id, baseline, settings = load_fixture(fixture_dir)
 
     assert [action["relative_seconds"] for action in actions] == [0.0, 10.0, 20.0, 30.0]
-    assert [action["final_cleanup"] for action in actions] == [False, False, False, True]
+    assert [action["final_cleanup"] for action in actions] == [
+        False,
+        False,
+        False,
+        True,
+    ]
     assert baseline["command_count"] == 4
     assert baseline["submit_count"] == 2
     assert baseline["mid_run_cancel_count"] == 1
@@ -158,7 +197,10 @@ def test_extract_fixture_resets_jobs_and_marks_final_cleanup(tmp_path: Path) -> 
     assert job1["metadata"]["replay_original"]["status"] == "COMPLETED"
     assert "placement_backend" not in job1["metadata"]
     assert "resolved_batch_size" not in job1["metadata"]
-    assert job1["config"]["runner_target"] == "localml_scheduler.adapters.mlevolve_runner:run_mlevolve_script_job"
+    assert (
+        job1["config"]["runner_target"]
+        == "localml_scheduler.adapters.mlevolve_runner:run_mlevolve_script_job"
+    )
     assert job1["config"]["runner_kwargs"]["script_path"].endswith("candidate.py")
     assert job1["batch_probe"]["enabled"] is True
     assert job1["packing"]["signature"] == "sig-job-1"
@@ -178,7 +220,9 @@ def test_replay_noop_writes_metrics_and_respects_cleanup_gate(tmp_path: Path) ->
         dry_run=True,
         no_sleep=True,
     )
-    dry_metrics = json.loads((dry_output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    dry_metrics = json.loads(
+        (dry_output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
     assert dry_metrics["replay_action_count"] == 3
     assert dry_metrics["replay_submit_action_count"] == 2
     assert dry_metrics["replay_cancel_action_count"] == 1
@@ -193,7 +237,9 @@ def test_replay_noop_writes_metrics_and_respects_cleanup_gate(tmp_path: Path) ->
         include_final_cleanup_cancels=True,
     )
     cleanup_metrics = json.loads(
-        (dry_with_cleanup / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+        (dry_with_cleanup / "logs" / "comparison_metrics.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert cleanup_metrics["replay_action_count"] == 4
     assert cleanup_metrics["replay_cancel_action_count"] == 2
@@ -210,12 +256,10 @@ def test_replay_noop_writes_metrics_and_respects_cleanup_gate(tmp_path: Path) ->
     assert (output / "scheduler_runtime" / "db" / "scheduler.sqlite3").exists()
     assert (output / "logs" / "comparison_metrics.json").exists()
     assert (output / "replay_summary.json").exists()
-    assert (
-        output
-        / "scheduler_replay"
-        / "runs"
-    ).exists()
-    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    assert (output / "scheduler_replay" / "runs").exists()
+    metrics = json.loads(
+        (output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
     assert metrics["replay_runner_mode"] == "noop"
     assert metrics["submitted_job_count"] == 2
     assert metrics["scheduler_job_count"] == 2
@@ -237,7 +281,9 @@ def test_replay_until_seconds_truncates_actions(tmp_path: Path) -> None:
         no_sleep=True,
     )
 
-    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    metrics = json.loads(
+        (output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
     assert metrics["replay_action_count"] == 1
     assert metrics["replay_submit_action_count"] == 1
     assert metrics["replay_cancel_action_count"] == 0
@@ -278,8 +324,12 @@ def test_replay_real_skips_missing_script_unless_strict(tmp_path: Path) -> None:
 
     assert result.submitted_job_ids == []
     assert len(result.skipped_actions) == 1
-    assert "Replay script path does not exist" in result.skipped_actions[0]["skip_reason"]
-    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    assert (
+        "Replay script path does not exist" in result.skipped_actions[0]["skip_reason"]
+    )
+    metrics = json.loads(
+        (output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
     assert metrics["submitted_job_count"] == 0
     assert metrics["scheduler_job_count"] == 0
     assert metrics["replay_skipped_action_count"] == 1
@@ -309,7 +359,9 @@ def test_scheduler_replay_ignore_cancels_and_wait_for_all(tmp_path: Path) -> Non
         cancel_policy="ignore",
         include_final_cleanup_cancels=True,
     )
-    dry_metrics = json.loads((dry_output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    dry_metrics = json.loads(
+        (dry_output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
     assert dry_metrics["replay_action_count"] == 2
     assert dry_metrics["replay_submit_action_count"] == 2
     assert dry_metrics["replay_cancel_action_count"] == 0
@@ -326,7 +378,9 @@ def test_scheduler_replay_ignore_cancels_and_wait_for_all(tmp_path: Path) -> Non
         cancel_policy="ignore",
     )
 
-    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    metrics = json.loads(
+        (output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
     assert metrics["replay_wait_for_all"] is True
     assert metrics["replay_cancel_policy"] == "ignore"
     assert metrics["submitted_job_count"] == 2
@@ -334,12 +388,12 @@ def test_scheduler_replay_ignore_cancels_and_wait_for_all(tmp_path: Path) -> Non
     assert metrics["cancelled_job_count"] == 0
 
 
-def test_replay_clean_profile_db_removes_stale_runtime_db(tmp_path: Path) -> None:
+def test_replay_clean_scheduler_state_removes_stale_runtime_db(tmp_path: Path) -> None:
     runtime_root = _make_runtime(tmp_path)
     fixture_dir = tmp_path / "fixture"
     extract_fixture(runtime_root, fixture_dir)
 
-    output = tmp_path / "clean_profile_db"
+    output = tmp_path / "clean_scheduler_state"
     stale_marker = output / "scheduler_runtime" / "db" / "stale_profile_marker.txt"
     stale_marker.parent.mkdir(parents=True)
     stale_marker.write_text("old profile cache", encoding="utf-8")
@@ -352,22 +406,28 @@ def test_replay_clean_profile_db_removes_stale_runtime_db(tmp_path: Path) -> Non
         post_actions_wait_seconds=0,
         wait_for_all=True,
         cancel_policy="ignore",
-        clean_profile_db=True,
+        clean_scheduler_state=True,
     )
 
-    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
-    assert metrics["replay_clean_profile_db"] is True
+    metrics = json.loads(
+        (output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
+    assert metrics["replay_clean_scheduler_state"] is True
     assert not stale_marker.exists()
     assert (output / "scheduler_runtime" / "db" / "scheduler.sqlite3").exists()
 
 
-def test_replay_strips_archive_bookkeeping_before_job_reconstruction(tmp_path: Path) -> None:
+def test_replay_strips_archive_bookkeeping_before_job_reconstruction(
+    tmp_path: Path,
+) -> None:
     runtime_root = _make_runtime(tmp_path)
     fixture_dir = tmp_path / "fixture"
     extract_fixture(runtime_root, fixture_dir)
     actions, jobs_by_id, _baseline, _settings = load_fixture(fixture_dir)
 
-    jobs_by_id["job-1"]["pre_archive_baseline_model_path"] = "/previous/run/candidate.py"
+    jobs_by_id["job-1"][
+        "pre_archive_baseline_model_path"
+    ] = "/previous/run/candidate.py"
     (fixture_dir / "jobs.jsonl").write_text(
         "".join(json.dumps(job, sort_keys=True) + "\n" for job in jobs_by_id.values()),
         encoding="utf-8",
@@ -384,8 +444,12 @@ def test_replay_strips_archive_bookkeeping_before_job_reconstruction(tmp_path: P
         cancel_policy="ignore",
     )
 
-    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
-    assert metrics["submitted_job_count"] == sum(1 for action in actions if action["action"] == "SUBMIT")
+    metrics = json.loads(
+        (output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
+    assert metrics["submitted_job_count"] == sum(
+        1 for action in actions if action["action"] == "SUBMIT"
+    )
     assert metrics["completed_job_count"] == metrics["submitted_job_count"]
 
 
@@ -408,7 +472,9 @@ def test_multiprocess_baseline_noop_writes_metrics(tmp_path: Path) -> None:
     assert (output / "logs" / "comparison_metrics.json").exists()
     assert (output / "logs" / "multiprocess_jobs.jsonl").exists()
     assert (output / "replay_summary.json").exists()
-    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    metrics = json.loads(
+        (output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
     assert metrics["mode"] == "multiprocess_baseline"
     assert metrics["configured_scheduler_enabled"] is False
     assert metrics["multiprocess_parallelism"] == 2
@@ -433,7 +499,9 @@ def test_multiprocess_baseline_dry_run_filters_probe_jobs(tmp_path: Path) -> Non
         no_sleep=True,
     )
 
-    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    metrics = json.loads(
+        (output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
     assert metrics["replay_action_count"] == 4
     assert metrics["replay_submit_action_count"] == 2
     assert metrics["replay_skipped_action_count"] == 2
@@ -457,7 +525,9 @@ def test_multiprocess_wait_for_all_and_ignore_cancels(tmp_path: Path) -> None:
         cancel_policy="ignore",
     )
 
-    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    metrics = json.loads(
+        (output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
     assert metrics["replay_wait_for_all"] is True
     assert metrics["replay_cancel_policy"] == "ignore"
     assert metrics["replay_action_count"] == 2
@@ -495,10 +565,12 @@ def test_validate_fixture_writes_clean_known_good_fixture(tmp_path: Path) -> Non
     assert baseline["job_count"] == 1
     assert baseline["submit_count"] == 1
     assert baseline["cancel_count"] == 0
-    assert settings.get("branch_profile_db_path") in (None, "db/branch_profile.sqlite3")
+    assert settings["log_db"]["enabled"] is False
 
 
-def test_materialize_replay_sources_rewrites_fixtures_and_validates_smoke(tmp_path: Path) -> None:
+def test_materialize_replay_sources_rewrites_fixtures_and_validates_smoke(
+    tmp_path: Path,
+) -> None:
     fixture_dir = tmp_path / "fixture"
     workspace = tmp_path / "source_run" / "workspace"
     workspace.mkdir(parents=True)
@@ -506,8 +578,12 @@ def test_materialize_replay_sources_rewrites_fixtures_and_validates_smoke(tmp_pa
     good_script = workspace / "runfile_1_good.py"
     good_script.write_text("print('good replay source')\n", encoding="utf-8")
     repaired_script = workspace / "runfile_29_4c400159969344d480b54aba0554b381_fix.py"
-    repaired_script.write_text("print('before')\n=======\nprint('after')\n", encoding="utf-8")
-    missing_script = workspace / "runfile_26_66b11d68876c4a768709a5a91ba8fa41_missing.py"
+    repaired_script.write_text(
+        "print('before')\n=======\nprint('after')\n", encoding="utf-8"
+    )
+    missing_script = (
+        workspace / "runfile_26_66b11d68876c4a768709a5a91ba8fa41_missing.py"
+    )
     prompt_dir = workspace.parent / "logs" / "prompts"
     prompt_dir.mkdir(parents=True)
     (prompt_dir / "66b11d68876c4a768709a5a91ba8fa41.improve.prompt.md").write_text(
@@ -532,12 +608,25 @@ def test_materialize_replay_sources_rewrites_fixtures_and_validates_smoke(tmp_pa
     settings = SchedulerSettings(
         runtime_root=tmp_path / "runtime",
         log_db={"enabled": False},
-        redis_cache={"enabled": False},
     )
     jobs = [
-        _job("job-good", good_script, workspace, task_type="mlevolve_script", priority=1).to_dict(),
-        _job("job-repaired", repaired_script, workspace, task_type="mlevolve_script", priority=1).to_dict(),
-        _job("job-recovered", missing_script, workspace, task_type="mlevolve_script", priority=1).to_dict(),
+        _job(
+            "job-good", good_script, workspace, task_type="mlevolve_script", priority=1
+        ).to_dict(),
+        _job(
+            "job-repaired",
+            repaired_script,
+            workspace,
+            task_type="mlevolve_script",
+            priority=1,
+        ).to_dict(),
+        _job(
+            "job-recovered",
+            missing_script,
+            workspace,
+            task_type="mlevolve_script",
+            priority=1,
+        ).to_dict(),
     ]
     jobs[1]["metadata"]["node_id"] = "4c400159969344d480b54aba0554b381"
     jobs[2]["metadata"]["node_id"] = "66b11d68876c4a768709a5a91ba8fa41"
@@ -588,7 +677,10 @@ def test_materialize_replay_sources_rewrites_fixtures_and_validates_smoke(tmp_pa
     archive_root = tmp_path / "replay_model_sources" / "unit"
     result = materialize_sources(fixtures=[fixture_dir], archive_root=archive_root)
 
-    resolutions = {Path(record["original_script_path"]).name: record["source_resolution"] for record in result.manifest["records"]}
+    resolutions = {
+        Path(record["original_script_path"]).name: record["source_resolution"]
+        for record in result.manifest["records"]
+    }
     assert resolutions[good_script.name] == "original"
     assert resolutions[repaired_script.name] == "repaired_original"
     assert resolutions[missing_script.name] == "recovered_from_prompt"
@@ -603,12 +695,16 @@ def test_materialize_replay_sources_rewrites_fixtures_and_validates_smoke(tmp_pa
         assert "runs" not in script_path.parts
         assert job["baseline_model_path"] == str(script_path)
 
-    smoke = validate_smoke_sources(fixtures=[fixture_dir], archive_root=archive_root, timeout_seconds=10)
+    smoke = validate_smoke_sources(
+        fixtures=[fixture_dir], archive_root=archive_root, timeout_seconds=10
+    )
     assert smoke.report["ok"] is True
     assert smoke.report["summary"]["source_count"] == 3
 
 
-def test_build_scheduler_stress_fixture_creates_cold_two_epoch_jobs(tmp_path: Path) -> None:
+def test_build_scheduler_stress_fixture_creates_cold_two_epoch_jobs(
+    tmp_path: Path,
+) -> None:
     runtime_root = _make_runtime(tmp_path)
     source_fixture = tmp_path / "fixture"
     stress_fixture = tmp_path / "stress_fixture"
@@ -625,10 +721,10 @@ def test_build_scheduler_stress_fixture_creates_cold_two_epoch_jobs(tmp_path: Pa
     actions, jobs_by_id, baseline, settings = load_fixture(stress_fixture)
     assert result.summary["job_count"] == 1
     assert result.summary["normal_timeout_field_count"] == 0
-    assert result.summary["batch_probe_reuse_only_false_count"] == 1
+    assert result.summary["batch_probe_enabled_count"] == 1
     assert baseline["scheduler_stress_fixture"] is True
     assert baseline["stress_max_epochs"] == 2
-    assert "clean scheduler/profile DB" in baseline["stress_profile_db_policy"]
+    assert "clean scheduler state" in baseline["stress_profile_policy"]
     assert [action["action"] for action in actions] == ["SUBMIT"]
     assert list(jobs_by_id) == ["job-1"]
 
@@ -646,18 +742,16 @@ def test_build_scheduler_stress_fixture_creates_cold_two_epoch_jobs(tmp_path: Pa
     assert Path(job["baseline_model_path"]).exists()
     assert "pre_archive_baseline_model_path" not in job
     assert job["batch_probe"]["enabled"] is True
-    assert job["batch_probe"]["reuse_only"] is False
-    assert job["batch_probe"]["profile_key"] is None
-    assert job["batch_probe"]["profile_namespace"].startswith("branch-profile:")
-    assert job["batch_probe"]["shape_signature_override"].startswith("mlevolve-branch-shape:")
+    assert job["batch_probe"]["model_key"] == "unit-family"
+    assert job["batch_probe"]["shape_hints"]["model_family"] == "unit-family"
     assert job["metadata"]["scheduler_stress_fixture"] is True
     assert job["metadata"]["scheduler_stress_max_epochs"] == 2
-    assert job["metadata"]["scheduler_stress_timeout_policy"] == "no_normal_execution_timeout"
-    assert job["metadata"]["branch_profile_available"] is False
+    assert (
+        job["metadata"]["scheduler_stress_timeout_policy"]
+        == "no_normal_execution_timeout"
+    )
     assert settings["gpu_scheduler"]["batch_probe_enabled"] is True
-    assert settings["gpu_scheduler"]["model_family_probe_timeout_seconds"] is None
     assert settings["gpu_scheduler"]["max_packed_jobs_per_gpu"] == 0
-    assert settings["gpu_scheduler"]["auto_pack"]["target_metric"] == "vram"
 
 
 def test_scheduler_replay_wrapper_quick_preset_dry_run(tmp_path: Path) -> None:
@@ -676,7 +770,9 @@ def test_scheduler_replay_wrapper_quick_preset_dry_run(tmp_path: Path) -> None:
         ]
     )
 
-    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    metrics = json.loads(
+        (output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
     assert "Preset: quick" in result.stdout
     assert "clean_scripts_completed" not in result.stdout
     assert "Runner mode: real" in result.stdout
@@ -709,7 +805,9 @@ def test_scheduler_replay_wrapper_stress_preset_dry_run(tmp_path: Path) -> None:
         ]
     )
 
-    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    metrics = json.loads(
+        (output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
     assert "Preset: stress" in result.stdout
     assert "stress_test_data" in result.stdout
     assert "scheduler_stress_2epoch" in result.stdout
@@ -719,28 +817,35 @@ def test_scheduler_replay_wrapper_stress_preset_dry_run(tmp_path: Path) -> None:
     assert "Wait for all: 1" in result.stdout
     assert "Cancel policy: ignore" in result.stdout
     assert "No sleep: 1" in result.stdout
-    assert "Clean profile DB: 1" in result.stdout
+    assert "Clean scheduler state: 1" in result.stdout
     assert metrics["replay_dry_run"] is True
     assert metrics["replay_runner_mode"] == "real"
     assert metrics["replay_wait_for_all"] is True
     assert metrics["replay_cancel_policy"] == "ignore"
-    assert metrics["replay_clean_profile_db"] is True
+    assert metrics["replay_clean_scheduler_state"] is True
     assert metrics["replay_action_count"] == 12
     assert metrics["replay_submit_action_count"] == 12
     assert metrics["replay_cancel_action_count"] == 0
 
-    fixture = ROOT / "scheduler_benchmark_test" / "stress_test_data" / "histopathologic-cancer-detection_20260704_212842_scheduler_stress_2epoch"
+    fixture = (
+        ROOT
+        / "scheduler_benchmark_test"
+        / "stress_test_data"
+        / "histopathologic-cancer-detection_20260704_212842_scheduler_stress_2epoch"
+    )
     _actions, jobs_by_id, _baseline, _settings = load_fixture(fixture)
-    signatures_by_family: dict[str, set[str]] = {}
+    shape_hints_by_family: dict[str, set[str]] = {}
     counts_by_family: dict[str, int] = {}
     for job in jobs_by_id.values():
         family = job["metadata"]["model_family"]
         counts_by_family[family] = counts_by_family.get(family, 0) + 1
-        signatures_by_family.setdefault(family, set()).add(job["batch_probe"]["shape_signature_override"])
+        shape_hints_by_family.setdefault(family, set()).add(
+            json.dumps(job["batch_probe"]["shape_hints"], sort_keys=True)
+        )
         assert "script_signature" not in job["batch_probe"]["shape_hints"]
     for family, count in counts_by_family.items():
         if count > 1:
-            assert len(signatures_by_family[family]) == 1
+            assert len(shape_hints_by_family[family]) == 1
     for source_path in (fixture / "sources").glob("*.py"):
         source = source_path.read_text(encoding="utf-8")
         assert "_MlevolveProbeImageBackbone" not in source
@@ -763,7 +868,9 @@ def test_multiprocess_wrapper_quick_preset_dry_run(tmp_path: Path) -> None:
         ]
     )
 
-    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    metrics = json.loads(
+        (output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
     assert "Preset: quick" in result.stdout
     assert "clean_scripts_completed" not in result.stdout
     assert "Runner mode: real" in result.stdout
@@ -800,7 +907,9 @@ def test_replay_wrapper_smoke_preset_sets_noop_no_sleep(tmp_path: Path) -> None:
         ]
     )
 
-    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    metrics = json.loads(
+        (output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
     assert "Runner mode: noop" in result.stdout
     assert "Post-actions wait: 5" in result.stdout
     assert "Wait for all: 0" in result.stdout
@@ -837,7 +946,9 @@ def test_replay_wrapper_explicit_flags_override_preset_defaults(tmp_path: Path) 
         ]
     )
 
-    metrics = json.loads((output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8"))
+    metrics = json.loads(
+        (output / "logs" / "comparison_metrics.json").read_text(encoding="utf-8")
+    )
     assert "Runner mode: noop" in result.stdout
     assert "Speedup: 7" in result.stdout
     assert "Post-actions wait: 3" in result.stdout
@@ -868,7 +979,9 @@ def test_terminate_process_tree_stops_child_processes(tmp_path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    proc = subprocess.Popen([sys.executable, str(script), str(marker)], **start_new_session_kwargs())
+    proc = subprocess.Popen(
+        [sys.executable, str(script), str(marker)], **start_new_session_kwargs()
+    )
     try:
         _wait_for(marker.exists)
         child_pid = int(marker.read_text(encoding="utf-8"))
@@ -907,13 +1020,11 @@ def test_scheduler_stop_terminates_raw_script_child_tree(tmp_path: Path) -> None
         scheduler_poll_interval_seconds=0.02,
         gpu_scheduler={
             "backend_priority": ["exclusive"],
-            "idle_coalescing_window_seconds": 0.0,
             "stream": {"enabled": False},
             "cuda_process": {"enabled": False},
             "mps": {"enabled": False},
         },
         log_db={"enabled": False},
-        redis_cache={"enabled": False},
     )
     settings.ensure_runtime_layout()
     client = SchedulerClient(settings)
@@ -928,7 +1039,9 @@ def test_scheduler_stop_terminates_raw_script_child_tree(tmp_path: Path) -> None
             runner_kwargs={
                 "script_path": str(script),
                 "working_dir": str(workspace),
-                "result_path": str(workspace / "working" / "scheduler_results" / "result_raw.json"),
+                "result_path": str(
+                    workspace / "working" / "scheduler_results" / "result_raw.json"
+                ),
                 "timeout": 60,
             },
             resource_requirements=ResourceRequirements(requires_gpu=False),

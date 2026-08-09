@@ -1,6 +1,6 @@
 {
   "batch_probe_cache_hit_count": 12,
-  "batch_probe_reuse_only_false_count": 12,
+  "batch_probe_enabled_count": 12,
   "batch_probe_trial_count": 109,
   "cancel_count": 0,
   "command_count": 12,
@@ -50,7 +50,7 @@
     "custom-cnn": 1,
     "efficientnet-b0": 2,
     "efficientnet-b4": 2,
-    "efficientnet-v2": 1,
+    "efficientnet-v2-m": 1,
     "siglip2-256-v1": 2
   },
   "normal_timeout_field_count": 0,
@@ -175,8 +175,8 @@
   "source_fixture_job_count": 38,
   "source_run_root": "/workspaces/MLEvolve/runs/profile_scheduler_compare_histopathologic-cancer-detection_20260704_212842",
   "stress_max_epochs": 2,
-  "stress_profile_db_policy": "clean scheduler/profile DB before replay",
-  "stress_source_fixture": "/workspaces/MLEvolve/scheduler_benchmark_test/stress_test_data/histopathologic-cancer-detection_20260704_212842_scheduler_stress_2epoch",
+  "stress_profile_policy": "clean scheduler state before replay",
+  "stress_source_fixture": "/workspaces/MLEvolve/scheduler_benchmark_test/fixtures/histopathologic-cancer-detection_20260704_212842_clean_scripts_completed",
   "stress_timeout_policy": "no normal execution timeout; replay waits for all submitted jobs",
   "submit_count": 12,
   "task_type_counts": {
