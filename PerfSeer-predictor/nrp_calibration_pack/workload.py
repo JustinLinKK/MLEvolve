@@ -11,7 +11,7 @@ from typing import Any, Iterable
 
 
 WORKLOAD_SPEC_VERSION = 1
-SCHEDULER_LABEL_VERSION = 3
+SCHEDULER_LABEL_VERSION = 4
 SCHEDULER_RESOURCE_LABEL_VERSION = 2
 
 SCHEDULER_TARGET_NAMES: tuple[str, ...] = (
@@ -19,11 +19,13 @@ SCHEDULER_TARGET_NAMES: tuple[str, ...] = (
     "train_step_gpu_ms",
     "train_epoch_ms",
     "train_avg_sm_util_percent",
+    "train_avg_vram_mib",
     "train_peak_vram_mib",
     "train_peak_torch_allocated_mib",
     "infer_step_wall_ms",
     "infer_step_gpu_ms",
     "infer_avg_sm_util_percent",
+    "infer_avg_vram_mib",
     "infer_peak_vram_mib",
 )
 
@@ -250,11 +252,13 @@ def label_v3_from_result(result: dict[str, Any]) -> dict[str, Any]:
         "train_epoch_ms": train_epoch_ms,
         "train_epoch_ms_step_extrapolated": step_extrapolated_epoch_ms,
         "train_avg_sm_util_percent": _sampler_metric(train, "avg_sm_util"),
+        "train_avg_vram_mib": _sampler_metric(train, "avg_mem_usage"),
         "train_peak_vram_mib": _sampler_metric(train, "peak_mem_usage"),
         "train_peak_torch_allocated_mib": _phase_metric(train, "peak_torch_allocated_mib"),
         "infer_step_wall_ms": infer_wall_ms,
         "infer_step_gpu_ms": _phase_metric(infer, "mean_iter_ms", infer_wall_ms),
         "infer_avg_sm_util_percent": _sampler_metric(infer, "avg_sm_util"),
+        "infer_avg_vram_mib": _sampler_metric(infer, "avg_mem_usage"),
         "infer_peak_vram_mib": _sampler_metric(infer, "peak_mem_usage"),
     }
     return {

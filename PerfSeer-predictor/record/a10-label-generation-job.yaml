@@ -1,0 +1,107 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: perfseer-a10-label-gen
+  namespace: ecepxie
+  labels:
+    app: perfseer-a10-label-gen
+    stage: label-generation
+spec:
+  # Stays Pending until A10 capacity frees, then runs immediately.
+  completionMode: Indexed
+  completions: 16
+  parallelism: 1
+  backoffLimit: 12
+  template:
+    metadata:
+      labels:
+        app: perfseer-a10-label-gen
+        stage: label-generation
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: nvidia.com/gpu.product
+                operator: In
+                values:
+                - NVIDIA-A10
+      containers:
+      - name: label
+        image: pytorch/pytorch:2.3.0-cuda11.8-cudnn8-devel
+        imagePullPolicy: IfNotPresent
+        workingDir: /tmp/repo
+        env:
+        - name: JOB_COMPLETION_INDEX
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+        - name: SRC
+          value: /mnt/output/real-a10-0629060430
+        - name: OUT
+          value: /mnt/output/perfseer-a10-vram-time
+        command: ["/bin/bash", "-lc"]
+        args:
+        - |
+          set -euo pipefail
+          nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+
+          # Step outside /tmp/repo first: it is this container's workingDir, and
+          # deleting the cwd leaves the shell on a dead inode, which makes
+          # getcwd() fail and takes pip down with it.
+          cd /
+          rm -rf /tmp/repo && mkdir -p /tmp/repo
+          cp -a "$SRC/repo/." /tmp/repo/
+          # Overlay the label builder that also emits avg VRAM (schema v4).
+          cp -f "$OUT/patch/workload.py" /tmp/repo/nrp_calibration_pack/workload.py
+          grep -q train_avg_vram_mib /tmp/repo/nrp_calibration_pack/workload.py
+          cd /tmp/repo
+
+          export PYTHONPATH="/tmp/repo/src:/tmp/repo:${PYTHONPATH:-}"
+          python -m pip install --no-cache-dir ogb "torch_geometric==2.5.3" networkx scikit-learn tqdm nvidia-ml-py pyyaml pandas
+
+          rm -rf /tmp/pack_ready /tmp/specs_ready
+          mkdir -p /tmp/pack_ready /tmp/specs_ready
+          tar -xzf "$SRC/pack_ready.tar.gz" -C /tmp/pack_ready
+          tar -xzf "$SRC/workload_specs_real_ready.tar.gz" -C /tmp/specs_ready
+
+          python nrp_calibration_pack/profile/run_profile.py \
+            --workload-specs /tmp/specs_ready/workloads.jsonl \
+            --models-dir /tmp/pack_ready/models \
+            --output-dir "$OUT/results/a10" \
+            --hardware-id a10 \
+            --device cuda \
+            --precision-sweep auto \
+            --resume \
+            --num-shards 16 \
+            --shard-index ${JOB_COMPLETION_INDEX:-0} \
+            --warmup 20 \
+            --infer-repeats 50 \
+            --train-repeats 50 \
+            --label-time-mode measured_epochs \
+            --time-label-warmup-epochs 1 \
+            --time-label-measured-epochs 2 \
+            --sample-interval 0.01 \
+            --min-phase-seconds 20 \
+            --min-sampler-samples 100 \
+            --optimizer adam \
+            --sm-occupancy-source nvml_proxy \
+            --resource-profile-mode sustained
+        resources:
+          requests:
+            cpu: "2"
+            memory: "12Gi"
+            nvidia.com/gpu: "1"
+          limits:
+            cpu: "2"
+            memory: "12Gi"
+            nvidia.com/gpu: "1"
+        volumeMounts:
+        - name: output
+          mountPath: /mnt/output
+      volumes:
+      - name: output
+        persistentVolumeClaim:
+          claimName: perfseer-real-dataset-pvc
