@@ -1,8 +1,9 @@
 """Run and aggregate the repeated real-GPU time-aware scheduler benchmark.
 
 The driver first records hardware-specific five-option probe measurements, then
-runs serial FIFO, the previous VRAM-fill policy, and ``parallel_time_aware``
-from isolated runtime directories.  It refuses to label a report as A10 data
+runs a one-job-cap time-aware control and normal ``parallel_time_aware`` from
+isolated runtime directories. Historical fill-policy comparisons belong to the
+deterministic simulator, not the production replay driver. It refuses to label a report as A10 data
 unless the detected GPU matches the requested hardware expression.
 """
 
@@ -42,7 +43,7 @@ class Policy:
     report_name: str
     mode: str
     backend: str
-    batch_search: str
+    parallel_job_cap: int
     needs_profiles: bool = False
 
 
@@ -196,8 +197,6 @@ def _replay_command(
         policy.mode,
         "--backend",
         policy.backend,
-        "--batch-search",
-        policy.batch_search,
         "--trace",
         str(args.trace),
         "--runtime-root",
@@ -210,10 +209,10 @@ def _replay_command(
         str(case_dir / "code_cache"),
         "--duration-s",
         str(args.duration_s),
-        "--vram-budget-gib",
-        str(args.vram_budget_gib),
-        "--max-packed-jobs-per-gpu",
-        str(args.parallel_job_cap),
+        "--gpu-vram-gib",
+        str(args.gpu_vram_gib),
+        "--parallel-job-cap",
+        str(policy.parallel_job_cap),
         "--predicted-budget-fraction",
         str(args.predicted_budget_fraction),
     ]
@@ -305,10 +304,9 @@ def main() -> int:
     parser.add_argument("--allow-hardware-mismatch", action="store_true")
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--duration-s", type=float, default=2700.0)
-    parser.add_argument("--vram-budget-gib", type=float, default=22.0)
+    parser.add_argument("--gpu-vram-gib", type=float, default=22.0)
     parser.add_argument("--predicted-budget-fraction", type=float, default=0.85)
     parser.add_argument("--parallel-job-cap", type=int, default=3)
-    parser.add_argument("--legacy-backend", choices=["mps", "stream", "cuda_process"], default="stream")
     parser.add_argument("--time-aware-backend", choices=["mps", "stream", "cuda_process"], default="stream")
     parser.add_argument("--profile-input", type=Path)
     parser.add_argument("--skip-calibration", action="store_true")
@@ -332,7 +330,7 @@ def main() -> int:
             "calibration",
             "parallel_time_aware",
             "exclusive",
-            "power_of_two",
+            1,
         )
         calibration_dir = args.results_dir / "calibration"
         command = _replay_command(
@@ -351,9 +349,14 @@ def main() -> int:
         parser.error("--skip-calibration requires an existing --profile-input")
 
     policies = (
-        Policy("serial_fifo", "serial_basic", "exclusive", "off"),
-        Policy("legacy_vram_fill", "parallel_default", args.legacy_backend, "off"),
-        Policy("parallel_time_aware", "parallel_time_aware", args.time_aware_backend, "power_of_two", True),
+        Policy("serial_fifo", "parallel_time_aware", "exclusive", 1, True),
+        Policy(
+            "parallel_time_aware",
+            "parallel_time_aware",
+            args.time_aware_backend,
+            args.parallel_job_cap,
+            True,
+        ),
     )
     raw: dict[str, list[dict[str, Any]]] = {policy.report_name: [] for policy in policies}
     matched_solo_runs: list[dict[str, Any]] = []
@@ -377,10 +380,6 @@ def main() -> int:
             repetition_summaries["serial_fifo"],
             repetition_summaries["serial_fifo"],
         )
-        attach_matched_batch_slowdown(
-            repetition_summaries["legacy_vram_fill"],
-            repetition_summaries["serial_fifo"],
-        )
         matched_dir = args.results_dir / f"run_{repetition:02d}" / "parallel_time_aware_matched_solo"
         matched_trace = matched_dir / "trace.jsonl"
         write_matched_batch_trace(
@@ -390,15 +389,17 @@ def main() -> int:
         )
         matched_policy = Policy(
             "parallel_time_aware_matched_solo",
-            "serial_basic",
+            "parallel_time_aware",
             "exclusive",
-            "off",
+            1,
+            True,
         )
         command = _replay_command(
             args,
             config_id=f"parallel_time_aware_matched_solo-r{repetition:02d}",
             policy=matched_policy,
             case_dir=matched_dir,
+            profile_input=profile_path,
         )
         trace_argument_index = command.index("--trace") + 1
         command[trace_argument_index] = str(matched_trace)

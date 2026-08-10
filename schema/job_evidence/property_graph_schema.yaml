@@ -93,7 +93,7 @@ node_types:
       packing_max_slowdown_ratio: {type: float, required: false}
       batch_probe_enabled: {type: boolean, required: false}
       batch_probe_model_key: {type: string, required: false}
-      batch_probe_search_mode: {type: string, required: false}
+      batch_probe_policy: {type: string, required: false, description: "Always time_aware_five_options for scheduler-managed probes"}
       runtime_probe_enabled: {type: boolean, required: false}
       runtime_probe_strategy: {type: string, required: false}
       max_steps: {type: integer, required: false}

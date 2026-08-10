@@ -154,13 +154,13 @@ def run_mp_only(trace, outdir: Path, *, max_parallel: int, python: str) -> dict:
 
 
 def run_scheduler(trace, outdir: Path, *, prediction_mode: str, max_parallel: int,
-                  vram_budget_gib: float, timeout_s: float, runtime_root: Path,
-                  placement_policy: str = "gated") -> dict:
+                  gpu_vram_gib: float, timeout_s: float, runtime_root: Path,
+                  ) -> dict:
     from localml_scheduler.adapters.mlevolve import build_mlevolve_job
     from localml_scheduler.client import SchedulerClient
     from localml_scheduler.config import (
-        GpuMemorySettings, GpuProfilingSettings, GpuSchedulerSettings, GpuThresholdSettings,
-        ParallelOptimizerSettings, SchedulerSettings, StreamSettings)
+        GpuMemorySettings, GpuProfilingSettings, GpuSchedulerSettings,
+        SchedulerSettings, StreamSettings)
     from localml_scheduler.domain import CheckpointPolicy, ResourceRequirements
     from scheduler_benchmark_test.stress_bench.stress_runner import make_baseline_checkpoint
 
@@ -174,30 +174,17 @@ def run_scheduler(trace, outdir: Path, *, prediction_mode: str, max_parallel: in
     result_dir.mkdir(parents=True, exist_ok=True)
 
     gpu = GpuSchedulerSettings()
+    gpu.mode = "parallel_time_aware"
     gpu.backend_priority = ["cuda_process", "exclusive"]
     gpu.stream = StreamSettings(enabled=False)
-    # 23 GiB A10 upperbound (CLAUDE.md); live-admission hard stop at 0.92 (replaces removed
-    # hard_stop_memory_fraction). safe_vram_budget_gib retained as legacy admission budget.
-    gpu.memory = GpuMemorySettings(safe_vram_budget_gib=vram_budget_gib, gpu_vram_gib=23,
-        live_admission_stop_fraction=0.92)
+    # VRAM constrains admission only; timing evidence determines placement value.
+    gpu.memory = GpuMemorySettings(gpu_vram_gib=gpu_vram_gib,
+        predicted_budget_fraction=0.85, live_admission_stop_fraction=0.92,
+        live_admission_resume_fraction=0.87)
     gpu.profiling = GpuProfilingSettings(warmup_steps=3, solo_probe_steps=6, pair_probe_steps=4,
         reuse_profile_if_confidence_ge=0.8)
-    gpu.max_packed_jobs_per_gpu = max_parallel
-    gpu.allow_three_way_packing = max_parallel >= 3
-    gpu.parallel_optimizer = ParallelOptimizerSettings(batch_search_mode="binary", target_vram_fraction=0.97)
+    gpu.parallel_job_cap = max_parallel
     gpu.batch_probe_enabled = False
-    if placement_policy == "pack":
-        # BASELINE: co-locate on memory-fit (old behavior). Permissive slowdown threshold forces
-        # packing even for compute-bound jobs -> contention inflates each job's training time.
-        gpu.mode = "parallel_default"
-        gpu.thresholds = GpuThresholdSettings(pack_reject_max_slowdown=4.0,
-            latency_sensitive_max_slowdown=4.0)
-    else:
-        # OPTIMIZED: saturation-aware time-priority placement. Rejects co-location whose measured
-        # slowdown exceeds 1.15x (packing compute-bound jobs) -> runs them exclusive at solo speed.
-        gpu.mode = "parallel_time_aware"
-        gpu.thresholds = GpuThresholdSettings(pack_reject_max_slowdown=1.15,
-            latency_sensitive_max_slowdown=1.15)
 
     settings = SchedulerSettings(
         runtime_root=runtime_root, scheduler_poll_interval_seconds=0.2, gpu_scheduler=gpu,
@@ -284,11 +271,10 @@ def main() -> int:
     ap.add_argument("--trace", required=True)
     ap.add_argument("--outdir", required=True)
     ap.add_argument("--max-parallel", type=int, default=2)
-    ap.add_argument("--vram-budget-gib", type=float, default=20.0)
+    ap.add_argument("--gpu-vram-gib", type=float, default=20.0)
     ap.add_argument("--timeout-s", type=float, default=3600.0)
     ap.add_argument("--python", default=sys.executable)
     ap.add_argument("--runtime-root", default=None)
-    ap.add_argument("--placement-policy", choices=["pack", "gated"], default="gated")
     args = ap.parse_args()
     trace = load_trace(Path(args.trace))
     outdir = Path(args.outdir)
@@ -302,9 +288,8 @@ def main() -> int:
     else:
         mode = "branch_profile" if args.condition == "scheduler_profile" else "ml_predictor"
         payload = run_scheduler(trace, outdir, prediction_mode=mode, max_parallel=args.max_parallel,
-            vram_budget_gib=args.vram_budget_gib, timeout_s=args.timeout_s,
-            runtime_root=Path(args.runtime_root or f"/tmp/sb_{args.condition}"),
-            placement_policy=args.placement_policy)
+            gpu_vram_gib=args.gpu_vram_gib, timeout_s=args.timeout_s,
+            runtime_root=Path(args.runtime_root or f"/tmp/sb_{args.condition}"))
     wall_end = time.time()
     gpu = sampler.stop()
     summary = {"condition": args.condition, "trace": str(args.trace), "job_count": len(trace),

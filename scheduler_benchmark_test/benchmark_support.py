@@ -16,7 +16,7 @@ except ModuleNotFoundError:
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BENCH_ROOT = Path(__file__).resolve().parent
 
-DEFAULT_VRAM_BUDGET_GIB = 28.0
+DEFAULT_GPU_VRAM_GIB = 28.0
 DEFAULT_CACHE_MEMORY_BUDGET_GIB = 6.0
 DEFAULT_CACHE_WARM_TOP_K = 4
 DEFAULT_CACHE_ENTRY_CAPACITY = 8

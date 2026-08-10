@@ -100,21 +100,21 @@ class HardwareKnowledgeGraphSettings:
 
 @dataclass(slots=True)
 class _HardwareGpuMemorySettings:
-    vram_budget_fraction: float = 0.95
+    predicted_budget_fraction: float = 0.95
 
     def budget_mb(self, total_vram_mb: int | float | None) -> float:
         try:
             total = float(total_vram_mb) if total_vram_mb is not None else 0.0
         except (TypeError, ValueError):
             total = 0.0
-        return max(0.0, total * float(self.vram_budget_fraction))
+        return max(0.0, total * float(self.predicted_budget_fraction))
 
 
 @dataclass(slots=True)
 class _HardwareGpuSettings:
     device_index: int = 0
-    mode: str = "auto"
-    max_packed_jobs_per_gpu: int = 0
+    mode: str = "parallel_time_aware"
+    parallel_job_cap: int | None = None
     backend_priority: list[str] = field(default_factory=list)
     memory: _HardwareGpuMemorySettings = field(
         default_factory=_HardwareGpuMemorySettings

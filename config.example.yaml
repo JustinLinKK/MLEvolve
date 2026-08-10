@@ -111,69 +111,48 @@ scheduler:
       missing_metric_policy: ignore
     gpu_scheduler:
       enabled: true
+      # Sole production policy: start one anchor, try one newcomer, and retain
+      # the addition only when verified drain-time gain passes colocation.min_gain.
+      # VRAM is a hard admission constraint, never a placement score.
       mode: parallel_time_aware
       backend_priority:
       - mps
       - stream
       - cuda_process
       - exclusive
-      max_packed_jobs_per_gpu: 2
-      # null allows the time-aware planner to size groups from evidence.
+      # null allows incremental admission to continue while evidence and memory permit.
       parallel_job_cap: null
       priority_window_size: 8
       oldest_window_size: 4
       starvation_timeout_seconds: 1800
-      beam_width: 64
-      exact_search_max_jobs: 3
-      allow_three_way_packing: false
-      candidate_window_size: 8
       device_index: 0
       fallback_cooldown_seconds: 900
-      concurrent_groups_enabled: false
-      concurrent_backend_allowlist:
-      - mps
-      - stream
       batch_probe_enabled: true
       batch_probe_target_memory_fraction: 0.97
-      batch_probe_min_batch_size: 1
-      batch_probe_max_search_rounds: 12
       batch_probe_max_batch_size: null
-      batch_probe_search_mode: binary
-      auto_pack:
-        target_vram_fraction: 0.97
-        runtime_skew_guardrail_ratio: 2.0
       profiling:
         warmup_steps: 30
         solo_probe_steps: 80
         pair_probe_steps: 60
         reuse_profile_if_confidence_ge: 0.8
       colocation:
+        min_gain: 1.0
+        trial_epochs: 2
         decision_replay:
           enabled: true
           min_stable_observations: 3
           training_time_change_fraction: 0.25
           vram_change_fraction: 0.25
       memory:
-        safe_vram_budget_gib: 28
         gpu_vram_gib: null
+        # Prediction admission ceiling; this is not optimized or maximized.
         predicted_budget_fraction: 0.85
         live_admission_stop_fraction: 0.9
         live_admission_resume_fraction: 0.85
         admission_average_window_seconds: 10
-      thresholds:
-        pack_reject_max_slowdown: 1.3
-        latency_sensitive_max_slowdown: 1.15
       telemetry:
         device_poll_ms: 500
         pair_recheck_every_steps: 20
-      parallel_optimizer:
-        batch_search_mode: binary
-        target_vram_fraction: 0.97
-        max_probe_jobs: 3
-        binary_range_up: 32
-        binary_range_down: 1
-        power_of_two_range_up: 5
-        power_of_two_range_down: 1
       objective:
         priority_weight: 0.1
         objective_version: time_v6_verified_piecewise_drain
@@ -191,10 +170,6 @@ scheduler:
         backend_allowlist: [mps, cuda_process]
         batch_probe_enabled: true
         batch_probe_model_key: null
-        batch_probe_probe_timeout_seconds: 45
-        batch_probe_poll_interval_seconds: 0.5
-        batch_probe_max_multiplier: 32
-        batch_probe_search_mode: power_of_two
         runtime_probe_enabled: true
         runtime_probe_target: null
         runtime_probe_model_key: null

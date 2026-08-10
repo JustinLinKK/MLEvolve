@@ -4,8 +4,8 @@ This path uses a structured scheduler runner so the benchmark exercises:
 - current scheduler settings layout
 - MPS / stream / exclusive backends
 - baseline RAM cache directly via ``context.load_baseline_object()``
-- configurable batch-size threshold windows for packed optimization
-- configurable packed-group width (2/3/4 jobs per GPU)
+- five-option timing calibration for time-aware placement
+- incremental anchor-plus-newcomer admission with a configurable safety cap
 """
 
 from __future__ import annotations
@@ -26,27 +26,19 @@ sys.path.insert(0, REPO)
 
 try:
     from .benchmark_support import (
-        DEFAULT_BINARY_RANGE_DOWN,
-        DEFAULT_BINARY_RANGE_UP,
         DEFAULT_CACHE_ENTRY_CAPACITY,
         DEFAULT_CACHE_MAX_RAM_PERCENT,
         DEFAULT_CACHE_MEMORY_BUDGET_GIB,
         DEFAULT_CACHE_WARM_TOP_K,
-        DEFAULT_POWER_OF_TWO_RANGE_DOWN,
-        DEFAULT_POWER_OF_TWO_RANGE_UP,
-        DEFAULT_VRAM_BUDGET_GIB,
+        DEFAULT_GPU_VRAM_GIB,
     )
 except ImportError:  # Direct ``python scheduler_benchmark_test/replay_scheduler.py`` execution.
     from benchmark_support import (
-        DEFAULT_BINARY_RANGE_DOWN,
-        DEFAULT_BINARY_RANGE_UP,
         DEFAULT_CACHE_ENTRY_CAPACITY,
         DEFAULT_CACHE_MAX_RAM_PERCENT,
         DEFAULT_CACHE_MEMORY_BUDGET_GIB,
         DEFAULT_CACHE_WARM_TOP_K,
-        DEFAULT_POWER_OF_TWO_RANGE_DOWN,
-        DEFAULT_POWER_OF_TWO_RANGE_UP,
-        DEFAULT_VRAM_BUDGET_GIB,
+        DEFAULT_GPU_VRAM_GIB,
     )
 from localml_scheduler.adapters.mlevolve import build_mlevolve_job
 from localml_scheduler.client import SchedulerClient
@@ -65,9 +57,7 @@ from localml_scheduler.config import (
     GpuMemorySettings,
     GpuProfilingSettings,
     GpuSchedulerSettings,
-    GpuThresholdSettings,
     MPSSettings,
-    ParallelOptimizerSettings,
     SchedulerSettings,
     StreamSettings,
 )
@@ -82,49 +72,35 @@ def build_settings(
     *,
     mode: str,
     backend: str,
-    batch_search: str | None,
-    max_packed_jobs_per_gpu: int,
-    vram_budget_gib: float,
+    parallel_job_cap: int,
+    gpu_vram_gib: float,
     runtime_root: Path,
     cache_warm_top_k: int,
     cache_warm_policy: str,
     cache_entry_capacity: int | None,
     cache_max_ram_percent: float | None,
     cache_memory_budget_gib: float,
-    binary_range_up: int,
-    binary_range_down: int,
-    power_of_two_range_up: int,
-    power_of_two_range_down: int,
-    target_vram_fraction: float,
     predicted_budget_fraction: float = 0.85,
 ) -> SchedulerSettings:
+    if mode != "parallel_time_aware":
+        raise ValueError("replay_scheduler only supports parallel_time_aware")
     gpu = GpuSchedulerSettings()
     gpu.mode = mode
     mps_pipe_directory = _mps_directory_env("BENCH_MPS_PIPE_DIRECTORY", "/tmp/nvidia-mps")
     mps_log_directory = _mps_directory_env("BENCH_MPS_LOG_DIRECTORY", "/tmp/nvidia-mps-log")
-    if mode == "parallel_time_aware":
-        gpu.memory = GpuMemorySettings(
-            safe_vram_budget_gib=vram_budget_gib,
-            predicted_budget_fraction=predicted_budget_fraction,
-            live_admission_stop_fraction=0.90,
-            live_admission_resume_fraction=0.85,
-        )
-    else:
-        gpu.memory = GpuMemorySettings(
-            safe_vram_budget_gib=vram_budget_gib,
-            predicted_budget_fraction=predicted_budget_fraction,
-            live_admission_stop_fraction=0.92,
-            live_admission_resume_fraction=0.87,
-        )
+    gpu.memory = GpuMemorySettings(
+        gpu_vram_gib=gpu_vram_gib,
+        predicted_budget_fraction=predicted_budget_fraction,
+        live_admission_stop_fraction=0.90,
+        live_admission_resume_fraction=0.85,
+    )
     gpu.profiling = GpuProfilingSettings(
         warmup_steps=3,
         solo_probe_steps=6,
         pair_probe_steps=4,
         reuse_profile_if_confidence_ge=0.8,
     )
-    gpu.max_packed_jobs_per_gpu = max(1, int(max_packed_jobs_per_gpu))
-    gpu.parallel_job_cap = max(1, int(max_packed_jobs_per_gpu))
-    gpu.allow_three_way_packing = gpu.max_packed_jobs_per_gpu >= 3
+    gpu.parallel_job_cap = max(1, int(parallel_job_cap))
 
     if backend == "exclusive":
         gpu.backend_priority = ["exclusive"]
@@ -143,25 +119,7 @@ def build_settings(
     else:
         raise ValueError(f"Unknown backend: {backend}")
 
-    gpu.thresholds = GpuThresholdSettings(
-        pack_reject_max_slowdown=(1.30 if mode == "parallel_time_aware" else 1.50),
-        latency_sensitive_max_slowdown=1.30,
-    )
-    gpu.parallel_optimizer = ParallelOptimizerSettings(
-        batch_search_mode=batch_search or "binary",
-        target_vram_fraction=target_vram_fraction,
-        max_probe_jobs=max(3, int(max_packed_jobs_per_gpu)),
-        binary_range_up=binary_range_up,
-        binary_range_down=binary_range_down,
-        power_of_two_range_up=power_of_two_range_up,
-        power_of_two_range_down=power_of_two_range_down,
-    )
-
-    if batch_search in ("binary", "power_of_two"):
-        gpu.batch_probe_enabled = True
-        gpu.batch_probe_search_mode = batch_search
-    else:
-        gpu.batch_probe_enabled = False
+    gpu.batch_probe_enabled = True
 
     return SchedulerSettings(
         runtime_root=runtime_root,
@@ -405,24 +363,17 @@ def main():
     parser.add_argument(
         "--mode",
         required=True,
-        choices=[
-            "serial_basic",
-            "serial_batch_optimized",
-            "parallel_default",
-            "parallel_batch_optimized",
-            "parallel_time_aware",
-        ],
+        choices=["parallel_time_aware"],
     )
     parser.add_argument(
         "--backend",
         required=True,
         choices=["exclusive", "mps", "stream", "cuda_process"],
     )
-    parser.add_argument("--batch-search", default="off", choices=["off", "binary", "power_of_two"])
     parser.add_argument("--trace", required=True)
     parser.add_argument("--data-root", help="Override each trace row's dataset root for this replay.")
-    parser.add_argument("--vram-budget-gib", type=float, default=DEFAULT_VRAM_BUDGET_GIB)
-    parser.add_argument("--max-packed-jobs-per-gpu", type=int, default=2)
+    parser.add_argument("--gpu-vram-gib", type=float, default=DEFAULT_GPU_VRAM_GIB)
+    parser.add_argument("--parallel-job-cap", type=int, default=2)
     parser.add_argument("--runtime-root", required=True)
     parser.add_argument("--results-dir", required=True)
     parser.add_argument("--summary", required=True)
@@ -433,11 +384,6 @@ def main():
     parser.add_argument("--cache-entry-capacity", type=int, default=DEFAULT_CACHE_ENTRY_CAPACITY)
     parser.add_argument("--cache-max-ram-percent", type=float, default=DEFAULT_CACHE_MAX_RAM_PERCENT)
     parser.add_argument("--cache-memory-budget-gib", type=float, default=DEFAULT_CACHE_MEMORY_BUDGET_GIB)
-    parser.add_argument("--binary-range-up", type=int, default=DEFAULT_BINARY_RANGE_UP)
-    parser.add_argument("--binary-range-down", type=int, default=DEFAULT_BINARY_RANGE_DOWN)
-    parser.add_argument("--power-of-two-range-up", type=int, default=DEFAULT_POWER_OF_TWO_RANGE_UP)
-    parser.add_argument("--power-of-two-range-down", type=int, default=DEFAULT_POWER_OF_TWO_RANGE_DOWN)
-    parser.add_argument("--target-vram-fraction", type=float, default=0.97)
     parser.add_argument("--predicted-budget-fraction", type=float, default=0.85)
     parser.add_argument(
         "--time-aware-profile-input",
@@ -454,11 +400,7 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.calibrate_time_aware and args.mode != "parallel_time_aware":
-        parser.error("--calibrate-time-aware requires --mode parallel_time_aware")
-    if args.calibrate_time_aware and args.batch_search == "off":
-        parser.error("--calibrate-time-aware requires --batch-search power_of_two")
-    if args.mode == "parallel_time_aware" and not args.calibrate_time_aware and not args.time_aware_profile_input:
+    if not args.calibrate_time_aware and not args.time_aware_profile_input:
         parser.error(
             "measured parallel_time_aware replay requires --time-aware-profile-input; "
             "create it with --calibrate-time-aware --time-aware-profile-output"
@@ -491,24 +433,17 @@ def main():
         code_path.write_text(code, encoding="utf-8")
         code_paths[step_idx] = str(code_path.resolve())
 
-    batch_search = None if args.batch_search == "off" else args.batch_search
     settings = build_settings(
         mode=args.mode,
         backend=args.backend,
-        batch_search=batch_search,
-        max_packed_jobs_per_gpu=args.max_packed_jobs_per_gpu,
-        vram_budget_gib=args.vram_budget_gib,
+        parallel_job_cap=args.parallel_job_cap,
+        gpu_vram_gib=args.gpu_vram_gib,
         runtime_root=runtime_root,
         cache_warm_policy=args.cache_warm_policy,
         cache_warm_top_k=args.cache_warm_top_k,
         cache_entry_capacity=args.cache_entry_capacity,
         cache_max_ram_percent=args.cache_max_ram_percent,
         cache_memory_budget_gib=args.cache_memory_budget_gib,
-        binary_range_up=args.binary_range_up,
-        binary_range_down=args.binary_range_down,
-        power_of_two_range_up=args.power_of_two_range_up,
-        power_of_two_range_down=args.power_of_two_range_down,
-        target_vram_fraction=args.target_vram_fraction,
         predicted_budget_fraction=args.predicted_budget_fraction,
     )
 
@@ -518,7 +453,7 @@ def main():
         imported_profile_count = _load_time_aware_profiles(api, Path(args.time_aware_profile_input))
     service = api.create_service().start(background=True)
 
-    seed_solo = args.mode in {"parallel_batch_optimized", "parallel_time_aware"}
+    seed_solo = True
     submitted_ids: list[str] = []
     submit_t0 = time.time()
     deadline = submit_t0 + args.duration_s
@@ -553,13 +488,14 @@ def main():
                 "probe_max_batch_size": max_batch_size,
             }
             batch_probe = BatchProbeSpec(
-                enabled=batch_search in {"binary", "power_of_two"},
+                enabled=bool(args.calibrate_time_aware),
                 probe_target=(
-                    "localml_scheduler.examples.benchmark_timm_runner:probe_timm_benchmark_batch_size" if batch_search in {"binary", "power_of_two"} else None
+                    "localml_scheduler.examples.benchmark_timm_runner:probe_timm_benchmark_batch_size"
+                    if args.calibrate_time_aware
+                    else None
                 ),
                 batch_param_name="batch_size",
                 model_key=str(step.get("startpoint_id") or model_name),
-                search_mode=batch_search,
                 shape_hints={
                     "model_name": model_name,
                     "subset_size": int(step.get("subset") or 4000),
@@ -716,9 +652,7 @@ def main():
             "config_id": args.config_id,
             "mode": args.mode,
             "backend": args.backend,
-            "batch_search": args.batch_search,
-            "vram_budget_gib": args.vram_budget_gib,
-            "target_vram_fraction": args.target_vram_fraction,
+            "gpu_vram_gib": args.gpu_vram_gib,
             "trace_path": args.trace,
             "n_jobs": len(submitted_ids),
             "by_status": by_status,
@@ -743,7 +677,7 @@ def main():
             "packed_group_size_counts": packed_group_size_counts,
             "placement_mode_counts": placement_mode_counts,
             "packing_policy": {
-                "max_packed_jobs_per_gpu": args.max_packed_jobs_per_gpu,
+                "parallel_job_cap": args.parallel_job_cap,
             },
             "cache_policy": {
                 "warm_queue_policy": args.cache_warm_policy,
@@ -754,12 +688,6 @@ def main():
             },
             "cache_stats": cache_snapshot,
             "cache_event_counts": cache_event_counts,
-            "optimizer_thresholds": {
-                "binary_range_up": args.binary_range_up,
-                "binary_range_down": args.binary_range_down,
-                "power_of_two_range_up": args.power_of_two_range_up,
-                "power_of_two_range_down": args.power_of_two_range_down,
-            },
             "batch_probe_event_counts": batch_probe_event_counts,
             "per_job": per_job,
         }

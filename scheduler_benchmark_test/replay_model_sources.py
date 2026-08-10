@@ -605,8 +605,9 @@ def _stress_scheduler_settings(settings: dict[str, Any]) -> dict[str, Any]:
     payload = deepcopy(settings)
     payload.pop("runtime_root", None)
     gpu = dict(payload.get("gpu_scheduler") or {})
+    gpu["mode"] = "parallel_time_aware"
     gpu["batch_probe_enabled"] = True
-    gpu["max_packed_jobs_per_gpu"] = 0
+    gpu["parallel_job_cap"] = 1
     payload["gpu_scheduler"] = gpu
     payload["log_db"] = {**dict(payload.get("log_db") or {}), "enabled": False}
     payload.pop("redis_cache", None)
