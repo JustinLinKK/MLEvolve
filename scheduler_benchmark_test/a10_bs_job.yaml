@@ -1,0 +1,200 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: perfseer-a10-bs-labels
+  namespace: ecepxie
+  labels:
+    app: perfseer-a10-bs-labels
+    stage: label-generation
+spec:
+  backoffLimit: 12
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: perfseer-a10-bs-labels
+        stage: label-generation
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: nvidia.com/gpu.product
+                operator: In
+                values:
+                - NVIDIA-A10
+      containers:
+      - name: label
+        image: pytorch/pytorch:2.3.0-cuda11.8-cudnn8-devel
+        imagePullPolicy: IfNotPresent
+        workingDir: /tmp/repo
+        command:
+        - /bin/bash
+        - -lc
+        args:
+        - |
+          set -euo pipefail
+          nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+
+          # Step outside /tmp/repo first: it is this container's workingDir, and
+          # deleting the cwd leaves the shell on a dead inode, which makes
+          # getcwd() fail and takes pip down with it.
+          cd /
+          rm -rf /tmp/repo && mkdir -p /tmp/repo
+          cp -a "$SRC/repo/." /tmp/repo/
+          # Overlay the label builder that also emits avg VRAM (schema v4).
+          cp -f "$OUT/patch/workload.py" /tmp/repo/nrp_calibration_pack/workload.py
+          grep -q train_avg_vram_mib /tmp/repo/nrp_calibration_pack/workload.py
+          cd /tmp/repo
+
+          export PYTHONPATH="/tmp/repo/src:/tmp/repo:${PYTHONPATH:-}"
+          python -m pip install --no-cache-dir ogb "torch_geometric==2.5.3" networkx scikit-learn tqdm nvidia-ml-py pyyaml pandas
+
+          rm -rf /tmp/pack_ready /tmp/specs_ready
+          mkdir -p /tmp/pack_ready /tmp/specs_ready
+          tar -xzf "$SRC/pack_ready.tar.gz" -C /tmp/pack_ready
+          tar -xzf "$SRC/workload_specs_real_ready.tar.gz" -C /tmp/specs_ready
+
+          # The shipped spec file pins batch_size 8 on every workload, so the
+          # existing labelset carries no signal for how step time and VRAM
+          # scale with batch size. This job trades the model axis for a batch
+          # axis: keep all six (dataset, architecture_family) pairs, take an
+          # even stride of 100 models through each pair's 667, and cross them
+          # with four batch sizes. 600 models x 4 batch sizes x 2 precisions
+          # = 4800 labels. The build runs here rather than reading a
+          # pre-built file so the job is reproducible from the tarball alone.
+          python - <<'PY'
+          import collections, json
+
+          SRC = "/tmp/specs_ready/workloads.jsonl"
+          DST = "/tmp/specs_ready/workloads_cv_bs.jsonl"
+          BATCH_SIZES = [16, 32, 64, 128]
+          MODELS_PER_PAIR = 100
+
+
+          def rebatch_dataset(dataset, batch):
+              """Restate every batch-dependent dataset field at the new batch.
+
+              The profiler derives the real tensor from training.batch_size --
+              it calls with_batch_size on the input specs -- so these fields
+              are metadata only. They are still copied verbatim into the
+              emitted label, and a label reading bs8 while the tensor was
+              bs128 is a trap for whoever trains on it.
+              """
+              out = dict(dataset)
+              for key in ("input_shape", "dataset_input_shape"):
+                  shape = out.get(key)
+                  if isinstance(shape, list) and shape:
+                      out[key] = [batch] + list(shape[1:])
+              for key in ("input_specs", "dataset_input_specs"):
+                  specs = out.get(key)
+                  if isinstance(specs, list):
+                      new_specs = []
+                      for spec in specs:
+                          spec = dict(spec)
+                          shape = spec.get("shape")
+                          if isinstance(shape, list) and shape:
+                              spec["shape"] = [batch] + list(shape[1:])
+                          new_specs.append(spec)
+                      out[key] = new_specs
+              if out.get("input_dim0") is not None:
+                  out["input_dim0"] = batch
+              per_sample = out.get("input_bytes_per_sample")
+              if per_sample is not None:
+                  out["input_bytes_per_batch"] = float(per_sample) * batch
+              return out
+
+
+          by_pair = collections.defaultdict(list)
+          with open(SRC) as fh:
+              for line in fh:
+                  if not line.strip():
+                      continue
+                  spec = json.loads(line)
+                  d = spec.get("dataset", {})
+                  if d.get("modality") != "image":
+                      continue
+                  key = (d.get("dataset_id"), spec["model"].get("architecture_family", "unknown"))
+                  by_pair[key].append(spec)
+
+          written = 0
+          with open(DST, "w") as out:
+              for key in sorted(by_pair):
+                  group = by_pair[key]
+                  stride = max(1, len(group) // MODELS_PER_PAIR)
+                  chosen = group[::stride][:MODELS_PER_PAIR]
+                  for spec in chosen:
+                      for batch in BATCH_SIZES:
+                          new = dict(spec)
+                          new["dataset"] = rebatch_dataset(spec["dataset"], batch)
+                          training = dict(spec["training"])
+                          training["batch_size"] = batch
+                          new["training"] = training
+                          # Dropped so normalize_workload_spec regenerates
+                          # them; a stale id would collide with the bs8 rows.
+                          new.pop("profile_point_id", None)
+                          new.pop("workload_hash", None)
+                          out.write(json.dumps(new) + "\n")
+                          written += 1
+                  print("%-32s %-22s %5d -> %4d" % (key[0], key[1], len(group), len(chosen)))
+          print("spec lines", written)
+          PY
+
+          SPECS=/tmp/specs_ready/workloads_cv_bs.jsonl
+          echo "batch-sweep workload specs: $(wc -l < "$SPECS")"
+
+          # --resume skips profile points that already have a completed result
+          # row and label file, so restarts never recompute finished work.
+          for i in $(seq 0 $((NUM_SHARDS - 1))); do
+            echo "=== shard $i/$NUM_SHARDS ==="
+            python nrp_calibration_pack/profile/run_profile.py \
+              --workload-specs "$SPECS" \
+              --models-dir /tmp/pack_ready/models \
+              --output-dir "$OUT/results/a10_bs" \
+              --hardware-id a10 \
+              --device cuda \
+              --precision-sweep fp32_ieee,fp16_amp \
+              --resume \
+              --num-shards "$NUM_SHARDS" \
+              --shard-index "$i" \
+              --warmup 20 \
+              --infer-repeats 50 \
+              --train-repeats 50 \
+              --label-time-mode measured_epochs \
+              --time-label-warmup-epochs 1 \
+              --time-label-measured-epochs 2 \
+              --sample-interval 0.01 \
+              --min-phase-seconds 20 \
+              --min-sampler-samples 100 \
+              --optimizer adam \
+              --sm-occupancy-source nvml_proxy \
+              --resource-profile-mode sustained
+          done
+          echo "all shards complete"
+        env:
+        - name: SRC
+          value: /mnt/output/real-a10-0629060430
+        - name: OUT
+          value: /mnt/output/perfseer-a10-vram-time
+        - name: NUM_SHARDS
+          value: "8"
+        resources:
+          limits:
+            cpu: "2"
+            memory: 12Gi
+            nvidia.com/gpu: "1"
+          requests:
+            cpu: "2"
+            memory: 12Gi
+            nvidia.com/gpu: "1"
+        volumeMounts:
+        - mountPath: /mnt/output
+          name: output
+      volumes:
+      - name: output
+        persistentVolumeClaim:
+          claimName: perfseer-real-dataset-pvc
