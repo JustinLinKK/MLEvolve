@@ -1,0 +1,68 @@
+[
+  {
+    "policy": "serial (repo)",
+    "makespan_min": 464.922409285119,
+    "mean_flow_min": 85.3978280254782,
+    "p95_flow_min": 179.60138715178564,
+    "max_wait_min": 171.36512048511898,
+    "avg_slowdown": 1.0,
+    "starved": 33,
+    "mean_conc": null,
+    "speedup": 1.0
+  },
+  {
+    "policy": "time_aware (repo)",
+    "makespan_min": 464.922409285119,
+    "mean_flow_min": 82.55516005111923,
+    "p95_flow_min": 179.60138715178564,
+    "max_wait_min": 171.36512048511898,
+    "avg_slowdown": 1.0,
+    "starved": 31,
+    "mean_conc": null,
+    "speedup": 1.0
+  },
+  {
+    "policy": "recursive_time_aware (repo)",
+    "makespan_min": 314.1671597800586,
+    "mean_flow_min": 22.789038533869086,
+    "p95_flow_min": 62.12244311339194,
+    "max_wait_min": 33.67504665236395,
+    "avg_slowdown": 1.1596038691847075,
+    "starved": 1,
+    "mean_conc": null,
+    "speedup": 1.4798568049270355
+  },
+  {
+    "policy": "occupancy-lpt (mine)",
+    "makespan_min": 304.6540078574266,
+    "mean_flow_min": 22.73885855726904,
+    "p95_flow_min": 48.75373460004111,
+    "max_wait_min": 53.92291793337445,
+    "avg_slowdown": 1.252934131736527,
+    "starved": 4,
+    "mean_conc": 1.9378061049493496,
+    "speedup": 1.5260669391971218
+  },
+  {
+    "policy": "occupancy-density (mine)",
+    "makespan_min": 304.6540078574266,
+    "mean_flow_min": 22.40197420637782,
+    "p95_flow_min": 48.75373460004111,
+    "max_wait_min": 53.92291793337445,
+    "avg_slowdown": 1.2387171964795245,
+    "starved": 4,
+    "mean_conc": 1.9120052862777608,
+    "speedup": 1.5260669391971218
+  },
+  {
+    "policy": "occupancy-small (mine)",
+    "makespan_min": 304.6540078574266,
+    "mean_flow_min": 21.403595378067273,
+    "p95_flow_min": 48.78561157036132,
+    "max_wait_min": 53.95479490369465,
+    "avg_slowdown": 1.2376598155041272,
+    "starved": 2,
+    "mean_conc": 1.9109079753982472,
+    "speedup": 1.5260669391971218
+  }
+]

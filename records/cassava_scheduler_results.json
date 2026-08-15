@@ -1,0 +1,35 @@
+{
+  "trace": "mlevolve_cassava_v100_deepseek.jsonl",
+  "jobs": 39,
+  "pair_slowdown": 1.1976047904191618,
+  "predictor": "profile_based",
+  "policies": {
+    "serial": {
+      "makespan_s": 27895.34455710714,
+      "mean_flow_s": 5123.869681528692,
+      "p95_flow_s": 10776.083229107138,
+      "max_wait_s": 10281.907229107139,
+      "average_slowdown": 1.0,
+      "slowdown_rejections": 0,
+      "starvation_count": 33
+    },
+    "time_aware": {
+      "makespan_s": 27895.34455710714,
+      "mean_flow_s": 4953.309603067154,
+      "p95_flow_s": 10776.083229107138,
+      "max_wait_s": 10281.907229107139,
+      "average_slowdown": 1.0,
+      "slowdown_rejections": 0,
+      "starvation_count": 31
+    },
+    "recursive_time_aware": {
+      "makespan_s": 18850.029586803517,
+      "mean_flow_s": 1367.3423120321452,
+      "p95_flow_s": 3727.3465868035164,
+      "max_wait_s": 2020.5027991418374,
+      "average_slowdown": 1.1596038691847075,
+      "slowdown_rejections": 0,
+      "starvation_count": 1
+    }
+  }
+}
