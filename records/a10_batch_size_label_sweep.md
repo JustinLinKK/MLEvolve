@@ -64,6 +64,59 @@ input shapes: Counter({(8, 3, 224, 224): 10905, (8, 3, 512, 512): 6005})
 
 - Those fields are therefore metadata, but they are copied verbatim into the emitted label
 
+## Results
+
+- Finished 2026-08-15 22:28 UTC, elapsed 28 h 25 min
+
+- 4800 rows, 4800 unique `profile_point_id`, `status = ok` on all, `scheduler_label_version = 4`
+
+- 1200 per batch size, 2400 per precision, 3200 cassava / 800 pothole / 800 taco
+
+- Medians per (batch size, precision)
+
+| bs | precision | n | train_epoch_ms | train_peak_vram_mib | train_avg_vram_mib | infer_peak_vram_mib |
+|---|---|---|---|---|---|---|
+| 16 | fp16_amp | 600 | 152.8 | 788.6 | 788.6 | 788.6 |
+| 16 | fp32_ieee | 600 | 108.3 | 780.6 | 780.6 | 780.6 |
+| 32 | fp16_amp | 600 | 79.8 | 788.6 | 788.6 | 788.6 |
+| 32 | fp32_ieee | 600 | 60.5 | 782.6 | 782.6 | 782.6 |
+| 64 | fp16_amp | 600 | 47.3 | 790.6 | 790.6 | 790.6 |
+| 64 | fp32_ieee | 600 | 31.9 | 800.6 | 800.6 | 800.6 |
+| 128 | fp16_amp | 600 | 25.5 | 898.6 | 898.6 | 896.6 |
+| 128 | fp32_ieee | 600 | 19.6 | 802.6 | 802.6 | 798.6 |
+
+- Median per-model ratio against the same model at bs8, fp32_ieee, 600 matched pairs at each batch size
+
+| bs | train_epoch_ms | train_peak_vram_mib |
+|---|---|---|
+| 16 | 0.458 | 1.000 |
+| 32 | 0.244 | 1.003 |
+| 64 | 0.131 | 1.026 |
+| 128 | 0.079 | 1.046 |
+
+- Per-step medians, fp32_ieee
+
+| bs | train_step_gpu_ms | train_step_wall_ms | train_avg_sm_util_percent | train_peak_torch_allocated_mib |
+|---|---|---|---|---|
+| 16 | 1.722 | 1.723 | 10.4 | 19.3 |
+| 32 | 1.918 | 1.920 | 9.0 | 21.4 |
+| 64 | 1.991 | 1.995 | 10.0 | 25.5 |
+| 128 | 2.457 | 2.466 | 10.2 | 33.7 |
+
+## Reading of the results
+
+- `train_epoch_ms` ratios are 0.458, 0.244, 0.131, 0.079 against 0.5, 0.25, 0.125, 0.0625 for exact halving
+
+- Epoch time is `steps_per_epoch x step_time` and `steps_per_epoch` halves with each batch doubling, so the epoch axis moves almost entirely through the step count
+
+- `train_step_gpu_ms` moves 1.722 to 2.457 for an 8x batch increase, and `train_avg_sm_util_percent` sits near 10 percent at every batch size, so these workloads are launch-bound at 16x16
+
+- `train_peak_vram_mib` moves 780.6 to 802.6 over the same 8x, a 2.8 percent change, because the CUDA context floor of roughly 780 MiB dominates
+
+- `train_peak_torch_allocated_mib` moves 19.3 to 33.7, so the tensor-level allocation does scale, but device-level peak VRAM does not resolve it
+
+- Same failure mode already recorded for V100 in `records/v100_compute_saturation.md`: at small tensors, step time is set by kernel launch overhead and is not a function of the work per step
+
 ## Caveat on resolution
 
 - `model.input_shape` is `[8, 3, 16, 16]`, not the `[8, 3, 224, 224]` in `dataset_input_shape`
