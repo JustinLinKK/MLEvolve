@@ -1,0 +1,262 @@
+{
+  "compute_capability": "8.6",
+  "cuda_available": true,
+  "cuda_version": "11.8",
+  "device": "cuda",
+  "gpu_name": "NVIDIA A10",
+  "hardware_id": "a10",
+  "hostname": "perfseer-a10-cv-labels-qb9mv",
+  "multi_processor_count": 72,
+  "nvidia_smi": "NVIDIA A10, 595.71.05, 23028 MiB, 00000000:01:00.0",
+  "precision_auto_probe": {
+    "bf16_amp": {
+      "autocast_dtype": "bfloat16",
+      "backend": "torch",
+      "details": {
+        "bf16_probe": {
+          "compute_capability_policy_supported": true,
+          "torch_cuda_is_bf16_supported": true
+        },
+        "compute_capability": "8.6",
+        "requested_config": "bf16_amp",
+        "tf32_controls": {
+          "api_style": "legacy_allow_tf32",
+          "effective_state": {
+            "api_style": "legacy_allow_tf32",
+            "torch.backends.cuda.matmul.allow_tf32": false,
+            "torch.backends.cudnn.allow_tf32": false
+          },
+          "enabled": false,
+          "errors": {},
+          "set": {
+            "torch.backends.cuda.matmul.allow_tf32": {
+              "new": false,
+              "old": true
+            },
+            "torch.backends.cudnn.allow_tf32": {
+              "new": false,
+              "old": true
+            },
+            "torch.set_float32_matmul_precision": "highest"
+          }
+        }
+      },
+      "fallback_policy": "none",
+      "grad_scaler_enabled": false,
+      "input_dtype": null,
+      "model_dtype": null,
+      "precision_config": "bf16_amp",
+      "supported": true,
+      "te_recipe": null,
+      "unsupported_reason": null
+    },
+    "fp16_amp": {
+      "autocast_dtype": "float16",
+      "backend": "torch",
+      "details": {
+        "compute_capability": "8.6",
+        "requested_config": "fp16_amp",
+        "tf32_controls": {
+          "api_style": "legacy_allow_tf32",
+          "effective_state": {
+            "api_style": "legacy_allow_tf32",
+            "torch.backends.cuda.matmul.allow_tf32": false,
+            "torch.backends.cudnn.allow_tf32": false
+          },
+          "enabled": false,
+          "errors": {},
+          "set": {
+            "torch.backends.cuda.matmul.allow_tf32": {
+              "new": false,
+              "old": false
+            },
+            "torch.backends.cudnn.allow_tf32": {
+              "new": false,
+              "old": false
+            },
+            "torch.set_float32_matmul_precision": "highest"
+          }
+        }
+      },
+      "fallback_policy": "none",
+      "grad_scaler_enabled": true,
+      "input_dtype": null,
+      "model_dtype": null,
+      "precision_config": "fp16_amp",
+      "supported": true,
+      "te_recipe": null,
+      "unsupported_reason": null
+    },
+    "fp32_ieee": {
+      "autocast_dtype": null,
+      "backend": "torch",
+      "details": {
+        "compute_capability": "8.6",
+        "requested_config": "fp32_ieee",
+        "tf32_controls": {
+          "api_style": "legacy_allow_tf32",
+          "effective_state": {
+            "api_style": "legacy_allow_tf32",
+            "torch.backends.cuda.matmul.allow_tf32": false,
+            "torch.backends.cudnn.allow_tf32": false
+          },
+          "enabled": false,
+          "errors": {},
+          "set": {
+            "torch.backends.cuda.matmul.allow_tf32": {
+              "new": false,
+              "old": false
+            },
+            "torch.backends.cudnn.allow_tf32": {
+              "new": false,
+              "old": true
+            },
+            "torch.set_float32_matmul_precision": "highest"
+          }
+        }
+      },
+      "fallback_policy": "none",
+      "grad_scaler_enabled": false,
+      "input_dtype": null,
+      "model_dtype": null,
+      "precision_config": "fp32_ieee",
+      "supported": true,
+      "te_recipe": null,
+      "unsupported_reason": null
+    },
+    "fp8_te_hybrid": {
+      "autocast_dtype": null,
+      "backend": "transformer_engine",
+      "details": {
+        "compute_capability": "8.6",
+        "fp8_recipe": "hybrid E4M3 forward/E5M2 backward",
+        "fp8_te_device_policy": "probe Transformer Engine backend, then require Ada-or-newer current-scaling support",
+        "fp8_te_min_compute_capability": "8.9",
+        "nvte_cuda_include_dir_checked": [],
+        "nvte_cuda_include_dir_probe_error": "AttributeError(\"'NoneType' object has no attribute 'submodule_search_locations'\")",
+        "requested_config": "fp8_te_hybrid",
+        "tf32_controls": {
+          "api_style": "legacy_allow_tf32",
+          "effective_state": {
+            "api_style": "legacy_allow_tf32",
+            "torch.backends.cuda.matmul.allow_tf32": false,
+            "torch.backends.cudnn.allow_tf32": false
+          },
+          "enabled": false,
+          "errors": {},
+          "set": {
+            "torch.backends.cuda.matmul.allow_tf32": {
+              "new": false,
+              "old": false
+            },
+            "torch.backends.cudnn.allow_tf32": {
+              "new": false,
+              "old": false
+            },
+            "torch.set_float32_matmul_precision": "highest"
+          }
+        },
+        "transformer_engine_available": false,
+        "transformer_engine_import_error": "ModuleNotFoundError(\"No module named 'transformer_engine'\")"
+      },
+      "fallback_policy": "record_unsupported",
+      "grad_scaler_enabled": false,
+      "input_dtype": null,
+      "model_dtype": null,
+      "precision_config": "fp8_te_hybrid",
+      "supported": false,
+      "te_recipe": null,
+      "unsupported_reason": "Transformer Engine is not available"
+    },
+    "nvfp4_te": {
+      "autocast_dtype": null,
+      "backend": "transformer_engine",
+      "details": {
+        "compute_capability": "8.6",
+        "fp4_recipe": "NVFP4 block scaling",
+        "nvfp4_te_device_policy": "probe Transformer Engine backend, require Blackwell-class hardware, and use BF16 inputs",
+        "nvfp4_te_min_compute_capability": "10.0",
+        "nvte_cuda_include_dir_checked": [],
+        "nvte_cuda_include_dir_probe_error": "AttributeError(\"'NoneType' object has no attribute 'submodule_search_locations'\")",
+        "requested_config": "nvfp4_te",
+        "tf32_controls": {
+          "api_style": "legacy_allow_tf32",
+          "effective_state": {
+            "api_style": "legacy_allow_tf32",
+            "torch.backends.cuda.matmul.allow_tf32": false,
+            "torch.backends.cudnn.allow_tf32": false
+          },
+          "enabled": false,
+          "errors": {},
+          "set": {
+            "torch.backends.cuda.matmul.allow_tf32": {
+              "new": false,
+              "old": false
+            },
+            "torch.backends.cudnn.allow_tf32": {
+              "new": false,
+              "old": false
+            },
+            "torch.set_float32_matmul_precision": "highest"
+          }
+        },
+        "transformer_engine_available": false,
+        "transformer_engine_import_error": "ModuleNotFoundError(\"No module named 'transformer_engine'\")"
+      },
+      "fallback_policy": "record_unsupported",
+      "grad_scaler_enabled": false,
+      "input_dtype": null,
+      "model_dtype": null,
+      "precision_config": "nvfp4_te",
+      "supported": false,
+      "te_recipe": null,
+      "unsupported_reason": "Transformer Engine is not available"
+    },
+    "tf32": {
+      "autocast_dtype": null,
+      "backend": "torch",
+      "details": {
+        "compute_capability": "8.6",
+        "requested_config": "tf32",
+        "tf32_controls": {
+          "api_style": "legacy_allow_tf32",
+          "effective_state": {
+            "api_style": "legacy_allow_tf32",
+            "torch.backends.cuda.matmul.allow_tf32": true,
+            "torch.backends.cudnn.allow_tf32": true
+          },
+          "enabled": true,
+          "errors": {},
+          "set": {
+            "torch.backends.cuda.matmul.allow_tf32": {
+              "new": true,
+              "old": false
+            },
+            "torch.backends.cudnn.allow_tf32": {
+              "new": true,
+              "old": false
+            },
+            "torch.set_float32_matmul_precision": "high"
+          }
+        }
+      },
+      "fallback_policy": "none",
+      "grad_scaler_enabled": false,
+      "input_dtype": null,
+      "model_dtype": null,
+      "precision_config": "tf32",
+      "supported": true,
+      "te_recipe": null,
+      "unsupported_reason": null
+    }
+  },
+  "precision_filter": [
+    "fp32_ieee",
+    "tf32",
+    "bf16_amp",
+    "fp16_amp"
+  ],
+  "precision_filter_auto": true,
+  "torch_version": "2.3.0",
+  "total_memory_mib": 22589.625
+}

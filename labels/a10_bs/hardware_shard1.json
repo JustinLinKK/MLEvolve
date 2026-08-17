@@ -1,0 +1,18 @@
+{
+  "compute_capability": "8.6",
+  "cuda_available": true,
+  "cuda_version": "11.8",
+  "device": "cuda",
+  "gpu_name": "NVIDIA A10",
+  "hardware_id": "a10",
+  "hostname": "perfseer-a10-bs-labels-xvq99",
+  "multi_processor_count": 72,
+  "nvidia_smi": "NVIDIA A10, 595.71.05, 23028 MiB, 00000000:01:00.0",
+  "precision_filter": [
+    "fp32_ieee",
+    "fp16_amp"
+  ],
+  "precision_filter_auto": false,
+  "torch_version": "2.3.0",
+  "total_memory_mib": 22589.625
+}
