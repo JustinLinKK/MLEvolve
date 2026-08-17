@@ -25,11 +25,17 @@ input shapes: Counter({(8, 3, 224, 224): 10905, (8, 3, 512, 512): 6005})
 | Specs | 4002 CV, filter `dataset.modality == "image"` |
 | Precision | `--precision-sweep auto`, yields 4 |
 | Output | `/mnt/output/perfseer-a10-vram-time/results/a10` |
-| Unique CV profile points at 2026-08-14 17:50 UTC | 15419 of 16008, 96.3% |
+| Unique CV profile points at 2026-08-17 | 16008 of 16008, 100% |
 | Status | all `ok`, 0 err |
-| Coverage by precision | fp32_ieee 4002, tf32 4002, bf16_amp 4002, fp16_amp 3398 |
+| Coverage by precision, unique | fp32_ieee 4002, tf32 4002, bf16_amp 4002, fp16_amp 4002 |
+
+- Job finished; reaped from the queue by `ttlSecondsAfterFinished: 86400`
+
+- 17508 CV rows against 16008 unique points, so 1500 rows are duplicates re-emitted by restarts under append mode
 
 - v3 label files also hold 3351 non-CV rows from an earlier full-modality run, same files, append mode
+
+- 20859 rows in the directory in total
 
 ## Batch-size run, job `perfseer-a10-bs-labels`
 
