@@ -29,7 +29,13 @@ def main() -> int:
         source_path=spec["source_path"], constructor_kwargs=spec["constructor_kwargs"],
         input_shape=spec["input_shape"], precision=spec["precision"],
         epochs=int(spec["epochs"]), batches_per_epoch=int(spec["batches_per_epoch"]),
-        device=device, stream_data=bool(spec.get("stream_data")))
+        device=device, stream_data=bool(spec.get("stream_data")),
+        memory_ballast_mib=int(spec.get("memory_ballast_mib") or 0),
+        compute_repeats=int(spec.get("compute_repeats") or 1),
+        bandwidth_mib=int(spec.get("bandwidth_mib") or 0),
+        step_delay_ms=float(spec.get("step_delay_ms") or 0.0),
+        random_seed=int(spec.get("random_seed") or 0),
+        manage_tf32=False)
     outcome.update({
         "job_id": spec["job_id"], "step_idx": spec["step_idx"], "pid": os.getpid(),
         "process_launched_at": launched_at, "cuda_ready_at": ready_at,

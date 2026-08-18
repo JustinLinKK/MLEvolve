@@ -22,6 +22,7 @@ env/
 venv/
 
 # ===== IDE / Editor =====
+.devcontainer/
 .vscode/
 .idea/
 *.swp
@@ -106,3 +107,4 @@ localml_scheduler/runtime/
 
 # ===== Generated Scheduler Benchmark Outputs =====
 scheduler_benchmark_test/fixtures/*_scheduler_stress*/
+scheduler_benchmark_test/artifacts/
