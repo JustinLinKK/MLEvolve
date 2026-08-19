@@ -123,12 +123,106 @@ candidate = {
     "backend_preference": proposed_backend,
     "uses_amp": parent_or_planned_amp_flag,
     "framework": "pytorch",
+    "precision_optimization_mode": "normal",  # normal or aggressive
 }
 ```
 
 Then call `get_optimization_context(...)` and inject only the compact brief into prompts. The brief should guide choices about batch size, epochs, precision, dataloading, checkpointing, packing, and runtime risk.
 
 The prompt should treat recommendations as evidence, not law. If score improvement requires exceeding a graph recommendation, the agent should state why and include a fallback such as smaller batch size, gradient accumulation, AMP, reduced resolution, fewer probe steps, or checkpointing.
+
+## Verified Native Training Formats
+
+MLEvolve recommends a datatype only when all three checks pass:
+
+1. NVIDIA documents native Tensor Core matrix operations for that architecture.
+2. NVIDIA provides a supported forward-and-backward training path.
+3. MLEvolve can generate, recognize, and validate that path.
+
+Low-level instruction availability by itself is not enough. This is why FP6 is
+not present in the hardware graph, vector recipes, pipeline policy, or prompt
+allowlists. PTX exposes some low-level FP6 operations, but there is no validated
+Transformer Engine FP6 training recipe in MLEvolve. Generic FP4 is also kept
+separate from NVFP4 and is hidden from datatype-speed optimization.
+
+The verified policy is:
+
+| Architecture | Normal mode | Aggressive mode additions | Facts only |
+| --- | --- | --- | --- |
+| Volta | FP16 AMP | none | FP64 remains queryable where supported |
+| Turing | FP16 AMP | none | INT8/INT4 capability indicators |
+| Ampere | TF32, BF16 AMP, FP16 AMP | none | integer capability indicators |
+| Ada Lovelace | TF32, BF16 AMP, FP16 AMP | FP8 E4M3 or HYBRID through Transformer Engine | integer capability indicators |
+| Hopper | TF32, BF16 AMP, FP16 AMP | FP8 E4M3 or HYBRID, including supported scaling recipes | integer capability indicators |
+| Blackwell | TF32, BF16 AMP, FP16 AMP | FP8, MXFP8, and NVFP4 through Transformer Engine | integer capability indicators; generic FP4 stays hidden |
+
+Ada FP8 is intentional: NVIDIA documents FP8 Tensor Cores on Ada and
+Transformer Engine training from SM 8.9. E5M2 is retained only as the backward
+component of the documented HYBRID recipe, not as an independent training
+policy. See the [Ada tuning guide](https://docs.nvidia.com/cuda/archive/12.9.2/ada-tuning-guide/index.html)
+and [Transformer Engine FP8 guide](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/features/low_precision_training/fp8_current_scaling/fp8_current_scaling.html).
+Blackwell MXFP8 and NVFP4 are backed by the
+[MXFP8 guide](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/features/low_precision_training/mxfp8/mxfp8.html)
+and [NVFP4 guide](https://docs.nvidia.com/deeplearning/transformer-engine-releases/release-2.14/user-guide/features/low_precision_training/nvfp4/nvfp4.html).
+
+Configure the boundary once:
+
+```yaml
+agent:
+  precision_optimization_mode: normal  # normal | aggressive
+```
+
+`normal` never exposes FP8, MXFP8, or NVFP4 to datatype optimization.
+`aggressive` makes compatible formats available as opt-in experiments; it does
+not recommend them automatically. They still require compatible Transformer
+Engine modules, supported tensor shapes, installed packages, measured speed and
+accuracy, and a BF16/FP16 fallback.
+
+Structured feature records carry the minimum compute capability, native Tensor
+Core evidence, training backend, allowed modes, prompt visibility, and
+model/shape limitations. Integer formats are labeled “not a general training
+recommendation.” FP64 remains a hardware fact but is hidden from training-speed
+prompts.
+
+After changing curated vector seeds, validate and rebuild the Qdrant index with:
+
+```bash
+python -m localml_scheduler.cli hardware-features ingest --dry-run
+python -m localml_scheduler.cli hardware-features ingest --recreate
+```
+
+The second command requires the configured Qdrant service. Runtime prompt
+filtering applies the structured precision policy again, so an older or overly
+broad vector match cannot promote a rejected format.
+
+## Agent-Scoped Context
+
+The scheduler keeps the complete compact hardware context on each search node
+for telemetry and later evidence reuse. Each large agent receives a smaller,
+role-specific view. This reduces prompt size without changing the existing
+stepwise coding-agent filters.
+
+| Agent | Receives | Does not receive |
+| --- | --- | --- |
+| Draft | hardware envelope, model-design features, native precision boundary, up to three model options, one comparable success | debug remedies, packing records, API symbols, training recipes |
+| Improve | current profile, two close profiles, diagnosed bottleneck, matching risks, up to two short recipes | unrelated catalogs, stages, and packing evidence unless packing is diagnosed |
+| Debug | failure signature/profile, backend/OOM/timeout/precision risks, one known-good profile, repair examples | model exploration, unrelated scoring ideas, aggregation history |
+| Evolution | current bottleneck, up to three successful alternatives, compatibility constraints | detailed APIs, long code samples, unrelated failures |
+| Fusion | source/donor summaries, compatibility evidence, resource envelope, precision boundary | broad catalogs, unrelated debug history, long recipe collections |
+| Aggregation | up to four successful branch summaries, shared resources and precision policy | repair content, API docs, packing evidence |
+| Code Review | detected backend/precision, exact allowlist, incompatibilities, directly relevant API constraints | model alternatives, optimization suggestions, historical branches |
+
+Only Improve and Debug receive small implementation examples. Code Review sees
+recognition constraints, not suggestions for new optimizations. The rendered
+section is always bounded by `agent.hardware_context_max_prompt_chars`; the
+full telemetry copy is not truncated.
+
+Precision is enforced again outside prompting. A disallowed pipeline choice is
+normalized to `disabled` with an FP32 fallback. Static review emits a critical
+`datatype_precision` issue, and the same deterministic check runs immediately
+before execution. Initial solutions, disabled review, and an unavailable
+reviewer therefore cannot bypass the configured mode. Integer labels and input
+tensors, plus inference-only quantization, are not treated as INT training.
 
 ## Diagnosis Bridge
 

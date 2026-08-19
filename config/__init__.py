@@ -21,6 +21,7 @@ def _get_journal_classes():
     return Journal, filter_journal
 
 from utils import copytree, preproc_data, serialize
+from utils.precision_policy import normalize_precision_optimization_mode
 
 shutup.mute_warnings()
 logger = logging.getLogger("MLEvolve")
@@ -132,6 +133,7 @@ class AgentConfig:
     pipeline_decision_enabled: bool = True
     hardware_context_limit: int = 8
     hardware_context_max_prompt_chars: int = 3500
+    precision_optimization_mode: str = "normal"
     review: ReviewConfig = field(default_factory=ReviewConfig)
 
 
@@ -321,6 +323,9 @@ def prep_cfg(cfg: Config):
     cfg_schema: Config = OmegaConf.structured(Config)
     cfg = OmegaConf.merge(cfg_schema, cfg)
     cfg.experiment.mode = normalize_experiment_mode(cfg.experiment.mode)
+    cfg.agent.precision_optimization_mode = normalize_precision_optimization_mode(
+        cfg.agent.precision_optimization_mode
+    )
     if cfg.experiment.mode in {EXPERIMENT_MODE_ORIGIN, EXPERIMENT_MODE_BASELINE}:
         cfg.agent.hardware_context_enabled = False
     if cfg.experiment.mode == EXPERIMENT_MODE_ORIGIN:

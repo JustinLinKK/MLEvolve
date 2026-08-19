@@ -14,6 +14,11 @@ import re
 from typing import Any
 
 from llm import generate
+from utils.precision_policy import (
+    PrecisionPolicy,
+    normalize_precision_policy_name,
+    resolve_precision_policy,
+)
 
 logger = logging.getLogger("MLEvolve")
 
@@ -161,6 +166,7 @@ def build_pipeline_decision(
         return {}
     task_desc = getattr(agent_instance, "task_desc", "")
     evidence_state = _collect_evidence_state(hardware_contexts or [])
+    precision_policy = _resolve_pipeline_precision_policy(agent_instance, hardware_contexts or [])
     fallback = _fallback_decision(
         task_desc=task_desc,
         data_preview=data_preview,
@@ -175,6 +181,7 @@ def build_pipeline_decision(
         previous_code=previous_code,
         execution_output=execution_output,
         stage_context=stage_context,
+        precision_policy=precision_policy,
     )
 
     for attempt in range(max(1, max_retries)):
@@ -191,7 +198,12 @@ def build_pipeline_decision(
             )
             decision = _parse_json_object(response)
             if decision:
-                return normalize_pipeline_decision(decision, fallback=fallback, evidence_state=evidence_state)
+                return normalize_pipeline_decision(
+                    decision,
+                    fallback=fallback,
+                    evidence_state=evidence_state,
+                    precision_policy=precision_policy,
+                )
         except Exception as exc:
             logger.debug("Pipeline decision generation failed on attempt %s: %s", attempt + 1, exc)
 
@@ -258,10 +270,17 @@ def normalize_pipeline_decision(
     *,
     fallback: dict[str, Any],
     evidence_state: dict[str, Any],
+    precision_policy: PrecisionPolicy | None = None,
 ) -> dict[str, Any]:
     """Normalize ordering and evidence fields, stripping hallucinated refs."""
     decision = decision if isinstance(decision, dict) else {}
     stage_view = _stage_decision_view(decision)
+    raw_datatype = stage_view.get("datatype_precision")
+    raw_precision = (
+        raw_datatype.get("precision_policy")
+        if isinstance(raw_datatype, dict)
+        else None
+    )
     normalized = {
         "model_design": _normalize_model_design(stage_view.get("model_design"), fallback["model_design"]),
         "datatype_precision": _normalize_datatype_precision(
@@ -281,6 +300,22 @@ def normalize_pipeline_decision(
         normalized["datatype_precision"]["precision_model_adaptation"] = "none"
     if not evidence_state["has_predictor_or_graph_evidence"]:
         normalized["training_evaluation"]["batch_size_policy"] = "fixed"
+    if precision_policy is not None:
+        canonical_raw = normalize_precision_policy_name(raw_precision)
+        if canonical_raw in PRECISION_POLICIES:
+            normalized["datatype_precision"]["precision_policy"] = canonical_raw
+        selected = canonical_raw or normalized["datatype_precision"]["precision_policy"]
+        if (raw_precision is not None and canonical_raw is None) or not precision_policy.allows(selected):
+            normalized["datatype_precision"] = {
+                "precision_policy": "disabled",
+                "precision_model_adaptation": "none",
+                "fallback_policy": "use FP32; choose another allowed native training format only after validation",
+                "reason": (
+                    f"Rejected {raw_precision if canonical_raw is None else selected!r}: it is not allowed in {precision_policy.mode} mode on "
+                    f"{precision_policy.architecture}. Allowed policies: "
+                    f"{', '.join(precision_policy.allowed_policies)}."
+                ),
+            }
     return normalized
 
 
@@ -294,6 +329,7 @@ def _build_decision_prompt(
     previous_code: str,
     execution_output: str,
     stage_context: str,
+    precision_policy: PrecisionPolicy,
 ) -> dict[str, str]:
     evidence_payload = {
         "available": evidence_state["has_any_hardware_evidence"],
@@ -302,6 +338,7 @@ def _build_decision_prompt(
         "confidence": evidence_state["confidence"],
         "compact_contexts": evidence_state["compact_contexts"],
         "missing_evidence": evidence_state["missing_evidence"],
+        "precision_policy": precision_policy.to_dict(),
     }
     system = (
         "You are the MLEvolve pipeline-decision agent. "
@@ -324,6 +361,10 @@ def _build_decision_prompt(
         "- Return exactly these top-level keys: model_design, datatype_precision, training_evaluation, evidence. Do not return datatype, model, optimizer, or tuning as top-level keys.\n"
         "- If graph/predictor evidence is missing, record that in evidence.missing_evidence and use conservative tuning fallbacks.\n"
         "- evidence.evidence_refs must only contain refs listed in the hardware/profile evidence payload.\n\n"
+        f"- Select datatype_precision.precision_policy only from this hardware/mode allowlist: "
+        f"{', '.join(precision_policy.allowed_policies)}.\n"
+        "- FP8/MXFP8/NVFP4 require a compatible Transformer Engine forward/backward path; "
+        "generic FP4 and FP6 are never valid MLEvolve training policies.\n\n"
         f"Hardware/profile evidence payload:\n{json.dumps(evidence_payload, ensure_ascii=False, indent=2, default=str)}\n\n"
     )
     if parent_pipeline_decision:
@@ -444,7 +485,11 @@ def _collect_evidence_state(hardware_contexts: list[Any]) -> dict[str, Any]:
     has_predictor_or_graph = False
 
     for context in hardware_contexts:
-        compact = getattr(context, "compact_context", context) or {}
+        compact = (
+            getattr(context, "filtered_context", None)
+            or getattr(context, "compact_context", context)
+            or {}
+        )
         if not isinstance(compact, dict) or not compact:
             continue
         compact_contexts.append(compact)
@@ -471,6 +516,32 @@ def _collect_evidence_state(hardware_contexts: list[Any]) -> dict[str, Any]:
         "has_predictor_or_graph_evidence": has_predictor_or_graph,
         "missing_evidence": _unique_strings(missing),
     }
+
+
+def _resolve_pipeline_precision_policy(
+    agent_instance: Any, hardware_contexts: list[Any]
+) -> PrecisionPolicy:
+    mode = getattr(
+        getattr(agent_instance, "acfg", None),
+        "precision_optimization_mode",
+        "normal",
+    )
+    for context in hardware_contexts:
+        compact = getattr(context, "compact_context", context) or {}
+        if not isinstance(compact, dict):
+            continue
+        stored = compact.get("precision_policy") or {}
+        hardware_context = compact.get("hardware_context") or {}
+        hardware = hardware_context.get("hardware") or {}
+        stage_hardware = (compact.get("stage_hardware_features") or {}).get("hardware") or {}
+        merged = {**dict(hardware), **dict(stage_hardware)}
+        if stored:
+            merged.setdefault("architecture", stored.get("architecture"))
+            merged.setdefault("compute_capability", stored.get("compute_capability"))
+        datatypes = list((compact.get("stage_hardware_features") or {}).get("feature_ids") or [])
+        if merged or stored:
+            return resolve_precision_policy(merged, mode=mode, datatypes=datatypes)
+    return resolve_precision_policy(mode=mode)
 
 
 def _has_meaningful_hardware_evidence(compact: dict[str, Any]) -> bool:

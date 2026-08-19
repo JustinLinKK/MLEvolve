@@ -4,6 +4,8 @@ import json
 import re
 from types import SimpleNamespace
 
+import pytest
+
 from agents.prompts.pipeline_decision import (
     PIPELINE_STAGE_ORDER,
     apply_pipeline_decision_to_node,
@@ -18,12 +20,14 @@ def _agent(
     task_desc: str = "image classification with train_images and labels",
     *,
     enabled: bool = True,
+    precision_mode: str = "normal",
 ) -> SimpleNamespace:
     return SimpleNamespace(
         task_desc=task_desc,
         acfg=SimpleNamespace(
             code=SimpleNamespace(temp=0.0),
             pipeline_decision_enabled=enabled,
+            precision_optimization_mode=precision_mode,
         ),
         cfg=SimpleNamespace(),
     )
@@ -215,7 +219,14 @@ def test_te_precision_policy_and_adapter_are_preserved_with_evidence(monkeypatch
     )
     graph_context = SimpleNamespace(
         compact_context={
-            "hardware_context": {"found": True, "summary": "Blackwell GPU with Transformer Engine support"},
+            "hardware_context": {
+                "found": True,
+                "summary": "Blackwell GPU with Transformer Engine support",
+                "hardware": {
+                    "architecture": "blackwell",
+                    "compute_capability": "10.0",
+                },
+            },
             "graph_evidence": {"exact_profiles": [{"precision": "nvfp4_te", "ref": "graph:te:nvfp4"}]},
             "evidence_refs": ["graph:te:nvfp4"],
             "confidence": 0.8,
@@ -223,7 +234,7 @@ def test_te_precision_policy_and_adapter_are_preserved_with_evidence(monkeypatch
     )
 
     decision = build_pipeline_decision(
-        _agent("transformer training"),
+        _agent("transformer training", precision_mode="aggressive"),
         stage="draft",
         data_preview="tokenized sequences",
         hardware_contexts=[graph_context],
@@ -231,6 +242,83 @@ def test_te_precision_policy_and_adapter_are_preserved_with_evidence(monkeypatch
 
     assert decision["datatype_precision"]["precision_policy"] == "nvfp4_te"
     assert "TE modules" in decision["datatype_precision"]["precision_model_adaptation"]
+
+
+@pytest.mark.parametrize("selected", ["fp8_te", "mxfp8_te", "nvfp4_te", "fp4", "fp6"])
+def test_normal_mode_normalizes_low_or_unverified_precision_to_disabled(
+    monkeypatch, selected: str
+) -> None:
+    payload = _decision_payload()
+    payload["datatype_precision"]["precision_policy"] = selected
+    monkeypatch.setattr(
+        "agents.prompts.pipeline_decision.generate",
+        lambda **_: json.dumps(payload),
+    )
+    context = SimpleNamespace(
+        compact_context={
+            "hardware_context": {
+                "found": True,
+                "hardware": {"architecture": "blackwell", "compute_capability": "10.0"},
+            },
+            "graph_evidence": {"exact_profiles": [{"ref": "graph:blackwell"}]},
+            "evidence_refs": ["graph:blackwell"],
+            "confidence": 0.9,
+        }
+    )
+
+    decision = build_pipeline_decision(
+        _agent("transformer training", precision_mode="normal"),
+        stage="draft",
+        data_preview="tokenized sequences",
+        hardware_contexts=[context],
+    )
+
+    assert decision["datatype_precision"]["precision_policy"] == "disabled"
+    assert decision["datatype_precision"]["precision_model_adaptation"] == "none"
+    assert "FP32" in decision["datatype_precision"]["fallback_policy"]
+
+
+@pytest.mark.parametrize(
+    ("architecture", "selected", "expected"),
+    [
+        ("ada_lovelace", "fp8_te", "fp8_te"),
+        ("ada_lovelace", "mxfp8_te", "disabled"),
+        ("hopper", "fp8_te", "fp8_te"),
+        ("hopper", "nvfp4_te", "disabled"),
+        ("blackwell", "fp8_te", "fp8_te"),
+        ("blackwell", "mxfp8_te", "mxfp8_te"),
+        ("blackwell", "nvfp4_te", "nvfp4_te"),
+    ],
+)
+def test_aggressive_pipeline_normalization_obeys_architecture(
+    monkeypatch, architecture: str, selected: str, expected: str
+) -> None:
+    payload = _decision_payload()
+    payload["datatype_precision"]["precision_policy"] = selected
+    monkeypatch.setattr(
+        "agents.prompts.pipeline_decision.generate",
+        lambda **_: json.dumps(payload),
+    )
+    context = SimpleNamespace(
+        compact_context={
+            "hardware_context": {
+                "found": True,
+                "hardware": {"architecture": architecture, "compute_capability": "10.0"},
+            },
+            "graph_evidence": {"exact_profiles": [{"ref": f"graph:{architecture}"}]},
+            "evidence_refs": [f"graph:{architecture}"],
+            "confidence": 0.9,
+        }
+    )
+
+    decision = build_pipeline_decision(
+        _agent("transformer training", precision_mode="aggressive"),
+        stage="draft",
+        data_preview="tokenized sequences",
+        hardware_contexts=[context],
+    )
+
+    assert decision["datatype_precision"]["precision_policy"] == expected
 
 
 def test_long_pipeline_trace_remains_valid_json() -> None:

@@ -22,6 +22,11 @@ model adaptations, such as TE-compatible layer wrappers, precision shape
 padding/config hooks, autocast recipes, or higher-precision islands, while
 preserving the Stage 1 model family, loss, data features, and output interface.
 
+The precision list is an architecture- and mode-dependent allowlist, not a
+menu that is valid on every GPU. Normal mode stops at 16-bit training formats;
+aggressive mode can additionally permit validated Transformer Engine formats.
+Aggressive permission is opt-in and is not an automatic recommendation.
+
 ## Decision Schema
 
 Each generated node can store `SearchNode.pipeline_decision`:
@@ -103,6 +108,39 @@ Hardware tuning must not increase epochs, folds, model size, image resolution,
 ensemble count, TTA, dataset size, or validation workload as a hardware-only
 optimization.
 
+For datatype optimization, evidence must show native Tensor Core operations, a
+supported forward/backward training path, and an MLEvolve implementation and
+validation path. The resulting matrix is:
+
+- Volta and Turing: FP16 AMP.
+- Ampere: TF32, BF16 AMP, and FP16 AMP.
+- Ada and Hopper: the normal formats above; aggressive mode may add Transformer
+  Engine FP8 E4M3 or HYBRID.
+- Blackwell: the normal formats above; aggressive mode may add FP8, MXFP8, and
+  NVFP4 through Transformer Engine.
+
+Ada FP8 support starts at SM 8.9. Pure E5M2 is not a policy; E5M2 may appear
+only as the backward part of the documented HYBRID recipe. FP6 is explicitly
+excluded because low-level PTX instruction support is not an end-to-end
+training recipe. Generic FP4 is not NVFP4. Integer formats remain capability
+indicators rather than general training recommendations, and FP64 remains
+queryable but hidden from datatype-speed optimization.
+
+The normalizer converts a format outside the hardware/mode allowlist to
+`disabled` and records an FP32 fallback. Code Review produces a critical
+`datatype_precision` issue for a disallowed path. A final deterministic guard
+runs immediately before execution, including when review is disabled, an
+initial solution skips review, or the reviewer is unavailable.
+
+Large workflow agents receive role-filtered hardware context. Draft sees model
+options and one comparable success; Improve sees the diagnosed bottleneck and
+at most two short recipes; Debug sees the failure and repair evidence;
+Evolution and Fusion see compatible alternatives; Aggregation sees at most four
+successful branch summaries; Code Review sees only the exact precision/backend
+constraints needed to classify code. Only Improve and Debug receive small code
+examples. Full context remains attached to node telemetry, while each prompt is
+bounded by `agent.hardware_context_max_prompt_chars`.
+
 ## Configuration And Evaluation
 
 The contract is enabled by default:
@@ -110,6 +148,7 @@ The contract is enabled by default:
 ```yaml
 agent:
   pipeline_decision_enabled: true
+  precision_optimization_mode: normal  # normal | aggressive
 ```
 
 Set `agent.pipeline_decision_enabled=false` to restore the previous prompt flow

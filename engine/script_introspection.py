@@ -729,17 +729,13 @@ def detect_uses_amp(code: str) -> bool:
 
 def detect_precision_mode(code: str) -> str | None:
     code_text = code or ""
-    for pattern in (_PRECISION_STRING_PATTERN, _PRECISION_TORCH_DTYPE_PATTERN, _AUTOCAST_DTYPE_PATTERN):
-        match = pattern.search(code_text)
-        if match:
-            precision = _normalize_precision_mode(match.group(1))
-            if precision:
-                return precision
     code_lower = code_text.lower()
-    if "nvfp4" in code_lower or "nvfp4blockscaling" in code_lower:
+    if _uses_nvfp4_training_recipe(code_text):
         return "nvfp4_te"
-    if "mxfp8" in code_lower or "mxfp8blockscaling" in code_lower:
+    if "mxfp8blockscaling" in code_lower and _uses_transformer_engine(code_text):
         return "mxfp8_te"
+    if _uses_transformer_engine(code_text) and "e5m2" in code_lower and "hybrid" not in code_lower:
+        return "fp8_e5m2_pure"
     if _uses_transformer_engine(code_text) and (
         "fp8" in code_lower
         or "delayedscaling" in code_lower
@@ -747,6 +743,16 @@ def detect_precision_mode(code: str) -> str | None:
         or "format.hybrid" in code_lower
     ):
         return "fp8_te"
+    for pattern in (_PRECISION_STRING_PATTERN, _PRECISION_TORCH_DTYPE_PATTERN, _AUTOCAST_DTYPE_PATTERN):
+        match = pattern.search(code_text)
+        if match:
+            precision = _normalize_precision_mode(match.group(1))
+            if precision:
+                if precision == "nvfp4_te" and not _uses_nvfp4_training_recipe(code_text):
+                    return "generic_fp4"
+                return precision
+    if "prepare_qat" in code_lower or "quantizationawaretraining" in code_lower:
+        return "int8_training"
     if "torch.bfloat16" in code_lower or "bfloat16" in code_lower or "bf16" in code_lower:
         return "bf16"
     if "torch.float16" in code_lower or "float16" in code_lower or "fp16" in code_lower:
@@ -1029,10 +1035,18 @@ def _normalize_precision_mode(value: str) -> str | None:
         return "tf32"
     if normalized in {"fp8", "float8", "fp8_te", "te_fp8"}:
         return "fp8_te"
+    if normalized in {"e5m2", "fp8_e5m2"}:
+        return "fp8_e5m2_pure"
     if normalized in {"mxfp8", "mx_fp8", "mxfp8_te", "te_mxfp8"}:
         return "mxfp8_te"
     if normalized in {"nvfp4", "fp4", "nvfp4_te", "te_nvfp4"}:
-        return "nvfp4_te"
+        return "generic_fp4" if normalized == "fp4" else "nvfp4_te"
+    if normalized in {"mxfp4", "mx_fp4"}:
+        return "generic_fp4"
+    if normalized in {"fp6", "float6", "mxfp6", "mx_fp6"}:
+        return "fp6"
+    if normalized in {"int8", "qint8", "uint8"}:
+        return "int8_training"
     if normalized in {"amp", "mixed", "mixed_precision"}:
         return "mixed"
     return None
@@ -1050,6 +1064,18 @@ def _uses_transformer_engine(code: str) -> bool:
             "te.linear",
             "te.layernormlinear",
             "te.transformerlayer",
+        )
+    )
+
+
+def _uses_nvfp4_training_recipe(code: str) -> bool:
+    code_lower = (code or "").lower()
+    return _uses_transformer_engine(code) and any(
+        token in code_lower
+        for token in (
+            "nvfp4blockscaling",
+            "recipe.nvfp4",
+            "nvfp4_block_scaling",
         )
     )
 

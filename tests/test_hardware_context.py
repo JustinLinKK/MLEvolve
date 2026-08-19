@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from agents.hardware_context import (
     CONSTRAINT_PRECEDENCE_RULE,
     EVIDENCE_NOT_LAW_RULE,
@@ -15,7 +17,9 @@ from agents.hardware_context import (
     format_hardware_datatype_prompt_section,
     format_hardware_design_brief,
     format_hardware_prompt_section,
+    format_hardware_prompt_section_for_stage,
     format_hardware_training_prompt_section,
+    filter_hardware_context_for_agent,
     get_hardware_design_brief,
     get_hardware_context_for_stage,
     hardware_context_instructions,
@@ -27,6 +31,7 @@ from engine.agent_search import AgentSearch
 from engine.script_introspection import introspect_training_script, normalized_mlevolve_script_signature
 from engine.search_node import Journal, SearchNode
 from utils.serialize import dumps_json, loads_json
+from utils.precision_policy import resolve_precision_policy
 
 
 def test_script_introspection_extracts_training_hints() -> None:
@@ -763,6 +768,138 @@ def test_stepwise_hardware_stage_sections_route_stage_filtered_features() -> Non
     assert "Datatype/Precision" in dtype_section
     assert "bf16" in dtype_section
     assert "muon_optimizer" not in dtype_section
+
+
+def _role_filter_fixture() -> dict:
+    profiles = [
+        {"status": "success", "summary_text": f"successful branch {index}", "model_family": "vit"}
+        for index in range(6)
+    ]
+    return {
+        "hardware_context": {
+            "found": True,
+            "summary": "Blackwell GPU",
+            "hardware": {"architecture": "blackwell", "compute_capability": "10.0"},
+        },
+        "model_options": [{"model_family": f"option-{index}"} for index in range(5)],
+        "graph_evidence": {
+            "exact_profiles": [
+                {"status": "failed", "failure_reason": "CUDA OOM", "summary_text": "failed current profile"},
+                *profiles[:2],
+            ],
+            "similar_profiles": [*profiles[2:], {"status": "failed", "summary_text": "unrelated failed branch"}],
+            "packed_profiles": [{"status": "success", "summary_text": "packing evidence"}],
+        },
+        "derived_diagnosis": {
+            "profile_symptoms": ["optimizer throughput bottleneck"],
+            "optimization_targets": ["optimizer kernel runtime"],
+        },
+        "stage_hardware_features": {
+            "found": True,
+            "stages": [
+                {
+                    "stage": "model_design",
+                    "features": [{"feature_id": "attention", "category": "tensor_core", "example_code": "MODEL_SENTINEL"}],
+                },
+                {
+                    "stage": "datatype_precision",
+                    "features": [
+                        {"feature_id": "bf16", "category": "precision", "recommended": True, "example_code": "BF16_SENTINEL"},
+                        {"feature_id": "nvfp4", "category": "precision", "recommended": False, "example_code": "NVFP4_SENTINEL"},
+                        {"feature_id": "fp4", "category": "precision", "recommended": False, "example_code": "GENERIC_FP4_SENTINEL"},
+                        {"feature_id": "int8", "category": "precision", "recommended": False, "example_code": "INT8_SENTINEL"},
+                    ],
+                },
+                {
+                    "stage": "training_evaluation",
+                    "features": [{"feature_id": "muon_optimizer", "category": "optimizer", "recommended": True, "example_code": "OPTIMIZER_SENTINEL"}],
+                },
+            ],
+            "features": [
+                {"feature_id": "attention"},
+                {"feature_id": "bf16"},
+                {"feature_id": "nvfp4"},
+                {"feature_id": "fp4"},
+                {"feature_id": "int8"},
+                {"feature_id": "muon_optimizer"},
+            ],
+        },
+        "vector_evidence": {
+            "recipes": [
+                {"summary_text": "optimizer kernel repair recipe", "sample_code": "OPTIMIZER_RECIPE_SENTINEL"},
+                {"summary_text": "unrelated image decode recipe", "sample_code": "UNRELATED_RECIPE_SENTINEL"},
+            ],
+            "docs": [{"summary_text": "optimizer runtime constraints", "sample_code": "DOC_CODE_SENTINEL"}],
+            "api_symbols": [{"summary_text": "optimizer API constraints", "sample_code": "API_CODE_SENTINEL"}],
+        },
+        "recommendations": [
+            "Use a fused optimizer kernel for throughput.",
+            "Use unrelated image decoding catalog.",
+        ],
+        "risk_flags": ["optimizer kernel can timeout", "unrelated image color risk"],
+        "evidence_refs": [f"ref-{index}" for index in range(10)],
+        "confidence": 0.9,
+    }
+
+
+@pytest.mark.parametrize(
+    "role",
+    ["draft", "improve", "debug", "evolution", "fusion", "aggregation", "code_review"],
+)
+def test_large_agent_hardware_filters_are_scoped_and_bounded(role: str) -> None:
+    compact = _role_filter_fixture()
+    policy = resolve_precision_policy(
+        {"architecture": "blackwell", "datatypes": ["int8", "fp4", "nvfp4"]},
+        mode="aggressive",
+    )
+
+    filtered = filter_hardware_context_for_agent(compact, stage=role, precision_policy=policy)
+    prompt = format_hardware_prompt_section_for_stage(filtered, stage=role, max_chars=900)
+    serialized = str(filtered)
+
+    assert len(prompt) <= 900
+    assert "GENERIC_FP4_SENTINEL" not in serialized
+    assert len(filtered.get("evidence_refs", [])) <= 4
+    if role in {"improve", "debug"}:
+        assert "OPTIMIZER_RECIPE_SENTINEL" in serialized
+    else:
+        assert "OPTIMIZER_RECIPE_SENTINEL" not in serialized
+        assert "MODEL_SENTINEL" not in serialized
+        assert "BF16_SENTINEL" not in serialized
+        assert "NVFP4_SENTINEL" not in serialized
+    if role == "aggregation":
+        graph = filtered["graph_evidence"]
+        assert len(graph.get("exact_profiles", [])) + len(graph.get("similar_profiles", [])) <= 4
+        assert all(profile["status"] == "success" for values in graph.values() for profile in values)
+    if role == "debug":
+        assert filtered["graph_evidence"]["exact_profiles"][0]["status"] == "failed"
+        assert filtered["graph_evidence"]["similar_profiles"][0]["status"] == "success"
+    if role in {"improve", "evolution"}:
+        assert "unrelated image decoding catalog" not in filtered.get("recommendations", [])
+
+
+def test_normal_mode_hides_aggressive_formats_but_keeps_integer_indicator() -> None:
+    compact = _role_filter_fixture()
+    policy = resolve_precision_policy(
+        {"architecture": "blackwell", "datatypes": ["int8", "fp4", "nvfp4"]},
+        mode="normal",
+    )
+
+    filtered = filter_hardware_context_for_agent(
+        compact,
+        stage="code_review",
+        precision_policy=policy,
+    )
+    features = {
+        feature["feature_id"]: feature
+        for stage in filtered["stage_hardware_features"]["stages"]
+        for feature in stage.get("features", [])
+    }
+
+    assert "nvfp4" not in features
+    assert "fp4" not in features
+    assert features["int8"]["prompt_visibility"] == "integer_indicator"
+    assert features["int8"]["recommended"] is False
 
 
 def test_hardware_design_brief_fetches_only_selected_feature_details(monkeypatch) -> None:

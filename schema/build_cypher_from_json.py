@@ -36,6 +36,14 @@ def emit_cypher(nodes, edges) -> str:
         )
     return "\n".join(lines) + "\n"
 
-g=json.loads(Path('hardware_knowledge_graph.json').read_text(encoding='utf-8'))
+def main() -> None:
+    root = Path(__file__).resolve().parent
+    graph = json.loads((root / "hardware_knowledge_graph.json").read_text(encoding="utf-8"))
+    (root / "hardware_knowledge_graph.cypher").write_text(
+        emit_cypher(graph["nodes"], graph["edges"]),
+        encoding="utf-8",
+    )
 
-Path('hardware_knowledge_graph.cypher').write_text(emit_cypher(g['nodes'], g['edges']), encoding='utf-8')
+
+if __name__ == "__main__":
+    main()

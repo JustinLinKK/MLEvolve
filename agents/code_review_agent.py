@@ -10,6 +10,7 @@ from agents.hardware_context import get_hardware_context_for_stage, hardware_con
 from agents.prompts import get_internet_clarification
 from agents.prompts.validation_template_prompts import get_code_review_prompt
 from agents.review_contracts import ReviewDecision, ReviewOutcome
+from agents.precision_validation import merge_precision_review_issues, validate_training_precision
 from agents.stage_repair import is_hardware_aware, repair_selected_stages
 from engine.search_node import SearchNode
 from llm import FunctionSpec, query
@@ -61,7 +62,7 @@ def _event(agent: Any, node: SearchNode, event_type: str, payload: dict[str, Any
         pass
 
 
-def _build_review_prompt(agent: Any, node: SearchNode, code: str) -> tuple[dict[str, Any], bool]:
+def _build_review_prompt(agent: Any, node: SearchNode, code: str) -> tuple[dict[str, Any], Any]:
     prompt = get_code_review_prompt(task_desc=agent.task_desc, code=code)
     hardware_ctx = get_hardware_context_for_stage(
         agent, "code_review", parent_node=getattr(node, "parent", None), code=code
@@ -82,12 +83,14 @@ def _build_review_prompt(agent: Any, node: SearchNode, code: str) -> tuple[dict[
         prompt["Instructions"]["Implementation guideline"].extend(internet_clarification)
     else:
         prompt["Instructions"]["⚠️ Internet Access Clarification"] = internet_clarification
-    return prompt, bool(hardware_section)
+    return prompt, hardware_ctx
 
 
 def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecision | None, dict[str, Any]]:
     """Return a validated decision, or None when the reviewer stays unavailable/invalid."""
-    prompt, hardware_context_used = _build_review_prompt(agent, node, code)
+    prompt, hardware_ctx = _build_review_prompt(agent, node, code)
+    hardware_context_used = bool(hardware_ctx.prompt_section)
+    policy_issues = validate_training_precision(agent, code, context=hardware_ctx)
     retries = max(1, int(getattr(_review_config(agent), "classifier_retries", 3)))
     started = time.monotonic()
     last_error = "reviewer unavailable"
@@ -105,6 +108,7 @@ def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecisi
                 ),
             )
             decision = ReviewDecision.from_mapping(response, hardware_aware=is_hardware_aware(agent))
+            decision = merge_precision_review_issues(decision, policy_issues)
             return decision, {
                 "attempts": attempt + 1,
                 "latency_seconds": time.monotonic() - started,
@@ -117,6 +121,14 @@ def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecisi
                     "Code review attempt %s/%s failed for node %s: %s",
                     attempt + 1, retries, node.id, exc,
                 )
+    if policy_issues:
+        return merge_precision_review_issues(None, policy_issues), {
+            "attempts": retries,
+            "latency_seconds": time.monotonic() - started,
+            "hardware_context_used": hardware_context_used,
+            "error": last_error,
+            "deterministic_precision_validation": True,
+        }
     return None, {
         "attempts": retries,
         "latency_seconds": time.monotonic() - started,
@@ -135,6 +147,19 @@ def review_and_repair(agent: Any, node: SearchNode) -> ReviewOutcome:
     """Classify a script, selectively repair critical owners, and re-review it."""
     review_cfg = _review_config(agent)
     if review_cfg is not None and not bool(getattr(review_cfg, "enabled", True)):
+        hardware_ctx = get_hardware_context_for_stage(
+            agent, "code_review", parent_node=getattr(node, "parent", None), code=node.code
+        )
+        policy_issues = validate_training_precision(agent, node.code, context=hardware_ctx)
+        if policy_issues:
+            outcome = ReviewOutcome(
+                code=node.code,
+                status="rejected",
+                unresolved_issues=policy_issues,
+                history=({"event": "precision_policy_rejected_with_review_disabled"},),
+            )
+            _store_outcome(node, outcome)
+            return outcome
         outcome = ReviewOutcome(code=node.code, status="approved", history=({"event": "review_disabled"},))
         _store_outcome(node, outcome)
         return outcome

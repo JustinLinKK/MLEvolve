@@ -39,6 +39,8 @@ def _agent(*, mode: str = "hardware_aware", parallel: bool = True):
         acfg=SimpleNamespace(
             code=SimpleNamespace(model="fake", temp=0),
             review=review,
+            hardware_context_enabled=True,
+            precision_optimization_mode="normal",
         ),
         scheduler_client=None,
         pipeline_logger=None,
@@ -404,6 +406,83 @@ def test_reviewer_unavailable_fails_open_only_without_known_critical(monkeypatch
     )
     outcome = code_review_agent.review_and_repair(_agent(), _node())
     assert outcome.status == "unavailable_fail_open"
+
+
+def test_review_disabled_cannot_bypass_deterministic_precision_policy() -> None:
+    agent = _agent()
+    agent.acfg.review.enabled = False
+    node = _node('PRECISION = "fp4"\n')
+
+    outcome = code_review_agent.review_and_repair(agent, node)
+
+    assert outcome.status == "rejected"
+    assert outcome.unresolved_issues[0].severity == "critical"
+    assert outcome.unresolved_issues[0].category == "datatype_precision"
+    assert outcome.unresolved_issues[0].owner == "datatype_precision"
+
+
+def test_pre_execution_guard_rejects_precision_violation_after_review_bypass() -> None:
+    search = AgentSearch.__new__(AgentSearch)
+    base = _agent()
+    search.acfg = base.acfg
+    search.cfg = base.cfg
+    search.scheduler_client = None
+    search.task_desc = base.task_desc
+    node = _node('PRECISION = "fp4"\n')
+    node.review_status = "unavailable_fail_open"
+
+    allowed = search._validate_node_precision_before_execution(node)
+
+    assert allowed is False
+    assert node.review_status == "rejected"
+    assert any(
+        issue["category"] == "datatype_precision" and issue["severity"] == "critical"
+        for issue in node.review_issues
+    )
+    assert node.review_history[-1]["event"] == "pre_execution_precision_policy_rejected"
+
+
+@pytest.mark.parametrize("path", ["deferred", "scheduler_batch"])
+def test_deferred_execution_rechecks_precision_immediately_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    root = SearchNode(code="", plan="root", stage="root")
+    node = SearchNode(
+        code='PRECISION = "fp4"\n',
+        plan="draft",
+        parent=root,
+        stage="draft",
+        local_best_node=root,
+        review_status="approved",
+    )
+    node.pending_execution = True
+    base = _agent()
+    search = AgentSearch.__new__(AgentSearch)
+    search.acfg = base.acfg
+    search.cfg = base.cfg
+    search.scheduler_client = None
+    search.task_desc = base.task_desc
+    search.journal = Journal(nodes=[root])
+    search.journal_lock = threading.Lock()
+    search.pipeline_logger = None
+    search.current_step = 0
+    monkeypatch.setattr(evaluation, "check_improvement", lambda *_args, **_kwargs: False)
+
+    calls = 0
+
+    def forbidden_executor(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("precision-rejected code must not be dispatched")
+
+    if path == "deferred":
+        search.execute_deferred_node(node, forbidden_executor)
+    else:
+        search.execute_deferred_nodes([node], forbidden_executor)
+
+    assert calls == 0
+    assert node.review_status == "rejected"
+    assert node.pending_execution is False
 
 
 def test_reviewer_unavailable_after_known_critical_rejects(monkeypatch: pytest.MonkeyPatch) -> None:

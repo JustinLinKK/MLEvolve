@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import json
 import re
@@ -10,6 +11,11 @@ from typing import Any
 
 from llm import generate
 from engine.script_introspection import introspect_training_script
+from utils.precision_policy import (
+    PrecisionPolicy,
+    precision_feature_visibility,
+    resolve_precision_policy,
+)
 
 logger = logging.getLogger("MLEvolve")
 
@@ -92,6 +98,64 @@ _DATATYPE_EXCLUDE_KEYWORDS = (
     "gradient accumulation",
     "checkpoint",
 )
+
+_DEBUG_CONTEXT_KEYWORDS = (
+    "error",
+    "fail",
+    "bug",
+    "oom",
+    "out of memory",
+    "timeout",
+    "nan",
+    "diverg",
+    "unsupported",
+    "backend",
+    "precision",
+    "dtype",
+    "memory",
+    "vram",
+)
+_FUSION_CONTEXT_KEYWORDS = (
+    "compat",
+    "model",
+    "family",
+    "precision",
+    "dtype",
+    "memory",
+    "vram",
+    "unsupported",
+    "risk",
+)
+_AGGREGATION_CONTEXT_KEYWORDS = (
+    "batch",
+    "runtime",
+    "throughput",
+    "memory",
+    "vram",
+    "precision",
+    "backend",
+    "resource",
+)
+
+_ROLE_CONTEXT_LIMITS: dict[str, dict[str, int]] = {
+    "draft": {"exact": 0, "similar": 1, "packed": 0, "recommendations": 3, "risks": 3},
+    "improve": {"exact": 1, "similar": 2, "packed": 1, "recommendations": 4, "risks": 4},
+    "debug": {"exact": 1, "similar": 1, "packed": 0, "recommendations": 3, "risks": 5},
+    "evolution": {"exact": 1, "similar": 3, "packed": 0, "recommendations": 3, "risks": 3},
+    "fusion": {"exact": 1, "similar": 2, "packed": 0, "recommendations": 3, "risks": 4},
+    "aggregation": {"exact": 2, "similar": 4, "packed": 0, "recommendations": 3, "risks": 3},
+    "code_review": {"exact": 0, "similar": 0, "packed": 0, "recommendations": 0, "risks": 5},
+}
+
+_ROLE_STAGE_FILTERS: dict[str, tuple[str, ...]] = {
+    "draft": ("model_design", "datatype_precision", "datatype", "model"),
+    "improve": ("model_design", "datatype_precision", "training_evaluation", "datatype", "model", "optimizer", "tuning"),
+    "debug": ("datatype_precision", "training_evaluation", "optimizer", "tuning"),
+    "evolution": ("model_design", "datatype_precision", "training_evaluation", "datatype", "model", "optimizer", "tuning"),
+    "fusion": ("model_design", "datatype_precision", "datatype", "model"),
+    "aggregation": ("model_design", "datatype_precision", "training_evaluation", "datatype", "model", "tuning"),
+    "code_review": ("datatype_precision", "training_evaluation", "optimizer", "tuning"),
+}
 
 _STAGE_NODE_FIELD_LIMITS: dict[str, tuple[tuple[str, int], ...]] = {
     "model_design": (
@@ -318,6 +382,7 @@ class HardwarePromptContext:
     candidate: dict[str, Any] = field(default_factory=dict)
     raw_context: dict[str, Any] | None = None
     compact_context: dict[str, Any] = field(default_factory=dict)
+    filtered_context: dict[str, Any] = field(default_factory=dict)
     prompt_section: str = ""
 
     @property
@@ -396,12 +461,20 @@ def get_hardware_design_brief(agent: Any) -> HardwarePromptContext:
             logger.debug("Hardware feature detail lookup failed: %s", exc)
 
     compact = compact_model_design_context(raw_context)
+    precision_policy = _precision_policy_for_context(agent, compact)
+    compact["precision_policy"] = precision_policy.to_dict()
+    filtered = filter_hardware_context_for_agent(
+        compact,
+        stage="draft",
+        precision_policy=precision_policy,
+    )
     max_chars = _safe_int(getattr(agent.acfg, "hardware_context_max_prompt_chars", 3500), default=3500)
-    prompt_section = format_hardware_design_brief(compact, max_chars=max_chars)
+    prompt_section = format_hardware_design_brief(filtered, max_chars=max_chars)
     return HardwarePromptContext(
         candidate=candidate,
         raw_context=raw_context,
         compact_context=compact,
+        filtered_context=filtered,
         prompt_section=prompt_section,
     )
 
@@ -444,12 +517,20 @@ def get_hardware_context_for_stage(
         return HardwarePromptContext(candidate=candidate)
 
     compact = compact_optimization_context(raw_context)
+    precision_policy = _precision_policy_for_context(agent, compact)
+    compact["precision_policy"] = precision_policy.to_dict()
+    filtered = filter_hardware_context_for_agent(
+        compact,
+        stage=stage,
+        precision_policy=precision_policy,
+    )
     max_chars = _safe_int(getattr(agent.acfg, "hardware_context_max_prompt_chars", 3500), default=3500)
-    prompt_section = format_hardware_prompt_section_for_stage(compact, stage=stage, max_chars=max_chars)
+    prompt_section = format_hardware_prompt_section_for_stage(filtered, stage=stage, max_chars=max_chars)
     return HardwarePromptContext(
         candidate=candidate,
         raw_context=raw_context,
         compact_context=compact,
+        filtered_context=filtered,
         prompt_section=prompt_section,
     )
 
@@ -601,7 +682,7 @@ def _join_prompt_sections(sections: tuple[str, ...], *, max_chars: int) -> str:
     text = "\n".join(section.strip() for section in sections if section and section.strip()).strip()
     if not text:
         return ""
-    return text + "\n"
+    return _render_prompt_lines(text.splitlines(), max_chars=max_chars)
 
 
 def _format_stage_specific_hardware_features(
@@ -617,8 +698,7 @@ def _format_stage_specific_hardware_features(
     lines = _format_stage_hardware_features(stage_context)
     if not lines:
         return ""
-    text = "\n".join([HARDWARE_CONTEXT_HEADING, *lines]).strip()
-    return text + "\n"
+    return _render_prompt_lines([HARDWARE_CONTEXT_HEADING, *lines], max_chars=max_chars)
 
 
 def _filter_stage_hardware_features(
@@ -801,6 +881,9 @@ def build_hardware_candidate(
             "task_type": workload_type,
             "workload_type": workload_type,
             "framework": candidate.get("framework") or "pytorch",
+            "precision_optimization_mode": str(
+                getattr(getattr(agent, "acfg", None), "precision_optimization_mode", "normal")
+            ),
         }
     )
 
@@ -862,6 +945,356 @@ def compact_optimization_context(raw_context: dict[str, Any] | None) -> dict[str
         "confidence": round(float(raw_context.get("confidence") or 0.0), 3),
     }
     return compact
+
+
+def filter_hardware_context_for_agent(
+    compact: dict[str, Any],
+    *,
+    stage: str,
+    precision_policy: PrecisionPolicy,
+) -> dict[str, Any]:
+    """Create the bounded hardware view shown to one large workflow agent.
+
+    The complete compact context remains untouched for node telemetry and the
+    existing stepwise coding agents.
+    """
+    role = str(stage or "").strip().lower().replace("-", "_")
+    limits = _ROLE_CONTEXT_LIMITS.get(role)
+    if limits is None:
+        filtered = copy.deepcopy(compact)
+        filtered["precision_policy"] = precision_policy.to_dict()
+        filtered["stage_hardware_features"] = _filter_precision_stage_features(
+            filtered.get("stage_hardware_features") or {}, precision_policy
+        )
+        return filtered
+
+    filtered: dict[str, Any] = {
+        "agent_hardware_role": role,
+        "hardware_context": copy.deepcopy(compact.get("hardware_context") or {}),
+        "precision_policy": precision_policy.to_dict(),
+        "confidence": compact.get("confidence", 0.0),
+        "evidence_refs": list(compact.get("evidence_refs") or [])[:4],
+    }
+
+    if compact.get("workload_type"):
+        filtered["workload_type"] = compact.get("workload_type")
+    if role == "draft":
+        filtered["model_options"] = copy.deepcopy(list(compact.get("model_options") or [])[:3])
+        filtered["hardware_feature_index"] = _bounded_hardware_feature_index(
+            compact.get("hardware_feature_index") or {}, limit=12
+        )
+        filtered["selected_hardware_features"] = _strip_feature_examples(
+            list(compact.get("selected_hardware_features") or [])[:4]
+        )
+
+    graph = compact.get("graph_evidence") or {}
+    exact = list(graph.get("exact_profiles") or [])
+    similar = list(graph.get("similar_profiles") or [])
+    if role == "debug":
+        exact = [profile for profile in exact if not _profile_succeeded(profile)]
+        similar = [profile for profile in similar if _profile_succeeded(profile)]
+    elif role in {"draft", "evolution", "aggregation"}:
+        exact = [profile for profile in exact if _profile_succeeded(profile)]
+        similar = [profile for profile in similar if _profile_succeeded(profile)]
+    if role == "aggregation":
+        exact = exact[: min(2, limits["exact"])]
+        similar = similar[: max(0, 4 - len(exact))]
+    filtered["graph_evidence"] = {
+        "exact_profiles": copy.deepcopy(exact[: limits["exact"]]),
+        "similar_profiles": copy.deepcopy(similar[: limits["similar"]]),
+        "packed_profiles": copy.deepcopy(
+            list(graph.get("packed_profiles") or [])[: limits["packed"]]
+            if _packing_is_relevant(compact, role)
+            else []
+        ),
+    }
+
+    diagnosis = copy.deepcopy(compact.get("derived_diagnosis") or {})
+    if role == "draft":
+        diagnosis = {}
+    filtered["derived_diagnosis"] = diagnosis
+
+    stage_context = _filter_stage_hardware_features(
+        compact.get("stage_hardware_features") or {},
+        _ROLE_STAGE_FILTERS[role],
+    )
+    diagnosis_keywords = _diagnosis_relevance_keywords(diagnosis)
+    if role in {"improve", "evolution"} and diagnosis_keywords:
+        stage_context = _filter_stage_hardware_features(
+            stage_context,
+            _stages_for_diagnosis(diagnosis_keywords),
+        )
+    stage_context = _filter_precision_stage_features(stage_context, precision_policy)
+    if role not in {"improve", "debug"}:
+        stage_context = _strip_stage_feature_examples(stage_context, keep_avoid=role == "code_review")
+    filtered["stage_hardware_features"] = stage_context
+
+    recommendations = list(compact.get("recommendations") or [])
+    risks = list(compact.get("risk_flags") or [])
+    include_keywords: tuple[str, ...] = ()
+    if role == "debug":
+        include_keywords = tuple(dict.fromkeys((*_DEBUG_CONTEXT_KEYWORDS, *diagnosis_keywords)))
+    elif role == "fusion":
+        include_keywords = _FUSION_CONTEXT_KEYWORDS
+    elif role == "aggregation":
+        include_keywords = _AGGREGATION_CONTEXT_KEYWORDS
+    elif role in {"improve", "evolution"}:
+        include_keywords = diagnosis_keywords
+    if include_keywords:
+        recommendations = _filter_string_list(
+            recommendations,
+            include_keywords=include_keywords,
+            exclude_keywords=(),
+            limit=limits["recommendations"],
+        )
+        risks = _filter_string_list(
+            risks,
+            include_keywords=include_keywords,
+            exclude_keywords=(),
+            limit=limits["risks"],
+        )
+    filtered["recommendations"] = _filter_precision_recommendations(
+        recommendations[: limits["recommendations"]], precision_policy
+    )
+    filtered["risk_flags"] = risks[: limits["risks"]]
+    filtered["vector_evidence"] = _filter_vector_evidence_for_role(
+        compact.get("vector_evidence") or {},
+        role=role,
+        precision_policy=precision_policy,
+        relevance_keywords=include_keywords,
+    )
+
+    return {
+        key: value
+        for key, value in filtered.items()
+        if value not in (None, "", [], {}) or key in {"confidence", "precision_policy"}
+    }
+
+
+def _precision_policy_for_context(agent: Any, compact: dict[str, Any]) -> PrecisionPolicy:
+    hardware_context = dict(compact.get("hardware_context") or {})
+    hardware = dict(hardware_context.get("hardware") or {})
+    stage_hardware = dict((compact.get("stage_hardware_features") or {}).get("hardware") or {})
+    hardware = {**hardware, **stage_hardware}
+    feature_ids = list((compact.get("stage_hardware_features") or {}).get("feature_ids") or [])
+    mode = getattr(getattr(agent, "acfg", None), "precision_optimization_mode", "normal")
+    return resolve_precision_policy(hardware, mode=mode, datatypes=feature_ids)
+
+
+def _filter_precision_stage_features(
+    stage_context: dict[str, Any], policy: PrecisionPolicy
+) -> dict[str, Any]:
+    if not stage_context:
+        return {}
+    result = copy.deepcopy(stage_context)
+    stages: list[dict[str, Any]] = []
+    merged_feature_ids: list[str] = []
+    for raw_stage in list(result.get("stages") or []):
+        stage = copy.deepcopy(raw_stage)
+        stage_name = str(stage.get("stage") or "").strip().lower()
+        if stage_name not in {"datatype_precision", "tuning"}:
+            stages.append(stage)
+            for feature in stage.get("features") or []:
+                feature_id = str(feature.get("feature_id") or "")
+                if feature_id and feature_id not in merged_feature_ids:
+                    merged_feature_ids.append(feature_id)
+            continue
+
+        kept_features: list[dict[str, Any]] = []
+        for feature in list(stage.get("features") or []):
+            if str(feature.get("category") or "").lower() != "precision":
+                kept_features.append(feature)
+                continue
+            feature_id = str(feature.get("feature_id") or "")
+            visibility = precision_feature_visibility(feature_id, policy)
+            if visibility == "hidden":
+                continue
+            item = dict(feature)
+            item["prompt_visibility"] = visibility
+            item["recommended"] = visibility == "recommendation"
+            if visibility == "permitted":
+                item["notes"] = (
+                    "Allowed only in aggressive mode after backend, model, shape, speed, "
+                    "and accuracy validation; do not recommend automatically."
+                )
+            if visibility == "integer_indicator":
+                item["notes"] = "Hardware capability indicator only; not a general training recommendation."
+                item.pop("example_code", None)
+                item.pop("recommended_patterns", None)
+            kept_features.append(item)
+        stage["features"] = kept_features
+        stage["shown_feature_count"] = len(kept_features)
+        node = dict(stage.get("node") or {})
+        for key in (
+            "stage_feature_keys",
+            "recommended_feature_keys",
+            "not_recommended_feature_keys",
+            "conditional_feature_keys",
+        ):
+            if key not in node:
+                continue
+            node[key] = [
+                entry
+                for entry in list(node.get(key) or [])
+                if precision_feature_visibility(_feature_key_from_pair(entry), policy) != "hidden"
+            ]
+        stage["node"] = node
+        stages.append(stage)
+        for feature in kept_features:
+            feature_id = str(feature.get("feature_id") or "")
+            if feature_id and feature_id not in merged_feature_ids:
+                merged_feature_ids.append(feature_id)
+    result["stages"] = stages
+    result["feature_ids"] = merged_feature_ids
+    result["feature_count"] = sum(len(stage.get("features") or []) for stage in stages)
+    return result
+
+
+def _filter_vector_evidence_for_role(
+    vector: dict[str, Any],
+    *,
+    role: str,
+    precision_policy: PrecisionPolicy,
+    relevance_keywords: tuple[str, ...] = (),
+) -> dict[str, list[dict[str, Any]]]:
+    limits = {
+        "draft": (0, 0, 0),
+        "improve": (2, 1, 2),
+        "debug": (2, 2, 2),
+        "evolution": (3, 2, 0),
+        "fusion": (1, 2, 0),
+        "aggregation": (0, 0, 0),
+        "code_review": (0, 1, 2),
+    }.get(role, (2, 2, 2))
+    result: dict[str, list[dict[str, Any]]] = {}
+    for group_name, limit in zip(("recipes", "docs", "api_symbols"), limits):
+        if limit <= 0:
+            continue
+        entries: list[dict[str, Any]] = []
+        for entry in list(vector.get(group_name) or []):
+            if not _precision_evidence_allowed(entry, precision_policy):
+                continue
+            if relevance_keywords and role in {"improve", "debug", "evolution", "fusion"}:
+                text = _evidence_entry_text(entry).lower()
+                if not any(keyword in text for keyword in relevance_keywords):
+                    continue
+            item = copy.deepcopy(entry)
+            if role not in {"improve", "debug"}:
+                item.pop("sample_code", None)
+                item.pop("example_code", None)
+            if role == "code_review":
+                item.pop("recommended_patterns", None)
+            entries.append(item)
+            if len(entries) >= limit:
+                break
+        if entries:
+            result[group_name] = entries
+    return result
+
+
+def _precision_evidence_allowed(entry: dict[str, Any], policy: PrecisionPolicy) -> bool:
+    text = _evidence_entry_text(entry).lower().replace("-", "_")
+    disallowed = {
+        "fp8": "fp8_te",
+        "mxfp8": "mxfp8_te",
+        "nvfp4": "nvfp4_te",
+    }
+    if "fp6" in text or ("fp4" in text and "nvfp4" not in text):
+        return False
+    return all(token not in text or required in policy.allowed_policies for token, required in disallowed.items())
+
+
+def _filter_precision_recommendations(
+    recommendations: list[str], policy: PrecisionPolicy
+) -> list[str]:
+    return [
+        item
+        for item in recommendations
+        if _precision_evidence_allowed({"summary_text": item}, policy)
+    ]
+
+
+def _bounded_hardware_feature_index(index: dict[str, Any], *, limit: int) -> dict[str, Any]:
+    result = copy.deepcopy(index)
+    result["features"] = list(result.get("features") or [])[:limit]
+    return result
+
+
+def _strip_feature_examples(features: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result = copy.deepcopy(features)
+    for feature in result:
+        feature.pop("sample_code", None)
+        feature.pop("example_code", None)
+    return result
+
+
+def _strip_stage_feature_examples(
+    stage_context: dict[str, Any], *, keep_avoid: bool = False
+) -> dict[str, Any]:
+    result = copy.deepcopy(stage_context)
+    for stage in result.get("stages") or []:
+        for feature in stage.get("features") or []:
+            feature.pop("example_code", None)
+            if not keep_avoid:
+                feature.pop("recommended_patterns", None)
+    return result
+
+
+def _prefer_profiles(profiles: list[dict[str, Any]], *, successful: bool) -> list[dict[str, Any]]:
+    preferred = [profile for profile in profiles if _profile_succeeded(profile) is successful]
+    remainder = [profile for profile in profiles if profile not in preferred]
+    return preferred + remainder
+
+
+def _profile_succeeded(profile: dict[str, Any]) -> bool:
+    status = str(profile.get("status") or "").lower()
+    return status in {"success", "succeeded", "completed", "valid", "ok"} and not profile.get("failure_reason")
+
+
+def _packing_is_relevant(compact: dict[str, Any], role: str) -> bool:
+    if role != "improve":
+        return False
+    diagnosis = compact.get("derived_diagnosis") or {}
+    text = " ".join(
+        str(item)
+        for item in list(diagnosis.get("profile_symptoms") or [])
+        + list(diagnosis.get("optimization_targets") or [])
+    ).lower()
+    return "pack" in text or "concurr" in text
+
+
+def _diagnosis_relevance_keywords(diagnosis: dict[str, Any]) -> tuple[str, ...]:
+    text = " ".join(
+        str(item)
+        for item in list(diagnosis.get("profile_symptoms") or [])
+        + list(diagnosis.get("optimization_targets") or [])
+    ).lower().replace("-", "_")
+    vocabulary = (
+        "precision", "dtype", "fp16", "bf16", "fp8", "tf32", "amp",
+        "optimizer", "learning rate", "scheduler", "batch", "memory", "vram",
+        "oom", "timeout", "runtime", "throughput", "dataloader", "decode",
+        "data", "model", "architecture", "layer", "kernel", "attention",
+        "packing", "parallel", "backend",
+    )
+    return tuple(keyword for keyword in vocabulary if keyword in text)
+
+
+def _stages_for_diagnosis(keywords: tuple[str, ...]) -> tuple[str, ...]:
+    selected: list[str] = []
+    keyword_set = set(keywords)
+    if keyword_set & {"data", "decode", "dataloader", "model", "architecture", "layer", "kernel", "attention", "packing"}:
+        selected.extend(("model_design", "datatype", "model"))
+    if keyword_set & {"precision", "dtype", "fp16", "bf16", "fp8", "tf32", "amp"}:
+        selected.extend(("datatype_precision", "tuning"))
+    if keyword_set & {"optimizer", "learning rate", "scheduler", "batch", "memory", "vram", "oom", "timeout", "runtime", "throughput", "dataloader", "parallel", "backend"}:
+        selected.extend(("training_evaluation", "optimizer", "tuning"))
+    return tuple(dict.fromkeys(selected)) or _ROLE_STAGE_FILTERS["improve"]
+
+
+def _feature_key_from_pair(value: Any) -> str:
+    if isinstance(value, (list, tuple)) and value:
+        return str(value[0])
+    return str(value or "")
 
 
 def _select_hardware_feature_ids_for_design(
@@ -1034,6 +1467,7 @@ def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 35
             )
             if limit_bits:
                 lines.append(f"- Scheduler limits: {limit_bits}")
+    _append_precision_policy(lines, compact.get("precision_policy") or {})
     workload = compact.get("workload_type")
     if workload:
         lines.append(f"- Workload: {workload}")
@@ -1103,8 +1537,7 @@ def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 35
     )
     lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
     lines.append(f"- Budget guardrail: {HARDWARE_BUDGET_GUARDRAIL_RULE}")
-    text = "\n".join(lines).strip()
-    return text + "\n"
+    return _render_prompt_lines(lines, max_chars=max_chars)
 
 
 def format_hardware_prompt_section(compact: dict[str, Any], *, max_chars: int = 3500) -> str:
@@ -1138,6 +1571,7 @@ def format_hardware_prompt_section(compact: dict[str, Any], *, max_chars: int = 
             )
             if limit_bits:
                 lines.append(f"- Scheduler limits: {limit_bits}")
+    _append_precision_policy(lines, compact.get("precision_policy") or {})
 
     stage_hardware_lines = _format_stage_hardware_features(compact.get("stage_hardware_features") or {})
     if stage_hardware_lines:
@@ -1165,7 +1599,11 @@ def format_hardware_prompt_section(compact: dict[str, Any], *, max_chars: int = 
         lines.extend(graph_lines)
 
     vector_evidence = compact.get("vector_evidence") or {}
-    vector_lines = _format_evidence_group("Code knowledge", vector_evidence)
+    vector_lines = _format_evidence_group(
+        "Code knowledge",
+        vector_evidence,
+        include_examples=compact.get("agent_hardware_role") in {"improve", "debug"},
+    )
     if vector_lines:
         lines.extend(vector_lines)
 
@@ -1177,8 +1615,7 @@ def format_hardware_prompt_section(compact: dict[str, Any], *, max_chars: int = 
     lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
     lines.append(f"- Budget guardrail: {HARDWARE_BUDGET_GUARDRAIL_RULE}")
 
-    text = "\n".join(lines).strip()
-    return text + "\n"
+    return _render_prompt_lines(lines, max_chars=max_chars)
 
 
 def format_hardware_prompt_section_for_stage(
@@ -1202,6 +1639,7 @@ def format_hardware_datatype_prompt_section(compact: dict[str, Any], *, max_char
     lines = [HARDWARE_DATATYPE_HEADING]
     hardware = compact.get("hardware_context") or {}
     _append_hardware_summary(lines, hardware)
+    _append_precision_policy(lines, compact.get("precision_policy") or {})
 
     diagnosis = _filter_diagnosis(compact.get("derived_diagnosis") or {}, _PRECISION_KEYWORDS)
     symptoms = diagnosis.get("profile_symptoms") or []
@@ -1259,8 +1697,7 @@ def format_hardware_datatype_prompt_section(compact: dict[str, Any], *, max_char
     )
     lines.append(f"- Rule: {EVIDENCE_NOT_LAW_RULE}")
     lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
-    text = "\n".join(lines).strip()
-    return text + "\n"
+    return _render_prompt_lines(lines, max_chars=max_chars)
 
 
 def format_hardware_training_prompt_section(compact: dict[str, Any], *, max_chars: int = 3500) -> str:
@@ -1270,6 +1707,7 @@ def format_hardware_training_prompt_section(compact: dict[str, Any], *, max_char
     lines = [HARDWARE_TRAINING_HEADING]
     hardware = compact.get("hardware_context") or {}
     _append_hardware_summary(lines, hardware)
+    _append_precision_policy(lines, compact.get("precision_policy") or {})
 
     diagnosis = _filter_diagnosis(compact.get("derived_diagnosis") or {}, _TRAINING_HPARAM_KEYWORDS)
     symptoms = diagnosis.get("profile_symptoms") or []
@@ -1327,8 +1765,93 @@ def format_hardware_training_prompt_section(compact: dict[str, Any], *, max_char
     lines.append(f"- Rule: {EVIDENCE_NOT_LAW_RULE}")
     lines.append(f"- Constraint rule: {CONSTRAINT_PRECEDENCE_RULE}")
     lines.append(f"- Budget guardrail: {HARDWARE_BUDGET_GUARDRAIL_RULE}")
-    text = "\n".join(lines).strip()
-    return text + "\n"
+    return _render_prompt_lines(lines, max_chars=max_chars)
+
+
+def _append_precision_policy(lines: list[str], policy: dict[str, Any]) -> None:
+    if not policy:
+        return
+    lines.append(
+        "- Precision optimization mode: "
+        f"{policy.get('mode', 'normal')} on {policy.get('architecture', 'unknown')} "
+        f"(compute capability {policy.get('compute_capability') or 'unknown'})."
+    )
+    allowed = list(policy.get("allowed_policies") or [])
+    if allowed:
+        lines.append(f"- Allowed native training precision policies: {', '.join(allowed)}")
+    permitted = list(policy.get("permitted_features") or [])
+    recommended = list(policy.get("recommended_features") or [])
+    if permitted and permitted != recommended:
+        opt_in = [feature for feature in permitted if feature not in recommended]
+        if opt_in:
+            lines.append(
+                "- Aggressive opt-in formats (permitted, not automatically recommended): "
+                + ", ".join(opt_in)
+            )
+    indicators = list(policy.get("integer_capability_indicators") or [])
+    if indicators:
+        lines.append(
+            "- Integer capability indicators (not general training recommendations): "
+            + ", ".join(indicators)
+        )
+    lines.append(
+        "- Precision evidence rule: recommend only a native Tensor Core format with a supported "
+        "forward/backward training path; generic FP4 is not NVFP4 and FP6 is not an MLEvolve training policy."
+    )
+
+
+def _render_prompt_lines(lines: list[str], *, max_chars: int) -> str:
+    """Render complete lines within a hard character budget.
+
+    Policy and safety lines are retained before optional evidence.  This avoids
+    cutting JSON-like evidence or code fragments in the middle of a line.
+    """
+    budget = max(0, int(max_chars))
+    if budget == 0:
+        return ""
+    cleaned = [str(line).rstrip() for line in lines if str(line).strip()]
+    if not cleaned:
+        return ""
+    complete = "\n".join(cleaned).strip() + "\n"
+    if len(complete) <= budget:
+        return complete
+
+    mandatory_prefixes = (
+        "#",
+        "- Hardware:",
+        "- Precision optimization mode:",
+        "- Allowed native training precision policies:",
+        "- Integer capability indicators",
+        "- Precision evidence rule:",
+        "- Stage boundary:",
+        "- Allowed model adaptation:",
+        "- Out of scope for this stage:",
+        "- Precision boundary:",
+        "- Decision rule:",
+        "- Feature-detail rule:",
+        "- Rule:",
+        "- Constraint rule:",
+        "- Budget guardrail:",
+        "  - source=",
+        "  - model_design",
+        "  - datatype_precision",
+        "  - training_evaluation",
+        "    - filter_audit:",
+        "    - muon_optimizer:",
+    )
+    mandatory = [line for line in cleaned if line.startswith(mandatory_prefixes)]
+    optional = [line for line in cleaned if line not in mandatory]
+    ordered = list(dict.fromkeys(mandatory + optional))
+    selected: list[str] = []
+    used = 0
+    for line in ordered:
+        addition = len(line) + 1
+        if used + addition <= budget:
+            selected.append(line)
+            used += addition
+    if not selected:
+        return cleaned[0][: max(0, budget - 1)] + ("\n" if budget > 0 else "")
+    return "\n".join(selected).strip()[: max(0, budget - 1)] + "\n"
 
 
 def infer_workload_type(task_desc: Any, data_preview: str | None = None) -> str:
@@ -1442,7 +1965,19 @@ def _compact_hardware_context(context: dict[str, Any]) -> dict[str, Any]:
         "summary": _short(summary, 220),
         "hardware": _pick(
             hardware,
-            ("hardware_key", "gpu_name", "total_vram_mb", "compute_capability", "toolkit_name", "toolkit_version", "torch_version"),
+            (
+                "hardware_key",
+                "gpu_name",
+                "architecture",
+                "architectures",
+                "total_vram_mb",
+                "compute_capability",
+                "compute_capabilities",
+                "datatypes",
+                "toolkit_name",
+                "toolkit_version",
+                "torch_version",
+            ),
         ),
         "toolkit": _pick(toolkit, ("toolkit_name", "toolkit_version", "torch_version")),
         "backend_capabilities": _pick(
@@ -1557,7 +2092,10 @@ def _compact_stage_hardware_features(stage_context: dict[str, Any]) -> dict[str,
             if not feature:
                 continue
             feature_id = str(feature.get("feature_id") or feature.get("name") or "feature").strip()
-            if feature.get("recommended") is False:
+            if feature.get("recommended") is False and feature.get("prompt_visibility") not in {
+                "permitted",
+                "integer_indicator",
+            }:
                 if feature_id and feature_id not in omitted_not_recommended:
                     omitted_not_recommended.append(feature_id)
                 continue
@@ -1601,6 +2139,11 @@ def _compact_stage_hardware_feature(feature: dict[str, Any]) -> dict[str, Any]:
             "verified",
             "performance_impact",
             "recommendation_scope",
+            "prompt_visibility",
+            "native_tensor_core_evidence",
+            "training_backend",
+            "optimization_modes",
+            "model_shape_limitations",
             "limitations",
             "notes",
             "usage",
@@ -1749,8 +2292,12 @@ def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
                 "avoid_patterns",
             ),
         )
-        suffix = f"; {direct_bits}" if direct_bits else ""
-        lines.append(f"  - {stage_name}{suffix}")
+        if direct_bits and len(direct_bits) <= 1200:
+            lines.append(f"  - {stage_name}; {direct_bits}")
+        else:
+            lines.append(f"  - {stage_name}")
+        if direct_bits and len(direct_bits) > 1200:
+            lines.append(f"    - context: {direct_bits}")
         audit_bits: list[str] = []
         feature_count = stage.get("feature_count")
         shown_count = stage.get("shown_feature_count")
@@ -1806,7 +2353,12 @@ def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _format_evidence_group(label: str, groups: dict[str, Any]) -> list[str]:
+def _format_evidence_group(
+    label: str,
+    groups: dict[str, Any],
+    *,
+    include_examples: bool = False,
+) -> list[str]:
     lines: list[str] = []
     for group_name, entries in groups.items():
         entries = list(entries or [])
@@ -1819,6 +2371,9 @@ def _format_evidence_group(label: str, groups: dict[str, Any]) -> list[str]:
             details = _format_kv(entry, ("match_reason", "batch_size", "resolved_batch_size", "peak_vram_mb", "avg_sm_utilization_pct", "confidence"))
             suffix = f" ({details})" if details else ""
             lines.append(f"  - {group_name}: {_short(summary, 180)}{suffix}")
+            sample = (entry.get("sample_code") or entry.get("example_code")) if include_examples else None
+            if sample:
+                lines.append(f"    example: {_short(sample, 360)}")
     return lines
 
 

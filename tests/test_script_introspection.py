@@ -1,6 +1,12 @@
 from pathlib import Path
 
-from engine.script_introspection import analyze_training_batch_contract, introspect_training_script
+import pytest
+
+from engine.script_introspection import (
+    analyze_training_batch_contract,
+    detect_precision_mode,
+    introspect_training_script,
+)
 from localml_scheduler.adapters.mlevolve_runner import _materialize_instrumented_script
 
 
@@ -210,3 +216,45 @@ while batch_size >= MIN_PHYSICAL_BATCH_SIZE:
     assert [(site.argument, site.expression) for site in contract.train_sites] == [
         ("positional:1", "batch_size")
     ]
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ('PRECISION = "fp4"\n', "generic_fp4"),
+        ('PRECISION = "nvfp4"\n', "generic_fp4"),
+        ('PRECISION = "fp6"\n', "fp6"),
+        ("prepare_qat(model)\n", "int8_training"),
+        (
+            "import transformer_engine.pytorch as te\n"
+            "from transformer_engine.common.recipe import NVFP4BlockScaling\n"
+            "recipe = NVFP4BlockScaling()\n",
+            "nvfp4_te",
+        ),
+        (
+            "import transformer_engine.pytorch as te\n"
+            "from transformer_engine.common.recipe import MXFP8BlockScaling\n"
+            "recipe = MXFP8BlockScaling()\n",
+            "mxfp8_te",
+        ),
+        (
+            "import transformer_engine.pytorch as te\n"
+            "FP8_FORMAT = Format.E5M2\nwith te.fp8_autocast(enabled=True):\n    pass\n",
+            "fp8_e5m2_pure",
+        ),
+    ],
+)
+def test_precision_introspection_distinguishes_validated_training_paths(
+    code: str, expected: str
+) -> None:
+    assert detect_precision_mode(code) == expected
+
+
+def test_integer_labels_and_inference_quantization_are_not_int_training() -> None:
+    code = """
+labels = torch.tensor([0, 1], dtype=torch.int64)
+tokens = torch.tensor([1, 2], dtype=torch.int32)
+inference_model = torch.ao.quantization.quantize_dynamic(model, {nn.Linear}, dtype=torch.qint8)
+"""
+
+    assert detect_precision_mode(code) is None

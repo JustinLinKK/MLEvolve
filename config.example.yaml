@@ -215,6 +215,7 @@ agent:
   pipeline_decision_enabled: true
   hardware_context_limit: 8
   hardware_context_max_prompt_chars: 3500
+  precision_optimization_mode: normal
   review:
     enabled: true
     max_repair_rounds: 2

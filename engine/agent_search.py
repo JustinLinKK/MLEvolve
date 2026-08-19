@@ -330,6 +330,7 @@ class AgentSearch:
                             self.refresh_hardware_context(result_node)
                         else:
                             logger.info(f"Node {result_node.id} passed code review without changes")
+                    self._validate_node_precision_before_execution(result_node)
                     if result_node.review_status == "rejected":
                         if not execute_immediately:
                             result_node.pending_execution = True
@@ -408,6 +409,47 @@ class AgentSearch:
             _root = True
         return _root, result_node
 
+    def _validate_node_precision_before_execution(self, node: SearchNode) -> bool:
+        """Run the non-bypassable precision guard immediately before execution."""
+        try:
+            from agents.hardware_context import get_hardware_context_for_stage
+            from agents.precision_validation import validate_training_precision
+            from agents.review_contracts import append_review_issue
+
+            precision_context = get_hardware_context_for_stage(
+                self,
+                "code_review",
+                parent_node=getattr(node, "parent", None),
+                code=node.code,
+            )
+            precision_issues = validate_training_precision(
+                self,
+                node.code,
+                context=precision_context,
+            )
+            if not precision_issues:
+                return True
+            for issue in precision_issues:
+                append_review_issue(node, issue)
+            node.review_status = "rejected"
+            history = list(getattr(node, "review_history", None) or [])
+            history.append(
+                {
+                    "event": "pre_execution_precision_policy_rejected",
+                    "issues": [issue.to_dict() for issue in precision_issues],
+                }
+            )
+            node.review_history = history
+            return False
+        except Exception as exc:
+            logger.warning(
+                "Pre-execution precision validation failed for node %s; rejecting conservatively: %s",
+                node.id,
+                exc,
+            )
+            node.review_status = "rejected"
+            return False
+
     def step(
         self,
         node: SearchNode | None = None,
@@ -467,6 +509,8 @@ class AgentSearch:
         logger.info(f"Executing deferred node {node.id}")
         parent_node = node.parent
 
+        if node.review_status != "rejected":
+            self._validate_node_precision_before_execution(node)
         if node.review_status == "rejected":
             self._finalize_review_rejected_node(node)
             return node
@@ -559,6 +603,20 @@ class AgentSearch:
                 )
         except Exception as exc:
             logger.debug("Skipping hardware-aware pre-submit round review: %s", exc)
+
+        policy_rejected: list[SearchNode] = []
+        still_runnable: list[SearchNode] = []
+        for node in runnable_nodes:
+            if self._validate_node_precision_before_execution(node):
+                still_runnable.append(node)
+            else:
+                self._finalize_review_rejected_node(node)
+                policy_rejected.append(node)
+        executed_nodes.extend(policy_rejected)
+        runnable_nodes = still_runnable
+        if not runnable_nodes:
+            self.current_step = len(self.journal)
+            return executed_nodes
 
         from utils.pipeline_logging import record_pipeline_node_action
 
