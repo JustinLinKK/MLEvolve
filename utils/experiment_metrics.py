@@ -52,6 +52,7 @@ def build_comparison_metrics(
     vram_values = _vram_values(nodes, scheduler_events)
     backend_distribution = _backend_distribution(scheduler_jobs, scheduler_events)
     total_wall_time = max(0.0, float(finished_at) - float(started_at))
+    review_metrics = _review_metrics(nodes)
 
     return {
         "mode": mode,
@@ -89,6 +90,7 @@ def build_comparison_metrics(
         "peak_vram_mb": max(vram_values) if vram_values else None,
         "average_vram_mb": (sum(vram_values) / len(vram_values)) if vram_values else None,
         "scheduler_backend_distribution": dict(backend_distribution),
+        **review_metrics,
     }
 
 
@@ -97,6 +99,44 @@ def write_comparison_metrics(metrics: dict[str, Any], log_dir: str | Path) -> Pa
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(metrics, indent=2, sort_keys=True, default=str), encoding="utf-8")
     return path
+
+
+def _review_metrics(nodes: list[Any]) -> dict[str, Any]:
+    review_round_count = 0
+    repair_calls = 0
+    stages_skipped = 0
+    parallel_batches = 0
+    patch_conflicts = 0
+    latencies: list[float] = []
+    for node in nodes:
+        for entry in list(getattr(node, "review_history", None) or []):
+            event = entry.get("event")
+            if event == "review_decision":
+                review_round_count += 1
+            if event in {"review_decision", "review_unavailable", "review_unavailable_after_repair"}:
+                try:
+                    latencies.append(float(entry.get("latency_seconds") or 0.0))
+                except (TypeError, ValueError):
+                    pass
+            if event == "repair_round":
+                repair_calls += int(entry.get("stage_repair_calls") or len(entry.get("repairs") or []))
+                stages_skipped += int(entry.get("stage_calls_skipped") or 0)
+                parallel_batches += int(entry.get("parallel_batches") or 0)
+                patch_conflicts += int(entry.get("patch_conflicts") or 0)
+    rejected = sum(getattr(node, "review_status", None) == "rejected" for node in nodes)
+    fail_open = sum(getattr(node, "review_status", None) == "unavailable_fail_open" for node in nodes)
+    return {
+        "review_round_count": review_round_count,
+        "stage_repair_call_count": repair_calls,
+        "review_stage_calls_skipped_count": stages_skipped,
+        "parallel_repair_batch_count": parallel_batches,
+        "review_patch_conflict_count": patch_conflicts,
+        "review_rejection_count": rejected,
+        "review_fail_open_count": fail_open,
+        "reviewer_latency_seconds": sum(latencies),
+        "average_reviewer_latency_seconds": (sum(latencies) / len(latencies)) if latencies else None,
+        "gpu_executions_avoided": rejected,
+    }
 
 
 def _infer_metric_direction(nodes: list[Any], explicit: bool | None) -> bool:

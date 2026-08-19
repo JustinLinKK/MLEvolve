@@ -4,6 +4,7 @@ import logging
 
 from engine.search_node import SearchNode
 from utils.metric import WorstMetricValue
+from agents.review_contracts import ReviewIssue, append_review_issue
 
 logger = logging.getLogger("MLEvolve")
 
@@ -28,6 +29,17 @@ def validate_executed_node(agent, node: SearchNode):
     if not submission_path.exists():
         node.is_buggy = True
         node.metric = WorstMetricValue()
+        append_review_issue(
+            node,
+            ReviewIssue(
+                source="deterministic_validator",
+                severity="critical",
+                category="missing_submission",
+                owner="training_evaluation",
+                evidence="The required submission file was absent after execution.",
+                repair_instruction="Generate the required submission CSV from real test inference.",
+            ),
+        )
         logger.info(f"Node {node.id} did not produce a submission.csv")
         _log_validation(agent, node, "missing_submission")
         return
@@ -36,6 +48,17 @@ def validate_executed_node(agent, node: SearchNode):
         node.is_buggy = True
         node.metric = WorstMetricValue()
         node.analysis = _ZERO_METRIC_ANALYSIS
+        append_review_issue(
+            node,
+            ReviewIssue(
+                source="deterministic_validator",
+                severity="critical",
+                category="zero_metric",
+                owner="training_evaluation",
+                evidence="A maximize-direction validation metric was exactly 0.0.",
+                repair_instruction="Repair training, prediction, or metric computation so the model produces a meaningful score.",
+            ),
+        )
         logger.warning(
             f"Node {node.id} has metric=0.0 (maximize=True), marking as buggy for debugging."
         )

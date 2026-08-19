@@ -1,196 +1,221 @@
-"""Code Review Agent: LLM-based code review and fix for node code."""
+"""Stage-aware static review and selective repair workflow."""
+
+from __future__ import annotations
 
 import logging
 import time
-from typing import cast
+from typing import Any, cast
 
-from llm import FunctionSpec, query
-from engine.search_node import SearchNode
-from agents.hardware_context import (
-    get_hardware_context_for_stage,
-    hardware_context_instructions,
-)
-from agents.prompts.validation_template_prompts import get_code_review_prompt
+from agents.hardware_context import get_hardware_context_for_stage, hardware_context_instructions
 from agents.prompts import get_internet_clarification
-
-from agents.coder.diff_coder import SearchReplacePatcher
+from agents.prompts.validation_template_prompts import get_code_review_prompt
+from agents.review_contracts import ReviewDecision, ReviewOutcome
+from agents.stage_repair import is_hardware_aware, repair_selected_stages
+from engine.search_node import SearchNode
+from llm import FunctionSpec, query
 
 logger = logging.getLogger("MLEvolve")
+
+_ISSUE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "source": {"type": "string", "description": "Use 'static_review'."},
+        "severity": {"type": "string", "enum": ["warning", "critical"]},
+        "category": {"type": "string"},
+        "owner": {
+            "type": "string",
+            "enum": ["model_design", "datatype_precision", "training_evaluation", "integration", "unclassified"],
+        },
+        "evidence": {"type": "string"},
+        "repair_instruction": {"type": "string"},
+    },
+    "required": ["source", "severity", "category", "owner", "evidence", "repair_instruction"],
+}
 
 CODE_REVIEW_SPEC = FunctionSpec(
     name="submit_code_review",
     json_schema={
         "type": "object",
         "properties": {
-            "needs_revision": {
-                "type": "boolean",
-                "description": (
-                    "true if the code has issues that must be fixed "
-                    "(metric mismatch, data leakage, or missing packages), "
-                    "false if the code is correct."
-                )
-            },
-            "reasoning": {
-                "type": "string",
-                "description": (
-                    "CONCISE explanation in EXACTLY 2-4 sentences. Explain: "
-                    "(1) what issues were found, (2) why they matter, (3) what will be fixed. "
-                    "DO NOT write detailed analysis or step-by-step checks - keep it brief."
-                )
-            },
-            "revised_code": {
-                "type": "string",
-                "description": (
-                    "ONLY if needs_revision=true: Provide targeted fixes using SEARCH/REPLACE diff format.\n\n"
-                    "**REQUIRED FORMAT** (use this for each fix):\n"
-                    "<<<<<<< SEARCH\n"
-                    "[exact code to find - copy verbatim with exact indentation]\n"
-                    "=======\n"
-                    "[corrected code]\n"
-                    ">>>>>>> REPLACE\n\n"
-                    "**CRITICAL**: \n"
-                    "- SEARCH block must match original code EXACTLY (character-by-character, including all spaces/tabs)\n"
-                    "- Only include the specific buggy lines that need fixing\n"
-                    "- Can provide multiple SEARCH/REPLACE blocks for different bugs\n"
-                    "- Do NOT output complete code - only diff blocks\n"
-                    "- Do NOT wrap output in markdown code fences (``` or ```python) - output raw diff only\n\n"
-                    "If needs_revision=false: MUST be null (DO NOT output code)."
-                )
-            }
+            "approved": {"type": "boolean", "description": "True only when there are no critical issues."},
+            "reasoning": {"type": "string", "description": "A concise 2-4 sentence classification summary."},
+            "issues": {"type": "array", "items": _ISSUE_SCHEMA},
         },
-        "required": ["needs_revision", "reasoning"]
+        "required": ["approved", "reasoning", "issues"],
     },
-    description="Submit code review for search node solution."
+    description="Classify stage-owned issues in a complete generated ML script.",
 )
 
 
-def run(agent, node: SearchNode) -> str:
-    logger.debug(f"[review] node {node.id}")
+def _review_config(agent: Any) -> Any:
+    return getattr(getattr(agent, "acfg", None), "review", None)
 
-    prompt = get_code_review_prompt(
-        task_desc=agent.task_desc,
-        code=node.code,
-    )
+
+def _event(agent: Any, node: SearchNode, event_type: str, payload: dict[str, Any]) -> None:
+    try:
+        from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
+
+        log_pipeline_event(agent, event_type, node=node, payload=payload)
+        record_pipeline_node_action(agent, node, event_type, payload=payload)
+    except Exception:
+        pass
+
+
+def _build_review_prompt(agent: Any, node: SearchNode, code: str) -> tuple[dict[str, Any], bool]:
+    prompt = get_code_review_prompt(task_desc=agent.task_desc, code=code)
     hardware_ctx = get_hardware_context_for_stage(
-        agent,
-        "code_review",
-        parent_node=getattr(node, "parent", None),
-        code=node.code,
+        agent, "code_review", parent_node=getattr(node, "parent", None), code=code
     )
     hardware_section = hardware_ctx.prompt_section
     if hardware_section:
-        prompt_instructions = prompt.pop("Instructions")
+        instructions = prompt.pop("Instructions")
         prompt["Hardware/Profile Optimization Context"] = hardware_section
-        prompt["Instructions"] = prompt_instructions
+        prompt["Instructions"] = instructions
         prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
         prompt["Instructions"]["Hardware-aware review guidance"] = [
-            "Review concrete hardware-critical issues only when the provided profile evidence is strong.",
-            "Examples: obvious OOM/timeout risk from an oversized fixed batch size, missing fallback around known risky settings, or ignoring a high-confidence precision/dataloader recommendation.",
-            "Preserve the existing solution approach and model/backbone. Do not redesign the model to satisfy hardware guidance.",
+            "Flag hardware-critical issues only when the supplied profile evidence is strong.",
+            "Preserve the chosen model/backbone and classify the narrow owning stage.",
         ]
     internet_clarification = get_internet_clarification(getattr(agent.cfg, "pretrain_model_dir", ""))
-    if "Instructions" not in prompt:
-        prompt["Instructions"] = {}
+    prompt.setdefault("Instructions", {})
     if "Implementation guideline" in prompt["Instructions"]:
         prompt["Instructions"]["Implementation guideline"].extend(internet_clarification)
     else:
         prompt["Instructions"]["⚠️ Internet Access Clarification"] = internet_clarification
+    return prompt, bool(hardware_section)
 
-    use_diff_for_review = agent.acfg.use_diff_mode
-    max_retries = 3
 
-    for attempt in range(max_retries):
+def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecision | None, dict[str, Any]]:
+    """Return a validated decision, or None when the reviewer stays unavailable/invalid."""
+    prompt, hardware_context_used = _build_review_prompt(agent, node, code)
+    retries = max(1, int(getattr(_review_config(agent), "classifier_retries", 3)))
+    started = time.monotonic()
+    last_error = "reviewer unavailable"
+    for attempt in range(retries):
         try:
-            if attempt > 0:
-                logger.info(f"Code review retry attempt {attempt + 1}/{max_retries} for node {node.id}")
-                time.sleep(5)
-
-            review_response = cast(
-                dict,
+            response = cast(
+                dict[str, Any],
                 query(
                     system_message=prompt,
                     user_message=None,
                     func_spec=CODE_REVIEW_SPEC,
                     model=agent.acfg.code.model,
                     temperature=agent.acfg.code.temp,
-                    cfg=agent.cfg
+                    cfg=agent.cfg,
                 ),
             )
-
-            needs_revision = review_response.get("needs_revision", False)
-            reasoning = review_response.get("reasoning", "")
-            revised_code = review_response.get("revised_code")
-            logger.info(f"Code review for node {node.id}: needs_revision={needs_revision}")
-            logger.info(f"Reasoning: {reasoning}", extra={"verbose": True})
-            try:
-                from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
-
-                payload = {
-                    "attempt": attempt + 1,
-                    "needs_revision": bool(needs_revision),
-                    "reasoning": reasoning,
-                    "hardware_context_used": bool(hardware_section),
-                    "revised_code_chars": len(revised_code or ""),
-                }
-                log_pipeline_event(agent, "code_review_completed", node=node, payload=payload)
-                record_pipeline_node_action(agent, node, "code_review_completed", payload=payload)
-            except Exception:
-                pass
-
-            if needs_revision:
-                if revised_code and revised_code.strip():
-                    if use_diff_for_review and (
-                        "<<<<<<< SEARCH" in revised_code or "< SEARCH" in revised_code
-                        ):
-                        try:
-                            logger.info("Code review returned diff format, applying patch")
-                            patcher = SearchReplacePatcher()
-                            patched_code, count = patcher.apply_patch(
-                                revised_code, node.code, strict=False
-                            )
-                            if count > 0 and patched_code and patched_code != node.code:
-                                logger.info(f"Successfully applied {count} review patch(es)")
-                                return patched_code.strip()
-                            logger.warning(
-                                f"Diff patch failed (count={count}), keeping original code to avoid writing raw diff to runfile"
-                            )
-                            return node.code
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to apply diff patch in code review: {e}, keeping original code to avoid writing raw diff to runfile"
-                            )
-                            return node.code
-                    else:
-                        # Full code revision (original behavior)
-                        if use_diff_for_review:
-                            return node.code
-                        else:
-                            logger.info("Using revised code from reviewer")
-                            return revised_code.strip()
-
-                if attempt < max_retries - 1:
-                    logger.warning(f"Code review violation: needs_revision=True but revised_code is empty/None - Will retry ({attempt + 1}/{max_retries})")
-                    logger.info(f"Reasoning detail: {reasoning}", extra={"verbose": True})
-                    continue
-                logger.error(f"Code review violation: needs_revision=True but revised_code is empty/None - Max retries reached, returning original code")
-                logger.info(f"Reasoning detail: {reasoning}", extra={"verbose": True})
-                return node.code
-
-            if revised_code is not None and revised_code.strip():
+            decision = ReviewDecision.from_mapping(response, hardware_aware=is_hardware_aware(agent))
+            return decision, {
+                "attempts": attempt + 1,
+                "latency_seconds": time.monotonic() - started,
+                "hardware_context_used": hardware_context_used,
+            }
+        except Exception as exc:
+            last_error = str(exc)
+            if attempt + 1 < retries:
                 logger.warning(
-                    "Code review warning: needs_revision=False but revised_code was provided. "
-                    "Ignoring revised_code and using original code."
+                    "Code review attempt %s/%s failed for node %s: %s",
+                    attempt + 1, retries, node.id, exc,
                 )
-            logger.info("Code approved, using original code")
-            return node.code
+    return None, {
+        "attempts": retries,
+        "latency_seconds": time.monotonic() - started,
+        "hardware_context_used": hardware_context_used,
+        "error": last_error,
+    }
 
-        except Exception as e:
-            error_msg = f"Code review failed with exception: {e}"
-            if attempt < max_retries - 1:
-                logger.warning(f"{error_msg} - Will retry (attempt {attempt + 1}/{max_retries})")
-                continue
-            logger.error(f"{error_msg} - Max retries reached, returning original code")
-            return node.code
 
-    logger.error("Code review: Unexpected exit from retry loop, returning original code")
-    return node.code
+def _store_outcome(node: SearchNode, outcome: ReviewOutcome) -> None:
+    node.review_status = outcome.status
+    node.review_issues = [issue.to_dict() for issue in outcome.unresolved_issues]
+    node.review_history = list(outcome.history)
+
+
+def review_and_repair(agent: Any, node: SearchNode) -> ReviewOutcome:
+    """Classify a script, selectively repair critical owners, and re-review it."""
+    review_cfg = _review_config(agent)
+    if review_cfg is not None and not bool(getattr(review_cfg, "enabled", True)):
+        outcome = ReviewOutcome(code=node.code, status="approved", history=({"event": "review_disabled"},))
+        _store_outcome(node, outcome)
+        return outcome
+
+    code = node.code
+    original_code = code
+    history: list[dict[str, Any]] = []
+    decision, metadata = classify_code(agent, node, code)
+    if decision is None:
+        fail_open = bool(getattr(review_cfg, "fail_open_on_unavailable", True))
+        status = "unavailable_fail_open" if fail_open else "rejected"
+        history.append({"event": "review_unavailable", **metadata})
+        outcome = ReviewOutcome(code=code, status=status, history=tuple(history))
+        _store_outcome(node, outcome)
+        _event(agent, node, "review_fail_open" if fail_open else "review_rejected", metadata)
+        return outcome
+
+    history.append({"event": "review_decision", "round": 0, **metadata, **decision.to_dict()})
+    _event(
+        agent, node, "review_round_completed",
+        {"round": 0, **metadata, "approved": decision.approved, "issue_count": len(decision.issues)},
+    )
+
+    max_rounds = max(0, int(getattr(review_cfg, "max_repair_rounds", 2)))
+    repair_round = 0
+    while decision.critical_issues and repair_round < max_rounds:
+        repair_round += 1
+        known_critical = decision.critical_issues
+        code, results, stats = repair_selected_stages(agent, node, code, known_critical)
+        repair_entry = {
+            "event": "repair_round",
+            "round": repair_round,
+            "repairs": [result.to_dict() for result in results],
+            **stats,
+        }
+        history.append(repair_entry)
+        _event(agent, node, "review_repair_round_completed", repair_entry)
+        decision, metadata = classify_code(agent, node, code)
+        if decision is None:
+            history.append({"event": "review_unavailable_after_repair", "round": repair_round, **metadata})
+            outcome = ReviewOutcome(
+                code=code,
+                status="rejected",
+                unresolved_issues=known_critical,
+                history=tuple(history),
+                changed=code != original_code,
+            )
+            _store_outcome(node, outcome)
+            _event(agent, node, "review_rejected", {"reason": "re-review unavailable", **metadata})
+            return outcome
+        history.append({"event": "review_decision", "round": repair_round, **metadata, **decision.to_dict()})
+        _event(
+            agent, node, "review_round_completed",
+            {"round": repair_round, **metadata, "approved": decision.approved, "issue_count": len(decision.issues)},
+        )
+
+    unresolved = decision.critical_issues
+    if unresolved and bool(getattr(review_cfg, "reject_unresolved_critical", True)):
+        status = "rejected"
+    else:
+        status = "repaired" if code != original_code else "approved"
+    outcome = ReviewOutcome(
+        code=code,
+        status=status,
+        unresolved_issues=decision.issues,
+        history=tuple(history),
+        changed=code != original_code,
+    )
+    _store_outcome(node, outcome)
+    _event(
+        agent, node, "review_rejected" if status == "rejected" else "review_completed",
+        {
+            "status": status,
+            "repair_rounds": repair_round,
+            "unresolved_critical_count": len(unresolved),
+            "changed": outcome.changed,
+        },
+    )
+    return outcome
+
+
+def run(agent: Any, node: SearchNode) -> str:
+    """Compatibility wrapper for callers that still expect a code string."""
+    return review_and_repair(agent, node).code

@@ -10,8 +10,52 @@ from utils.response import wrap_code
 from engine.validation import call_validate, _validate_submission_with_retry, validate_submission_content_quality
 from agents import data_leakage_agent
 from agents.triggers import should_check_data_leakage
+from agents.review_contracts import ReviewIssue, append_review_issue, normalize_review_issues
 
 logger = logging.getLogger("MLEvolve")
+
+_RUNTIME_ISSUE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "source": {"type": "string", "description": "Use 'runtime'."},
+        "severity": {"type": "string", "enum": ["warning", "critical"]},
+        "category": {"type": "string"},
+        "owner": {
+            "type": "string",
+            "enum": ["model_design", "datatype_precision", "training_evaluation", "integration", "unclassified"],
+        },
+        "evidence": {"type": "string"},
+        "repair_instruction": {"type": "string"},
+    },
+    "required": ["source", "severity", "category", "owner", "evidence", "repair_instruction"],
+}
+
+
+def _hardware_aware(agent) -> bool:
+    mode = str(getattr(getattr(agent.cfg, "experiment", None), "mode", "hardware_aware") or "hardware_aware")
+    return mode.strip().lower().replace("-", "_") not in {"origin", "baseline"}
+
+
+def _append_runtime_issue(
+    node: SearchNode,
+    *,
+    category: str,
+    owner: str,
+    evidence: str,
+    repair_instruction: str,
+    severity: str = "critical",
+) -> None:
+    append_review_issue(
+        node,
+        ReviewIssue(
+            source="runtime_validator",
+            severity=severity,
+            category=category,
+            owner=owner,
+            evidence=evidence,
+            repair_instruction=repair_instruction,
+        ),
+    )
 
 metric_direction_func_spec = FunctionSpec(
     name="determine_metric_direction",
@@ -154,15 +198,20 @@ def get_review_func_spec(use_memory: bool) -> FunctionSpec:
                            "Focus on observations only — do not include suggestions for improvement.",
         },
         "metric": {
-            "type": "number",
+            "type": ["number", "null"],
             "description": "If the code ran successfully, report the value of the validation metric. Otherwise, leave it null.",
         },
         "lower_is_better": {
             "type": "boolean",
             "description": "true if the metric should be minimized (i.e. a lower metric value is better, such as with MSE), false if the metric should be maximized (i.e. a higher metric value is better, such as with accuracy).",
         },
+        "issues": {
+            "type": "array",
+            "items": _RUNTIME_ISSUE_SCHEMA,
+            "description": "Stage-owned execution issues. Return [] when execution succeeded without issues.",
+        },
     }
-    required = ["is_bug", "summary", "metric", "lower_is_better"]
+    required = ["is_bug", "summary", "metric", "lower_is_better", "issues"]
     if use_memory:
         properties["code_summary"] = {
             "type": "string",
@@ -187,6 +236,8 @@ def _build_introduction(agent) -> str:
         "- \"summary\": (string) A concise 2-3 sentence summary of the execution outcome.\n"
         "- \"metric\": (number or null) The validation metric value as a raw JSON number (e.g. 0.9995), NOT a string. If failed, use null.\n"
         "- \"lower_is_better\": (boolean) true if the metric should be minimized, false if maximized. Must be a JSON boolean (true/false), NOT a string.\n"
+        "- \"issues\": (array) Stage-owned issues with source, severity, category, owner, evidence, and repair_instruction. Use [] on success.\n"
+        "  Optimizer/scheduler/batch/training-loop/metric/submission issues belong to training_evaluation; cross-stage interface failures belong to integration.\n"
     )
     if use_memory:
         intro += (
@@ -228,12 +279,28 @@ def _determine_buggy(node: SearchNode, response: dict, has_csv_submission: bool)
     failure_reasons = []
     if response["is_bug"]:
         failure_reasons.append("execution error detected")
+    if any(issue.get("severity") == "critical" for issue in (node.review_issues or [])):
+        failure_reasons.append("critical runtime issue classified")
     if node.exc_type is not None:
         failure_reasons.append(f"exception raised: {node.exc_type}")
     if response["metric"] is None:
         failure_reasons.append("no metric value reported")
+        _append_runtime_issue(
+            node,
+            category="missing_metric",
+            owner="training_evaluation",
+            evidence="Execution output did not contain a usable validation metric.",
+            repair_instruction="Compute the exact task metric and print it in the required final score format.",
+        )
     if not has_csv_submission:
         failure_reasons.append("submission file not found")
+        _append_runtime_issue(
+            node,
+            category="missing_submission",
+            owner="training_evaluation",
+            evidence="Execution did not create the required submission CSV.",
+            repair_instruction="Generate ./submission/submission.csv from real test inference using the required columns.",
+        )
 
     node.is_buggy = len(failure_reasons) > 0
     if node.is_buggy:
@@ -259,6 +326,13 @@ def _validate_format_with_retry(agent, node: SearchNode):
             node.is_buggy = True
             node._term_out.append(f"\n{res['result']}")
             node.analysis = f"FORMAT_ERROR: Execution succeeded but submission file failed format validation.\n\nDetails:\n{res['result']}"
+            _append_runtime_issue(
+                node,
+                category="invalid_submission",
+                owner="training_evaluation",
+                evidence=str(res["result"]),
+                repair_instruction="Match the sample submission columns, row count, order, and output path exactly.",
+            )
         else:
             _check_content_quality(agent, node, submission_path)
     else:
@@ -289,6 +363,13 @@ def _validate_format_simple(agent, node: SearchNode):
             node.is_buggy = True
             node._term_out.append(f"\n{res['result']}")
             node.analysis = f"FORMAT_ERROR: Execution succeeded but submission file failed format validation.\n\nDetails:\n{res['result']}"
+            _append_runtime_issue(
+                node,
+                category="invalid_submission",
+                owner="training_evaluation",
+                evidence=str(res["result"]),
+                repair_instruction="Match the sample submission columns, row count, order, and output path exactly.",
+            )
         else:
             _check_content_quality(agent, node, submission_path)
     else:
@@ -327,6 +408,13 @@ def _mark_content_quality_failure(node: SearchNode, content_error):
     )
     node._term_out.append(f"\n{error_message}")
     node.analysis = f"CONTENT_QUALITY_ERROR: This previous solution runs without bugs and has correct format, but failed content quality check.\n\nDetails:\n{content_error}"
+    _append_runtime_issue(
+        node,
+        category="submission_content",
+        owner="training_evaluation",
+        evidence=str(content_error),
+        repair_instruction="Produce non-placeholder predictions through the trained model's real test inference path.",
+    )
 
 
 def _validate_metric_direction(agent, node: SearchNode, response: dict):
@@ -346,6 +434,16 @@ def _validate_metric_direction(agent, node: SearchNode, response: dict):
             f"- Expected maximize={agent.metric_maximize}\n"
             f"- Pre-determination reasoning: {agent.metric_maximize_reasoning or 'N/A'}\n"
             f"This node is marked as buggy and will not be considered for best/top candidates."
+        )
+        _append_runtime_issue(
+            node,
+            category="metric_direction",
+            owner="training_evaluation",
+            evidence=(
+                f"Execution parser returned maximize={returned_maximize}, but the task contract expects "
+                f"maximize={agent.metric_maximize}."
+            ),
+            repair_instruction="Compute and report the task metric with the correct optimization direction.",
         )
     else:
         logger.info(f"Node {node.id} metric direction validated: maximize={agent.metric_maximize}")
@@ -381,6 +479,13 @@ def _check_data_leakage(agent, node: SearchNode, response: dict):
             f"3. Check that feature engineering only uses training data statistics\n"
             f"4. Verify data augmentation doesn't leak validation samples\n"
             f"5. Ensure proper temporal/group separation if applicable"
+        )
+        _append_runtime_issue(
+            node,
+            category="data_leakage",
+            owner="model_design",
+            evidence=str(leakage_result["reason"]),
+            repair_instruction="Fit preprocessing on training data only and restore dependency-aware validation splitting.",
         )
         logger.info(f"Updated node.analysis with leakage detection details for debugging")
     else:
@@ -436,6 +541,7 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
             response.setdefault("metric", None)
             response.setdefault("lower_is_better",
                                 not agent.metric_maximize if agent.metric_maximize is not None else False)
+            response.setdefault("issues", [])
 
             metric_val = response.get("metric")
             if not isinstance(metric_val, (int, float)):
@@ -453,6 +559,15 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
 
             node.analysis = response["summary"]
             _save_code_summary(agent, node, response)
+            try:
+                for issue in normalize_review_issues(
+                    response.get("issues") or [],
+                    default_source="runtime",
+                    hardware_aware=_hardware_aware(agent),
+                ):
+                    append_review_issue(node, issue)
+            except Exception as exc:
+                logger.warning("Ignoring malformed runtime issue classification for node %s: %s", node.id, exc)
             _determine_buggy(node, response, has_csv_submission)
 
             if not node.is_buggy:
@@ -460,6 +575,18 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
 
             if node.is_buggy:
                 node.metric = WorstMetricValue()
+                if not any(issue.get("severity") == "critical" for issue in node.review_issues):
+                    evidence = (
+                        f"{node.exc_type}: {node.exc_info}" if node.exc_type is not None
+                        else str(node.analysis or "Execution failed without a usable stage classification.")
+                    )
+                    _append_runtime_issue(
+                        node,
+                        category="runtime_failure",
+                        owner="unclassified",
+                        evidence=evidence,
+                        repair_instruction="Diagnose the complete script and repair the runtime failure.",
+                    )
             else:
                 _validate_metric_direction(agent, node, response)
                 _check_data_leakage(agent, node, response)
@@ -495,4 +622,11 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
     node.is_buggy = True
     node.metric = WorstMetricValue()
     node.analysis = "Execution result parsing failed after multiple attempts."
+    _append_runtime_issue(
+        node,
+        category="result_parser_failure",
+        owner="unclassified",
+        evidence=node.analysis,
+        repair_instruction="Use whole-script debugging because the runtime result could not be classified.",
+    )
     return node

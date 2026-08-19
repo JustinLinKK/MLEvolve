@@ -230,6 +230,14 @@ agent:
   pipeline_decision_enabled: true
   hardware_context_limit: 8
   hardware_context_max_prompt_chars: 3500
+  review:
+    enabled: true
+    max_repair_rounds: 2
+    classifier_retries: 3
+    repair_retries: 2
+    reject_unresolved_critical: true
+    fail_open_on_unavailable: true
+    parallel_training_repairs: true
   fusion_vs_evolution_prob: 0.3
   branch_fusion_trigger_prob: 1.0
   max_fusion_drafts: 2

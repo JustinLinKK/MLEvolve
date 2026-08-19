@@ -192,6 +192,45 @@ class AgentSearch:
                     self.branch_successful_nodes.pop(node.branch_id, None)
         node.lock = False
 
+    def _finalize_review_rejected_node(self, node: SearchNode) -> bool:
+        """Journal a statically rejected node without invoking an execution backend."""
+        parent_node = node.parent
+        critical = [
+            issue for issue in (node.review_issues or [])
+            if issue.get("severity") == "critical"
+        ]
+        summary = "; ".join(
+            f"{issue.get('owner', 'unclassified')}: {issue.get('evidence', 'critical review issue')}"
+            for issue in critical
+        ) or "Static review left unresolved critical issues."
+        node.analysis = f"Execution rejected by stage-aware review. {summary}"
+        node._term_out = [node.analysis]
+        node.exec_time = 0.0
+        node.metric = WorstMetricValue()
+        node.is_buggy = True
+        node.is_valid = False
+        node.finish_time = time.strftime("%Y-%m-%dT%H:%M:%S")
+        node.pending_execution = False
+
+        from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
+
+        payload = {
+            "reason": "unresolved critical review issues",
+            "critical_issue_count": len(critical),
+            "gpu_execution_avoided": True,
+        }
+        log_pipeline_event(self, "review_execution_avoided", node=node, payload=payload)
+        record_pipeline_node_action(self, node, "review_execution_avoided", payload=payload)
+
+        should_return_to_root = evaluation.check_improvement(self, node, parent_node)
+        if node.stage in ["draft", "fusion_draft"]:
+            node.lock = False
+        with self.journal_lock:
+            if node not in self.journal.nodes:
+                self.journal.append(node)
+        logger.info("Node %s rejected before execution and journaled as buggy", node.id)
+        return should_return_to_root
+
     def _serialize_prompt(self, prompt_complete) -> str | None:
         """Serialize prompt (str or dict) to string for saving in node."""
         if prompt_complete is None:
@@ -284,13 +323,22 @@ class AgentSearch:
                     if init_solution_path:
                         logger.info(f"Node {result_node.id} from init_solution, skipping code review")
                     else:
-                        reviewed_code = code_review_agent.run(self, result_node)
-                        if reviewed_code.strip() != result_node.code.strip():
+                        review_outcome = code_review_agent.review_and_repair(self, result_node)
+                        if review_outcome.code.strip() != result_node.code.strip():
                             logger.info(f"Node {result_node.id} code has been reviewed and modified")
-                            result_node.code = reviewed_code
+                            result_node.code = review_outcome.code
                             self.refresh_hardware_context(result_node)
                         else:
                             logger.info(f"Node {result_node.id} passed code review without changes")
+                    if result_node.review_status == "rejected":
+                        if not execute_immediately:
+                            result_node.pending_execution = True
+                            from utils.pipeline_logging import record_pipeline_node_action
+
+                            record_pipeline_node_action(self, result_node, "execution_deferred")
+                            return _root, result_node
+                        _root = self._finalize_review_rejected_node(result_node)
+                        return _root, result_node
                     try:
                         from engine.script_introspection import introspect_training_script
                         from localml_scheduler.adapters.mlevolve import build_model_family_profile_key, normalize_model_family
@@ -419,6 +467,10 @@ class AgentSearch:
         logger.info(f"Executing deferred node {node.id}")
         parent_node = node.parent
 
+        if node.review_status == "rejected":
+            self._finalize_review_rejected_node(node)
+            return node
+
         try:
             from utils.pipeline_logging import record_pipeline_node_action
 
@@ -477,9 +529,18 @@ class AgentSearch:
         exec_many_callback: ExecManyCallbackType,
     ) -> list[SearchNode]:
         """Execute a scheduler round of deferred nodes and append successful parses to the journal."""
-        runnable_nodes = [node for node in nodes if getattr(node, "pending_execution", False)]
-        if not runnable_nodes:
+        pending_nodes = [node for node in nodes if getattr(node, "pending_execution", False)]
+        if not pending_nodes:
             return []
+        rejected_nodes = [node for node in pending_nodes if node.review_status == "rejected"]
+        runnable_nodes = [node for node in pending_nodes if node.review_status != "rejected"]
+        executed_nodes: list[SearchNode] = []
+        for node in rejected_nodes:
+            self._finalize_review_rejected_node(node)
+            executed_nodes.append(node)
+        if not runnable_nodes:
+            self.current_step = len(self.journal)
+            return executed_nodes
 
         try:
             from agents.hardware_context import optimize_training_parameters_for_round
@@ -518,8 +579,6 @@ class AgentSearch:
                 for node in runnable_nodes
             ]
         )
-        executed_nodes: list[SearchNode] = []
-
         for node in runnable_nodes:
             parent_node = node.parent
             try:

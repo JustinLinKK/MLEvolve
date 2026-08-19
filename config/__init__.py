@@ -96,6 +96,18 @@ class SearchConfig:
     fusion_min_successful_nodes: int
     fusion_min_branches: int
 
+
+@dataclass
+class ReviewConfig:
+    enabled: bool = True
+    max_repair_rounds: int = 2
+    classifier_retries: int = 3
+    repair_retries: int = 2
+    reject_unresolved_critical: bool = True
+    fail_open_on_unavailable: bool = True
+    parallel_training_repairs: bool = True
+
+
 @dataclass
 class AgentConfig:
     steps: int
@@ -120,6 +132,9 @@ class AgentConfig:
     pipeline_decision_enabled: bool = True
     hardware_context_limit: int = 8
     hardware_context_max_prompt_chars: int = 3500
+    review: ReviewConfig = field(default_factory=ReviewConfig)
+
+
 @dataclass
 class ExecConfig:
     timeout: int | None

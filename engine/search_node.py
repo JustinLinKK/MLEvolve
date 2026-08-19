@@ -94,6 +94,11 @@ class SearchNode(DataClassJsonMixin):
     bug_report: Optional[str] = field(default=None, kw_only=True)
     fix_report: Optional[str] = field(default=None, kw_only=True)
 
+    # ---- stage-aware review ----
+    review_status: Optional[str] = field(default=None, kw_only=True)
+    review_issues: List[Dict[str, Any]] = field(default_factory=list, kw_only=True)
+    review_history: List[Dict[str, Any]] = field(default_factory=list, kw_only=True)
+
     def __post_init__(self) -> None:
         if self.parent is not None:
             self.parent.children.add(self)

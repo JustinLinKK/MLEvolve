@@ -24,6 +24,8 @@ from agents.prompts import (
 from agents.coder.diff_coder import SearchReplacePatcher, DIFF_SYS_FORMAT
 from agents.planner import build_chat_prompt_for_model
 from agents.triggers import register_node
+from agents.review_contracts import normalize_review_issues
+from agents.stage_repair import is_hardware_aware, repair_selected_stages
 
 logger = logging.getLogger("MLEvolve")
 
@@ -271,6 +273,81 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
     if not parent_node.add_expected_child_count(agent.scfg):
         logger.info(f"Debug child limit reached for node {parent_node.id}, skipping generation.")
         return None
+
+    # Runtime/static failures that already have a precise stage owner can reuse
+    # the selective repair workflow. Ambiguous and integration failures retain
+    # the legacy whole-script debugger below.
+    try:
+        classified_issues = normalize_review_issues(
+            getattr(parent_node, "review_issues", None) or [],
+            default_source="runtime",
+            hardware_aware=is_hardware_aware(agent),
+        )
+    except Exception as exc:
+        logger.warning("Runtime issue classification is unusable for node %s: %s", parent_node.id, exc)
+        classified_issues = []
+    critical_issues = [issue for issue in classified_issues if issue.severity == "critical"]
+    issue_owners = {issue.owner for issue in critical_issues}
+    targeted_owners = {"model_design", "datatype_precision", "training_evaluation"}
+    review_cfg = getattr(agent.acfg, "review", None)
+    if (
+        bool(getattr(review_cfg, "enabled", True))
+        and critical_issues
+        and issue_owners
+        and issue_owners <= targeted_owners
+    ):
+        targeted_code, repair_results, repair_stats = repair_selected_stages(
+            agent,
+            parent_node,
+            parent_node.code,
+            critical_issues,
+        )
+        if targeted_code != parent_node.code and any(result.applied for result in repair_results):
+            stage_names = [result.stage for result in repair_results if result.applied]
+            bug_report = "\n".join(
+                f"{issue.owner}: {issue.evidence}" for issue in critical_issues
+            )
+            fix_report = (
+                "Applied scoped stage repair patches for " + ", ".join(stage_names)
+                + "; unaffected stage code and interfaces were preserved."
+            )
+            new_node = SearchNode(
+                plan=fix_report,
+                code=targeted_code,
+                parent=parent_node,
+                stage="debug",
+                local_best_node=parent_node.local_best_node,
+                from_topk=getattr(parent_node, "_topk_triggered", False),
+                bug_report=bug_report,
+                fix_report=fix_report,
+            )
+            apply_hardware_context_to_node(new_node, hardware_ctx)
+            apply_pipeline_decision_to_node(new_node, pipeline_decision)
+            register_node(
+                agent,
+                new_node,
+                {
+                    "targeted_runtime_repair": True,
+                    "issues": [issue.to_dict() for issue in critical_issues],
+                    "repairs": [result.to_dict() for result in repair_results],
+                    "stats": repair_stats,
+                },
+                parent_node=parent_node,
+            )
+            try:
+                from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
+
+                payload = {"owners": sorted(issue_owners), "stages": stage_names, **repair_stats}
+                log_pipeline_event(agent, "runtime_targeted_repair", node=new_node, payload=payload)
+                record_pipeline_node_action(agent, new_node, "runtime_targeted_repair", payload=payload)
+            except Exception:
+                pass
+            logger.info("[debug-targeted] %s → node %s (%s)", parent_node.id, new_node.id, stage_names)
+            return new_node
+        logger.warning(
+            "Targeted stage repair was unusable for node %s; falling back to whole-script debugging",
+            parent_node.id,
+        )
 
     plan, code = None, None
     prompt_complete = None
