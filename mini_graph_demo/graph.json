@@ -1,0 +1,477 @@
+{
+  "nodes": [
+    {
+      "data": {
+        "id": "mgd:nvidia.rtx_5090.cu128",
+        "type": "Hardware",
+        "label": "GeForce RTX 5090",
+        "demo_run": true,
+        "technology_keys": [
+          "tensor_cores_5gen",
+          "fp4",
+          "fp8",
+          "fp8_e4m3",
+          "fp8_e5m2",
+          "sm_120",
+          "pcie5_x16"
+        ],
+        "hardware_kind": "gpu",
+        "vendor": "nvidia",
+        "vram_type": "gddr7",
+        "product_name": "GeForce RTX 5090",
+        "total_vram_mb": 32768,
+        "compute_capability": "12.0",
+        "architecture": "blackwell",
+        "hardware_key": "mgd:nvidia.rtx_5090.cu128"
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:nvidia.h100_sxm.cu128",
+        "type": "Hardware",
+        "label": "H100 SXM",
+        "demo_run": true,
+        "technology_keys": [
+          "tensor_cores_4gen",
+          "fp8",
+          "fp8_e4m3",
+          "fp8_e5m2",
+          "sm_90",
+          "nvlink"
+        ],
+        "hardware_kind": "gpu",
+        "vendor": "nvidia",
+        "vram_type": "hbm3",
+        "product_name": "H100 SXM",
+        "total_vram_mb": 81920,
+        "compute_capability": "9.0",
+        "architecture": "hopper",
+        "hardware_key": "mgd:nvidia.h100_sxm.cu128"
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:resnet50.timm",
+        "type": "Model",
+        "label": "resnet50",
+        "demo_run": true,
+        "architecture_type": "cnn",
+        "model_key": "mgd:resnet50.timm",
+        "parameter_count": 25557032,
+        "model_family": "resnet",
+        "framework": "pytorch",
+        "model_name": "resnet50"
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:vit_base_patch16_224.timm",
+        "type": "Model",
+        "label": "vit_base_patch16_224",
+        "demo_run": true,
+        "architecture_type": "transformer",
+        "model_key": "mgd:vit_base_patch16_224.timm",
+        "parameter_count": 86567656,
+        "model_family": "vit",
+        "framework": "pytorch",
+        "model_name": "vit_base_patch16_224"
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:llama2-7b.hf",
+        "type": "Model",
+        "label": "llama-2-7b",
+        "demo_run": true,
+        "architecture_type": "transformer",
+        "model_key": "mgd:llama2-7b.hf",
+        "parameter_count": 6738415616,
+        "model_family": "llama",
+        "framework": "pytorch",
+        "model_name": "llama-2-7b"
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:pytorch_amp",
+        "type": "Technology",
+        "label": "torch.amp",
+        "demo_run": true,
+        "category": "precision_optimization",
+        "name": "torch.amp",
+        "technology_key": "mgd:pytorch_amp"
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:bf16_autocast",
+        "type": "Technology",
+        "label": "bf16 autocast",
+        "demo_run": true,
+        "category": "precision_optimization",
+        "name": "bf16 autocast",
+        "technology_key": "mgd:bf16_autocast"
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:tf32_matmul",
+        "type": "Technology",
+        "label": "TF32 matmul",
+        "demo_run": true,
+        "category": "tensor_core_enablement",
+        "name": "TF32 matmul",
+        "technology_key": "mgd:tf32_matmul"
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:cuda_graphs",
+        "type": "Technology",
+        "label": "CUDA Graphs",
+        "demo_run": true,
+        "category": "launch_overhead_reduction",
+        "name": "CUDA Graphs",
+        "technology_key": "mgd:cuda_graphs"
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:cfg-rn50-bs256-bf16",
+        "type": "TrainingConfig",
+        "label": "cfg-rn50-bs256-bf16",
+        "demo_run": true,
+        "precision": "bf16",
+        "input_signature": "image=224x224",
+        "config_key": "mgd:cfg-rn50-bs256-bf16",
+        "optimizer": "sgd",
+        "learning_rate": 0.1,
+        "batch_size": 256
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:cfg-vit-bs128-bf16",
+        "type": "TrainingConfig",
+        "label": "cfg-vit-bs128-bf16",
+        "demo_run": true,
+        "precision": "bf16",
+        "input_signature": "image=224x224",
+        "config_key": "mgd:cfg-vit-bs128-bf16",
+        "optimizer": "adamw",
+        "learning_rate": 0.0001,
+        "batch_size": 128
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:cfg-llama-bs4-bf16",
+        "type": "TrainingConfig",
+        "label": "cfg-llama-bs4-bf16",
+        "demo_run": true,
+        "precision": "bf16",
+        "input_signature": "seq_len=2048",
+        "config_key": "mgd:cfg-llama-bs4-bf16",
+        "optimizer": "adamw",
+        "learning_rate": 2e-05,
+        "batch_size": 4
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:job-001",
+        "type": "SingleJob",
+        "label": "job-001",
+        "demo_run": true,
+        "hardware_set_key": "mgd:nvidia.rtx_5090.cu128",
+        "observed_avg_step_time_ms": 145.0,
+        "status": "succeeded",
+        "config_key": "mgd:cfg-rn50-bs256-bf16",
+        "purpose": "baseline_benchmark",
+        "confidence": 0.95,
+        "max_safe_batch_size": 256,
+        "model_key": "mgd:resnet50.timm",
+        "profile_key": "mgd:profile-rn50-rtx5090-baseline",
+        "resolved_batch_size": 256,
+        "peak_vram_mb": 22000,
+        "run_scope": "full_epoch",
+        "job_id": "mgd:job-001"
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:job-002",
+        "type": "SingleJob",
+        "label": "job-002",
+        "demo_run": true,
+        "hardware_set_key": "mgd:nvidia.rtx_5090.cu128",
+        "observed_avg_step_time_ms": 210.0,
+        "status": "succeeded",
+        "config_key": "mgd:cfg-vit-bs128-bf16",
+        "purpose": "batch_size_probe",
+        "confidence": 0.85,
+        "max_safe_batch_size": 192,
+        "model_key": "mgd:vit_base_patch16_224.timm",
+        "profile_key": "mgd:profile-vit-rtx5090-bsprobe",
+        "resolved_batch_size": 128,
+        "peak_vram_mb": 28000,
+        "run_scope": "fixed_steps",
+        "job_id": "mgd:job-002"
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:job-003",
+        "type": "PackedJob",
+        "label": "job-003",
+        "demo_run": true,
+        "hardware_set_key": "mgd:nvidia.rtx_5090.cu128",
+        "status": "succeeded",
+        "slowdown_ratio": 1.18,
+        "purpose": "packed_benchmark",
+        "packing_strategy": "mps",
+        "packing_group_key": "mgd:pack-rn50+vit",
+        "throughput_efficiency": 0.85,
+        "compatible": true,
+        "profile_key": "mgd:profile-rn50-vit-rtx5090-mps",
+        "peak_vram_mb": 30500,
+        "run_scope": "fixed_steps",
+        "job_id": "mgd:job-003"
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:resnet50.timm",
+        "type": "PackedJobMember",
+        "label": "resnet50.timm",
+        "demo_run": true,
+        "observed_avg_step_time_ms": 170.0,
+        "status": "succeeded",
+        "model_key": "mgd:resnet50.timm",
+        "config_key": "mgd:cfg-rn50-bs256-bf16",
+        "slowdown_vs_single": 1.17,
+        "resolved_batch_size": 256,
+        "member_id": "mgd:member-003-a"
+      }
+    },
+    {
+      "data": {
+        "id": "mgd:vit_base_patch16_224.timm",
+        "type": "PackedJobMember",
+        "label": "vit_base_patch16_224.timm",
+        "demo_run": true,
+        "observed_avg_step_time_ms": 248.0,
+        "status": "succeeded",
+        "model_key": "mgd:vit_base_patch16_224.timm",
+        "config_key": "mgd:cfg-vit-bs128-bf16",
+        "slowdown_vs_single": 1.18,
+        "resolved_batch_size": 128,
+        "member_id": "mgd:member-003-b"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "data": {
+        "id": "e6693",
+        "source": "mgd:job-001",
+        "target": "mgd:cuda_graphs",
+        "type": "JOB_USES_TECHNOLOGY",
+        "demo_run": true,
+        "role": "optimization"
+      }
+    },
+    {
+      "data": {
+        "id": "e6692",
+        "source": "mgd:job-001",
+        "target": "mgd:tf32_matmul",
+        "type": "JOB_USES_TECHNOLOGY",
+        "demo_run": true,
+        "role": "optimization"
+      }
+    },
+    {
+      "data": {
+        "id": "e6691",
+        "source": "mgd:job-001",
+        "target": "mgd:bf16_autocast",
+        "type": "JOB_USES_TECHNOLOGY",
+        "demo_run": true,
+        "role": "precision"
+      }
+    },
+    {
+      "data": {
+        "id": "e6690",
+        "source": "mgd:job-001",
+        "target": "mgd:pytorch_amp",
+        "type": "JOB_USES_TECHNOLOGY",
+        "demo_run": true,
+        "role": "precision"
+      }
+    },
+    {
+      "data": {
+        "id": "e6687",
+        "source": "mgd:job-001",
+        "target": "mgd:nvidia.rtx_5090.cu128",
+        "type": "JOB_USED_HARDWARE",
+        "demo_run": true,
+        "allocation_scope": "whole_device",
+        "resource_role": "primary_accelerator",
+        "memory_cap_mb": 31744
+      }
+    },
+    {
+      "data": {
+        "id": "e6685",
+        "source": "mgd:job-001",
+        "target": "mgd:cfg-rn50-bs256-bf16",
+        "type": "SINGLE_USES_CONFIG",
+        "demo_run": true
+      }
+    },
+    {
+      "data": {
+        "id": "e6683",
+        "source": "mgd:job-001",
+        "target": "mgd:resnet50.timm",
+        "type": "SINGLE_TRAINS_MODEL",
+        "demo_run": true
+      }
+    },
+    {
+      "data": {
+        "id": "e6688",
+        "source": "mgd:job-002",
+        "target": "mgd:nvidia.rtx_5090.cu128",
+        "type": "JOB_USED_HARDWARE",
+        "demo_run": true,
+        "allocation_scope": "whole_device",
+        "resource_role": "primary_accelerator",
+        "memory_cap_mb": 31744
+      }
+    },
+    {
+      "data": {
+        "id": "e6686",
+        "source": "mgd:job-002",
+        "target": "mgd:cfg-vit-bs128-bf16",
+        "type": "SINGLE_USES_CONFIG",
+        "demo_run": true
+      }
+    },
+    {
+      "data": {
+        "id": "e6684",
+        "source": "mgd:job-002",
+        "target": "mgd:vit_base_patch16_224.timm",
+        "type": "SINGLE_TRAINS_MODEL",
+        "demo_run": true
+      }
+    },
+    {
+      "data": {
+        "id": "e6695",
+        "source": "mgd:job-003",
+        "target": "mgd:vit_base_patch16_224.timm",
+        "type": "HAS_PACKED_MEMBER",
+        "demo_run": true
+      }
+    },
+    {
+      "data": {
+        "id": "e6694",
+        "source": "mgd:job-003",
+        "target": "mgd:resnet50.timm",
+        "type": "HAS_PACKED_MEMBER",
+        "demo_run": true
+      }
+    },
+    {
+      "data": {
+        "id": "e6689",
+        "source": "mgd:job-003",
+        "target": "mgd:nvidia.rtx_5090.cu128",
+        "type": "JOB_USED_HARDWARE",
+        "demo_run": true,
+        "allocation_scope": "shared_device",
+        "resource_role": "primary_accelerator",
+        "memory_cap_mb": 31744
+      }
+    },
+    {
+      "data": {
+        "id": "e6702",
+        "source": "mgd:resnet50.timm",
+        "target": "mgd:job-001",
+        "type": "MEMBER_BASELINE_SINGLE_JOB",
+        "demo_run": true
+      }
+    },
+    {
+      "data": {
+        "id": "e6700",
+        "source": "mgd:resnet50.timm",
+        "target": "mgd:pytorch_amp",
+        "type": "MEMBER_USES_TECHNOLOGY",
+        "demo_run": true
+      }
+    },
+    {
+      "data": {
+        "id": "e6698",
+        "source": "mgd:resnet50.timm",
+        "target": "mgd:cfg-rn50-bs256-bf16",
+        "type": "MEMBER_USES_CONFIG",
+        "demo_run": true
+      }
+    },
+    {
+      "data": {
+        "id": "e6696",
+        "source": "mgd:resnet50.timm",
+        "target": "mgd:resnet50.timm",
+        "type": "MEMBER_TRAINS_MODEL",
+        "demo_run": true
+      }
+    },
+    {
+      "data": {
+        "id": "e6703",
+        "source": "mgd:vit_base_patch16_224.timm",
+        "target": "mgd:job-002",
+        "type": "MEMBER_BASELINE_SINGLE_JOB",
+        "demo_run": true
+      }
+    },
+    {
+      "data": {
+        "id": "e6701",
+        "source": "mgd:vit_base_patch16_224.timm",
+        "target": "mgd:pytorch_amp",
+        "type": "MEMBER_USES_TECHNOLOGY",
+        "demo_run": true
+      }
+    },
+    {
+      "data": {
+        "id": "e6699",
+        "source": "mgd:vit_base_patch16_224.timm",
+        "target": "mgd:cfg-vit-bs128-bf16",
+        "type": "MEMBER_USES_CONFIG",
+        "demo_run": true
+      }
+    },
+    {
+      "data": {
+        "id": "e6697",
+        "source": "mgd:vit_base_patch16_224.timm",
+        "target": "mgd:vit_base_patch16_224.timm",
+        "type": "MEMBER_TRAINS_MODEL",
+        "demo_run": true
+      }
+    }
+  ]
+}

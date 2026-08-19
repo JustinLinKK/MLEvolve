@@ -751,7 +751,7 @@ def test_build_scheduler_stress_fixture_creates_cold_two_epoch_jobs(
         == "no_normal_execution_timeout"
     )
     assert settings["gpu_scheduler"]["batch_probe_enabled"] is True
-    assert settings["gpu_scheduler"]["max_packed_jobs_per_gpu"] == 0
+    assert settings["gpu_scheduler"]["parallel_job_cap"] == 1
 
 
 def test_scheduler_replay_wrapper_quick_preset_dry_run(tmp_path: Path) -> None:

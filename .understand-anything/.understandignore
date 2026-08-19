@@ -1,0 +1,22 @@
+# Scope: core MLEvolve agent-search engine only (scheduler excluded per request)
+# Keep: engine/ agents/ llm/ config/ run.py __init__.py
+
+# --- excluded: scheduler (explicit user request) ---
+localml_scheduler/
+
+# --- excluded: non-core dirs ---
+docs/
+experiments/
+k8s/
+mini_graph_demo/
+neo4j_viz/
+results/
+schema/
+tests/
+utils/
+
+# --- excluded: root-level schema tooling (not MLEvolve core) ---
+schema_io.py
+generate_schema_c.py
+generate_schema_d.py
+run_b_examples.py

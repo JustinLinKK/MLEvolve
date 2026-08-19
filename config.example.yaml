@@ -191,3 +191,86 @@ scheduler:
         enabled: false
         host_poll_interval_seconds: 0.1
         host_join_timeout_seconds: 3.0
+agent:
+  steps: 500
+  time_limit: 172800
+  initial_drafts: 3
+  seed: 42
+  data_preview: true
+  code:
+    model: openai/gpt-5-nano
+    temp: 1
+    provider: openrouter
+    base_url: https://openrouter.ai/api/v1
+    api_key: ''
+  feedback:
+    model: openai/gpt-5-nano
+    temp: 1
+    provider: openrouter
+    base_url: https://openrouter.ai/api/v1
+    api_key: ''
+  check_data_leakage: true
+  use_diff_mode: true
+  hardware_context_enabled: true
+  pipeline_decision_enabled: true
+  hardware_context_limit: 8
+  hardware_context_max_prompt_chars: 3500
+  review:
+    enabled: true
+    max_repair_rounds: 2
+    classifier_retries: 3
+    repair_retries: 2
+    reject_unresolved_critical: true
+    fail_open_on_unavailable: true
+    parallel_training_repairs: true
+  fusion_vs_evolution_prob: 0.3
+  branch_fusion_trigger_prob: 1.0
+  max_fusion_drafts: 2
+  use_global_memory: true
+  memory_similarity_threshold: 0.7
+  memory_embedding_device: cuda
+  memory_embedding_model_path: BAAI/bge-base-en-v1.5
+  search:
+    parallel_search_num: 2
+    num_gpus: 1
+    num_drafts: 5
+    num_bugs: 1
+    num_improves: 3
+    topk_max_improves: 10
+    max_debug_depth: 20
+    back_debug_depth: 3
+    debug_prob: 1
+    metric_improvement_threshold: 0.0001
+    max_improve_failure: 3
+    branch_stagnation_threshold: 3
+    topk_stagnation_threshold: 6
+    stagnation_window: 4
+    top_candidates_size: 20
+    explore_switch_start: 0.5
+    explore_switch_end: 0.7
+    min_exploration_weight: 0.2
+    topk_early_k: 5
+    topk_early_max_per_branch: 3
+    topk_late_k: 3
+    topk_late_max_per_branch: 2
+    force_backprop_late_threshold: 0.8
+    force_backprop_late_prob: 0.5
+    force_backprop_mid_threshold: 0.4
+    force_backprop_mid_modulo: 3
+    recent_best_window: 4
+    fusion_min_time_hours: 6
+    fusion_max_time_hours: 10
+    fusion_min_successful_nodes: 2
+    fusion_min_branches: 2
+  decay:
+    exploration_constant: 1.414
+    lower_bound: 0.5
+    alpha: 0.01
+    phase_ratios:
+    - 0.3
+    - 0.7
+coldstart:
+  use_coldstart: true
+  task_json_path: engine/coldstart/competition_tag_classified.json
+  model_json_path: engine/coldstart/models_guidance_classified.json
+  description: ''

@@ -143,6 +143,7 @@ def normalize_replay_job_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "profile_key",
         "profile_namespace",
         "reuse_only",
+        "search_mode",
         "shape_signature_override",
     ):
         batch_probe.pop(key, None)
@@ -159,7 +160,14 @@ def normalize_replay_settings(payload: dict[str, Any]) -> dict[str, Any]:
     raw = dict(payload or {})
     raw.pop("runtime_root", None)
     raw.pop("redis_cache", None)
-    return _known_dataclass_fields(raw, SchedulerSettings())
+    cleaned = _known_dataclass_fields(raw, SchedulerSettings())
+    gpu = dict(cleaned.get("gpu_scheduler") or {})
+    # Archived fixtures predate the single production placement policy. Their
+    # timelines remain valid inputs, but placement is replayed by the current
+    # time-aware scheduler rather than resurrecting removed modes.
+    gpu["mode"] = "parallel_time_aware"
+    cleaned["gpu_scheduler"] = gpu
+    return cleaned
 
 
 def _known_dataclass_fields(payload: dict[str, Any], template: Any) -> dict[str, Any]:
