@@ -1342,6 +1342,7 @@ def _select_hardware_feature_ids_for_design(
             prompt=prompt,
             temperature=0.0,
             cfg=agent.cfg,
+            context_cache_role="supervisor",
         )
     except Exception as exc:
         logger.debug("Hardware feature selector failed: %s", exc)

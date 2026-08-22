@@ -195,6 +195,8 @@ def build_pipeline_decision(
                 json_schema=PIPELINE_DECISION_JSON_SCHEMA,
                 max_retries=1,
                 retry_delay=0,
+                context_cache_role="supervisor",
+                context_cache_stable_prefix=prompt["system"],
             )
             decision = _parse_json_object(response)
             if decision:

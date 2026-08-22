@@ -23,6 +23,7 @@ def _get_journal_classes():
 from utils import copytree, preproc_data, serialize
 from utils.precision_policy import normalize_precision_optimization_mode
 from lesson_profile_database.config import LessonProfileSettings
+from context_cache.config import ContextCacheSettings, environment_overrides as context_cache_environment_overrides
 
 shutup.mute_warnings()
 logger = logging.getLogger("MLEvolve")
@@ -177,6 +178,7 @@ class PreflightConfig:
     disable_network: bool = True
     allow_real_cpu_abstract_fallback: bool = False
     cache: bool = False
+    knowledge_version: str | None = None
 
 
 @dataclass
@@ -245,6 +247,7 @@ class Config(Hashable):
     # the mapping here lets the unified YAML carry that independent domain.
     hardware_knowledge: dict = field(default_factory=dict)
     lesson_profiles: LessonProfileSettings = field(default_factory=LessonProfileSettings)
+    context_cache: ContextCacheSettings = field(default_factory=ContextCacheSettings)
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     use_grading_server: bool = True
     init_solution: InitSolutionConfig = field(default_factory=InitSolutionConfig)
@@ -301,6 +304,9 @@ def _load_cfg(path: str | Path | None = None, use_cli_args=True) -> Config:
     env_mode = os.getenv("MLEVOLVE_EXPERIMENT_MODE")
     if env_mode:
         cfg = OmegaConf.merge(cfg, {"experiment": {"mode": env_mode}})
+    cache_overrides = context_cache_environment_overrides()
+    if cache_overrides:
+        cfg = OmegaConf.merge(cfg, {"context_cache": cache_overrides})
     if use_cli_args:
         cfg = OmegaConf.merge(cfg, OmegaConf.from_cli())
     return cfg
@@ -349,6 +355,16 @@ def prep_cfg(cfg: Config):
     # validate the config
     cfg_schema: Config = OmegaConf.structured(Config)
     cfg = OmegaConf.merge(cfg_schema, cfg)
+    validated_context_cache = ContextCacheSettings.from_mapping(cfg.context_cache)
+    for field_name in ContextCacheSettings.__dataclass_fields__:
+        setattr(cfg.context_cache, field_name, getattr(validated_context_cache, field_name))
+    if cfg.context_cache.enabled:
+        preflight_version = str(getattr(cfg.preflight, "knowledge_version", "") or "").strip()
+        if preflight_version and preflight_version != cfg.context_cache.knowledge_version:
+            raise ValueError(
+                "preflight.knowledge_version must match context_cache.knowledge_version within a run"
+            )
+        cfg.preflight.knowledge_version = cfg.context_cache.knowledge_version
     cfg.experiment.mode = normalize_experiment_mode(cfg.experiment.mode)
     cfg.preflight.policy_mode = str(cfg.preflight.policy_mode or "balanced").strip().lower()
     if cfg.preflight.policy_mode not in {"audit", "balanced", "strict"}:

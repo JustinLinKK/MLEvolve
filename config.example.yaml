@@ -118,6 +118,31 @@ preflight:
   disable_network: true
   allow_real_cpu_abstract_fallback: false
   cache: false
+  # Set automatically from context_cache.knowledge_version when context caching is enabled.
+  knowledge_version: null
+context_cache:
+  # Global kill switch. When false, LLM request serialization follows the legacy path.
+  enabled: false
+  local_pack_cache_enabled: true
+  provider_prompt_cache_enabled: false
+  # Empty allowlists mean all roles/models. Populate these for staged rollout.
+  provider_prompt_cache_roles: []
+  provider_prompt_cache_models: []
+  cache_dir: var/context-cache
+  policy: auto
+  ttl: null
+  prewarm: false
+  telemetry: true
+  verify_prefix: false
+  capture_prompts: false
+  shadow: false
+  knowledge_version: k1
+  openrouter_sticky_routing: true
+  openrouter_routing_shards: 1
+  # Set only for controlled benchmarks; production normally leaves routing automatic.
+  openrouter_upstream: null
+  openrouter_allow_fallbacks: true
+  max_pack_bytes: 16777216
 scheduler:
   enabled: true
   runtime_root: null

@@ -412,7 +412,13 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
                 response = generate(
                     prompt=prompt_with_diff,
                     temperature=agent.acfg.code.temp,
-                    cfg=agent.cfg
+                    cfg=agent.cfg,
+                    context_cache_role="analysis",
+                    context_cache_stable_prefix=(
+                        prompt_with_diff.get("system")
+                        if isinstance(prompt_with_diff, dict)
+                        else None
+                    ),
                 )
                 last_generation_text = response
                 if any(_extract_debug_reports(response or "")):

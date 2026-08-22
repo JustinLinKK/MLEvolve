@@ -80,6 +80,10 @@ def run(agent, node: SearchNode) -> dict:
             "Execution output": wrap_code(node.term_out, lang=""),
             "Validation metric": f"{node.metric.value:.4f} (maximize={agent.metric_maximize})",
         }
+        stable_prompt = {"Introduction": prompt["Introduction"]}
+        dynamic_prompt = {
+            key: value for key, value in prompt.items() if key != "Introduction"
+        }
 
         response = cast(
             dict,
@@ -89,7 +93,10 @@ def run(agent, node: SearchNode) -> dict:
                 func_spec=DATA_LEAKAGE_CHECK_SPEC,
                 model=agent.acfg.feedback.model,
                 temperature=agent.acfg.feedback.temp,
-                cfg=agent.cfg
+                cfg=agent.cfg,
+                context_cache_role="reviewer",
+                context_cache_stable_prefix=stable_prompt,
+                context_cache_dynamic_system_message=dynamic_prompt,
             ),
         )
 
