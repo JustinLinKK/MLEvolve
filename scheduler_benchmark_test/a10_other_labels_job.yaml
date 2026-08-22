@@ -1,0 +1,148 @@
+# perfseer-a10-other-labels — schema-v4 labels for the non-CV, non-NLP modalities.
+#
+# The 0629 full-modality run already covers all 10005 specs, but at schema v3:
+# it has no train_avg_vram_mib / infer_avg_vram_mib, and average VRAM is one of
+# the labels the scheduler's predictor is supposed to train on. So the four
+# `other` modalities get regenerated here against the v4 label builder, the same
+# one the CV runs used.
+#
+# Scope, from workloads.jsonl:
+#   audio        1334 specs   animal_audio_classification
+#   time_series  1334 specs   store_sales_time_series
+#   graph        1334 specs   ogbn_products
+#   tabular       667 specs   credit_card_default
+#   = 4669 specs x 4 precisions (auto sweep) = 18676 labels
+#
+# image is done and text belongs to someone else, so both are filtered out.
+#
+# Four jobs, one GPU each, splitting the 16 shards 4 ways. A10 nodes in this
+# namespace are currently fragmented down to at most 1 free GPU per node, so a
+# single 4-GPU pod would sit Pending indefinitely while four 1-GPU pods schedule
+# immediately on separate nodes. Shard files are per-index, so the four writers
+# never touch the same file.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: perfseer-a10-other-s0
+  namespace: ecepxie
+  labels: {app: perfseer-a10-other, stage: label-generation}
+spec:
+  backoffLimit: 12
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels: {app: perfseer-a10-other, stage: label-generation}
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: nvidia.com/gpu.product
+                operator: In
+                values: [NVIDIA-A10]
+      containers:
+      - name: label
+        image: pytorch/pytorch:2.3.0-cuda11.8-cudnn8-devel
+        imagePullPolicy: IfNotPresent
+        workingDir: /tmp/repo
+        command: [/bin/bash, -lc]
+        args:
+        - |
+          set -euo pipefail
+          nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+
+          # Step outside /tmp/repo first: it is this container's workingDir, and
+          # deleting the cwd leaves the shell on a dead inode, which makes
+          # getcwd() fail and takes pip down with it.
+          cd /
+          rm -rf /tmp/repo && mkdir -p /tmp/repo
+          cp -a "$SRC/repo/." /tmp/repo/
+          # Overlay the label builder that also emits avg VRAM (schema v4).
+          cp -f "$OUT/patch/workload.py" /tmp/repo/nrp_calibration_pack/workload.py
+          grep -q train_avg_vram_mib /tmp/repo/nrp_calibration_pack/workload.py
+          cd /tmp/repo
+
+          export PYTHONPATH="/tmp/repo/src:/tmp/repo:${PYTHONPATH:-}"
+          python -m pip install --no-cache-dir ogb "torch_geometric==2.5.3" networkx scikit-learn tqdm nvidia-ml-py pyyaml pandas
+
+          rm -rf /tmp/pack_ready /tmp/specs_ready
+          mkdir -p /tmp/pack_ready /tmp/specs_ready
+          tar -xzf "$SRC/pack_ready.tar.gz" -C /tmp/pack_ready
+          tar -xzf "$SRC/workload_specs_real_ready.tar.gz" -C /tmp/specs_ready
+
+          # Keep only the `other` modalities. Sharding is by position in this
+          # file, so every job must build it identically -- same filter, same
+          # input order, no sampling -- or shard N in one pod would cover
+          # different specs than shard N in another.
+          python - <<'PY'
+          import collections, json
+
+          SRC = "/tmp/specs_ready/workloads.jsonl"
+          DST = "/tmp/specs_ready/workloads_other.jsonl"
+          KEEP = {"audio", "time_series", "graph", "tabular"}
+
+          seen = collections.Counter()
+          with open(SRC) as fh, open(DST, "w") as out:
+              for line in fh:
+                  if not line.strip():
+                      continue
+                  spec = json.loads(line)
+                  modality = spec.get("dataset", {}).get("modality")
+                  if modality not in KEEP:
+                      continue
+                  seen[modality] += 1
+                  out.write(json.dumps(spec) + "\n")
+          for modality, count in sorted(seen.items()):
+              print("%-14s %5d" % (modality, count))
+          print("total", sum(seen.values()))
+          PY
+
+          SPECS=/tmp/specs_ready/workloads_other.jsonl
+          echo "other-modality workload specs: $(wc -l < "$SPECS")"
+
+          # --resume skips profile points that already have a completed result
+          # row and label file, so restarts never recompute finished work.
+          for i in $(seq "$SHARD_START" "$SHARD_END"); do
+            echo "=== shard $i/$NUM_SHARDS ==="
+            python nrp_calibration_pack/profile/run_profile.py \
+              --workload-specs "$SPECS" \
+              --models-dir /tmp/pack_ready/models \
+              --output-dir "$OUT/results/a10_other" \
+              --hardware-id a10 \
+              --device cuda \
+              --precision-sweep auto \
+              --resume \
+              --num-shards "$NUM_SHARDS" \
+              --shard-index "$i" \
+              --warmup 20 \
+              --infer-repeats 50 \
+              --train-repeats 50 \
+              --label-time-mode measured_epochs \
+              --time-label-warmup-epochs 1 \
+              --time-label-measured-epochs 2 \
+              --sample-interval 0.01 \
+              --min-phase-seconds 20 \
+              --min-sampler-samples 100 \
+              --optimizer adam \
+              --sm-occupancy-source nvml_proxy \
+              --resource-profile-mode sustained
+          done
+          echo "shards $SHARD_START-$SHARD_END complete"
+        env:
+        - {name: SRC, value: /mnt/output/real-a10-0629060430}
+        - {name: OUT, value: /mnt/output/perfseer-a10-vram-time}
+        - {name: NUM_SHARDS, value: "16"}
+        - {name: SHARD_START, value: "0"}
+        - {name: SHARD_END, value: "3"}
+        resources:
+          limits: {cpu: "4", memory: 24Gi, ephemeral-storage: 24Gi, nvidia.com/gpu: "1"}
+          requests: {cpu: "4", memory: 24Gi, ephemeral-storage: 24Gi, nvidia.com/gpu: "1"}
+        volumeMounts:
+        - {mountPath: /mnt/output, name: output}
+      volumes:
+      - name: output
+        persistentVolumeClaim: {claimName: perfseer-real-dataset-pvc}

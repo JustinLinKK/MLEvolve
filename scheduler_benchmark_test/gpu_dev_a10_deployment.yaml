@@ -1,0 +1,84 @@
+# gpu-dev-a10 — the A10 twin of the gpu-dev deployment behind `ssh Nautilus`.
+#
+# gpu-dev is pinned to Tesla-V100-SXM2-32GB and cannot move: `ssh Nautilus` has
+# to keep reaching V100s. This is a second deployment so both are reachable at
+# once, via `ssh Nautilus-A10` on localhost:2224.
+#
+# Everything else mirrors gpu-dev. /root is the same yuw-home PVC, which is RWX
+# on rook-cephfs, so the two pods share one home directory: same dotfiles, same
+# authorized_keys, same conda envs. The init container script comes from the
+# same nautilus-init ConfigMap, so sshd comes up identically.
+#
+# The image differs by necessity. gpu-dev runs pytorch:24.05-py3 because newer
+# NGC builds dropped Volta (sm_70). A10 is Ampere (sm_86), so it takes the
+# current build instead.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-dev-a10
+  namespace: ecepxie
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: gpu-dev-a10
+  # Recreate, not RollingUpdate: a second pod would contend for the same 4 GPUs
+  # and sit Pending forever while the old one holds them.
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: gpu-dev-a10
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: nvidia.com/gpu.product
+                operator: In
+                values:
+                - NVIDIA-A10
+      containers:
+      - name: jupyter
+        image: nvcr.io/nvidia/pytorch:26.04-py3
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - /init/init.sh
+        ports:
+        - containerPort: 22
+          protocol: TCP
+        resources:
+          limits:
+            cpu: "16"
+            memory: 64Gi
+            nvidia.com/gpu: "4"
+          requests:
+            cpu: "8"
+            memory: 32Gi
+            nvidia.com/gpu: "4"
+        volumeMounts:
+        - mountPath: /root
+          name: home
+        - mountPath: /init
+          name: init
+        - mountPath: /dev/shm
+          name: dshm
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: home
+        persistentVolumeClaim:
+          claimName: yuw-home
+      - name: init
+        configMap:
+          name: nautilus-init
+          defaultMode: 493
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 16Gi
