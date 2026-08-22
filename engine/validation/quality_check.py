@@ -370,7 +370,6 @@ def llm_suggest_submission_columns(
             temperature=temperature,
             max_tokens=max_tokens,
             cfg=cfg,
-            context_cache_role="reviewer",
         )
     except Exception as exc:
         logger.warning(f"LLM call failed during submission column fix: {exc}")

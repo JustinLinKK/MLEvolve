@@ -9,25 +9,6 @@ services:
       - "${QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - qdrant_data:/qdrant/storage
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6333'"]
-      interval: 10s
-      timeout: 5s
-      retries: 18
-
-  redis:
-    image: redis:7.4-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 18
 
   neo4j-profile:
     image: neo4j:5.26
@@ -68,8 +49,6 @@ services:
 volumes:
   qdrant_data:
     name: mlevolve_qdrant
-  redis_data:
-    name: mlevolve_redis
   neo4j_profile_data:
     name: mlevolve_neo4j_profile_data
   neo4j_profile_logs:

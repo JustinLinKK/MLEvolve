@@ -254,7 +254,6 @@ def build_planner_suffix(
     code = prompt_base.get("Previous solution", {}).get("Code", "")
     execution_output = context.get("execution_output", "")
     hardware_section = context.get("hardware_prompt_section") or prompt_base.get("Hardware/Profile Optimization Context", "")
-    lesson_section = context.get("lesson_profile_section") or prompt_base.get("Family–Hardware Lesson Profile", "")
     pipeline_decision_section = context.get("pipeline_decision_section") or prompt_base.get("Pipeline Decision Contract", "")
 
     suffix = (
@@ -265,8 +264,6 @@ def build_planner_suffix(
     )
     if hardware_section:
         suffix += f"Hardware/profile context:\n{hardware_section}\n"
-    if lesson_section:
-        suffix += f"Family/hardware lesson profile:\n{lesson_section}\n"
     if pipeline_decision_section:
         suffix += f"Pipeline decision trace:\n{pipeline_decision_section}\n"
     if extra_text:
@@ -332,9 +329,6 @@ def run_planner(
     hardware_section = planning_prompt_dict.get("Hardware/Profile Optimization Context", "")
     if hardware_section:
         user_prompt_parts.append(f"{hardware_section}\n")
-    lesson_section = planning_prompt_dict.get("Family–Hardware Lesson Profile", "")
-    if lesson_section:
-        user_prompt_parts.append(f"{lesson_section}\n")
     pipeline_decision_section = planning_prompt_dict.get("Pipeline Decision Contract", "")
     if pipeline_decision_section:
         user_prompt_parts.append(f"{pipeline_decision_section}\n")
@@ -369,11 +363,6 @@ def run_planner(
             temperature=agent_instance.acfg.code.temp,
             cfg=agent_instance.cfg,
             json_schema=json_schema,
-            context_cache_stable_prefix=(
-                planning_prompt_complete.get("system")
-                if isinstance(planning_prompt_complete, dict)
-                else None
-            ),
         )
 
         planning_result = parse_planning_response(planning_response)

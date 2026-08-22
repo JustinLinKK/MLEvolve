@@ -105,32 +105,6 @@ def _build_scheduler_preload_source(scheduler_cfg: Any) -> dict[str, str] | None
         "loader_target": str(loader_target),
     }
 
-
-def _scheduler_preflight_rejection(code: str, node_context: Any | None) -> str | None:
-    """Defensively reject an explicitly denied or stale preflight record."""
-    if node_context is None:
-        return None
-    if getattr(node_context, "preflight_admitted", None) is False:
-        return "candidate was not admitted by CPU model preflight"
-    recorded_hash = getattr(node_context, "preflight_code_hash", None)
-    if recorded_hash:
-        from engine.preflight import candidate_code_hash
-
-        if recorded_hash != candidate_code_hash(code):
-            return "candidate source changed after CPU model preflight"
-    return None
-
-
-def _preflight_rejected_result(reason: str) -> "ExecutionResult":
-    return ExecutionResult(
-        term_out=[f"Execution rejected before scheduler submission: {reason}."],
-        exec_time=0.0,
-        exc_type="PreflightRejected",
-        exc_info={"message": reason, "gpu_execution_avoided": True},
-        exc_stack=[],
-    )
-
-
 @dataclass
 class ExecutionResult(DataClassJsonMixin):
     """
@@ -729,23 +703,9 @@ class Interpreter:
                 for item in normalized_items
             }
 
-        preflight_results: dict[str, ExecutionResult] = {}
-        admitted_items: list[dict[str, Any]] = []
-        for item in normalized_items:
-            reason = _scheduler_preflight_rejection(item["code"], item.get("node_context"))
-            if reason is None:
-                admitted_items.append(item)
-            else:
-                node_id = str(item["node_id"])
-                logger.warning("Scheduler submission avoided for node %s: %s", node_id, reason)
-                preflight_results[node_id] = _preflight_rejected_result(reason)
-        normalized_items = admitted_items
-        if not normalized_items:
-            return preflight_results
-
         logger.info("REPL is submitting %s code candidates to localml_scheduler as one round", len(normalized_items))
         prepared: list[_PreparedSchedulerJob] = []
-        results: dict[str, ExecutionResult] = dict(preflight_results)
+        results: dict[str, ExecutionResult] = {}
         try:
             self._ensure_scheduler_service_available()
             for process_id, item in enumerate(normalized_items):
@@ -1115,9 +1075,6 @@ class Interpreter:
             "packing_eligible": packing_eligible,
             "packing_backend_allowlist": packing_backend_allowlist,
         }
-        from engine.preflight import node_preflight_metadata
-
-        job_metadata.update(node_preflight_metadata(node_context))
         job_metadata.update(batch_probe_metadata)
         job = build_mlevolve_job(
             workflow_id=str(getattr(self.cfg, "exp_name", "mlevolve")),
@@ -1302,11 +1259,6 @@ class Interpreter:
 
         if self.scheduler_client is None:
             return self._run_subprocess(code=code, id=id, working_dir=working_dir)
-
-        preflight_rejection = _scheduler_preflight_rejection(code, node_context)
-        if preflight_rejection is not None:
-            logger.warning("Scheduler submission avoided for node %s: %s", id, preflight_rejection)
-            return _preflight_rejected_result(preflight_rejection)
 
         logger.info("REPL is submitting code to localml_scheduler")
         process_id = None
@@ -1500,9 +1452,6 @@ class Interpreter:
                 "packing_eligible": packing_eligible,
                 "packing_backend_allowlist": packing_backend_allowlist,
             }
-            from engine.preflight import node_preflight_metadata
-
-            job_metadata.update(node_preflight_metadata(node_context))
             job_metadata.update(batch_probe_metadata)
             job = build_mlevolve_job(
                 workflow_id=str(getattr(self.cfg, "exp_name", "mlevolve")),

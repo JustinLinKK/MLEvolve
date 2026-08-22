@@ -20,7 +20,7 @@ def _provider(model: str, cfg: Config | None = None) -> str:
     """Select LLM backend from explicit provider first, then legacy model-name routing."""
     stage = _stage_config_for_model(cfg, model)
     provider = (getattr(stage, "provider", "") or "").lower()
-    if provider in {"openrouter", "openai", "openai-compatible", "deepseek"}:
+    if provider in {"openrouter", "openai", "openai-compatible"}:
         return "openai"
     if provider in {"gemini", "google"}:
         return "gemini"
@@ -35,9 +35,6 @@ def query(
     max_tokens: int | None = None,
     func_spec: FunctionSpec | None = None,
     cfg:Config=None,
-    context_cache_role: str = "analysis",
-    context_cache_stable_prefix: PromptType | None = None,
-    context_cache_dynamic_system_message: PromptType | None = None,
     **model_kwargs,
 ) -> OutputType:
     """
@@ -78,17 +75,6 @@ def query(
     if func_spec:
         logger.info(f"function spec: {func_spec.to_dict()}", extra={"verbose": True})
 
-    cache_dynamic_system_message = (
-        compile_prompt_to_md(context_cache_dynamic_system_message)
-        if context_cache_dynamic_system_message
-        else None
-    )
-    cache_stable_prefix = (
-        compile_prompt_to_md(context_cache_stable_prefix)
-        if context_cache_stable_prefix
-        else None
-    )
-
     provider = _provider(model, cfg)
     if provider == "openai":
         output, req_time, in_tok_count, out_tok_count, info = _openai.query(
@@ -96,9 +82,6 @@ def query(
             user_message=user_message,
             func_spec=func_spec,
             cfg=cfg,
-            context_cache_role=context_cache_role,
-            context_cache_stable_prefix=cache_stable_prefix,
-            context_cache_dynamic_system_message=cache_dynamic_system_message,
             **model_kwargs,
         )
     else:
@@ -123,8 +106,6 @@ def generate(
     json_schema=None,
     max_retries=20,
     retry_delay=3,
-    context_cache_role="model_generator",
-    context_cache_stable_prefix=None,
 ):
     """Streaming text generation. Dispatches to Gemini or OpenAI-compatible backend by cfg.agent.code.model."""
     model = getattr(cfg.agent.code, "model", "") or ""
@@ -138,8 +119,6 @@ def generate(
             json_schema=json_schema,
             max_retries=max_retries,
             retry_delay=retry_delay,
-            context_cache_role=context_cache_role,
-            context_cache_stable_prefix=context_cache_stable_prefix,
         )
     return _gemini.generate(
         prompt=prompt,

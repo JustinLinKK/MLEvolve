@@ -77,8 +77,6 @@ logs/
 *.sqlite-*
 *.sqlite3
 *.sqlite3-*
-var/context-cache/
-benchmark-results/context-cache/
 
 # ===== Project Specific =====
 .codex_db/

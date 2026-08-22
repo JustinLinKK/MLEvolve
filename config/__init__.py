@@ -22,8 +22,6 @@ def _get_journal_classes():
 
 from utils import copytree, preproc_data, serialize
 from utils.precision_policy import normalize_precision_optimization_mode
-from lesson_profile_database.config import LessonProfileSettings
-from context_cache.config import ContextCacheSettings, environment_overrides as context_cache_environment_overrides
 
 shutup.mute_warnings()
 logger = logging.getLogger("MLEvolve")
@@ -160,28 +158,6 @@ class SchedulerBridgeConfig:
 
 
 @dataclass
-class PreflightConfig:
-    """CPU admission-gate settings for generated training candidates."""
-
-    enabled: bool = True
-    enabled_modes: list[str] = field(default_factory=lambda: [EXPERIMENT_MODE_HARDWARE_AWARE])
-    policy_mode: str = "balanced"
-    target_profile: str = "auto"
-    require_adapter_for_generated: bool = True
-    max_repair_rounds: int = 1
-    fail_open_on_internal_error: bool = True
-    abstract_timeout_seconds: float = 30.0
-    cpu_timeout_seconds: float = 90.0
-    maximum_cpu_memory_mb: int = 8192
-    maximum_processes: int = 32
-    maximum_output_bytes: int = 1_000_000
-    disable_network: bool = True
-    allow_real_cpu_abstract_fallback: bool = False
-    cache: bool = False
-    knowledge_version: str | None = None
-
-
-@dataclass
 class ExperimentConfig:
     mode: str = EXPERIMENT_MODE_HARDWARE_AWARE
 
@@ -242,12 +218,6 @@ class Config(Hashable):
 
     coldstart: ColdstartConfig
 
-    preflight: PreflightConfig = field(default_factory=PreflightConfig)
-    # Hardware knowledge has its own package-level settings parser; retaining
-    # the mapping here lets the unified YAML carry that independent domain.
-    hardware_knowledge: dict = field(default_factory=dict)
-    lesson_profiles: LessonProfileSettings = field(default_factory=LessonProfileSettings)
-    context_cache: ContextCacheSettings = field(default_factory=ContextCacheSettings)
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     use_grading_server: bool = True
     init_solution: InitSolutionConfig = field(default_factory=InitSolutionConfig)
@@ -304,9 +274,6 @@ def _load_cfg(path: str | Path | None = None, use_cli_args=True) -> Config:
     env_mode = os.getenv("MLEVOLVE_EXPERIMENT_MODE")
     if env_mode:
         cfg = OmegaConf.merge(cfg, {"experiment": {"mode": env_mode}})
-    cache_overrides = context_cache_environment_overrides()
-    if cache_overrides:
-        cfg = OmegaConf.merge(cfg, {"context_cache": cache_overrides})
     if use_cli_args:
         cfg = OmegaConf.merge(cfg, OmegaConf.from_cli())
     return cfg
@@ -355,35 +322,12 @@ def prep_cfg(cfg: Config):
     # validate the config
     cfg_schema: Config = OmegaConf.structured(Config)
     cfg = OmegaConf.merge(cfg_schema, cfg)
-    validated_context_cache = ContextCacheSettings.from_mapping(cfg.context_cache)
-    for field_name in ContextCacheSettings.__dataclass_fields__:
-        setattr(cfg.context_cache, field_name, getattr(validated_context_cache, field_name))
-    if cfg.context_cache.enabled:
-        preflight_version = str(getattr(cfg.preflight, "knowledge_version", "") or "").strip()
-        if preflight_version and preflight_version != cfg.context_cache.knowledge_version:
-            raise ValueError(
-                "preflight.knowledge_version must match context_cache.knowledge_version within a run"
-            )
-        cfg.preflight.knowledge_version = cfg.context_cache.knowledge_version
     cfg.experiment.mode = normalize_experiment_mode(cfg.experiment.mode)
-    cfg.preflight.policy_mode = str(cfg.preflight.policy_mode or "balanced").strip().lower()
-    if cfg.preflight.policy_mode not in {"audit", "balanced", "strict"}:
-        raise ValueError("preflight.policy_mode must be one of: audit, balanced, strict")
-    cfg.preflight.enabled_modes = [
-        normalize_experiment_mode(value) for value in cfg.preflight.enabled_modes
-    ]
-    if int(cfg.preflight.max_repair_rounds) < 0:
-        raise ValueError("preflight.max_repair_rounds must be non-negative")
-    if not str(cfg.preflight.target_profile or "").strip():
-        raise ValueError("preflight.target_profile must not be empty")
     cfg.agent.precision_optimization_mode = normalize_precision_optimization_mode(
         cfg.agent.precision_optimization_mode
     )
     if cfg.experiment.mode in {EXPERIMENT_MODE_ORIGIN, EXPERIMENT_MODE_BASELINE}:
         cfg.agent.hardware_context_enabled = False
-        if not cfg.lesson_profiles.enable_in_baseline_modes:
-            cfg.lesson_profiles.read_enabled = False
-            cfg.lesson_profiles.write_enabled = False
     if cfg.experiment.mode == EXPERIMENT_MODE_ORIGIN:
         cfg.scheduler.enabled = False
 

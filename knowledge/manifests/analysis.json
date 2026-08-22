@@ -1,9 +1,0 @@
-{
-  "schema_version": "1",
-  "knowledge_version": "k1",
-  "role": "analysis",
-  "sources": [
-    {"kind": "manifest", "snapshot": "analysis-k1"}
-  ],
-  "content": {"pack_contract": "analysis", "sections": []}
-}

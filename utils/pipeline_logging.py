@@ -451,43 +451,6 @@ class PipelineActionLogger:
                 tuple(updates.values()) + (self.run_id, str(node_id)),
             )
 
-    def latest_job_packet(self, node_id: str) -> dict[str, Any] | None:
-        """Return the final scheduler packet used to freeze lesson evidence."""
-        with self._lock, self._connect() as conn:
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                """
-                SELECT * FROM job_packets
-                WHERE run_id=? AND node_id=?
-                ORDER BY COALESCE(finished_at, started_at, submitted_at, created_at) DESC
-                LIMIT 1
-                """,
-                (self.run_id, str(node_id)),
-            ).fetchone()
-        if row is None:
-            return None
-        result = dict(row)
-        try:
-            result["payload"] = json.loads(result.pop("payload_json") or "{}")
-        except Exception:
-            result["payload"] = {}
-        return result
-
-    def latest_prompt_reference(self, node_id: str) -> dict[str, Any] | None:
-        """Read prompt provenance without exposing unrestricted prompt text."""
-        with self._lock, self._connect() as conn:
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                """
-                SELECT prompt_sha256, prompt_chars, prompt_path
-                FROM prompt_snapshots
-                WHERE run_id=? AND node_id=?
-                ORDER BY prompt_id DESC LIMIT 1
-                """,
-                (self.run_id, str(node_id)),
-            ).fetchone()
-        return dict(row) if row is not None else None
-
     def close(self) -> None:
         try:
             with self._lock, self._connect() as conn:

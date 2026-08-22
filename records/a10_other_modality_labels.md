@@ -131,3 +131,23 @@ kubectl apply -f scheduler_benchmark_test/gpu_dev_a10_deployment.yaml
 - Helper scripts are `~/.local/bin/nautilus-connect-a10` and `~/.local/bin/nautilus-pf-a10`, cloned from the `Nautilus` pair
 
 - `ssh Nautilus-A10` blocks rather than failing while the pod is Pending, because the ProxyCommand waits for a Running pod
+
+- The pod sat Pending for 3h23m before 4 free A10 appeared on one node, then bound to `gpu-02.nrp.mghpcc.org`
+
+- Verified end to end on 2026-08-22
+
+```
+$ ssh Nautilus-A10 'hostname; whoami; nvidia-smi --query-gpu=name --format=csv,noheader'
+gpu-dev-a10-84bd5b95d4-pmkh5
+downeyflyfan
+NVIDIA A10
+NVIDIA A10
+NVIDIA A10
+NVIDIA A10
+```
+
+- Home resolves to `/root/downeyflyfan` with the same contents as on `Nautilus`, confirming the shared PVC
+
+- `ssh Nautilus` still reaches 4x `Tesla V100-SXM2-32GB` on `gpu-dev`, unchanged
+
+- All three tunnels coexist on 2222, 2223 and 2224
