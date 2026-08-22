@@ -109,6 +109,18 @@ class SearchNode(DataClassJsonMixin):
     review_issues: List[Dict[str, Any]] = field(default_factory=list, kw_only=True)
     review_history: List[Dict[str, Any]] = field(default_factory=list, kw_only=True)
 
+    # ---- CPU model-preflight admission ----
+    preflight_status: Optional[str] = field(default=None, kw_only=True)
+    preflight_mode: Optional[str] = field(default=None, kw_only=True)
+    preflight_code_hash: Optional[str] = field(default=None, kw_only=True)
+    preflight_diagnostic_codes: List[str] = field(default_factory=list, kw_only=True)
+    preflight_report_path: Optional[str] = field(default=None, kw_only=True)
+    preflight_summary_path: Optional[str] = field(default=None, kw_only=True)
+    preflight_repair_count: int = field(default=0, kw_only=True)
+    preflight_gpu_check_required: bool = field(default=False, kw_only=True)
+    preflight_admitted: Optional[bool] = field(default=None, kw_only=True)
+    preflight_generated: bool = field(default=True, kw_only=True)
+
     def __post_init__(self) -> None:
         if self.generation_strategy is None:
             self.generation_strategy = self.stage

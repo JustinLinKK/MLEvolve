@@ -56,6 +56,8 @@ def _stage_ownership(agent: Any, stage: str) -> tuple[str, Sequence[str]]:
             (
                 "Preserve each stage's chosen model, precision policy, optimizer, and evaluation intent.",
                 "Change only code necessary to restore a valid interface or executable merged script.",
+                "Keep runtime execution behind if __name__ == '__main__' so importing the candidate is safe.",
+                "When requested, add or repair the no-argument CandidateAdapter and all six model-preflight methods using the real model, optimizer, data, loss, and validation paths.",
             ),
         )
     return ("Repair only the issues assigned to this stage.", ())

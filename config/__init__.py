@@ -159,6 +159,27 @@ class SchedulerBridgeConfig:
 
 
 @dataclass
+class PreflightConfig:
+    """CPU admission-gate settings for generated training candidates."""
+
+    enabled: bool = True
+    enabled_modes: list[str] = field(default_factory=lambda: [EXPERIMENT_MODE_HARDWARE_AWARE])
+    policy_mode: str = "balanced"
+    target_profile: str = "auto"
+    require_adapter_for_generated: bool = True
+    max_repair_rounds: int = 1
+    fail_open_on_internal_error: bool = True
+    abstract_timeout_seconds: float = 30.0
+    cpu_timeout_seconds: float = 90.0
+    maximum_cpu_memory_mb: int = 8192
+    maximum_processes: int = 32
+    maximum_output_bytes: int = 1_000_000
+    disable_network: bool = True
+    allow_real_cpu_abstract_fallback: bool = False
+    cache: bool = False
+
+
+@dataclass
 class ExperimentConfig:
     mode: str = EXPERIMENT_MODE_HARDWARE_AWARE
 
@@ -219,6 +240,7 @@ class Config(Hashable):
 
     coldstart: ColdstartConfig
 
+    preflight: PreflightConfig = field(default_factory=PreflightConfig)
     # Hardware knowledge has its own package-level settings parser; retaining
     # the mapping here lets the unified YAML carry that independent domain.
     hardware_knowledge: dict = field(default_factory=dict)
@@ -328,6 +350,16 @@ def prep_cfg(cfg: Config):
     cfg_schema: Config = OmegaConf.structured(Config)
     cfg = OmegaConf.merge(cfg_schema, cfg)
     cfg.experiment.mode = normalize_experiment_mode(cfg.experiment.mode)
+    cfg.preflight.policy_mode = str(cfg.preflight.policy_mode or "balanced").strip().lower()
+    if cfg.preflight.policy_mode not in {"audit", "balanced", "strict"}:
+        raise ValueError("preflight.policy_mode must be one of: audit, balanced, strict")
+    cfg.preflight.enabled_modes = [
+        normalize_experiment_mode(value) for value in cfg.preflight.enabled_modes
+    ]
+    if int(cfg.preflight.max_repair_rounds) < 0:
+        raise ValueError("preflight.max_repair_rounds must be non-negative")
+    if not str(cfg.preflight.target_profile or "").strip():
+        raise ValueError("preflight.target_profile must not be empty")
     cfg.agent.precision_optimization_mode = normalize_precision_optimization_mode(
         cfg.agent.precision_optimization_mode
     )

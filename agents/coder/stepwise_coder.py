@@ -424,6 +424,7 @@ class MetaAgent:
             f"- Ensure the execution flow is logical: {execution_flow}",
             "- Make sure the final code prints validation metric (must match task's Evaluation section) and saves submission.csv",
             "- The code should be a single-file Python program that can be executed as-is",
+            "- Preserve or assemble the complete no-argument `CandidateAdapter` contract required by the Implementation guideline, and keep every execution entry point behind `if __name__ == \"__main__\":` so importing the merged module is safe.",
             "- Assume previous steps have NOT been executed; do not skip execution steps and only read files or outputs.",
             "- All parts must work together seamlessly",
             "- Use hardware context only to preserve compatible precision, precision-required model adapters, batch, dataloader, and runtime choices. Do not redesign the selected model family, loss/interface, or optimizer during merge.",
@@ -587,8 +588,10 @@ def create_default_step_agents(
             "CRITICAL CONSISTENCY REQUIREMENT: Ensure that validation and test inference use IDENTICAL processing logic. Any differences in how validation and test data are handled can cause large performance gaps between validation and test sets.",
             "CRITICAL: You MUST actively prevent overfitting. Use appropriate regularization, early stopping, and validation discipline without overfitting to the validation set.",
             "CRITICAL: You MUST implement the exact evaluation metric as specified in the task description's 'Evaluation' section. Do not use dummy, simplified, or approximate metrics.",
-            "CRITICAL: The final line must be: `print(f'Final Validation Score: {score}')`. This is required for the score parser.",
-        ]
+        "CRITICAL: The final line must be: `print(f'Final Validation Score: {score}')`. This is required for the score parser.",
+        "CRITICAL: Expose the finished model/data/loss/optimizer path through the no-argument `CandidateAdapter` methods in the Implementation guideline. Its batch builders must honor the requested scenario batch size/device and its training_step must return the real differentiable scalar loss.",
+        "CRITICAL: Put training, validation, test inference, and submission execution in a main() function called only under `if __name__ == \"__main__\":`; importing the module must only define reusable objects and the adapter.",
+    ]
         training_guidelines.extend(
             [
                 "Hardware-aware training: optimize runtime at fixed modeling intent. Do NOT increase epochs, folds, model size, input resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization unless the user explicitly asks for score improvement.",
