@@ -9,6 +9,12 @@ from agents.hardware_context import (
     get_hardware_context_for_stage,
     hardware_context_instructions,
 )
+from agents.lesson_context import (
+    apply_lesson_context_to_node,
+    apply_lesson_context_to_pipeline_decision,
+    get_lesson_context_for_stage,
+    lesson_context_instructions,
+)
 from agents.coder import plan_and_code_query
 from utils.response import extract_plan_from_diff_response, trim_long_string, wrap_code
 from agents.prompts import (
@@ -192,6 +198,12 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
     }
     hardware_ctx = get_hardware_context_for_stage(agent, "debug", parent_node=parent_node)
     hardware_section = hardware_ctx.prompt_section
+    lesson_ctx = get_lesson_context_for_stage(
+        agent, "debug", parent_node=parent_node, error=parent_node.term_out
+    )
+    lesson_section = lesson_ctx.prompt_section
+    if lesson_section:
+        prompt["Family–Hardware Lesson Profile"] = lesson_section
     pipeline_decision = build_pipeline_decision(
         agent,
         stage="debug",
@@ -202,10 +214,12 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
         execution_output=parent_node.term_out,
         stage_context=str(getattr(parent_node, "analysis", "") or ""),
     )
+    apply_lesson_context_to_pipeline_decision(pipeline_decision, lesson_ctx)
     pipeline_decision_section = format_pipeline_decision_prompt_section(pipeline_decision)
     prompt["Pipeline Decision"] = pipeline_decision
     prompt["Pipeline Decision Contract"] = pipeline_decision_section
     prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
+    prompt["Instructions"] |= lesson_context_instructions(lesson_ctx)
     prompt["Instructions"] |= pipeline_decision_instructions(pipeline_decision)
     prompt["Instructions"] |= {
         "Bugfix improvement sketch guideline": [
@@ -264,6 +278,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
         user_prompt = (
             f"\n# Task description\n{prompt['Task description']}\n"
             f"{hardware_section}\n"
+            f"{lesson_section}\n"
             f"{pipeline_decision_section}\n"
             f"{instructions_with_format}"
         )
@@ -323,6 +338,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
             )
             apply_hardware_context_to_node(new_node, hardware_ctx)
             apply_pipeline_decision_to_node(new_node, pipeline_decision)
+            apply_lesson_context_to_node(new_node, lesson_ctx)
             register_node(
                 agent,
                 new_node,
@@ -518,6 +534,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
                         bug_report=bug_report, fix_report=fix_report)
     apply_hardware_context_to_node(new_node, hardware_ctx)
     apply_pipeline_decision_to_node(new_node, pipeline_decision)
+    apply_lesson_context_to_node(new_node, lesson_ctx)
     register_node(agent, new_node, prompt_complete, parent_node=parent_node)
 
     logger.info(f"[debug] {parent_node.id} → node {new_node.id}")

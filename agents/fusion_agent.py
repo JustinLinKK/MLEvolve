@@ -11,6 +11,12 @@ from agents.hardware_context import (
     get_hardware_context_for_stage,
     hardware_context_instructions,
 )
+from agents.lesson_context import (
+    apply_lesson_context_to_node,
+    apply_lesson_context_to_pipeline_decision,
+    get_lesson_context_for_stage,
+    lesson_context_instructions,
+)
 from agents.prompts import (
     apply_pipeline_decision_to_node,
     build_pipeline_decision,
@@ -70,6 +76,10 @@ def fuse_two_nodes(agent, source_node: SearchNode, target_node: SearchNode) -> S
     }
     hardware_ctx = get_hardware_context_for_stage(agent, "fusion", parent_node=source_node)
     hardware_section = hardware_ctx.prompt_section
+    lesson_ctx = get_lesson_context_for_stage(agent, "fusion", parent_node=source_node)
+    lesson_section = lesson_ctx.prompt_section
+    if lesson_section:
+        prompt["Family–Hardware Lesson Profile"] = lesson_section
     if hardware_section:
         prompt["Hardware/Profile Optimization Context"] = hardware_section
     pipeline_decision = build_pipeline_decision(
@@ -85,10 +95,12 @@ def fuse_two_nodes(agent, source_node: SearchNode, target_node: SearchNode) -> S
             f"Reference pipeline decision: {getattr(target_node, 'pipeline_decision', None)}"
         ),
     )
+    apply_lesson_context_to_pipeline_decision(pipeline_decision, lesson_ctx)
     pipeline_decision_section = format_pipeline_decision_prompt_section(pipeline_decision)
     prompt["Pipeline Decision"] = pipeline_decision
     prompt["Pipeline Decision Contract"] = pipeline_decision_section
     prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
+    prompt["Instructions"] |= lesson_context_instructions(lesson_ctx)
     prompt["Instructions"] |= pipeline_decision_instructions(pipeline_decision)
 
     prompt["Instructions"] |= {
@@ -169,7 +181,7 @@ def fuse_two_nodes(agent, source_node: SearchNode, target_node: SearchNode) -> S
 
     user_prompt = (
         f"\n# Task description\n{prompt['Task description']}\n\n"
-        f"{hardware_section}{pipeline_decision_section}"
+        f"{hardware_section}{lesson_section}{pipeline_decision_section}"
         f"# Reference Solution\n{prompt['Reference Solution']}\n\n{instructions}"
     )
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nMy current solution:\nPlan: {prompt['Current Solution']['Plan']}\nCode: {prompt['Current Solution']['Code']}\nPerformance: {prompt['Current Solution']['Performance']}\nAnalysis: {prompt['Current Solution']['Analysis']}\nI'll now analyze the reference solution and selectively incorporate its best ideas."
@@ -193,10 +205,13 @@ def fuse_two_nodes(agent, source_node: SearchNode, target_node: SearchNode) -> S
         parent=source_node,
         stage="fusion",
         local_best_node=source_node.local_best_node,
-        from_topk=from_topk
+        from_topk=from_topk,
+        generation_strategy="fusion",
+        source_node_ids=[source_node.id, target_node.id],
     )
     apply_hardware_context_to_node(fused_node, hardware_ctx)
     apply_pipeline_decision_to_node(fused_node, pipeline_decision)
+    apply_lesson_context_to_node(fused_node, lesson_ctx)
     register_node(agent, fused_node, prompt_complete, parent_node=source_node)
 
     if hasattr(source_node, '_topk_triggered'):
@@ -237,6 +252,10 @@ def _fuse_with_multiple_references(
     }
     hardware_ctx = get_hardware_context_for_stage(agent, "fusion", parent_node=parent_node)
     hardware_section = hardware_ctx.prompt_section
+    lesson_ctx = get_lesson_context_for_stage(agent, "fusion", parent_node=parent_node)
+    lesson_section = lesson_ctx.prompt_section
+    if lesson_section:
+        prompt["Family–Hardware Lesson Profile"] = lesson_section
     if hardware_section:
         prompt["Hardware/Profile Optimization Context"] = hardware_section
     reference_decisions = [
@@ -254,10 +273,12 @@ def _fuse_with_multiple_references(
         execution_output=parent_node.term_out,
         stage_context=f"{reference_memory}\nReference pipeline decisions: {reference_decisions}",
     )
+    apply_lesson_context_to_pipeline_decision(pipeline_decision, lesson_ctx)
     pipeline_decision_section = format_pipeline_decision_prompt_section(pipeline_decision)
     prompt["Pipeline Decision"] = pipeline_decision
     prompt["Pipeline Decision Contract"] = pipeline_decision_section
     prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
+    prompt["Instructions"] |= lesson_context_instructions(lesson_ctx)
     prompt["Instructions"] |= pipeline_decision_instructions(pipeline_decision)
 
     prompt["Instructions"] |= {
@@ -341,7 +362,7 @@ def _fuse_with_multiple_references(
 
     user_prompt = (
         f"\n# Task description\n{prompt['Task description']}\n\n"
-        f"{hardware_section}{pipeline_decision_section}"
+        f"{hardware_section}{lesson_section}{pipeline_decision_section}"
         f"# Reference Solutions\n{prompt['Reference Solutions']}\n\n{instructions}"
     )
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nMy current solution:\nPlan: {prompt['Current Solution']['Plan']}\nCode: {prompt['Current Solution']['Code']}\nPerformance: {prompt['Current Solution']['Performance']}\nAnalysis: {prompt['Current Solution']['Analysis']}\nI'll now analyze the reference solutions and selectively incorporate the best ideas."
@@ -365,10 +386,13 @@ def _fuse_with_multiple_references(
         parent=parent_node,
         stage="fusion",
         local_best_node=parent_node.local_best_node,
-        from_topk=from_topk
+        from_topk=from_topk,
+        generation_strategy="multi_fusion",
+        source_node_ids=[parent_node.id, *[node.id for node in reference_nodes]],
     )
     apply_hardware_context_to_node(fused_node, hardware_ctx)
     apply_pipeline_decision_to_node(fused_node, pipeline_decision)
+    apply_lesson_context_to_node(fused_node, lesson_ctx)
     register_node(agent, fused_node, prompt_complete, parent_node=parent_node)
 
     if hasattr(parent_node, '_topk_triggered'):
@@ -482,6 +506,7 @@ def _diff_fusion(agent, prompt_base, data_preview, source_node):
         "current_analysis": source_node.analysis if source_node.analysis else 'N/A',
         "reference_solution": reference_solution,
         "hardware_prompt_section": prompt_base.get("Hardware/Profile Optimization Context", ""),
+        "lesson_profile_section": prompt_base.get("Family–Hardware Lesson Profile", ""),
         "pipeline_decision_section": prompt_base.get("Pipeline Decision Contract", ""),
     }
 
@@ -524,6 +549,7 @@ def _diff_fusion(agent, prompt_base, data_preview, source_node):
             section
             for section in (
                 context.get("hardware_prompt_section", ""),
+                context.get("lesson_profile_section", ""),
                 context.get("pipeline_decision_section", ""),
             )
             if section
@@ -542,6 +568,7 @@ def _diff_multi_fusion(agent, prompt_base, data_preview, parent_node):
         "current_analysis": parent_node.analysis if parent_node.analysis else 'N/A',
         "reference_solutions": reference_solutions,
         "hardware_prompt_section": prompt_base.get("Hardware/Profile Optimization Context", ""),
+        "lesson_profile_section": prompt_base.get("Family–Hardware Lesson Profile", ""),
         "pipeline_decision_section": prompt_base.get("Pipeline Decision Contract", ""),
     }
 
@@ -584,6 +611,7 @@ def _diff_multi_fusion(agent, prompt_base, data_preview, parent_node):
             section
             for section in (
                 context.get("hardware_prompt_section", ""),
+                context.get("lesson_profile_section", ""),
                 context.get("pipeline_decision_section", ""),
             )
             if section

@@ -90,6 +90,16 @@ class SearchNode(DataClassJsonMixin):
     backend_name: Optional[str] = field(default=None, kw_only=True)
     hardware_decision: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
     pipeline_decision: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
+    lesson_profile_key: Optional[str] = field(default=None, kw_only=True)
+    lesson_profile_revision: Optional[int] = field(default=None, kw_only=True)
+    lesson_match_level: Optional[str] = field(default=None, kw_only=True)
+    lesson_profile_maturity: Optional[str] = field(default=None, kw_only=True)
+    lesson_ids: List[str] = field(default_factory=list, kw_only=True)
+    lesson_confidence: float = field(default=0.0, kw_only=True)
+    lesson_evidence_refs: List[str] = field(default_factory=list, kw_only=True)
+    lesson_profile_context: Optional[Dict[str, Any]] = field(default=None, kw_only=True)
+    generation_strategy: Optional[str] = field(default=None, kw_only=True)
+    source_node_ids: List[str] = field(default_factory=list, kw_only=True)
     stage_note_board: List[Dict[str, Any]] = field(default_factory=list, kw_only=True)
     bug_report: Optional[str] = field(default=None, kw_only=True)
     fix_report: Optional[str] = field(default=None, kw_only=True)
@@ -100,12 +110,16 @@ class SearchNode(DataClassJsonMixin):
     review_history: List[Dict[str, Any]] = field(default_factory=list, kw_only=True)
 
     def __post_init__(self) -> None:
+        if self.generation_strategy is None:
+            self.generation_strategy = self.stage
         if self.parent is not None:
             self.parent.children.add(self)
             if self.pipeline_decision is None and self.parent.pipeline_decision is not None:
                 self.pipeline_decision = copy.deepcopy(self.parent.pipeline_decision)
             if not self.stage_note_board and self.parent.stage_note_board:
                 self.stage_note_board = copy.deepcopy(self.parent.stage_note_board)
+            if not self.source_node_ids:
+                self.source_node_ids = [self.parent.id]
         if self.stage not in ["root", "improve", "debug", "draft", "fusion_draft", "evolution", "fusion"]:
             raise ValueError(f"Invalid stage: {self.stage}")
 

@@ -7,6 +7,11 @@ import time
 from typing import Any, cast
 
 from agents.hardware_context import get_hardware_context_for_stage, hardware_context_instructions
+from agents.lesson_context import (
+    apply_lesson_context_to_node,
+    get_lesson_context_for_stage,
+    lesson_context_instructions,
+)
 from agents.prompts import get_internet_clarification
 from agents.prompts.validation_template_prompts import get_code_review_prompt
 from agents.review_contracts import ReviewDecision, ReviewOutcome
@@ -77,6 +82,15 @@ def _build_review_prompt(agent: Any, node: SearchNode, code: str) -> tuple[dict[
             "Flag hardware-critical issues only when the supplied profile evidence is strong.",
             "Preserve the chosen model/backbone and classify the narrow owning stage.",
         ]
+    lesson_ctx = get_lesson_context_for_stage(
+        agent, "code_review", parent_node=node, code=code
+    )
+    if lesson_ctx.prompt_section:
+        instructions = prompt.pop("Instructions")
+        prompt["Family–Hardware Lesson Profile"] = lesson_ctx.prompt_section
+        prompt["Instructions"] = instructions
+        prompt["Instructions"] |= lesson_context_instructions(lesson_ctx)
+        apply_lesson_context_to_node(node, lesson_ctx)
     internet_clarification = get_internet_clarification(getattr(agent.cfg, "pretrain_model_dir", ""))
     prompt.setdefault("Instructions", {})
     if "Implementation guideline" in prompt["Instructions"]:

@@ -145,6 +145,8 @@ def test_env_and_cli_overrides_still_win(monkeypatch, tmp_path: Path) -> None:
 
     assert cfg.experiment.mode == "baseline"
     assert cfg.agent.hardware_context_enabled is False
+    assert cfg.lesson_profiles.read_enabled is False
+    assert cfg.lesson_profiles.write_enabled is False
     assert cfg.agent.steps == 7
 
 
@@ -159,6 +161,27 @@ def test_origin_mode_disables_hardware_context_and_scheduler(monkeypatch, tmp_pa
     assert cfg.experiment.mode == "origin"
     assert cfg.agent.hardware_context_enabled is False
     assert cfg.scheduler.enabled is False
+    assert cfg.lesson_profiles.read_enabled is False
+    assert cfg.lesson_profiles.write_enabled is False
+
+
+def test_baseline_mode_can_explicitly_enable_lesson_profiles(monkeypatch, tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    _write_config(path, marker="root")
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    payload["lesson_profiles"] = {
+        "read_enabled": True,
+        "write_enabled": True,
+        "enable_in_baseline_modes": True,
+    }
+    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    monkeypatch.setenv("MLEVOLVE_EXPERIMENT_MODE", "baseline")
+    monkeypatch.setattr(sys, "argv", ["prog"])
+
+    cfg = mle_config.prep_cfg(mle_config._load_cfg(path, use_cli_args=True))
+
+    assert cfg.lesson_profiles.read_enabled is True
+    assert cfg.lesson_profiles.write_enabled is True
 
 
 def test_scheduler_settings_prefer_nested_config(tmp_path: Path) -> None:
@@ -242,3 +265,6 @@ def test_local_compose_defines_separate_profile_and_hardware_neo4j_services() ->
     assert services["neo4j-hardware"]["ports"] == ["${NEO4J_HARDWARE_HTTP_PORT:-7475}:7474", "${NEO4J_HARDWARE_BOLT_PORT:-7688}:7687"]
     assert "neo4j_profile_data" in compose["volumes"]
     assert "neo4j_hardware_data" in compose["volumes"]
+    assert services["qdrant"]["healthcheck"]
+    assert services["redis"]["healthcheck"]
+    assert "redis_data" in compose["volumes"]

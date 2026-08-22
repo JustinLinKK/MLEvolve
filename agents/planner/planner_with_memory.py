@@ -70,12 +70,14 @@ def generate_initial_plan(
 
     memory_section = f"# Memory\n{prompt_base.get('Memory', '')}"
     hardware_section = prompt_base.get("Hardware/Profile Optimization Context", "")
+    lesson_section = prompt_base.get("Family–Hardware Lesson Profile", "")
     pipeline_decision_section = prompt_base.get("Pipeline Decision Contract", "")
 
     user_prompt = (
         f"\n# Task description\n{prompt_base.get('Task description', '')}\n\n"
         f"{memory_section}\n\n"
         f"{hardware_section}\n"
+        f"{lesson_section}\n"
         f"{pipeline_decision_section}\n"
         f"{instructions}\n"
     )
@@ -313,6 +315,9 @@ def _build_refine_user_prompt(
     hardware_section = prompt_base.get("Hardware/Profile Optimization Context", "")
     if hardware_section:
         parts.extend([hardware_section, ""])
+    lesson_section = prompt_base.get("Family–Hardware Lesson Profile", "")
+    if lesson_section:
+        parts.extend([lesson_section, ""])
     pipeline_decision_section = prompt_base.get("Pipeline Decision Contract", "")
     if pipeline_decision_section:
         parts.extend([pipeline_decision_section, ""])

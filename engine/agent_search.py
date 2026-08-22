@@ -66,6 +66,7 @@ class AgentSearch:
         self.use_coldstart = cfg.coldstart.use_coldstart
         self.coldstart_description = cfg.coldstart.description
         self.scheduler_client = None
+        self.lesson_profile_client = None
         self.hardware_cache_status: dict | None = None
 
         # Top-N candidates
@@ -124,6 +125,10 @@ class AgentSearch:
         """Expose the in-process scheduler client to stage agents for read-only context."""
         self.scheduler_client = scheduler_client
         self.hardware_cache_status = self._prewarm_current_hardware_context(scheduler_client)
+
+    def attach_lesson_profiles(self, lesson_profile_client) -> None:
+        """Attach the independent, fail-open lesson profile client."""
+        self.lesson_profile_client = lesson_profile_client
 
     def _hardware_context_enabled(self) -> bool:
         experiment = getattr(self.cfg, "experiment", None)

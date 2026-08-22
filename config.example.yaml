@@ -54,6 +54,52 @@ hardware_knowledge:
       max_entries: 4096
       socket_timeout_seconds: 0.2
       cache_graph_queries: true
+# Independent durable memory for validated family/hardware lessons. SQLite is
+# authoritative; Qdrant and Redis are derived acceleration layers.
+lesson_profiles:
+  enabled: true
+  read_enabled: true
+  write_enabled: true
+  # Keep origin/baseline experiments isolated unless this is explicitly true.
+  enable_in_baseline_modes: false
+  runtime_root: ./lesson_profile_database/runtime
+  sqlite_path: null
+  stability_threshold: 3
+  minimum_family_confidence: 0.75
+  max_lessons: 3
+  max_prompt_chars: 2500
+  qdrant:
+    enabled: true
+    url: http://127.0.0.1:6333
+    api_key_env: MLEVOLVE_LESSON_QDRANT_API_KEY
+    collection_name: lesson_profile_records_v1
+    embedding_model_type: local
+    embedding_model_name: BAAI/bge-base-en-v1.5
+    embedding_device: cpu
+    embedding_dimension: 768
+    distance: Cosine
+  redis_cache:
+    enabled: true
+    url: redis://127.0.0.1:6379/1
+    url_env: MLEVOLVE_LESSON_REDIS_URL
+    key_prefix: mlevolve_lesson_profiles
+    ttl_seconds: 300
+    max_entries: 4096
+    socket_timeout_seconds: 0.2
+    cache_graph_queries: true
+    cache_vector_queries: true
+  builder:
+    enabled: true
+    concurrency: 1
+    poll_interval_seconds: 0.5
+    lease_seconds: 300
+    max_retries: 3
+    retry_delay_seconds: 5
+    # null reuses agent.feedback.model.
+    model: null
+    prompt_version: lesson-profile-builder-v1
+    extractor_version: lesson-profile-extractor-v1
+    max_summary_chars: 1200
 scheduler:
   enabled: true
   runtime_root: null

@@ -22,6 +22,7 @@ def _get_journal_classes():
 
 from utils import copytree, preproc_data, serialize
 from utils.precision_policy import normalize_precision_optimization_mode
+from lesson_profile_database.config import LessonProfileSettings
 
 shutup.mute_warnings()
 logger = logging.getLogger("MLEvolve")
@@ -218,6 +219,10 @@ class Config(Hashable):
 
     coldstart: ColdstartConfig
 
+    # Hardware knowledge has its own package-level settings parser; retaining
+    # the mapping here lets the unified YAML carry that independent domain.
+    hardware_knowledge: dict = field(default_factory=dict)
+    lesson_profiles: LessonProfileSettings = field(default_factory=LessonProfileSettings)
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     use_grading_server: bool = True
     init_solution: InitSolutionConfig = field(default_factory=InitSolutionConfig)
@@ -328,6 +333,9 @@ def prep_cfg(cfg: Config):
     )
     if cfg.experiment.mode in {EXPERIMENT_MODE_ORIGIN, EXPERIMENT_MODE_BASELINE}:
         cfg.agent.hardware_context_enabled = False
+        if not cfg.lesson_profiles.enable_in_baseline_modes:
+            cfg.lesson_profiles.read_enabled = False
+            cfg.lesson_profiles.write_enabled = False
     if cfg.experiment.mode == EXPERIMENT_MODE_ORIGIN:
         cfg.scheduler.enabled = False
 
