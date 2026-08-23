@@ -1,9 +1,0 @@
-schema_version: 1
-vendor: nvidia
-name: A100-80GB
-architecture: ampere
-compute_capability: "8.0"
-vram_bytes: 85899345920
-native_training_dtypes: [fp32, fp16, bf16, tf32]
-unsupported_features: [fp8, nvfp4]
-notes: GPU-specific kernels still require the scheduler target-GPU canary.

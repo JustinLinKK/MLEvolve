@@ -67,10 +67,8 @@ modules = [
     "genson",
     "google.genai",
     "humanize",
-    "jsonschema",
     "mcp",
     "mlebench",
-    "model_preflight",
     "neo4j",
     "numpy",
     "omegaconf",
@@ -112,8 +110,6 @@ PY
 main() {
   require_python
   install_git_lfs
-
-  git submodule update --init --recursive -- nn-model-preflight-checker
 
   "$PYTHON_BIN" -m pip install -r "$ROOT/requirements_base.txt" "$@"
 

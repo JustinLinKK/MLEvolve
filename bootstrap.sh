@@ -43,15 +43,10 @@ PY
 CONFIG_HARDWARE_GRAPH_URI="$(read_config_value hardware_knowledge.settings.graph.uri bolt://127.0.0.1:7688)"
 CONFIG_HARDWARE_NEO4J_USERNAME="$(read_config_value hardware_knowledge.settings.graph.username neo4j)"
 CONFIG_HARDWARE_NEO4J_DATABASE="$(read_config_value hardware_knowledge.settings.graph.database neo4j)"
-CONFIG_LESSON_PROFILES_ENABLED="$(read_config_value lesson_profiles.enabled true)"
-CONFIG_LESSON_QDRANT_URL="$(read_config_value lesson_profiles.qdrant.url http://127.0.0.1:6333)"
-CONFIG_LESSON_REDIS_URL="$(read_config_value lesson_profiles.redis_cache.url redis://127.0.0.1:6379/1)"
 
 export HARDWARE_GRAPH_URI="${HARDWARE_GRAPH_URI:-${HARDWARE_GRAPH_DB_URI:-$CONFIG_HARDWARE_GRAPH_URI}}"
 export HARDWARE_NEO4J_USERNAME="${HARDWARE_NEO4J_USERNAME:-$CONFIG_HARDWARE_NEO4J_USERNAME}"
 export HARDWARE_NEO4J_DATABASE="${HARDWARE_NEO4J_DATABASE:-$CONFIG_HARDWARE_NEO4J_DATABASE}"
-export LESSON_QDRANT_URL="${LESSON_QDRANT_URL:-$CONFIG_LESSON_QDRANT_URL}"
-export MLEVOLVE_LESSON_REDIS_URL="${MLEVOLVE_LESSON_REDIS_URL:-$CONFIG_LESSON_REDIS_URL}"
 
 TEMP_CONFIG=""
 cleanup() {
@@ -83,10 +78,6 @@ graph["username"] = os.environ["HARDWARE_NEO4J_USERNAME"]
 graph["database"] = os.environ["HARDWARE_NEO4J_DATABASE"]
 graph["password_env"] = "HARDWARE_KNOWLEDGE_NEO4J_PASSWORD"
 
-lesson_profiles = data.setdefault("lesson_profiles", {})
-lesson_profiles.setdefault("qdrant", {})["url"] = os.environ["LESSON_QDRANT_URL"]
-lesson_profiles.setdefault("redis_cache", {})["url"] = os.environ["MLEVOLVE_LESSON_REDIS_URL"]
-
 target.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 PY
   export MLEVOLVE_CONFIG="$TEMP_CONFIG"
@@ -104,33 +95,15 @@ EOF
     exit 127
   fi
 
-  "$ROOT/docker_host_databases.sh" up
-}
-
-wait_for_lesson_services() {
-  local waited=0
-  local max_wait="${LESSON_SERVICE_WAIT_SECONDS:-60}"
-  until python - <<'PY' >/dev/null 2>&1
-import os
-import urllib.request
-
-import redis
-
-with urllib.request.urlopen(os.environ["LESSON_QDRANT_URL"].rstrip("/") + "/collections", timeout=2) as response:
-    if response.status >= 400:
-        raise RuntimeError(response.status)
-redis.Redis.from_url(os.environ["MLEVOLVE_LESSON_REDIS_URL"], socket_timeout=2).ping()
-PY
-  do
-    if (( waited >= max_wait )); then
-      echo "Lesson Qdrant/Redis services did not become reachable within ${max_wait}s." >&2
-      echo "Qdrant: $LESSON_QDRANT_URL" >&2
-      echo "Redis:   $MLEVOLVE_LESSON_REDIS_URL" >&2
-      return 1
-    fi
-    sleep 2
-    waited=$((waited + 2))
-  done
+  docker start mlevolve-neo4j-hardware >/dev/null 2>&1 || \
+  docker run -d \
+    --name mlevolve-neo4j-hardware \
+    --restart unless-stopped \
+    -p 7475:7474 -p 7688:7687 \
+    -e NEO4J_AUTH="neo4j/${HARDWARE_KNOWLEDGE_NEO4J_PASSWORD:-test12345}" \
+    -v mlevolve_neo4j_hardware_data:/data \
+    -v mlevolve_neo4j_hardware_logs:/logs \
+    neo4j:5.26
 }
 
 wait_for_hardware_neo4j() {
@@ -198,21 +171,12 @@ fi
 
 echo "Using hardware knowledge database endpoint:"
 echo "  Neo4j hardware: $HARDWARE_GRAPH_URI"
-if [[ "${CONFIG_LESSON_PROFILES_ENABLED,,}" == "true" ]]; then
-  echo "  Lesson Qdrant:  $LESSON_QDRANT_URL"
-  echo "  Lesson Redis:   $MLEVOLVE_LESSON_REDIS_URL"
-fi
 
 wait_for_hardware_neo4j
-if [[ "${CONFIG_LESSON_PROFILES_ENABLED,,}" == "true" ]]; then
-  wait_for_lesson_services
-fi
 
 if [[ "$HARDWARE_GRAPH_URI" != "$CONFIG_HARDWARE_GRAPH_URI" ||
       "$HARDWARE_NEO4J_USERNAME" != "$CONFIG_HARDWARE_NEO4J_USERNAME" ||
-      "$HARDWARE_NEO4J_DATABASE" != "$CONFIG_HARDWARE_NEO4J_DATABASE" ||
-      "$LESSON_QDRANT_URL" != "$CONFIG_LESSON_QDRANT_URL" ||
-      "$MLEVOLVE_LESSON_REDIS_URL" != "$CONFIG_LESSON_REDIS_URL" ]]; then
+      "$HARDWARE_NEO4J_DATABASE" != "$CONFIG_HARDWARE_NEO4J_DATABASE" ]]; then
   write_runtime_config
 else
   export MLEVOLVE_CONFIG="$CONFIG_PATH"
@@ -222,9 +186,5 @@ if [[ "${MLEVOLVE_INGEST_KNOWLEDGE:-0}" == "1" ]]; then
   ingest_hardware_knowledge
 fi
 
-if [[ "${CONFIG_LESSON_PROFILES_ENABLED,,}" == "true" && "${MLEVOLVE_INIT_LESSON_PROFILES:-1}" == "1" ]]; then
-  python -m lesson_profile_database.cli --config "$MLEVOLVE_CONFIG" init
-fi
-
-echo "Hardware knowledge and lesson profile database setup complete. Run the trace benchmark with:"
+echo "Hardware knowledge setup complete. Run the trace benchmark with:"
 echo "  bash scheduler_benchmark_test/run_histopath_scheduler_replay.sh"

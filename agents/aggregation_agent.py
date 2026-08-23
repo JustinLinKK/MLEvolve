@@ -8,12 +8,6 @@ from agents.hardware_context import (
     get_hardware_context_for_stage,
     hardware_context_instructions,
 )
-from agents.lesson_context import (
-    apply_lesson_context_to_node,
-    apply_lesson_context_to_pipeline_decision,
-    get_lesson_context_for_stage,
-    lesson_context_instructions,
-)
 from agents.prompts import (
     apply_pipeline_decision_to_node,
     build_pipeline_decision,
@@ -139,11 +133,6 @@ def run(
     }
     hardware_ctx = get_hardware_context_for_stage(agent, "aggregation")
     hardware_section = hardware_ctx.prompt_section
-    lesson_anchor = branch_representatives[0] if branch_representatives else None
-    lesson_ctx = get_lesson_context_for_stage(agent, "aggregation", parent_node=lesson_anchor)
-    lesson_section = lesson_ctx.prompt_section
-    if lesson_section:
-        prompt["Family–Hardware Lesson Profile"] = lesson_section
     pipeline_decision = build_pipeline_decision(
         agent,
         stage="aggregation",
@@ -151,14 +140,12 @@ def run(
         hardware_contexts=[hardware_ctx],
         stage_context=reference_experiences,
     )
-    apply_lesson_context_to_pipeline_decision(pipeline_decision, lesson_ctx)
     pipeline_decision_section = format_pipeline_decision_prompt_section(pipeline_decision)
     prompt["Pipeline Decision"] = pipeline_decision
     prompt["Pipeline Decision Contract"] = pipeline_decision_section
 
     prompt["Instructions"] |= prompt_resp_fmt()
     prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
-    prompt["Instructions"] |= lesson_context_instructions(lesson_ctx)
     prompt["Instructions"] |= pipeline_decision_instructions(pipeline_decision)
 
     if mode == "node":
@@ -206,7 +193,7 @@ def run(
 
     user_prompt = (
         f"\n# Task description\n{prompt['Task description']}\n\n"
-        f"{hardware_section}{lesson_section}{pipeline_decision_section}"
+        f"{hardware_section}{pipeline_decision_section}"
         f"# Branch Experiences\n{prompt['Branch Experiences']}\n\n{instructions}"
     )
     prompt_complete = build_chat_prompt_for_model(agent.acfg.code.model, introduction, user_prompt, assistant_prefix)
@@ -219,12 +206,9 @@ def run(
         parent=agent.virtual_root,
         stage="fusion_draft",
         local_best_node=agent.virtual_root,
-        generation_strategy="aggregation",
-        source_node_ids=[node.id for node in branch_representatives],
     )
     apply_hardware_context_to_node(aggregation_node, hardware_ctx)
     apply_pipeline_decision_to_node(aggregation_node, pipeline_decision)
-    apply_lesson_context_to_node(aggregation_node, lesson_ctx)
     register_node(agent, aggregation_node, prompt_complete, new_branch=True)
     agent.fusion_draft_count += 1
 

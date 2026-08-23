@@ -7,11 +7,6 @@ import time
 from typing import Any, cast
 
 from agents.hardware_context import get_hardware_context_for_stage, hardware_context_instructions
-from agents.lesson_context import (
-    apply_lesson_context_to_node,
-    get_lesson_context_for_stage,
-    lesson_context_instructions,
-)
 from agents.prompts import get_internet_clarification
 from agents.prompts.validation_template_prompts import get_code_review_prompt
 from agents.review_contracts import ReviewDecision, ReviewOutcome
@@ -82,15 +77,6 @@ def _build_review_prompt(agent: Any, node: SearchNode, code: str) -> tuple[dict[
             "Flag hardware-critical issues only when the supplied profile evidence is strong.",
             "Preserve the chosen model/backbone and classify the narrow owning stage.",
         ]
-    lesson_ctx = get_lesson_context_for_stage(
-        agent, "code_review", parent_node=node, code=code
-    )
-    if lesson_ctx.prompt_section:
-        instructions = prompt.pop("Instructions")
-        prompt["Family–Hardware Lesson Profile"] = lesson_ctx.prompt_section
-        prompt["Instructions"] = instructions
-        prompt["Instructions"] |= lesson_context_instructions(lesson_ctx)
-        apply_lesson_context_to_node(node, lesson_ctx)
     internet_clarification = get_internet_clarification(getattr(agent.cfg, "pretrain_model_dir", ""))
     prompt.setdefault("Instructions", {})
     if "Implementation guideline" in prompt["Instructions"]:
@@ -100,39 +86,9 @@ def _build_review_prompt(agent: Any, node: SearchNode, code: str) -> tuple[dict[
     return prompt, hardware_ctx
 
 
-def _partition_review_cache_prompt(prompt: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Separate byte-stable reviewer rules from candidate-specific evidence."""
-
-    stable_instruction_names = {
-        "Code review guidelines",
-        "Response format",
-        "⚠️ Internet Access Clarification",
-    }
-    instructions = dict(prompt.get("Instructions") or {})
-    stable_instructions = {
-        key: value for key, value in instructions.items() if key in stable_instruction_names
-    }
-    dynamic_instructions = {
-        key: value for key, value in instructions.items() if key not in stable_instruction_names
-    }
-    stable = {
-        "Introduction": prompt.get("Introduction", ""),
-        "Instructions": stable_instructions,
-    }
-    dynamic = {
-        key: value
-        for key, value in prompt.items()
-        if key not in {"Introduction", "Instructions"}
-    }
-    if dynamic_instructions:
-        dynamic["Instructions"] = dynamic_instructions
-    return stable, dynamic
-
-
 def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecision | None, dict[str, Any]]:
     """Return a validated decision, or None when the reviewer stays unavailable/invalid."""
     prompt, hardware_ctx = _build_review_prompt(agent, node, code)
-    stable_prompt, dynamic_prompt = _partition_review_cache_prompt(prompt)
     hardware_context_used = bool(hardware_ctx.prompt_section)
     policy_issues = validate_training_precision(agent, code, context=hardware_ctx)
     retries = max(1, int(getattr(_review_config(agent), "classifier_retries", 3)))
@@ -149,9 +105,6 @@ def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecisi
                     model=agent.acfg.code.model,
                     temperature=agent.acfg.code.temp,
                     cfg=agent.cfg,
-                    context_cache_role="reviewer",
-                    context_cache_stable_prefix=stable_prompt,
-                    context_cache_dynamic_system_message=dynamic_prompt,
                 ),
             )
             decision = ReviewDecision.from_mapping(response, hardware_aware=is_hardware_aware(agent))

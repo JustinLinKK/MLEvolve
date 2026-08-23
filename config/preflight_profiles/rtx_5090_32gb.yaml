@@ -1,9 +1,0 @@
-schema_version: 1
-vendor: nvidia
-name: GeForce RTX 5090 32GB
-architecture: blackwell
-compute_capability: "12.0"
-vram_bytes: 34359738368
-native_training_dtypes: [fp32, fp16, bf16, tf32, fp8, nvfp4]
-unsupported_features: []
-notes: FP8 and NVFP4 require compatible framework support; retain the target-GPU canary.
