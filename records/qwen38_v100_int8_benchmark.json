@@ -1,0 +1,28 @@
+{
+  "records": [
+    {
+      "ttft_seconds": 2.4493005049880594,
+      "completion_tokens": 36,
+      "tokens_per_second": 1.8317372168066752,
+      "total_seconds": 22.10277463309467
+    },
+    {
+      "ttft_seconds": 2.4017785449977964,
+      "completion_tokens": 36,
+      "tokens_per_second": 1.8398998173998906,
+      "total_seconds": 21.968061262974516
+    },
+    {
+      "ttft_seconds": 2.4166508780326694,
+      "completion_tokens": 36,
+      "tokens_per_second": 1.844770885191499,
+      "total_seconds": 21.93126935395412
+    }
+  ],
+  "median": {
+    "ttft_seconds": 2.4166508780326694,
+    "completion_tokens": 36,
+    "tokens_per_second": 1.8398998173998906,
+    "total_seconds": 21.968061262974516
+  }
+}

@@ -936,6 +936,7 @@ def compact_optimization_context(raw_context: dict[str, Any] | None) -> dict[str
     compact = {
         "hardware_context": _compact_hardware_context(raw_context.get("hardware_context") or {}),
         "graph_evidence": _compact_graph_evidence(raw_context.get("graph_evidence") or {}),
+        "runtime_estimate": _compact_runtime_estimate(raw_context.get("runtime_estimate") or {}),
         "derived_diagnosis": _compact_diagnosis(raw_context.get("derived_diagnosis") or {}),
         "stage_hardware_features": _compact_stage_hardware_features(raw_context.get("stage_hardware_features") or {}),
         "vector_evidence": _compact_vector_evidence(raw_context.get("vector_evidence") or {}),
@@ -2026,6 +2027,7 @@ def _compact_profile(item: dict[str, Any]) -> dict[str, Any]:
             "resolved_batch_size",
             "epochs",
             "estimated_total_runtime_seconds",
+            "seconds_per_epoch",
             "runtime_seconds",
             "peak_vram_mb",
             "peak_vram_mib",
@@ -2043,6 +2045,20 @@ def _compact_profile(item: dict[str, Any]) -> dict[str, Any]:
     if item.get("match_reason"):
         compact["match_reason"] = item.get("match_reason")
     return {key: _short(value, 220) if isinstance(value, str) else value for key, value in compact.items() if value not in (None, "", [], {})}
+
+
+def _compact_runtime_estimate(estimate: dict[str, Any]) -> dict[str, Any]:
+    return _pick(
+        estimate,
+        (
+            "found",
+            "source",
+            "match_reason",
+            "matched_exact_batch_size",
+            "seconds_per_epoch",
+            "estimated_total_runtime_seconds",
+        ),
+    )
 
 
 def _compact_diagnosis(diagnosis: dict[str, Any]) -> dict[str, list[str]]:
@@ -2630,6 +2646,10 @@ def _default_model_families_for_workload(workload_type: str | None) -> list[str]
 
 
 def _runtime_seconds(compact: dict[str, Any]) -> float | None:
+    runtime_estimate = compact.get("runtime_estimate") or {}
+    value = _safe_float(runtime_estimate.get("estimated_total_runtime_seconds"))
+    if value is not None:
+        return value
     for item in _all_graph_profiles(compact):
         for key in ("estimated_total_runtime_seconds", "runtime_seconds"):
             value = _safe_float(item.get(key))

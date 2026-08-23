@@ -5,7 +5,7 @@ This path uses a structured scheduler runner so the benchmark exercises:
 - MPS / stream / exclusive backends
 - baseline RAM cache directly via ``context.load_baseline_object()``
 - five-option timing calibration for time-aware placement
-- incremental anchor-plus-newcomer admission with a configurable safety cap
+- incremental anchor-plus-newcomer admission constrained only by measured VRAM
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ def build_settings(
     *,
     mode: str,
     backend: str,
-    parallel_job_cap: int,
+    parallel_job_cap: int | None,
     gpu_vram_gib: float,
     runtime_root: Path,
     cache_warm_top_k: int,
@@ -100,7 +100,9 @@ def build_settings(
         pair_probe_steps=4,
         reuse_profile_if_confidence_ge=0.8,
     )
-    gpu.parallel_job_cap = max(1, int(parallel_job_cap))
+    gpu.parallel_job_cap = (
+        None if parallel_job_cap is None else max(1, int(parallel_job_cap))
+    )
 
     if backend == "exclusive":
         gpu.backend_priority = ["exclusive"]
@@ -373,7 +375,6 @@ def main():
     parser.add_argument("--trace", required=True)
     parser.add_argument("--data-root", help="Override each trace row's dataset root for this replay.")
     parser.add_argument("--gpu-vram-gib", type=float, default=DEFAULT_GPU_VRAM_GIB)
-    parser.add_argument("--parallel-job-cap", type=int, default=2)
     parser.add_argument("--runtime-root", required=True)
     parser.add_argument("--results-dir", required=True)
     parser.add_argument("--summary", required=True)
@@ -436,7 +437,7 @@ def main():
     settings = build_settings(
         mode=args.mode,
         backend=args.backend,
-        parallel_job_cap=args.parallel_job_cap,
+        parallel_job_cap=None,
         gpu_vram_gib=args.gpu_vram_gib,
         runtime_root=runtime_root,
         cache_warm_policy=args.cache_warm_policy,
@@ -677,7 +678,7 @@ def main():
             "packed_group_size_counts": packed_group_size_counts,
             "placement_mode_counts": placement_mode_counts,
             "packing_policy": {
-                "parallel_job_cap": args.parallel_job_cap,
+                "parallel_job_cap": settings.gpu_scheduler.parallel_job_cap,
             },
             "cache_policy": {
                 "warm_queue_policy": args.cache_warm_policy,
