@@ -204,6 +204,9 @@ scheduler:
       # the addition only when verified drain-time gain passes colocation.min_gain.
       # VRAM is a hard admission constraint, never a placement score.
       mode: parallel_time_aware
+      # baseline preserves the established SRT/newcomer order. backend_awared
+      # enables deterministic source-derived backend risk and Pareto trial ranking.
+      scheduler_decision_mode: baseline
       backend_priority:
       - mps
       - stream
@@ -248,6 +251,33 @@ scheduler:
       batch_options:
         exponent_offsets: [-2, -1, 0, 1, 2]
         require_power_of_two_original: true
+      source_trial_ranking:
+        schema_version: 1
+        policy: pareto
+        ready_window_size: 10
+        max_group_size: 2
+        amortization_factor: 3.0
+        estimated_setup_seconds: 0.0
+        require_live_trial_for_unknown: true
+        source_analysis:
+          cache_enabled: true
+          max_source_bytes: 2000000
+          max_unknown_operator_fraction_for_high_confidence: 0.05
+          max_unknown_operator_fraction_for_medium_confidence: 0.25
+          # Set these from versioned hardware data to enable roofline ratios.
+          # Values are intentionally absent rather than guessed.
+          peak_tflops_by_dtype: {}
+          memory_bandwidth_gbps: null
+        # Conservative additions on top of the existing 15% admission reserve.
+        mode_overhead_mb:
+          cuda_process: 512
+          mps: 384
+          mps_process: 384
+          stream: 256
+          cuda_stream: 256
+          mps_stream: 512
+        mps_allocation_templates: [[50, 50], [60, 40], [40, 60]]
+        stream_offset_templates_in_steps: [0.0, 0.25, 0.5]
       submission_defaults:
         requires_gpu: true
         estimated_vram_mb: null
