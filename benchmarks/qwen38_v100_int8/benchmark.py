@@ -16,8 +16,8 @@ from transformers import AutoTokenizer
 
 MODEL_PATH = "models/Qwen3.8-27B"
 URL = "http://127.0.0.1:8000/v1/chat/completions"
-OUT = Path("results/qwen38_v100_int8_benchmark.json")
-PLOT = Path("results/qwen38_v100_int8_benchmark.png")
+OUT = Path("results/qwen38_v100_int8_3gpu_benchmark.json")
+PLOT = Path("results/qwen38_v100_int8_3gpu_benchmark.png")
 PROMPT = "Explain in one sentence why profile-based GPU scheduling needs runtime estimates."
 
 
@@ -69,7 +69,7 @@ def draw(records: list[dict[str, float]]) -> None:
         cursor += record["total_seconds"]
     gantt.set_yticks(range(len(records)), [f"request {index + 1}" for index in range(len(records))])
     gantt.set_xlabel("sequential serving time (seconds)")
-    gantt.set_title("Gantt: two-V100 Qwen3.8-27B INT8 benchmark; orange = first token")
+    gantt.set_title("Gantt: three-V100 Qwen3.8-27B INT8 benchmark; orange = first token")
     gantt.grid(axis="x", alpha=0.25)
 
     xs = list(range(1, len(records) + 1))
