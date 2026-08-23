@@ -43,7 +43,6 @@ class Policy:
     report_name: str
     mode: str
     backend: str
-    parallel_job_cap: int
     needs_profiles: bool = False
 
 
@@ -211,8 +210,6 @@ def _replay_command(
         str(args.duration_s),
         "--gpu-vram-gib",
         str(args.gpu_vram_gib),
-        "--parallel-job-cap",
-        str(policy.parallel_job_cap),
         "--predicted-budget-fraction",
         str(args.predicted_budget_fraction),
     ]
@@ -306,7 +303,6 @@ def main() -> int:
     parser.add_argument("--duration-s", type=float, default=2700.0)
     parser.add_argument("--gpu-vram-gib", type=float, default=22.0)
     parser.add_argument("--predicted-budget-fraction", type=float, default=0.85)
-    parser.add_argument("--parallel-job-cap", type=int, default=3)
     parser.add_argument("--time-aware-backend", choices=["mps", "stream", "cuda_process"], default="stream")
     parser.add_argument("--profile-input", type=Path)
     parser.add_argument("--skip-calibration", action="store_true")
@@ -330,7 +326,6 @@ def main() -> int:
             "calibration",
             "parallel_time_aware",
             "exclusive",
-            1,
         )
         calibration_dir = args.results_dir / "calibration"
         command = _replay_command(
@@ -349,12 +344,11 @@ def main() -> int:
         parser.error("--skip-calibration requires an existing --profile-input")
 
     policies = (
-        Policy("serial_fifo", "parallel_time_aware", "exclusive", 1, True),
+        Policy("serial_fifo", "parallel_time_aware", "exclusive", True),
         Policy(
             "parallel_time_aware",
             "parallel_time_aware",
             args.time_aware_backend,
-            args.parallel_job_cap,
             True,
         ),
     )
@@ -391,7 +385,6 @@ def main() -> int:
             "parallel_time_aware_matched_solo",
             "parallel_time_aware",
             "exclusive",
-            1,
             True,
         )
         command = _replay_command(

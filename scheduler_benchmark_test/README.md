@@ -17,15 +17,14 @@ has two stages:
 2. Replay the workload with that profile on a non-exclusive backend.
 
 `repeat_time_aware_benchmark.py` automates calibration and repeated runs. Its
-serial control is still the same production policy with an exclusive backend
-and `parallel_job_cap=1`; it does not reactivate a legacy scheduler mode.
+serial control is the same production policy with an exclusive backend; neither
+control nor scheduler replay sets a maximum parallel-job cap.
 
 ```bash
 python scheduler_benchmark_test/repeat_time_aware_benchmark.py \
   --results-dir results/scheduler_benchmark_test/time_aware \
   --data-root /path/to/cassava/prepared/public \
   --repetitions 3 \
-  --parallel-job-cap 3 \
   --time-aware-backend cuda_process
 ```
 

@@ -1519,6 +1519,33 @@ def test_search_node_hardware_fields_round_trip_in_journal() -> None:
     assert loaded_node.parent.id == root.id
 
 
+def test_batch_observation_runtime_estimate_is_applied_to_search_node() -> None:
+    node = SearchNode(code="EPOCHS = 4", plan="draft", stage="draft")
+    apply_hardware_context_to_node(
+        node,
+        SimpleNamespace(
+            candidate={},
+            compact_context={
+                "hardware_context": {},
+                "graph_evidence": {"exact_profiles": [], "similar_profiles": [], "packed_profiles": []},
+                "runtime_estimate": {
+                    "found": True,
+                    "source": "batch_size_observation",
+                    "seconds_per_epoch": 12.0,
+                    "estimated_total_runtime_seconds": 48.0,
+                },
+                "derived_diagnosis": {},
+                "vector_evidence": {},
+                "risk_flags": [],
+                "evidence_refs": [],
+                "confidence": 0.9,
+            },
+        ),
+    )
+
+    assert node.estimated_runtime_seconds == 48.0
+
+
 def test_search_node_inherits_stage_note_board_from_parent() -> None:
     root = SearchNode(code="", plan="root", stage="root")
     parent = SearchNode(
