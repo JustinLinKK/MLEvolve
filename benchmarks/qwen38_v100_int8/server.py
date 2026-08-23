@@ -1,4 +1,4 @@
-"""OpenAI-compatible local Qwen3.8-27B INT8 service for two V100 GPUs."""
+"""OpenAI-compatible local Qwen3.8-27B INT8 service for three V100 GPUs."""
 
 from __future__ import annotations
 
@@ -21,6 +21,8 @@ from transformers import (
 
 MODEL_PATH = os.environ.get("QWEN_MODEL_PATH", "models/Qwen3.8-27B")
 SERVED_MODEL_NAME = "Qwen3.8-27B-INT8-V100"
+GPU_COUNT = int(os.environ.get("QWEN_GPU_COUNT", "3"))
+MAX_GPU_MEMORY_GIB = os.environ.get("QWEN_MAX_GPU_MEMORY_GIB", "30")
 
 
 class ChatRequest(BaseModel):
@@ -44,7 +46,7 @@ def load_model() -> None:
         MODEL_PATH,
         torch_dtype=torch.float16,
         device_map="balanced",
-        max_memory={0: "30GiB", 1: "30GiB"},
+        max_memory={index: f"{MAX_GPU_MEMORY_GIB}GiB" for index in range(GPU_COUNT)},
         quantization_config=BitsAndBytesConfig(load_in_8bit=True),
     ).eval()
 

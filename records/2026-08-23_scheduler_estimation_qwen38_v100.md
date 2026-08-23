@@ -54,3 +54,25 @@
 - Raw measurements: `records/qwen38_v100_int8_benchmark.json`.
 - Required combined Gantt and metric-node image:
   `records/qwen38_v100_int8_benchmark.png`.
+
+## Three-V100 measurement
+
+- GPUs used: Tesla V100-SXM2-32GB GPU 0, GPU 1, and GPU 2. GPU 3 remained
+  allocated for other tasks and used 40 MiB at measurement completion.
+- Selected-GPU memory at measurement completion: GPU 0 7214 MiB, GPU 1 9766
+  MiB, GPU 2 14712 MiB. Each configured upper bound remained 30 GiB.
+- Same warm-up, prompt, maximum completion length, and three streamed requests
+  as the two-GPU measurement.
+- Median time to first token: 2.565404023 seconds.
+- Median generation throughput: 1.743962445 tokens per second.
+- Median total request time: 23.200376069 seconds.
+- Raw measurements: `records/qwen38_v100_int8_3gpu_benchmark.json`.
+- Per-run image: `records/qwen38_v100_int8_3gpu_benchmark.png`.
+- Combined two- and three-GPU Gantt and metric-node image:
+  `records/qwen38_v100_int8_2v3gpu_comparison.png`.
+
+## Comparison conclusion
+
+- For this single-stream, 36-completion-token prompt, two V100 GPUs measured
+  lower median time to first token and higher median generation throughput than
+  three V100 GPUs.
