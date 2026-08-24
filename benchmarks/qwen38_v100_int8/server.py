@@ -13,8 +13,8 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from transformers import (
-    AutoModelForImageTextToText,
-    AutoProcessor,
+    AutoModelForCausalLM,
+    AutoTokenizer,
     BitsAndBytesConfig,
     TextIteratorStreamer,
 )
@@ -35,14 +35,14 @@ class ChatRequest(BaseModel):
 
 
 app = FastAPI()
-processor: Any | None = None
+tokenizer: Any | None = None
 model: Any | None = None
 
 
 @app.on_event("startup")
 def load_model() -> None:
-    global model, processor
-    processor = AutoProcessor.from_pretrained(MODEL_PATH)
+    global model, tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
     model_kwargs: dict[str, Any] = {
         "torch_dtype": torch.float16,
         "device_map": "balanced",
@@ -52,22 +52,22 @@ def load_model() -> None:
         model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
     elif QUANTIZATION != "fp16":
         raise ValueError(f"unsupported QWEN_QUANTIZATION: {QUANTIZATION}")
-    model = AutoModelForImageTextToText.from_pretrained(
+    model = AutoModelForCausalLM.from_pretrained(
         MODEL_PATH,
         **model_kwargs,
     ).eval()
 
 
 def prompt_inputs(messages: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
-    if processor is None or model is None:
+    if tokenizer is None or model is None:
         raise RuntimeError("model is not loaded")
-    text = processor.apply_chat_template(
+    text = tokenizer.apply_chat_template(
         messages,
         tokenize=False,
         add_generation_prompt=True,
         enable_thinking=False,
     )
-    inputs = processor(text=[text], return_tensors="pt")
+    inputs = tokenizer(text, return_tensors="pt")
     first_device = next(model.parameters()).device
     return {name: value.to(first_device) for name, value in inputs.items()}
 
@@ -86,9 +86,9 @@ def generation_kwargs(request: ChatRequest, streamer: TextIteratorStreamer | Non
 
 
 def sse_response(request: ChatRequest) -> StreamingResponse:
-    assert processor is not None and model is not None
+    assert tokenizer is not None and model is not None
     inputs = prompt_inputs(request.messages)
-    streamer = TextIteratorStreamer(processor.tokenizer, skip_prompt=True, skip_special_tokens=True)
+    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
     worker = threading.Thread(
         target=model.generate,
         kwargs={**inputs, **generation_kwargs(request, streamer)},
@@ -117,7 +117,7 @@ def health() -> dict[str, Any]:
 
 @app.post("/v1/chat/completions")
 def chat_completions(request: ChatRequest):
-    assert processor is not None and model is not None
+    assert tokenizer is not None and model is not None
     if request.stream:
         return sse_response(request)
     inputs = prompt_inputs(request.messages)
@@ -125,7 +125,7 @@ def chat_completions(request: ChatRequest):
     with torch.inference_mode():
         generated = model.generate(**inputs, **generation_kwargs(request))
     continuation = generated[:, inputs["input_ids"].shape[1] :]
-    text = processor.batch_decode(continuation, skip_special_tokens=True)[0]
+    text = tokenizer.batch_decode(continuation, skip_special_tokens=True)[0]
     return JSONResponse(
         {
             "model": SERVED_MODEL_NAME,
