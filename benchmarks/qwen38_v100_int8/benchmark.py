@@ -46,7 +46,10 @@ def request_once(tokenizer) -> dict[str, float]:
         payload = line[6:]
         if payload == "[DONE]":
             break
-        fragment = json.loads(payload)["choices"][0]["delta"].get("content") or ""
+        event = json.loads(payload)
+        if "choices" not in event:
+            raise RuntimeError(event)
+        fragment = event["choices"][0]["delta"].get("content") or ""
         if fragment and first_token_at is None:
             first_token_at = time.perf_counter()
         text += fragment
