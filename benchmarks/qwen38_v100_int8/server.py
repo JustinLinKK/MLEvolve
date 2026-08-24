@@ -20,7 +20,8 @@ from transformers import (
 )
 
 MODEL_PATH = os.environ.get("QWEN_MODEL_PATH", "models/Qwen3.8-27B")
-SERVED_MODEL_NAME = "Qwen3.8-27B-INT8-V100"
+QUANTIZATION = os.environ.get("QWEN_QUANTIZATION", "int8").lower()
+SERVED_MODEL_NAME = "Qwen3.8-27B-INT8-V100" if QUANTIZATION == "int8" else "Qwen3.8-27B-FP16-V100"
 GPU_COUNT = int(os.environ.get("QWEN_GPU_COUNT", "3"))
 MAX_GPU_MEMORY_GIB = os.environ.get("QWEN_MAX_GPU_MEMORY_GIB", "30")
 
@@ -42,12 +43,18 @@ model: Any | None = None
 def load_model() -> None:
     global model, processor
     processor = AutoProcessor.from_pretrained(MODEL_PATH)
+    model_kwargs: dict[str, Any] = {
+        "torch_dtype": torch.float16,
+        "device_map": "balanced",
+        "max_memory": {index: f"{MAX_GPU_MEMORY_GIB}GiB" for index in range(GPU_COUNT)},
+    }
+    if QUANTIZATION == "int8":
+        model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+    elif QUANTIZATION != "fp16":
+        raise ValueError(f"unsupported QWEN_QUANTIZATION: {QUANTIZATION}")
     model = AutoModelForImageTextToText.from_pretrained(
         MODEL_PATH,
-        torch_dtype=torch.float16,
-        device_map="balanced",
-        max_memory={index: f"{MAX_GPU_MEMORY_GIB}GiB" for index in range(GPU_COUNT)},
-        quantization_config=BitsAndBytesConfig(load_in_8bit=True),
+        **model_kwargs,
     ).eval()
 
 
@@ -103,7 +110,7 @@ def health() -> dict[str, Any]:
     return {
         "ready": model is not None,
         "model": SERVED_MODEL_NAME,
-        "quantization": "bitsandbytes INT8",
+        "quantization": QUANTIZATION,
         "visible_gpus": torch.cuda.device_count(),
     }
 
