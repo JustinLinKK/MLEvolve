@@ -9,6 +9,7 @@ from agents.hardware_context import (
     get_hardware_context_for_stage,
     hardware_context_instructions,
 )
+from agents.cuda_docs_context import get_cuda_docs_context, format_cuda_docs_prompt_section
 from agents.coder import plan_and_code_query
 from utils.response import extract_plan_from_diff_response, trim_long_string, wrap_code
 from agents.prompts import (
@@ -192,6 +193,17 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
     }
     hardware_ctx = get_hardware_context_for_stage(agent, "debug", parent_node=parent_node)
     hardware_section = hardware_ctx.prompt_section
+    cuda_docs_ctx = get_cuda_docs_context(
+        agent,
+        "debug",
+        parent_node=parent_node,
+        hardware_context=hardware_ctx,
+    )
+    cuda_docs_section = format_cuda_docs_prompt_section(
+        cuda_docs_ctx,
+        service=getattr(agent, "cuda_docs_service", None),
+        role="debug",
+    )
     pipeline_decision = build_pipeline_decision(
         agent,
         stage="debug",
@@ -264,6 +276,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
         user_prompt = (
             f"\n# Task description\n{prompt['Task description']}\n"
             f"{hardware_section}\n"
+            f"{cuda_docs_section}\n"
             f"{pipeline_decision_section}\n"
             f"{instructions_with_format}"
         )
@@ -296,11 +309,17 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
         and issue_owners
         and issue_owners <= targeted_owners
     ):
+        repair_kwargs = (
+            {"cuda_docs_evidence": cuda_docs_section}
+            if cuda_docs_section
+            else {}
+        )
         targeted_code, repair_results, repair_stats = repair_selected_stages(
             agent,
             parent_node,
             parent_node.code,
             critical_issues,
+            **repair_kwargs,
         )
         if targeted_code != parent_node.code and any(result.applied for result in repair_results):
             stage_names = [result.stage for result in repair_results if result.applied]

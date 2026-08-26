@@ -67,6 +67,8 @@ class AgentSearch:
         self.coldstart_description = cfg.coldstart.description
         self.scheduler_client = None
         self.hardware_cache_status: dict | None = None
+        self.cuda_docs_service = None
+        self.cuda_docs_status: dict | None = None
 
         # Top-N candidates
         self.top_k = self.scfg.top_candidates_size
@@ -124,6 +126,52 @@ class AgentSearch:
         """Expose the in-process scheduler client to stage agents for read-only context."""
         self.scheduler_client = scheduler_client
         self.hardware_cache_status = self._prewarm_current_hardware_context(scheduler_client)
+        self.cuda_docs_status = self._attach_cuda_docs(scheduler_client)
+
+    def _attach_cuda_docs(self, scheduler_client) -> dict:
+        """Construct agent-owned enrichment only in hardware-aware enabled runs."""
+
+        if not self._hardware_context_enabled():
+            return {"ok": False, "reason": "experiment mode is network-free"}
+        configured = getattr(self.acfg, "cuda_docs", None)
+        if not bool(getattr(configured, "enabled", False)):
+            return {"ok": False, "reason": "cuda docs disabled"}
+        if str(getattr(configured, "rollout_mode", "off") or "off").lower() == "off":
+            return {"ok": False, "reason": "cuda docs rollout is off"}
+        try:
+            from localml_scheduler.cuda_docs import CudaDocsService
+            from utils.pipeline_logging import log_pipeline_event
+
+            def event_sink(event_type: str, payload: dict) -> None:
+                log_pipeline_event(self, event_type, payload=payload)
+
+            self.cuda_docs_service = CudaDocsService(
+                configured,
+                scheduler_client=scheduler_client,
+                event_sink=event_sink,
+            )
+            self.cuda_docs_service.start()
+            return {
+                "ok": True,
+                "rollout_mode": self.cuda_docs_service.settings.rollout_mode,
+                "startup": "asynchronous",
+            }
+        except Exception as exc:
+            logger.warning(
+                "CUDA docs enrichment initialization failed open: %s",
+                exc.__class__.__name__,
+            )
+            self.cuda_docs_service = None
+            return {"ok": False, "reason": exc.__class__.__name__}
+
+    def close_cuda_docs(self) -> None:
+        service = self.cuda_docs_service
+        self.cuda_docs_service = None
+        if service is not None:
+            try:
+                service.close()
+            except Exception:
+                pass
 
     def _hardware_context_enabled(self) -> bool:
         experiment = getattr(self.cfg, "experiment", None)

@@ -118,11 +118,11 @@ scheduler:
       # baseline preserves the established SRT/newcomer order. backend_awared
       # enables deterministic source-derived backend risk and Pareto trial ranking.
       scheduler_decision_mode: baseline
-      backend_priority:
-      - mps
-      - stream
-      - cuda_process
-      - exclusive
+      # One authoritative packed mode. mps_process means independent CUDA
+      # job processes connected to the scheduler-owned NVIDIA MPS service.
+      packing_backend: mps_process
+      exclusive_fallback_enabled: true
+      mps_unavailable_policy: exclusive
       # null allows incremental admission to continue while evidence and memory permit.
       parallel_job_cap: null
       priority_window_size: 8
@@ -163,7 +163,7 @@ scheduler:
         exponent_offsets: [-2, -1, 0, 1, 2]
         require_power_of_two_original: true
       source_trial_ranking:
-        schema_version: 1
+        schema_version: 2
         policy: pareto
         ready_window_size: 10
         max_group_size: 2
@@ -182,13 +182,8 @@ scheduler:
         # Conservative additions on top of the existing 15% admission reserve.
         mode_overhead_mb:
           cuda_process: 512
-          mps: 384
           mps_process: 384
-          stream: 256
-          cuda_stream: 256
-          mps_stream: 512
         mps_allocation_templates: [[50, 50], [60, 40], [40, 60]]
-        stream_offset_templates_in_steps: [0.0, 0.25, 0.5]
       submission_defaults:
         requires_gpu: true
         estimated_vram_mb: null
@@ -197,7 +192,7 @@ scheduler:
         packing_eligible: false
         packing_family: mlevolve_script
         packing_max_slowdown_ratio: null
-        backend_allowlist: [mps, cuda_process]
+        backend_allowlist: [mps_process]
         batch_probe_enabled: true
         batch_probe_model_key: null
         runtime_probe_enabled: true
@@ -217,10 +212,6 @@ scheduler:
         enabled: true
         default_omp_num_threads: 6
         default_mkl_num_threads: 6
-      stream:
-        enabled: false
-        host_poll_interval_seconds: 0.1
-        host_join_timeout_seconds: 3.0
 agent:
   steps: 500
   time_limit: 172800
@@ -246,6 +237,46 @@ agent:
   hardware_context_limit: 8
   hardware_context_max_prompt_chars: 3500
   precision_optimization_mode: normal
+  # NVIDIA CUDA documentation enrichment is local-first and disabled by
+  # default. Enable progressively: shadow -> prefetch_only -> debug_cached ->
+  # debug_live. Only debug_live permits a blocking hosted lookup.
+  cuda_docs:
+    enabled: false
+    rollout_mode: off
+    endpoint: https://api.copilot.nsight.ngc.nvidia.com/mcp/cuda-docs
+    # Name only; keep the bearer token in the environment, never YAML.
+    auth_token_env: NVIDIA_CUDA_MCP_TOKEN
+    remote_roles: [debug]
+    blocking_roles: [debug]
+    local_roles: [draft, improve, debug, code_review, evolution, fusion, aggregation]
+    soft_timeout_seconds: 6
+    hard_timeout_seconds: 8
+    total_enrichment_deadline_seconds: 10
+    max_remote_calls_per_action: 1
+    prompt_max_chars: 2000
+    prompt_max_chunks: 3
+    ram_cache_max_entries: 512
+    ram_cache_ttl_seconds: 21600
+    positive_ttl_seconds: 604800
+    stale_ttl_seconds: 2592000
+    negative_ttl_seconds: 600
+    transient_failure_ttl_seconds: 60
+    auth_failure_ttl_seconds: 600
+    ttl_jitter_fraction: 0.1
+    async_prewarm: true
+    prewarm_concurrency: 2
+    persist_raw_chunks: true
+    synthesize_recipes_async: true
+    send_source_code: false
+    remote_rate_per_minute: 12
+    remote_burst: 2
+    circuit_failure_threshold: 3
+    circuit_window_seconds: 60
+    circuit_cooldown_seconds: 60
+    singleflight_wait_seconds: 0.25
+    redis_namespace_capacity: 512
+    raw_response_max_chars: 32000
+    normalized_chunk_max_chars: 4000
   review:
     enabled: true
     max_repair_rounds: 2

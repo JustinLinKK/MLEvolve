@@ -110,6 +110,52 @@ class ReviewConfig:
 
 
 @dataclass
+class CudaDocsConfig:
+    """Role-gated local-first NVIDIA CUDA documentation enrichment."""
+
+    enabled: bool = False
+    rollout_mode: str = "off"
+    endpoint: str = "https://api.copilot.nsight.ngc.nvidia.com/mcp/cuda-docs"
+    auth_token_env: str = "NVIDIA_CUDA_MCP_TOKEN"
+    remote_roles: list[str] = field(default_factory=lambda: ["debug"])
+    blocking_roles: list[str] = field(default_factory=lambda: ["debug"])
+    local_roles: list[str] = field(
+        default_factory=lambda: [
+            "draft", "improve", "debug", "code_review",
+            "evolution", "fusion", "aggregation",
+        ]
+    )
+    soft_timeout_seconds: float = 6.0
+    hard_timeout_seconds: float = 8.0
+    total_enrichment_deadline_seconds: float = 10.0
+    max_remote_calls_per_action: int = 1
+    prompt_max_chars: int = 2000
+    prompt_max_chunks: int = 3
+    ram_cache_max_entries: int = 512
+    ram_cache_ttl_seconds: int = 21600
+    positive_ttl_seconds: int = 604800
+    stale_ttl_seconds: int = 2592000
+    negative_ttl_seconds: int = 600
+    transient_failure_ttl_seconds: int = 60
+    auth_failure_ttl_seconds: int = 600
+    ttl_jitter_fraction: float = 0.1
+    async_prewarm: bool = True
+    prewarm_concurrency: int = 2
+    persist_raw_chunks: bool = True
+    synthesize_recipes_async: bool = True
+    send_source_code: bool = False
+    remote_rate_per_minute: float = 12.0
+    remote_burst: int = 2
+    circuit_failure_threshold: int = 3
+    circuit_window_seconds: int = 60
+    circuit_cooldown_seconds: int = 60
+    singleflight_wait_seconds: float = 0.25
+    redis_namespace_capacity: int = 512
+    raw_response_max_chars: int = 32000
+    normalized_chunk_max_chars: int = 4000
+
+
+@dataclass
 class AgentConfig:
     steps: int
     time_limit: int
@@ -135,6 +181,7 @@ class AgentConfig:
     hardware_context_max_prompt_chars: int = 3500
     precision_optimization_mode: str = "normal"
     review: ReviewConfig = field(default_factory=ReviewConfig)
+    cuda_docs: CudaDocsConfig = field(default_factory=CudaDocsConfig)
 
 
 @dataclass

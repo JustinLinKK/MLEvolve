@@ -146,9 +146,11 @@ def test_compact_context_formats_prompt_without_raw_bloat() -> None:
             "backend_capabilities": {
                 "mode": "auto",
                 "effective_mode": "parallel_auto_pack",
-                "backend_priority": ["stream_mps", "stream", "cuda_process", "exclusive"],
-                "enabled_backends": ["exclusive", "stream_mps", "stream", "cuda_process"],
-                "concurrent_backend_allowlist": ["stream_mps", "stream"],
+                "packing_backend": "mps_process",
+                "effective_backend": "mps_process",
+                "runner_contract": "subprocess_job_v1",
+                "enabled_backends": ["exclusive", "mps_process"],
+                "exclusive_fallback_enabled": True,
             },
             "scheduler_limits": {"safe_vram_budget_mb": 30720, "max_packed_jobs_per_gpu": 2},
         },
@@ -195,7 +197,7 @@ def test_compact_context_formats_prompt_without_raw_bloat() -> None:
     assert "RTX Test" in prompt
     assert "Use graph-recommended physical batch size 16" in prompt
     assert "Scheduler backend config" in prompt
-    assert "stream_mps" in prompt
+    assert "mps_process" in prompt
     assert "precision_not_optimized" in prompt
     assert "Use BF16 autocast" in prompt
     assert EVIDENCE_NOT_LAW_RULE in prompt
@@ -909,8 +911,8 @@ def test_hardware_design_brief_fetches_only_selected_feature_details(monkeypatch
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
                     mode="parallel_auto_pack",
-                    backend_priority=["stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream"],
+                    packing_backend="mps_process",
+                    exclusive_fallback_enabled=True,
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
@@ -1011,8 +1013,8 @@ def test_scheduler_lookup_is_non_fatal_and_uses_get_optimization_context() -> No
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
                     mode="auto",
-                    backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream_mps", "stream"],
+                    packing_backend="mps_process",
+                    exclusive_fallback_enabled=True,
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
@@ -1046,7 +1048,8 @@ def test_scheduler_lookup_is_non_fatal_and_uses_get_optimization_context() -> No
     assert candidate["task_type"] == "vision_training"
     assert candidate["scheduler_mode"] == "auto"
     assert candidate["scheduler_effective_mode"] == "parallel_auto_pack"
-    assert candidate["backend_preference"] == "stream_mps"
+    assert candidate["effective_backend"] == "mps_process"
+    assert candidate["runner_contract"] == "subprocess_job_v1"
     assert limit == 3
     assert context.prompt_section
 
@@ -1055,14 +1058,14 @@ def test_scheduler_lookup_is_non_fatal_and_uses_get_optimization_context() -> No
     assert failed.prompt_section == ""
 
 
-def test_hardware_candidate_prefers_boot_resolved_auto_backend_probe() -> None:
+def test_hardware_candidate_uses_authoritative_configured_backend() -> None:
     class FakeScheduler:
         def __init__(self) -> None:
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
                     mode="auto",
-                    backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream_mps", "stream"],
+                    packing_backend="cuda_process",
+                    exclusive_fallback_enabled=True,
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
@@ -1073,17 +1076,7 @@ def test_hardware_candidate_prefers_boot_resolved_auto_backend_probe() -> None:
             )
 
         def list_events(self, *, event_type=None, job_id=None):
-            assert event_type == "scheduler_auto_backend_probe"
-            return [
-                {
-                    "payload": {
-                        "configured_mode": "auto",
-                        "effective_scheduler_mode": "parallel_auto_pack",
-                        "backend_priority": ["cuda_process", "exclusive"],
-                        "concurrent_backend_allowlist": [],
-                    }
-                }
-            ]
+            raise AssertionError("backend selection must not be inferred from events")
 
     agent = SimpleNamespace(
         scheduler_client=FakeScheduler(),
@@ -1097,38 +1090,27 @@ def test_hardware_candidate_prefers_boot_resolved_auto_backend_probe() -> None:
 
     assert candidate["scheduler_mode"] == "auto"
     assert candidate["scheduler_effective_mode"] == "parallel_auto_pack"
-    assert candidate["backend_preference"] == "cuda_process"
+    assert candidate["effective_backend"] == "cuda_process"
+    assert candidate["runner_contract"] == "subprocess_job_v1"
 
 
-def test_scheduler_backend_config_preserves_empty_auto_probe_lists() -> None:
+def test_scheduler_backend_config_reports_one_authoritative_backend() -> None:
     class FakeScheduler:
         def __init__(self) -> None:
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
                     mode="auto",
-                    backend_priority=["stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream"],
+                    packing_backend="mps_process",
+                    exclusive_fallback_enabled=False,
                 )
             )
 
-        def list_events(self, *, event_type=None, job_id=None):
-            del job_id
-            assert event_type == "scheduler_auto_backend_probe"
-            return [
-                {
-                    "payload": {
-                        "configured_mode": "auto",
-                        "effective_scheduler_mode": "parallel_auto_pack",
-                        "backend_priority": [],
-                        "concurrent_backend_allowlist": [],
-                    }
-                }
-            ]
-
     backend_config = _scheduler_backend_config(FakeScheduler())
 
-    assert backend_config["backend_priority"] == []
-    assert backend_config["concurrent_backend_allowlist"] == []
+    assert backend_config["packing_backend"] == "mps_process"
+    assert backend_config["effective_backend"] == "mps_process"
+    assert backend_config["runner_contract"] == "subprocess_job_v1"
+    assert backend_config["exclusive_fallback_enabled"] is False
 
 
 def test_hardware_design_brief_uses_scheduler_model_design_context() -> None:
@@ -1138,8 +1120,8 @@ def test_hardware_design_brief_uses_scheduler_model_design_context() -> None:
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
                     mode="auto",
-                    backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream_mps", "stream"],
+                    packing_backend="mps_process",
+                    exclusive_fallback_enabled=True,
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
@@ -1195,8 +1177,8 @@ def test_training_parameter_round_review_rewrites_safe_literals_and_records_deci
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
                     mode="auto",
-                    backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream_mps", "stream"],
+                    packing_backend="mps_process",
+                    exclusive_fallback_enabled=True,
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
@@ -1258,8 +1240,8 @@ def test_training_parameter_round_review_does_not_increase_epochs() -> None:
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
                     mode="auto",
-                    backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream_mps", "stream"],
+                    packing_backend="mps_process",
+                    exclusive_fallback_enabled=True,
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",
@@ -1316,7 +1298,8 @@ def test_hardware_prompt_text_forbids_budget_increases() -> None:
     all_guidelines = "\n".join(guideline for step_agent in agents for guideline in step_agent.guidelines)
 
     assert "Do not increase epochs" in text
-    assert "current scheduler backend config" in text
+    assert "independent subprocess" in text
+    assert "exact effective backend" in text
     assert "model size" in text
     assert "Do not query the hardware node again" in text
     assert "Cross-Stage Note Board" in text
@@ -1379,8 +1362,8 @@ def test_hardware_context_handles_unexecuted_root_parent() -> None:
             self.settings = SimpleNamespace(
                 gpu_scheduler=SimpleNamespace(
                     mode="auto",
-                    backend_priority=["stream_mps", "stream", "cuda_process", "exclusive"],
-                    concurrent_backend_allowlist=["stream_mps", "stream"],
+                    packing_backend="mps_process",
+                    exclusive_fallback_enabled=True,
                     submission_defaults=SimpleNamespace(
                         requires_gpu=True,
                         packing_family="mlevolve_script",

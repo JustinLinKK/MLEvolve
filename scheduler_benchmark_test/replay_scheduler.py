@@ -2,7 +2,7 @@
 
 This path uses a structured scheduler runner so the benchmark exercises:
 - current scheduler settings layout
-- MPS / stream / exclusive backends
+- MPS-process / CUDA-process / exclusive backends
 - baseline RAM cache directly via ``context.load_baseline_object()``
 - five-option timing calibration for time-aware placement
 - incremental anchor-plus-newcomer admission constrained only by measured VRAM
@@ -59,7 +59,6 @@ from localml_scheduler.config import (
     GpuSchedulerSettings,
     MPSSettings,
     SchedulerSettings,
-    StreamSettings,
 )
 from localml_scheduler.observability.outcomes import classify_job_outcome
 
@@ -105,19 +104,20 @@ def build_settings(
     )
 
     if backend == "exclusive":
-        gpu.backend_priority = ["exclusive"]
-    elif backend == "mps":
-        gpu.backend_priority = ["mps", "exclusive"]
+        gpu.packing_backend = "cuda_process"
+        gpu.exclusive_fallback_enabled = True
+        gpu.cuda_process.enabled = False
+    elif backend == "mps_process":
+        gpu.packing_backend = "mps_process"
+        gpu.exclusive_fallback_enabled = True
         gpu.mps = MPSSettings(
             enabled=True,
             pipe_directory=mps_pipe_directory,
             log_directory=mps_log_directory,
         )
-    elif backend == "stream":
-        gpu.backend_priority = ["stream", "exclusive"]
-        gpu.stream = StreamSettings(enabled=True)
     elif backend == "cuda_process":
-        gpu.backend_priority = ["cuda_process", "exclusive"]
+        gpu.packing_backend = "cuda_process"
+        gpu.exclusive_fallback_enabled = True
     else:
         raise ValueError(f"Unknown backend: {backend}")
 
@@ -370,7 +370,7 @@ def main():
     parser.add_argument(
         "--backend",
         required=True,
-        choices=["exclusive", "mps", "stream", "cuda_process"],
+        choices=["exclusive", "mps_process", "cuda_process"],
     )
     parser.add_argument("--trace", required=True)
     parser.add_argument("--data-root", help="Override each trace row's dataset root for this replay.")

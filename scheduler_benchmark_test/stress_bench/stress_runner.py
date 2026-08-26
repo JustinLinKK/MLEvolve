@@ -154,9 +154,7 @@ def train_stress_model(
     if device.type == "cuda":
         torch.cuda.current_stream(device).synchronize()
     total_seconds = time.perf_counter() - started
-    # CUDA peak counters are device-global and therefore misleading inside a
-    # shared host.  Report this job's live allocation plus externally sampled
-    # NVML peaks instead of resetting another job's counters.
+    # Report this process's live allocation plus externally sampled NVML peaks.
     peak_mib = (
         float(max(start_reserved, torch.cuda.memory_reserved(device)) / (1024 * 1024))
         if device.type == "cuda"
@@ -177,12 +175,7 @@ def train_stress_model(
         "global_steps": global_step, "final_loss": last_loss,
         "peak_reserved_mib": peak_mib, "peak_allocated_mib": peak_alloc_mib,
         "memory_ballast_mib": int(memory_ballast_mib),
-        "stream_host_pid": os.getpid(),
-        "cuda_stream_id": (
-            int(torch.cuda.current_stream(device).cuda_stream)
-            if device.type == "cuda"
-            else None
-        ),
+        "worker_pid": os.getpid(),
     }
 
 
@@ -238,9 +231,7 @@ def run_stress_job(context: RunnerContext) -> dict[str, Any]:
             bandwidth_mib=int(params.get("bandwidth_mib") or 0),
             step_delay_ms=float(params.get("step_delay_ms") or 0.0),
             random_seed=int(params.get("random_seed") or 0),
-            # TF32 flags are process-global, so a shared stream host must not
-            # let one job toggle them while another job is issuing kernels.
-            manage_tf32=bool(params.get("manage_tf32", True)) and backend_name != "stream")
+            manage_tf32=bool(params.get("manage_tf32", True)))
     except BaseException:
         if device.type == "cuda":
             try:

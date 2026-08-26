@@ -160,7 +160,7 @@ def run_scheduler(trace, outdir: Path, *, prediction_mode: str, max_parallel: in
     from localml_scheduler.client import SchedulerClient
     from localml_scheduler.config import (
         GpuMemorySettings, GpuProfilingSettings, GpuSchedulerSettings,
-        SchedulerSettings, StreamSettings)
+        SchedulerSettings)
     from localml_scheduler.domain import CheckpointPolicy, ResourceRequirements
     from scheduler_benchmark_test.stress_bench.stress_runner import make_baseline_checkpoint
 
@@ -175,8 +175,8 @@ def run_scheduler(trace, outdir: Path, *, prediction_mode: str, max_parallel: in
 
     gpu = GpuSchedulerSettings()
     gpu.mode = "parallel_time_aware"
-    gpu.backend_priority = ["cuda_process", "exclusive"]
-    gpu.stream = StreamSettings(enabled=False)
+    gpu.packing_backend = "cuda_process"
+    gpu.exclusive_fallback_enabled = True
     # VRAM constrains admission only; timing evidence determines placement value.
     gpu.memory = GpuMemorySettings(gpu_vram_gib=gpu_vram_gib,
         predicted_budget_fraction=0.85, live_admission_stop_fraction=0.92,

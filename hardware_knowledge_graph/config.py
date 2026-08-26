@@ -115,7 +115,8 @@ class _HardwareGpuSettings:
     device_index: int = 0
     mode: str = "parallel_time_aware"
     parallel_job_cap: int | None = None
-    backend_priority: list[str] = field(default_factory=list)
+    packing_backend: str = "mps_process"
+    exclusive_fallback_enabled: bool = True
     memory: _HardwareGpuMemorySettings = field(
         default_factory=_HardwareGpuMemorySettings
     )

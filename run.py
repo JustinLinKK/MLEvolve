@@ -232,12 +232,6 @@ def run():
             status.update("[green]Generating code...")
             return res
 
-        def exec_many_callback(items):
-            status.update("[magenta]Executing scheduler round...")
-            res = interpreter.run_many(items)
-            status.update("[green]Generating code...")
-            return res
-
         def step_task(node=None):
             if node:
                 logger.info(f"[step_task] Processing node: {node.id}")
@@ -250,8 +244,12 @@ def run():
         initial_draft_count = cfg.agent.initial_drafts
         scheduler_enabled = scheduler_client is not None
         if scheduler_enabled:
+            # Scheduler-backed execution is pipelined below. Do not accumulate
+            # a code-only initial group before the first submission.
+            initial_draft_count = 0
+        if scheduler_enabled:
             logger.info(
-                "🚀 Scheduler execution enabled; MLEvolve will submit whole runnable rounds and let the scheduler choose parallelism."
+                "🚀 Scheduler execution enabled; MLEvolve will submit each node as soon as it is ready and let the scheduler choose parallelism."
             )
         else:
             logger.info(f"🚀 ThreadPool max_workers set to: {max_workers} (local subprocess capacity)")
@@ -286,107 +284,7 @@ def run():
 
             logger.info(f"✅ Phase 1 complete: {len(pending_draft_nodes)} draft codes generated")
 
-        if scheduler_client is not None and (pending_draft_nodes or completed < total_steps):
-            logger.info("🚀 Phase 2: Batched scheduler execution")
-            logger.info("   - Pending draft executions: %s", len(pending_draft_nodes))
-            logger.info("   - Remaining steps: %s", total_steps - completed)
-
-            candidate_window = int(getattr(scheduler_settings.gpu_scheduler, "candidate_window_size", 2))
-            scheduler_batch_size = min(
-                max(1, total_steps),
-                max(2 if total_steps > 1 else 1, min(4, max(1, candidate_window))),
-            )
-            pending_scheduler_nodes = list(pending_draft_nodes)
-
-            def collect_scheduler_batch(parent_hint=None):
-                batch = []
-                empty_generation_attempts = 0
-                next_parent = parent_hint
-                while len(batch) < scheduler_batch_size and (pending_scheduler_nodes or completed + len(batch) < total_steps):
-                    if pending_scheduler_nodes:
-                        batch.append(pending_scheduler_nodes.pop(0))
-                        continue
-                    if not agent.has_selectable_work():
-                        logger.warning("No selectable work available to fill scheduler batch.")
-                        break
-                    try:
-                        node = agent.step(exec_callback=exec_callback, node=next_parent, execute_immediately=False)
-                    except Exception as exc:
-                        logger.exception("Exception while generating scheduler batch node: %s", exc)
-                        node = None
-                    next_parent = None
-                    if node is None:
-                        if not agent.has_selectable_work():
-                            logger.warning("No selectable work remains after empty scheduler batch generation.")
-                            break
-                        empty_generation_attempts += 1
-                        if empty_generation_attempts >= 3:
-                            logger.warning("Scheduler batch generation produced no node repeatedly; executing available work.")
-                            break
-                        continue
-                    empty_generation_attempts = 0
-                    batch.append(node)
-                return batch
-
-            try:
-                parent_hint = None
-                empty_execution_attempts = 0
-                while completed < total_steps:
-                    batch_nodes = collect_scheduler_batch(parent_hint)
-                    if not batch_nodes:
-                        if not agent.has_selectable_work():
-                            logger.warning(
-                                "No scheduler batch work remains and no selectable work is available; stopping early at %s/%s completed steps.",
-                                completed,
-                                total_steps,
-                            )
-                            break
-                        continue
-
-                    logger.info(
-                        "📤 Submitting scheduler batch with %s node(s): %s",
-                        len(batch_nodes),
-                        ", ".join(str(node.id) for node in batch_nodes),
-                    )
-                    previous_completed = completed
-                    executed_nodes = agent.execute_deferred_nodes(batch_nodes, exec_many_callback)
-                    parent_hint = executed_nodes[-1] if executed_nodes else None
-
-                    with lock:
-                        save_run(cfg, journal)
-                        completed = len(journal) - 1
-                        if completed >= total_steps:
-                            logger.info(journal_to_string_tree(journal))
-                            break
-
-                    if completed == previous_completed and not executed_nodes:
-                        empty_execution_attempts += 1
-                        if empty_execution_attempts >= 3:
-                            logger.warning(
-                                "Scheduler batches completed without adding journal nodes repeatedly; stopping at %s/%s completed steps.",
-                                completed,
-                                total_steps,
-                            )
-                            break
-                    else:
-                        empty_execution_attempts = 0
-
-                    logger.info(
-                        "📊 Progress: %s/%s steps completed after scheduler batch",
-                        completed,
-                        total_steps,
-                    )
-            except SignalShutdown as exc:
-                shutdown_exit_code = 128 + exc.signum
-                shutdown_handled = True
-                logger.info("%s received, terminating subprocesses and shutting down...", exc.signal_name)
-                interpreter.terminate_all_subprocesses()
-                raise
-            except KeyboardInterrupt:
-                logger.info("KeyboardInterrupt received, terminating subprocesses and shutting down...")
-                interpreter.terminate_all_subprocesses()
-                raise
-        elif pending_draft_nodes or completed < total_steps:
+        if pending_draft_nodes or completed < total_steps:
             logger.info(f"🚀 Phase 2: Pipelined parallel execution")
             logger.info(f"   - Pending draft executions: {len(pending_draft_nodes)}")
             logger.info(f"   - Remaining steps: {total_steps - completed}")
@@ -494,6 +392,8 @@ def run():
             logger.info("%s received, terminating subprocesses and shutting down...", exc.signal_name)
             interpreter.terminate_all_subprocesses()
     finally:
+        if "agent" in locals():
+            agent.close_cuda_docs()
         if "journal" in locals():
             try:
                 metrics = build_comparison_metrics(

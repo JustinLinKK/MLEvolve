@@ -69,13 +69,13 @@ spec:
             - name: BENCH_TRACE_KIND
               value: w3
             - name: BENCH_CONFIG_ID
-              value: nautilus-stream-off
+              value: nautilus-cuda-process
             - name: BENCH_RUNNER
               value: scheduler
             - name: BENCH_MODE
-              value: parallel_default
+              value: parallel_time_aware
             - name: BENCH_BACKEND
-              value: stream
+              value: cuda_process
             - name: BENCH_BATCH_SEARCH
               value: "off"
             - name: CASSAVA_ROOT

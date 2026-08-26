@@ -3,11 +3,8 @@
 Workers are persistent. Each worker pulls tasks from an mp.Queue, runs the
 recorded Python code via subprocess.
 
-backend=mps: launch nvidia-cuda-mps-control -d daemon, set per-worker
+backend=mps_process: launch nvidia-cuda-mps-control -d daemon, set per-worker
 CUDA_MPS_ACTIVE_THREAD_PERCENTAGE so workers share the GPU.
-
-backend=stream: each worker creates torch.cuda.Stream() in-process, but the
-actual training runs as a child subprocess (one CUDA context per child).
 """
 from __future__ import annotations
 
@@ -111,7 +108,7 @@ def worker_loop(worker_id: int, task_q, result_q, backend: str, batch_search: st
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--config-id", required=True)
-    p.add_argument("--backend", required=True, choices=["mps", "stream"])
+    p.add_argument("--backend", required=True, choices=["mps_process"])
     p.add_argument("--batch-search", default="off", choices=["off", "binary", "power_of_two"])
     p.add_argument("--n-workers", type=int, default=2)
     p.add_argument("--trace", required=True)
@@ -140,7 +137,7 @@ def main():
     mps_proc = None
     mps_pipe_dir = _mps_directory("CUDA_MPS_PIPE_DIRECTORY", "/tmp/nvidia-mps")
     mps_log_dir = _mps_directory("CUDA_MPS_LOG_DIRECTORY", "/tmp/nvidia-mps-log")
-    if args.backend == "mps":
+    if args.backend == "mps_process":
         mps_proc = _start_mps_daemon(mps_pipe_dir, mps_log_dir)
         if mps_proc is None:
             print("WARN: nvidia-cuda-mps-control not found; running without MPS", file=sys.stderr)
@@ -151,7 +148,7 @@ def main():
     worker_envs = []
     for i in range(n):
         e: dict[str, str] = {}
-        if args.backend == "mps" and mps_proc is not None:
+        if args.backend == "mps_process" and mps_proc is not None:
             pct = max(10, 100 // n)
             e["CUDA_MPS_ACTIVE_THREAD_PERCENTAGE"] = str(pct)
             e["CUDA_MPS_PIPE_DIRECTORY"] = mps_pipe_dir

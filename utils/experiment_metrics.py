@@ -369,7 +369,11 @@ def _packed_dispatch_count(jobs: list[dict[str, Any]], events: list[dict[str, An
     for job in jobs:
         packing = job.get("packing") or {}
         metadata = job.get("metadata") or {}
-        if packing.get("eligible") and (metadata.get("packed") or metadata.get("placement_backend") in {"mps", "stream", "cuda_process"}):
+        if packing.get("eligible") and (
+            metadata.get("packed")
+            or metadata.get("placement_backend")
+            in {"mps_process", "cuda_process"}
+        ):
             packed += 1
     return packed
 

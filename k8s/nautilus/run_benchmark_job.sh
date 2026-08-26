@@ -10,8 +10,8 @@ bench_init_runtime "nautilus_benchmark" "$BENCH_DIR"
 
 BENCH_CONFIG_ID="${BENCH_CONFIG_ID:-nautilus_benchmark}"
 BENCH_RUNNER="${BENCH_RUNNER:-scheduler}"
-BENCH_MODE="${BENCH_MODE:-parallel_default}"
-BENCH_BACKEND="${BENCH_BACKEND:-stream}"
+BENCH_MODE="${BENCH_MODE:-parallel_time_aware}"
+BENCH_BACKEND="${BENCH_BACKEND:-cuda_process}"
 BENCH_BATCH_SEARCH="${BENCH_BATCH_SEARCH:-off}"
 BENCH_TIMEOUT_S="${BENCH_TIMEOUT_S:-2700}"
 BENCH_DURATION_S="${BENCH_DURATION_S:-$(( BENCH_TIMEOUT_S - 60 ))}"
@@ -48,11 +48,11 @@ esac
 
 "$PYTHON_BIN" "$BENCH_DIR/check_benchmark_env.py" --trace "$TRACE_PATH"
 
-if [ "$BENCH_BACKEND" = "mps" ] && ! bench_mps_enabled; then
-    echo "BENCH_BACKEND=mps requires BENCH_ENABLE_MPS=true" >&2
+if [ "$BENCH_BACKEND" = "mps_process" ] && ! bench_mps_enabled; then
+    echo "BENCH_BACKEND=mps_process requires BENCH_ENABLE_MPS=true" >&2
     exit 1
 fi
-if [ "$BENCH_BACKEND" = "mps" ] && ! bench_has_mps_control; then
+if [ "$BENCH_BACKEND" = "mps_process" ] && ! bench_has_mps_control; then
     echo "nvidia-cuda-mps-control is unavailable in this image; cannot run an MPS benchmark job" >&2
     exit 1
 fi

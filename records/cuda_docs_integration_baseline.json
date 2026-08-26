@@ -1,0 +1,48 @@
+{
+  "feature_state": "pre_cuda_docs_gateway",
+  "generation_latency_by_role": {
+    "aggregation": {
+      "median_seconds": 209.82600000000002,
+      "p95_seconds": 291.9897,
+      "samples": 2
+    },
+    "debug": {
+      "median_seconds": 95.403,
+      "p95_seconds": 141.9627,
+      "samples": 3
+    },
+    "draft": {
+      "median_seconds": 432.16,
+      "p95_seconds": 840.3258000000002,
+      "samples": 5
+    },
+    "evolution": {
+      "median_seconds": 147.55,
+      "p95_seconds": 147.55,
+      "samples": 1
+    },
+    "fusion": {
+      "median_seconds": 167.4965,
+      "p95_seconds": 167.99825,
+      "samples": 2
+    },
+    "improve": {
+      "median_seconds": 231.96,
+      "p95_seconds": 390.7457,
+      "samples": 47
+    }
+  },
+  "local_hardware_context_latency_seconds": {
+    "status": "not_instrumented_in_source_trace",
+    "value": null
+  },
+  "node_count": 60,
+  "node_throughput_per_hour": 4.583052161668692,
+  "notes": "The historic trace contains exact per-role generation and node timing, but predates tier-labelled local-context/Qdrant metrics. Those fields are explicitly null rather than replaced with synthetic measurements.",
+  "qdrant_latency_seconds": {
+    "status": "not_instrumented_in_source_trace",
+    "value": null
+  },
+  "schema_version": "cuda_docs_preintegration_baseline_v1",
+  "source_trace": "traces/mlevolve_leaf_v100_sched_db_sonnet5.jsonl"
+}

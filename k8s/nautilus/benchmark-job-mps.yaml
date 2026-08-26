@@ -74,9 +74,9 @@ spec:
             - name: BENCH_RUNNER
               value: scheduler
             - name: BENCH_MODE
-              value: parallel_batch_optimized
+              value: parallel_time_aware
             - name: BENCH_BACKEND
-              value: mps
+              value: mps_process
             - name: BENCH_BATCH_SEARCH
               value: power_of_two
             - name: BENCH_MAX_PACKED_JOBS_PER_GPU

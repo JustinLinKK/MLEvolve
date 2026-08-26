@@ -131,7 +131,7 @@ node_types:
     category: dimension
     key: backend_name
     source_tables: [pair_profiles, batch_size_observations, runtime_profiles, combination_profiles]
-    description: Execution backend such as exclusive, mps, cuda_process, or stream.
+    description: Canonical execution backend (exclusive, cuda_process, or mps_process).
     properties:
       backend_name: {type: string, required: true}
       backend_class: {type: string, required: false}

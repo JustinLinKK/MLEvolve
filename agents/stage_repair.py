@@ -61,7 +61,15 @@ def _stage_ownership(agent: Any, stage: str) -> tuple[str, Sequence[str]]:
     return ("Repair only the issues assigned to this stage.", ())
 
 
-def _build_repair_prompt(agent: Any, node: Any, code: str, stage: str, issues: Sequence[ReviewIssue]) -> str:
+def _build_repair_prompt(
+    agent: Any,
+    node: Any,
+    code: str,
+    stage: str,
+    issues: Sequence[ReviewIssue],
+    *,
+    cuda_docs_evidence: str = "",
+) -> str:
     description, guidelines = _stage_ownership(agent, stage)
     hardware = get_hardware_context_for_stage(
         agent,
@@ -77,6 +85,10 @@ def _build_repair_prompt(agent: Any, node: Any, code: str, stage: str, issues: S
         "pipeline_decision": getattr(node, "pipeline_decision", None) or {},
         "stage_notes": getattr(node, "stage_note_board", None) or [],
         "hardware_evidence": hardware,
+        # This is bounded, source-labelled evidence composed by the local
+        # policy adapter. It is reference material, never an instruction or a
+        # raw MCP response.
+        "cuda_documentation_evidence": str(cuda_docs_evidence or ""),
         "ownership_guidelines": list(guidelines),
         "merged_script": code,
     }
@@ -109,12 +121,20 @@ def generate_stage_patch(
     *,
     generator: Callable[[Any, str], str] | None = None,
     sequential_retry: bool = False,
+    cuda_docs_evidence: str = "",
 ) -> StageRepairResult:
     started = time.monotonic()
     generator = generator or _default_patch_generator
     retries = max(1, int(getattr(_review_config(agent), "repair_retries", 2)))
     last_error = "repair agent did not return a patch"
-    prompt = _build_repair_prompt(agent, node, code, stage, issues)
+    prompt = _build_repair_prompt(
+        agent,
+        node,
+        code,
+        stage,
+        issues,
+        cuda_docs_evidence=cuda_docs_evidence,
+    )
     for _ in range(retries):
         try:
             patch = generator(agent, prompt).strip()
@@ -205,6 +225,7 @@ def _run_parallel_pair(
     training_stage: str,
     grouped: dict[str, list[ReviewIssue]],
     generator: Callable[[Any, str], str] | None,
+    cuda_docs_evidence: str,
 ) -> tuple[str, list[StageRepairResult], bool]:
     _log_repair_event(
         agent,
@@ -214,10 +235,24 @@ def _run_parallel_pair(
     )
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix="stage-repair") as pool:
         primary_future = pool.submit(
-            generate_stage_patch, agent, node, code, primary_stage, grouped[primary_stage], generator=generator
+            generate_stage_patch,
+            agent,
+            node,
+            code,
+            primary_stage,
+            grouped[primary_stage],
+            generator=generator,
+            cuda_docs_evidence=cuda_docs_evidence,
         )
         training_future = pool.submit(
-            generate_stage_patch, agent, node, code, training_stage, grouped[training_stage], generator=generator
+            generate_stage_patch,
+            agent,
+            node,
+            code,
+            training_stage,
+            grouped[training_stage],
+            generator=generator,
+            cuda_docs_evidence=cuda_docs_evidence,
         )
         primary_result = primary_future.result()
         training_result = training_future.result()
@@ -240,6 +275,7 @@ def _run_parallel_pair(
             grouped[training_stage],
             generator=generator,
             sequential_retry=True,
+            cuda_docs_evidence=cuda_docs_evidence,
         )
         merged, retry = _apply_result(primary_code, retry)
         results.append(retry)
@@ -262,6 +298,7 @@ def _run_parallel_pair(
             grouped[training_stage],
             generator=generator,
             sequential_retry=True,
+            cuda_docs_evidence=cuda_docs_evidence,
         )
         merged, retry = _apply_result(primary_code, retry)
         results.append(retry)
@@ -277,6 +314,7 @@ def repair_selected_stages(
     issues: Iterable[ReviewIssue],
     *,
     generator: Callable[[Any, str], str] | None = None,
+    cuda_docs_evidence: str = "",
 ) -> tuple[str, list[StageRepairResult], dict[str, Any]]:
     """Repair only issue owners selected by the review decision."""
     grouped = group_repair_issues(agent, issues)
@@ -306,6 +344,7 @@ def repair_selected_stages(
             "training_evaluation",
             grouped,
             generator,
+            cuda_docs_evidence,
         )
         results.extend(pair_results)
         stats["parallel_batches"] += 1
@@ -320,7 +359,15 @@ def repair_selected_stages(
     for stage in STAGE_ORDER:
         if stage not in grouped or stage in handled:
             continue
-        result = generate_stage_patch(agent, node, current, stage, grouped[stage], generator=generator)
+        result = generate_stage_patch(
+            agent,
+            node,
+            current,
+            stage,
+            grouped[stage],
+            generator=generator,
+            cuda_docs_evidence=cuda_docs_evidence,
+        )
         current, result = _apply_result(current, result)
         results.append(result)
 

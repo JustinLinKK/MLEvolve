@@ -100,8 +100,6 @@ def replay_fixture(
     if settings_overlay:
         overlay_payload = json.loads(Path(settings_overlay).expanduser().read_text())
         _deep_merge_settings(settings_payload, overlay_payload)
-    settings = SchedulerSettings.from_dict(settings_payload)
-
     if dry_run:
         for action in selected_actions:
             if action["action"] == "SUBMIT" and action["job_id"] not in jobs_by_id:
@@ -133,6 +131,10 @@ def replay_fixture(
             submitted_job_ids=[],
         )
 
+    # Historical fixtures remain reportable in dry-run mode. Executing one
+    # requires a current settings overlay so retired backends cannot silently
+    # become a different process topology.
+    settings = SchedulerSettings.from_dict(settings_payload)
     client = SchedulerClient(settings)
     service = None
     started_at = time.time()

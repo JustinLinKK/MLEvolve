@@ -7,7 +7,12 @@ import time
 from typing import Any, cast
 
 from agents.hardware_context import get_hardware_context_for_stage, hardware_context_instructions
-from agents.prompts import get_internet_clarification
+from agents.cuda_docs_context import get_cuda_docs_context, format_cuda_docs_prompt_section
+from agents.prompts import (
+    format_pipeline_decision_prompt_section,
+    get_internet_clarification,
+    pipeline_decision_instructions,
+)
 from agents.prompts.validation_template_prompts import get_code_review_prompt
 from agents.review_contracts import ReviewDecision, ReviewOutcome
 from agents.precision_validation import merge_precision_review_issues, validate_training_precision
@@ -64,19 +69,38 @@ def _event(agent: Any, node: SearchNode, event_type: str, payload: dict[str, Any
 
 def _build_review_prompt(agent: Any, node: SearchNode, code: str) -> tuple[dict[str, Any], Any]:
     prompt = get_code_review_prompt(task_desc=agent.task_desc, code=code)
+    instructions = prompt.pop("Instructions")
     hardware_ctx = get_hardware_context_for_stage(
         agent, "code_review", parent_node=getattr(node, "parent", None), code=code
     )
     hardware_section = hardware_ctx.prompt_section
+    cuda_docs_ctx = get_cuda_docs_context(
+        agent,
+        "code_review",
+        parent_node=getattr(node, "parent", None),
+        hardware_context=hardware_ctx,
+        code=code,
+    )
+    cuda_docs_section = format_cuda_docs_prompt_section(
+        cuda_docs_ctx,
+        service=getattr(agent, "cuda_docs_service", None),
+        role="code_review",
+    )
     if hardware_section:
-        instructions = prompt.pop("Instructions")
         prompt["Hardware/Profile Optimization Context"] = hardware_section
-        prompt["Instructions"] = instructions
-        prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
-        prompt["Instructions"]["Hardware-aware review guidance"] = [
+        instructions |= hardware_context_instructions(hardware_ctx)
+        instructions["Hardware-aware review guidance"] = [
             "Flag hardware-critical issues only when the supplied profile evidence is strong.",
             "Preserve the chosen model/backbone and classify the narrow owning stage.",
         ]
+    if cuda_docs_section:
+        prompt["CUDA Documentation Evidence"] = cuda_docs_section
+    pipeline_decision = getattr(node, "pipeline_decision", None) or {}
+    pipeline_section = format_pipeline_decision_prompt_section(pipeline_decision)
+    if pipeline_section:
+        prompt["Pipeline Decision Contract"] = pipeline_section
+        instructions |= pipeline_decision_instructions(pipeline_decision)
+    prompt["Instructions"] = instructions
     internet_clarification = get_internet_clarification(getattr(agent.cfg, "pretrain_model_dir", ""))
     prompt.setdefault("Instructions", {})
     if "Implementation guideline" in prompt["Instructions"]:
@@ -188,7 +212,29 @@ def review_and_repair(agent: Any, node: SearchNode) -> ReviewOutcome:
     while decision.critical_issues and repair_round < max_rounds:
         repair_round += 1
         known_critical = decision.critical_issues
-        code, results, stats = repair_selected_stages(agent, node, code, known_critical)
+        repair_docs_context = get_cuda_docs_context(
+            agent,
+            "code_review",
+            parent_node=getattr(node, "parent", None),
+            code=code,
+        )
+        repair_docs_section = format_cuda_docs_prompt_section(
+            repair_docs_context,
+            service=getattr(agent, "cuda_docs_service", None),
+            role="code_review",
+        )
+        repair_kwargs = (
+            {"cuda_docs_evidence": repair_docs_section}
+            if repair_docs_section
+            else {}
+        )
+        code, results, stats = repair_selected_stages(
+            agent,
+            node,
+            code,
+            known_critical,
+            **repair_kwargs,
+        )
         repair_entry = {
             "event": "repair_round",
             "round": repair_round,

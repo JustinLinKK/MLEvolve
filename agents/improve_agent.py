@@ -12,6 +12,7 @@ from agents.hardware_context import (
     get_hardware_context_for_stage,
     hardware_context_instructions,
 )
+from agents.cuda_docs_context import get_cuda_docs_context, format_cuda_docs_prompt_section
 from agents.triggers import get_patience_counter, register_node
 from agents.prompts import (
     ROBUSTNESS_GENERALIZATION_STRATEGY,
@@ -56,6 +57,19 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
     hardware_section = hardware_ctx.prompt_section
     if hardware_section:
         prompt["Hardware/Profile Optimization Context"] = hardware_section
+    cuda_docs_ctx = get_cuda_docs_context(
+        agent,
+        "improve",
+        parent_node=parent_node,
+        hardware_context=hardware_ctx,
+    )
+    cuda_docs_section = format_cuda_docs_prompt_section(
+        cuda_docs_ctx,
+        service=getattr(agent, "cuda_docs_service", None),
+        role="improve",
+    )
+    if cuda_docs_section:
+        prompt["CUDA Documentation Evidence"] = cuda_docs_section
     pipeline_decision = build_pipeline_decision(
         agent,
         stage="improve",
@@ -258,7 +272,7 @@ def run(agent, parent_node: SearchNode) -> SearchNode | None:
     if prompt.get("Memory", "").strip():
         memory_section = f"\n# Memory\nBelow is a record of previous improvement attempts and their outcomes:\n {prompt['Memory']}\n"
 
-    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{hardware_section}\n{pipeline_decision_section}\n{instructions}"
+    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{hardware_section}\n{cuda_docs_section}\n{pipeline_decision_section}\n{instructions}"
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll review the dataset:\n{agent.data_preview}\nThe current solution uses the following code:\n{prompt['Previous solution']['Code']}\nIts output was:\n{output}\nBuilding on this, I'll develop an improved approach."
     prompt_complete = build_chat_prompt_for_model(agent.acfg.code.model, introduction, user_prompt, assistant_prefix)
 
@@ -327,6 +341,7 @@ def _diff_improve(agent, prompt_base, data_preview, parent_node):
         "execution_output": parent_node.term_out if hasattr(parent_node, 'term_out') else "",
         "parent_node": parent_node,
         "hardware_prompt_section": prompt_base.get("Hardware/Profile Optimization Context", ""),
+        "cuda_docs_prompt_section": prompt_base.get("CUDA Documentation Evidence", ""),
         "pipeline_decision": prompt_base.get("Pipeline Decision"),
         "pipeline_decision_section": prompt_base.get("Pipeline Decision Contract", ""),
     }
@@ -373,6 +388,7 @@ def _diff_improve(agent, prompt_base, data_preview, parent_node):
             section
             for section in (
                 context.get("hardware_prompt_section", ""),
+                context.get("cuda_docs_prompt_section", ""),
                 context.get("pipeline_decision_section", ""),
             )
             if section

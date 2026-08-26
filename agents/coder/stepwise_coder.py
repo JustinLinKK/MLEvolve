@@ -50,6 +50,7 @@ class StepwiseContext:
     hardware_stage_sections: Dict[str, str] = field(default_factory=dict)
     hardware_candidate: Dict[str, Any] = field(default_factory=dict)
     hardware_context: Dict[str, Any] = field(default_factory=dict)
+    cuda_docs_evidence: str = ""
     pipeline_decision: Dict[str, Any] = field(default_factory=dict)
     pipeline_decision_section: str = ""
     stage_note_board: List[Dict[str, Any]] = field(default_factory=list)
@@ -242,6 +243,7 @@ class StepAgent:
             "Data preview": data_preview_str,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
             "Hardware/Profile Optimization Context": context.hardware_section_for(self.name),
+            "CUDA Documentation Evidence": context.cuda_docs_evidence,
             "Pipeline Decision Contract": context.pipeline_decision_section,
             "Cross-Stage Note Board": context.note_board_section(self.name),
             "Previous steps": prev_summary,
@@ -306,6 +308,7 @@ class StepAgent:
                 memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
 
         hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
+        cuda_docs_section = prompt.get("CUDA Documentation Evidence", "")
         pipeline_decision_section = prompt.get("Pipeline Decision Contract", "")
         note_board_section = prompt.get("Cross-Stage Note Board", "")
 
@@ -317,6 +320,7 @@ class StepAgent:
             f"\n# Task description\n{prompt['Task description']}\n\n"
             f"{memory_section}\n"
             f"{hardware_section}\n"
+            f"{cuda_docs_section}\n"
             f"{pipeline_decision_section}\n"
             f"{note_board_section}\n"
             f"{previous_solution_section}"
@@ -431,6 +435,7 @@ class MetaAgent:
             "Task description": task_desc,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
             "Hardware/Profile Optimization Context": context.hardware_section_for_merge(),
+            "CUDA Documentation Evidence": context.cuda_docs_evidence,
             "Pipeline Decision Contract": context.pipeline_decision_section,
             "Cross-Stage Note Board": context.note_board_section("merge"),
             "Data preview": data_preview_str,
@@ -456,6 +461,7 @@ class MetaAgent:
             else:
                 memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
         hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
+        cuda_docs_section = prompt.get("CUDA Documentation Evidence", "")
         pipeline_decision_section = prompt.get("Pipeline Decision Contract", "")
         note_board_section = prompt.get("Cross-Stage Note Board", "")
 
@@ -481,6 +487,7 @@ class MetaAgent:
             f"\n# Task description\n{prompt['Task description']}\n\n"
             f"{memory_section}\n\n"
             f"{hardware_section}\n"
+            f"{cuda_docs_section}\n"
             f"{pipeline_decision_section}\n"
             f"{note_board_section}\n"
             f"# Step results\n{prompt['Step results']}\n\n"
@@ -565,7 +572,7 @@ def create_default_step_agents(
             "Use the Hardware/Profile Optimization Context to choose among fp32, tf32, fp16, bf16, TE FP8/MXFP8/NVFP4, or disabled AMP. Prefer low-precision TE modes only when hardware, framework/package availability, and model structure evidence support them; keep fp32 fallback for fragile losses or unsupported devices.",
             hardware_node_rule,
             "Note board: record how the precision policy and any precision-required adapter support the Stage 1 target and which feature keys drove the choice.",
-            "Keep precision configurable and backend-compatible. Do not hardcode scheduler backend choices, CUDA process modes, CUDA streams, or MPS behavior.",
+            "Keep precision configurable and valid for the canonical effective backend. Do not hardcode scheduler backend selection or implement scheduler-owned launch and resource controls.",
             "Expose simple variables/utilities and any adapted model object that the training_evaluation step can consume directly, and include lightweight logging of selected precision without batch-level noise.",
         ]
         training_guidelines = [
@@ -586,7 +593,7 @@ def create_default_step_agents(
             [
                 "Hardware-aware training: optimize runtime at fixed modeling intent. Do NOT increase epochs, folds, model size, input resolution, ensemble count, TTA, dataset size, or validation workload as a hardware-only optimization unless the user explicitly asks for score improvement.",
                 "Allowed hardware optimizations in this stage: physical batch size, gradient accumulation while preserving effective batch size, dataloader workers, pin_memory, persistent_workers, channels_last, safe torch.compile, checkpointing, and runtime logging. Precision choices and precision-required model adapters must consume the datatype_precision policy.",
-                "Scheduler-aware training: adapt to the scheduler backend config in the Hardware/Profile Optimization Context. Do not hardcode CUDA process, CUDA stream, MPS, or backend selection in the script; keep code backend-compatible and configurable.",
+                "Scheduler-aware training: run as an independent subprocess and follow the one canonical effective backend in the Hardware/Profile Optimization Context. Keep scheduler-owned launch and resource controls out of job code, and never integrate with or launch sibling jobs.",
                 "Hardware-aware training: use the hardware/profile context to choose physical batch size, accumulation, checkpoint cadence, and dataloader settings. If choosing a riskier setting for score reasons, include an explicit fallback path for OOM/timeout such as smaller batch size, accumulation, lower resolution, fewer epochs, or checkpoint resume.",
                 "When feasible, log resolved batch size, selected precision, elapsed time, throughput, and peak CUDA memory so later scheduler graph evidence can learn from this run.",
             ]
@@ -833,6 +840,7 @@ def stepwise_plan_and_code_query(
         hardware_stage_sections=context.get("hardware_stage_sections", {}) or {},
         hardware_candidate=context.get("hardware_candidate", {}) or {},
         hardware_context=context.get("hardware_context", {}) or {},
+        cuda_docs_evidence=context.get("cuda_docs_prompt_section", ""),
         pipeline_decision=context.get("pipeline_decision", {}) or {},
         pipeline_decision_section=context.get("pipeline_decision_section", ""),
         stage_note_board=list(context.get("stage_note_board", []) or []),

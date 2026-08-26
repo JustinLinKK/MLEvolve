@@ -84,6 +84,9 @@ logs/
 data/
 results/
 scripts/
+!scripts/
+scripts/*
+!scripts/benchmark_cuda_docs_baseline.py
 workspace/
 workspaces/
 test_workspace/

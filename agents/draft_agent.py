@@ -18,6 +18,7 @@ from agents.hardware_context import (
     get_hardware_context_for_stage,
     hardware_context_instructions,
 )
+from agents.cuda_docs_context import get_cuda_docs_context, format_cuda_docs_prompt_section
 from agents.prompts import (
     ROBUSTNESS_GENERALIZATION_STRATEGY,
     apply_pipeline_decision_to_node,
@@ -104,6 +105,14 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
     hardware_section = "\n".join(
         section for section in (hardware_design_brief.prompt_section, hardware_ctx.prompt_section) if section.strip()
     )
+    cuda_docs_ctx = get_cuda_docs_context(
+        agent, "draft", hardware_context=hardware_ctx
+    )
+    cuda_docs_section = format_cuda_docs_prompt_section(
+        cuda_docs_ctx,
+        service=getattr(agent, "cuda_docs_service", None),
+        role="draft",
+    )
     pipeline_decision = build_pipeline_decision(
         agent,
         stage="draft",
@@ -167,6 +176,12 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
             "- **NO PROGRESS BARS**: You MUST NOT use `tqdm`. Assume `tqdm` is not installed. Use standard Python loops only. Do not use `verbose=1`.",
             "- **MINIMAL LOGGING**: Print ONLY 1 line per epoch (e.g. loss/accuracy). Do NOT print batch-level logs.",
             "- **FINAL OUTPUT**: The VERY LAST line of execution MUST be `print(f'Final Validation Score: {score}')`. This is required for the score parser."
+        ],
+        "Backend design contract": [
+            "- In the plan, explicitly state the selected memory strategy and physical/effective batch elasticity strategy.",
+            "- State operator and normalization considerations, the model dimensions that remain configurable, and the fallback behavior.",
+            "- List scheduler-owned backend controls that the generated subprocess must not implement.",
+            "- Do not assume code-level integration, shared framework state, or synchronized start time with another job.",
         ]
     }
     prompt["Instructions"] |= get_impl_guideline_from_agent(agent)
@@ -210,7 +225,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
     if prompt.get("Memory", "").strip():
         memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
 
-    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{hardware_section}\n{pipeline_decision_section}\n{instructions}"
+    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{hardware_section}\n{cuda_docs_section}\n{pipeline_decision_section}\n{instructions}"
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll examine the dataset:\n{agent.data_preview}"
     prompt_complete = build_chat_prompt_for_model(
         agent.acfg.code.model, introduction, user_prompt, assistant_prefix
@@ -231,6 +246,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
                 "design_brief": hardware_design_brief.compact_context,
                 "execution_context": hardware_ctx.compact_context,
             },
+            "cuda_docs_prompt_section": cuda_docs_section,
             "pipeline_decision": pipeline_decision,
             "pipeline_decision_section": pipeline_decision_section,
         }

@@ -282,6 +282,7 @@ class HardwareKnowledgeClient:
             compute_capability=payload.get("compute_capability"),
             cuda_runtime=payload.get("cuda_runtime"),
             torch_version=str(payload.get("torch_version") or ""),
+            driver_version=payload.get("driver_version"),
         )
 
     def search_hardware(self, **kwargs: Any) -> list[dict[str, Any]]:

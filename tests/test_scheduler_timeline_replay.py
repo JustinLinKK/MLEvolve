@@ -75,8 +75,8 @@ def _make_runtime(tmp_path: Path) -> Path:
         runtime_root=runtime_root,
         scheduler_poll_interval_seconds=0.02,
         gpu_scheduler={
-            "backend_priority": ["exclusive"],
-            "stream": {"enabled": False},
+            "packing_backend": "cuda_process",
+            "exclusive_fallback_enabled": True,
             "cuda_process": {"enabled": False},
             "mps": {"enabled": False},
         },
@@ -90,7 +90,7 @@ def _make_runtime(tmp_path: Path) -> Path:
     client = SchedulerClient(settings)
 
     job1 = _job("job-1", script, workspace, task_type="mlevolve_script", priority=1)
-    job1.metadata.update({"placement_backend": "stream", "resolved_batch_size": 64})
+    job1.metadata.update({"placement_backend": "cuda_process", "resolved_batch_size": 64})
     job2 = _job(
         "job-2",
         script,
@@ -139,7 +139,7 @@ def _job(
             eligible=True,
             signature=f"sig-{job_id}",
             family="unit-family",
-            backend_allowlist=["stream", "exclusive"],
+            backend_allowlist=["cuda_process", "exclusive"],
         ),
         batch_probe=BatchProbeSpec(
             enabled=True,
@@ -1019,8 +1019,8 @@ def test_scheduler_stop_terminates_raw_script_child_tree(tmp_path: Path) -> None
         runtime_root=runtime_root,
         scheduler_poll_interval_seconds=0.02,
         gpu_scheduler={
-            "backend_priority": ["exclusive"],
-            "stream": {"enabled": False},
+            "packing_backend": "cuda_process",
+            "exclusive_fallback_enabled": True,
             "cuda_process": {"enabled": False},
             "mps": {"enabled": False},
         },

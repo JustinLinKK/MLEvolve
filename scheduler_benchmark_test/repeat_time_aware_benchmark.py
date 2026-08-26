@@ -303,7 +303,11 @@ def main() -> int:
     parser.add_argument("--duration-s", type=float, default=2700.0)
     parser.add_argument("--gpu-vram-gib", type=float, default=22.0)
     parser.add_argument("--predicted-budget-fraction", type=float, default=0.85)
-    parser.add_argument("--time-aware-backend", choices=["mps", "stream", "cuda_process"], default="stream")
+    parser.add_argument(
+        "--time-aware-backend",
+        choices=["mps_process", "cuda_process"],
+        default="cuda_process",
+    )
     parser.add_argument("--profile-input", type=Path)
     parser.add_argument("--skip-calibration", action="store_true")
     args = parser.parse_args()

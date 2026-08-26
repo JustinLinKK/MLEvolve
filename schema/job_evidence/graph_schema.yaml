@@ -123,8 +123,8 @@ node_types:
         required: false
         description: >
           String identifiers for technologies, features, or runtime techniques
-          used by this job result, such as cuda, rocm, amp, bf16, fp16, mps,
-          cuda_streams, tensor_cores, or power_of_two_batch_search. These keys
+          used by this job result, such as cuda, rocm, amp, bf16, fp16,
+          nvidia_mps, tensor_cores, or power_of_two_batch_search. These keys
           are resolved to detailed guidance in the vector database.
 
       technology_set_key:
@@ -1008,7 +1008,7 @@ node_types:
         description: >
           Canonical key shared with vector metadata, such as pytorch_amp,
           bf16_autocast, tf32_matmul, torch_compile, cuda_graphs, nvidia_mps,
-          cuda_streams, or power_of_two_batch_optimizer.
+          async_copy, or power_of_two_batch_optimizer.
 
       name:
         type: string
@@ -1396,9 +1396,7 @@ node_types:
         required: true
         indexed: true
         allowed_values:
-          - mps
-          - cuda_streams
-          - multiprocessing
+          - mps_process
           - cuda_process
           - scheduler_packing
           - other

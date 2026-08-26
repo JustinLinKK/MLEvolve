@@ -105,153 +105,6 @@
     },
     {
       "label": "Feature",
-      "id": "feat:cuda_stream_scheduler_compatibility",
-      "properties": {
-        "feature_id": "cuda_stream_scheduler_compatibility",
-        "name": "CUDA stream scheduler compatibility",
-        "category": "parallelism",
-        "description": "Guidance for PyTorch training code that may be packed by a scheduler using CUDA streams. CUDA operations are asynchronous and ordered within each stream; work on different streams may overlap only when dependencies and memory lifetime are explicit.",
-        "how_to_use": "Prefer ordinary default-stream PyTorch training code unless the script owns a small side-stream optimization. If a side stream is used, synchronize with wait_stream or events before using tensors on another stream, and call Tensor.record_stream for tensors whose lifetime crosses streams.",
-        "when_to_use": "Use this guidance when the scheduler reports stream or stream_mps backends as enabled or available.",
-        "when_not_to_use": "Do not create global side streams, hide synchronization bugs with CUDA_LAUNCH_BLOCKING, or let tensors produced on one stream be consumed/freed on another stream without explicit synchronization and record_stream.",
-        "example_code": "import torch\n\nif torch.cuda.is_available():\n    main_stream = torch.cuda.current_stream()\n    side_stream = torch.cuda.Stream()\n    x = torch.empty((1024, 1024), device='cuda')\n    with torch.cuda.stream(side_stream):\n        y = x.normal_().relu_()\n        y.record_stream(side_stream)\n    main_stream.wait_stream(side_stream)\n    loss = y.float().mean()\n    loss.backward() if loss.requires_grad else None",
-        "example_code_source": "pytorch.cuda.stream.scheduler_compatibility.001",
-        "api_symbols": [
-          "torch.cuda.Stream",
-          "torch.cuda.current_stream",
-          "torch.cuda.stream",
-          "torch.Tensor.record_stream",
-          "torch.cuda.Stream.wait_stream"
-        ],
-        "source_url": "https://docs.pytorch.org/docs/2.13/notes/cuda.html",
-        "recommended_patterns": [
-          "Keep generated training loops on the default stream unless explicit side-stream synchronization is required and tested.",
-          "Use wait_stream/events before backward, optimizer, validation, or export consumes tensors created on another stream.",
-          "Use Tensor.record_stream for tensors used by a non-creation stream so the caching allocator does not reuse memory too early."
-        ],
-        "avoid_patterns": [
-          "Do not assume streams synchronize automatically around backward or gradient use.",
-          "Do not set CUDA_LAUNCH_BLOCKING=1 except for local debugging.",
-          "Do not use global side-stream state that can conflict with scheduler packing."
-        ],
-        "limitations": "This is scheduler compatibility guidance, not a request to implement custom stream parallelism in generated candidate code.",
-        "hardware_match": {
-          "vendor": "NVIDIA",
-          "hardware_type": "GPU"
-        },
-        "default_relationship": {
-          "support_level": "supported",
-          "recommended": false,
-          "performance_impact": "stability_for_scheduler_packing",
-          "software_requirements": [
-            "PyTorch",
-            "CUDA"
-          ],
-          "limitations": "Relevant only when scheduler stream or stream_mps backends are enabled or available for the current run.",
-          "verified": true,
-          "last_verified_at": "2026-07-20"
-        }
-      }
-    },
-    {
-      "label": "Feature",
-      "id": "feat:cuda_process_scheduler_compatibility",
-      "properties": {
-        "feature_id": "cuda_process_scheduler_compatibility",
-        "name": "CUDA process scheduler compatibility",
-        "category": "parallelism",
-        "description": "Guidance for PyTorch training code that may run as isolated CUDA worker processes under the scheduler. CUDA subprocesses must avoid poison-fork behavior and should use spawn or forkserver when the candidate script starts CUDA-using child processes.",
-        "how_to_use": "Keep generated scripts single-process unless multiprocessing is needed. Put runnable code under if __name__ == '__main__', avoid initializing CUDA before creating CUDA subprocesses, and prefer spawn or forkserver for CUDA child processes.",
-        "when_to_use": "Use this guidance when the scheduler reports cuda_process as enabled or available.",
-        "when_not_to_use": "Do not share CUDA tensors across long-lived processes, initialize CUDA at import time before forking, or rely on process-global mutable state for output paths, checkpoints, or metrics.",
-        "example_code": "import multiprocessing as mp\nimport torch\n\n\ndef main():\n    device = 'cuda' if torch.cuda.is_available() else 'cpu'\n    print(f'running on {device}')\n\n\nif __name__ == '__main__':\n    try:\n        mp.set_start_method('spawn', force=True)\n    except RuntimeError:\n        pass\n    main()",
-        "example_code_source": "pytorch.cuda.multiprocessing.scheduler_compatibility.001",
-        "api_symbols": [
-          "multiprocessing.set_start_method",
-          "torch.multiprocessing",
-          "torch.cuda.is_available"
-        ],
-        "source_url": "https://docs.pytorch.org/docs/2.13/notes/multiprocessing.html",
-        "recommended_patterns": [
-          "Use an if __name__ == '__main__' guard around runnable code in generated training scripts.",
-          "Prefer spawn or forkserver for any CUDA-using child process created by candidate code.",
-          "Keep scheduler-assigned result paths, checkpoint paths, and logs process-local."
-        ],
-        "avoid_patterns": [
-          "Do not initialize CUDA before forking CUDA child processes.",
-          "Do not pass live CUDA tensors between worker processes unless the lifetime contract is explicit.",
-          "Do not let dataloader or multiprocessing workers write the same submission/checkpoint path concurrently."
-        ],
-        "limitations": "This is scheduler compatibility guidance for candidate code that starts subprocesses; ordinary single-process PyTorch training does not need to create CUDA child processes.",
-        "hardware_match": {
-          "vendor": "NVIDIA",
-          "hardware_type": "GPU"
-        },
-        "default_relationship": {
-          "support_level": "supported",
-          "recommended": false,
-          "performance_impact": "stability_for_scheduler_process_isolation",
-          "software_requirements": [
-            "PyTorch",
-            "CUDA"
-          ],
-          "limitations": "Relevant only when scheduler cuda_process backend is enabled or available for the current run.",
-          "verified": true,
-          "last_verified_at": "2026-07-20"
-        }
-      }
-    },
-    {
-      "label": "Feature",
-      "id": "feat:mps_scheduler_compatibility",
-      "properties": {
-        "feature_id": "mps_scheduler_compatibility",
-        "name": "NVIDIA MPS scheduler compatibility",
-        "category": "parallelism",
-        "description": "Guidance for PyTorch training code that may be packed under NVIDIA Multi-Process Service. MPS can overlap kernels and copies from separate CUDA processes when individual jobs underutilize the GPU, but daemon state, user scope, active-thread limits, and unsupported CUDA features can affect reliability.",
-        "how_to_use": "Let the scheduler manage MPS daemon and environment. Candidate code should synchronize before exit, handle termination cleanly, keep per-process result paths separate, and avoid hardcoding CUDA_MPS_* settings.",
-        "when_to_use": "Use this guidance when the scheduler reports mps or stream_mps as enabled or available.",
-        "when_not_to_use": "Do not rely on CUDA dynamic parallelism under MPS, do not start or stop the MPS daemon from generated training code, and do not assume CUDA_MPS_ACTIVE_THREAD_PERCENTAGE reserves resources.",
-        "example_code": "import os\nimport torch\n\nif torch.cuda.is_available():\n    print('mps_pipe_directory=', os.environ.get('CUDA_MPS_PIPE_DIRECTORY', 'scheduler-managed'))\n    print('mps_active_thread_pct=', os.environ.get('CUDA_MPS_ACTIVE_THREAD_PERCENTAGE', 'scheduler-managed'))\n    # Train normally; synchronize before process exit so scheduler collection is clean.\n    torch.cuda.synchronize()",
-        "example_code_source": "nvidia.mps.scheduler_compatibility.001",
-        "api_symbols": [
-          "CUDA_MPS_PIPE_DIRECTORY",
-          "CUDA_MPS_ACTIVE_THREAD_PERCENTAGE",
-          "torch.cuda.synchronize"
-        ],
-        "source_url": "https://docs.nvidia.com/deploy/mps/latest/index.html",
-        "recommended_patterns": [
-          "Let the scheduler manage MPS daemon lifecycle and CUDA_MPS_* environment values.",
-          "Synchronize CUDA work before normal process exit and write artifacts only after training/validation is complete.",
-          "Treat active-thread percentage as a usage limit, not a guaranteed reservation."
-        ],
-        "avoid_patterns": [
-          "Do not use CUDA dynamic parallelism when the scheduler may run the job under MPS.",
-          "Do not start or stop nvidia-cuda-mps-control from generated candidate code.",
-          "Do not kill the process without cleanup unless the scheduler is deliberately cancelling it."
-        ],
-        "limitations": "MPS is Linux/QNX-oriented, one active user server at a time, and faults or abnormal client termination can affect server/client state.",
-        "hardware_match": {
-          "vendor": "NVIDIA",
-          "hardware_type": "GPU"
-        },
-        "default_relationship": {
-          "support_level": "supported",
-          "recommended": false,
-          "performance_impact": "stability_for_scheduler_mps_packing",
-          "software_requirements": [
-            "NVIDIA MPS",
-            "CUDA",
-            "PyTorch"
-          ],
-          "limitations": "Relevant only when scheduler mps or stream_mps backend is enabled or available for the current run.",
-          "verified": true,
-          "last_verified_at": "2026-07-20"
-        }
-      }
-    },
-    {
-      "label": "Feature",
       "id": "feat:fp16",
       "properties": {
         "feature_id": "fp16",
@@ -2228,7 +2081,7 @@
           "no activation checkpointing or gradient accumulation as speed defaults"
         ],
         "memory_bandwidth_GBps": 432,
-        "fp8_tflops": 634.0,
+        "fp8_tflops": 634,
         "tflops_note": "effective fp8 tflops using Sparsity",
         "source_url": "https://www.nvidia.com/content/dam/en-zz/Solutions/products/workstations/nvidia-rtx-4500-datasheet.pdf",
         "experimental_recipes": [
@@ -2486,7 +2339,7 @@
           "no activation checkpointing or gradient accumulation as speed defaults"
         ],
         "memory_bandwidth_GBps": 960,
-        "fp8_tflops": 1457.0,
+        "fp8_tflops": 1457,
         "tflops_note": "effective fp8 tflops using Sparsity",
         "source_url": "https://resources.nvidia.com/en-us-briefcase-for-datasheets/proviz-print-rtx6000-1?ncid=no-ncid",
         "experimental_recipes": [
