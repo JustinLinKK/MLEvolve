@@ -20,14 +20,12 @@ Modes:
   db-neighborhood  Return loaded Neo4j features directly linked to hardware.
 
 Stages:
-  model_structure, datatype, training_parameters, all
-
-Legacy filter names model, optimizer, and tuning are intentionally rejected.
+  model_design, datatype_precision, training_evaluation, all
 
 Examples:
-  ./hardware_graph_scripts/query_hardware_graph.sh node "GeForce RTX 5090" model_structure
-  ./hardware_graph_scripts/query_hardware_graph.sh features "GeForce RTX 5090" training_parameters 24
-  ./hardware_graph_scripts/query_hardware_graph.sh stage-context "GeForce RTX 5090" training_parameters 24
+  ./hardware_graph_scripts/query_hardware_graph.sh node "GeForce RTX 5090" model_design
+  ./hardware_graph_scripts/query_hardware_graph.sh features "GeForce RTX 5090" training_evaluation 24
+  ./hardware_graph_scripts/query_hardware_graph.sh stage-context "GeForce RTX 5090" training_evaluation 24
   ./hardware_graph_scripts/query_hardware_graph.sh db-neighborhood "GeForce RTX 5090" all 32
 EOF
 }
@@ -50,7 +48,7 @@ case "$mode" in
 import json
 import sys
 
-from hardware_knowledge_graph.feature_filter import (
+from localml_scheduler.hardware_knowledge.feature_filter import (
     query_hardware_features,
     query_hardware_node,
 )
@@ -59,7 +57,7 @@ mode, hardware_name, stage, limit_raw = sys.argv[1:5]
 limit = max(1, int(limit_raw))
 stage_clean = stage.strip().lower()
 stage_value = None if stage_clean in {"", "all", "none", "null"} else stage_clean
-valid_stages = {"model_structure", "datatype", "training_parameters"}
+valid_stages = {"model_design", "datatype_precision", "training_evaluation"}
 if stage_value is not None and stage_value not in valid_stages:
     allowed = ", ".join(sorted(valid_stages))
     raise SystemExit(
@@ -108,7 +106,7 @@ from pathlib import Path
 import yaml
 
 from hardware_knowledge_graph import HardwareKnowledgeSettings
-from hardware_knowledge_graph.store import HardwareKnowledgeGraphStore
+from localml_scheduler.hardware_knowledge.store import HardwareKnowledgeGraphStore
 
 config_path, mode, hardware_name, query, limit_raw = sys.argv[1:6]
 limit = max(1, int(limit_raw))

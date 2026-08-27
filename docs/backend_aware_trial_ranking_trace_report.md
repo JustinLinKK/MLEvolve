@@ -25,7 +25,7 @@ Results at commit base `6b5cb056a237b9569f08d823d3371b12e15e56d5`:
 | Policy | Makespan (s) | Mean flow (s) | Trial/rejected epochs | Rejections | Violations |
 |---|---:|---:|---:|---:|---:|
 | serial FIFO | 180.00 | 116.67 | 0.0 / 0.0 | 0 | 0 |
-| legacy VRAM fill | 250.00 | 193.33 | 0.0 / 0.0 | 0 | 0 |
+| VRAM-fill reference | 250.00 | 193.33 | 0.0 / 0.0 | 0 | 0 |
 | baseline `parallel_time_aware` | 134.70 | 105.13 | 4.0 / 2.0 | 1 | 0 |
 | `backend_awared` | 123.00 | 86.33 | 2.0 / 0.0 | 0 | 0 |
 | small-trace exhaustive pack oracle | 133.50 | 86.50 | 0.0 / 0.0 | 0 | 0 |

@@ -29,9 +29,9 @@ Use these labels:
 
 Do not persist control-plane records such as `Command`, `Event`, `Checkpoint`, `CacheEntry`, or raw job payload mirrors in Neo4j.
 
-Legacy scheduler profile concepts map into the evidence graph like this:
+Scheduler profile records map into the evidence graph like this:
 
-| Legacy source | Evidence graph target |
+| Scheduler source | Evidence graph target |
 | --- | --- |
 | batch probe profile | `SingleJob` with `purpose=batch_size_probe` |
 | batch size observation | `SingleJob` with `purpose=batch_size_probe` |
@@ -98,12 +98,8 @@ Lower-level MCP helpers:
 - `search_code_knowledge(query, filters, record_types, limit=8)`
 - `get_code_optimization_context(candidate, graph_context=None, limit=8)`
 
-Compatibility wrappers remain available but are deprecated:
-
-- `get_job_design_context(...)`
-- `search_hardware_features(...)`
-- `get_hardware_feature_context(...)`
-- `get_hardware_optimization_context(...)`
+For graph-only job-design evidence, use `get_job_design_context(...)`. For
+combined scheduler and code-knowledge evidence, use `get_optimization_context(...)`.
 
 ## Agent Flow
 

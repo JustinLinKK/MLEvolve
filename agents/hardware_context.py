@@ -148,13 +148,13 @@ _ROLE_CONTEXT_LIMITS: dict[str, dict[str, int]] = {
 }
 
 _ROLE_STAGE_FILTERS: dict[str, tuple[str, ...]] = {
-    "draft": ("model_design", "datatype_precision", "datatype", "model"),
-    "improve": ("model_design", "datatype_precision", "training_evaluation", "datatype", "model", "optimizer", "tuning"),
-    "debug": ("datatype_precision", "training_evaluation", "optimizer", "tuning"),
-    "evolution": ("model_design", "datatype_precision", "training_evaluation", "datatype", "model", "optimizer", "tuning"),
-    "fusion": ("model_design", "datatype_precision", "datatype", "model"),
-    "aggregation": ("model_design", "datatype_precision", "training_evaluation", "datatype", "model", "tuning"),
-    "code_review": ("datatype_precision", "training_evaluation", "optimizer", "tuning"),
+    "draft": ("model_design", "datatype_precision"),
+    "improve": ("model_design", "datatype_precision", "training_evaluation"),
+    "debug": ("datatype_precision", "training_evaluation"),
+    "evolution": ("model_design", "datatype_precision", "training_evaluation"),
+    "fusion": ("model_design", "datatype_precision"),
+    "aggregation": ("model_design", "datatype_precision", "training_evaluation"),
+    "code_review": ("datatype_precision", "training_evaluation"),
 }
 
 _STAGE_NODE_FIELD_LIMITS: dict[str, tuple[tuple[str, int], ...]] = {
@@ -181,38 +181,6 @@ _STAGE_NODE_FIELD_LIMITS: dict[str, tuple[tuple[str, int], ...]] = {
         ("conditional_feature_keys", 5),
         ("recommended_patterns", 5),
         ("avoid_patterns", 5),
-    ),
-    "datatype": (
-        ("stage_feature_keys", 8),
-        ("recommended_feature_keys", 6),
-        ("not_recommended_feature_keys", 6),
-        ("conditional_feature_keys", 6),
-        ("recommended_patterns", 4),
-        ("avoid_patterns", 4),
-    ),
-    "model": (
-        ("stage_feature_keys", 8),
-        ("recommended_feature_keys", 6),
-        ("not_recommended_feature_keys", 6),
-        ("conditional_feature_keys", 6),
-        ("recommended_patterns", 6),
-        ("avoid_patterns", 6),
-    ),
-    "optimizer": (
-        ("stage_feature_keys", 8),
-        ("recommended_feature_keys", 6),
-        ("not_recommended_feature_keys", 6),
-        ("conditional_feature_keys", 6),
-        ("recommended_patterns", 4),
-        ("avoid_patterns", 4),
-    ),
-    "tuning": (
-        ("stage_feature_keys", 12),
-        ("recommended_feature_keys", 8),
-        ("not_recommended_feature_keys", 6),
-        ("conditional_feature_keys", 8),
-        ("recommended_patterns", 8),
-        ("avoid_patterns", 6),
     ),
 }
 _DEFAULT_STAGE_NODE_FIELD_LIMITS: tuple[tuple[str, int], ...] = (
@@ -301,78 +269,6 @@ _STAGE_DIRECT_VALUE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "dataloader",
         "pin_memory",
         "checkpoint",
-    ),
-    "datatype": (
-        "data",
-        "dataset",
-        "dataloader",
-        "decode",
-        "image",
-        "video",
-        "wsi",
-        "tile",
-        "tiled",
-        "chunk",
-        "decomposition",
-        "sequence",
-        "packing",
-        "channels_last",
-    ),
-    "model": (
-        "attention",
-        "sdpa",
-        "flash",
-        "tensor_core",
-        "tensor",
-        "kernel",
-        "compile",
-        "channels_last",
-        "unet",
-        "cnn",
-        "transformer",
-        "activation",
-        "checkpoint",
-        "sm_",
-        "nvlink",
-        "mig",
-        "topology",
-    ),
-    "optimizer": (
-        "optimizer",
-        "adam",
-        "muon",
-        "soap",
-        "ademamix",
-        "loss",
-        "cross_entropy",
-        "cross-entropy",
-        "gram_newton",
-        "newton_schulz",
-        "scheduler",
-        "learning_rate",
-        "lr",
-        "weight_decay",
-        "momentum",
-    ),
-    "tuning": (
-        "bf16",
-        "fp16",
-        "fp8",
-        "fp4",
-        "fp64",
-        "tf32",
-        "int8",
-        "amp",
-        "precision",
-        "autocast",
-        "quant",
-        "grad",
-        "batch",
-        "vram",
-        "memory",
-        "throughput",
-        "parallel",
-        "tensor_parallel",
     ),
 }
 
@@ -601,32 +497,16 @@ def build_stepwise_hardware_stage_sections(
         ("model_design",),
         max_chars=max_chars,
     )
-    if not stage1_feature_section:
-        stage1_feature_section = _join_prompt_sections(
-            (
-                _format_stage_specific_hardware_features(compact, ("datatype",), max_chars=max_chars),
-                _format_stage_specific_hardware_features(compact, ("model",), max_chars=max_chars),
-            ),
-            max_chars=max_chars,
-        )
     precision_feature_section = _format_stage_specific_hardware_features(
         compact,
         ("datatype_precision",),
         max_chars=max_chars,
     )
-    if not precision_feature_section:
-        precision_feature_section = _format_stage_specific_hardware_features(compact, ("tuning",), max_chars=max_chars)
     training_feature_section = _format_stage_specific_hardware_features(
         compact,
         ("training_evaluation",),
         max_chars=max_chars,
     )
-    if not training_feature_section:
-        training_feature_section = _format_stage_specific_hardware_features(
-            compact,
-            ("optimizer", "tuning"),
-            max_chars=max_chars,
-        )
     stage1_preamble = _stage_hardware_response_preamble(
         heading=HARDWARE_STAGE1_HEADING,
         stage_label="Stage 1 model-design",
@@ -834,13 +714,11 @@ def optimize_training_parameters_for_round(agent: Any, nodes: list[Any]) -> list
             "batch_size": candidate.get("proposed_batch_size"),
             "epochs": candidate.get("proposed_epochs"),
         }
-        recommended_epochs = _recommended_epochs(compact)
-        original_epochs = _safe_int(candidate.get("proposed_epochs"), default=None)
-        if recommended_epochs is not None and (original_epochs is None or recommended_epochs > original_epochs):
-            recommended_epochs = None
         chosen_params = {
             "batch_size": _recommended_batch_size(compact),
-            "epochs": recommended_epochs,
+            # Planned epochs are an agent-owned quality/exposure budget. Live
+            # scheduling may stop early on validation, but never rewrites it.
+            "epochs": None,
         }
         updated_code, applied = _rewrite_training_params(original_code, chosen_params)
         if applied:
@@ -1102,7 +980,7 @@ def _filter_precision_stage_features(
     for raw_stage in list(result.get("stages") or []):
         stage = copy.deepcopy(raw_stage)
         stage_name = str(stage.get("stage") or "").strip().lower()
-        if stage_name not in {"datatype_precision", "tuning"}:
+        if stage_name != "datatype_precision":
             stages.append(stage)
             for feature in stage.get("features") or []:
                 feature_id = str(feature.get("feature_id") or "")
@@ -1293,11 +1171,11 @@ def _stages_for_diagnosis(keywords: tuple[str, ...]) -> tuple[str, ...]:
     selected: list[str] = []
     keyword_set = set(keywords)
     if keyword_set & {"data", "decode", "dataloader", "model", "architecture", "layer", "kernel", "attention", "packing"}:
-        selected.extend(("model_design", "datatype", "model"))
+        selected.append("model_design")
     if keyword_set & {"precision", "dtype", "fp16", "bf16", "fp8", "tf32", "amp"}:
-        selected.extend(("datatype_precision", "tuning"))
+        selected.append("datatype_precision")
     if keyword_set & {"optimizer", "learning rate", "scheduler", "batch", "memory", "vram", "oom", "timeout", "runtime", "throughput", "dataloader", "parallel", "backend"}:
-        selected.extend(("training_evaluation", "optimizer", "tuning"))
+        selected.append("training_evaluation")
     return tuple(dict.fromkeys(selected)) or _ROLE_STAGE_FILTERS["improve"]
 
 
@@ -2017,7 +1895,16 @@ def _compact_profile(item: dict[str, Any]) -> dict[str, Any]:
             "model_family",
             "batch_size",
             "resolved_batch_size",
+            "effective_batch_size",
             "epochs",
+            "planned_epochs",
+            "completed_epochs",
+            "best_epoch",
+            "best_metric",
+            "metric_name",
+            "metric_maximize",
+            "seed_variance",
+            "convergence_curve",
             "estimated_total_runtime_seconds",
             "seconds_per_epoch",
             "runtime_seconds",
@@ -2036,6 +1923,8 @@ def _compact_profile(item: dict[str, Any]) -> dict[str, Any]:
         compact["ref"] = item.get("ref")
     if item.get("match_reason"):
         compact["match_reason"] = item.get("match_reason")
+    if isinstance(compact.get("convergence_curve"), list):
+        compact["convergence_curve"] = compact["convergence_curve"][-8:]
     return {key: _short(value, 220) if isinstance(value, str) else value for key, value in compact.items() if value not in (None, "", [], {})}
 
 
@@ -2340,7 +2229,7 @@ def _format_stage_hardware_features(stage_context: dict[str, Any]) -> list[str]:
         return lines
     for stage in stages:
         stage_name = stage.get("stage") or "pipeline"
-        is_optimizer_stage = str(stage_name).strip().lower() in {"optimizer", "training_evaluation", "training"}
+        is_optimizer_stage = str(stage_name).strip().lower() == "training_evaluation"
         node = stage.get("node") or {}
         direct_bits = _format_kv(
             node,
@@ -2622,29 +2511,18 @@ def _execution_resource_hints(term_out: str) -> dict[str, Any]:
 
 
 def _recommended_batch_size(compact: dict[str, Any]) -> int | None:
+    # The recommendation is already the result of constrained time
+    # minimization. Raw profiles are evidence, not an instruction to select
+    # the largest/first observed batch.
+    for rec in compact.get("recommendations") or []:
+        match = re.search(r"batch size\s+(\d+)", str(rec), re.IGNORECASE)
+        if match:
+            return _safe_int(match.group(1), default=None)
     for item in _all_graph_profiles(compact):
         for key in ("resolved_batch_size", "batch_size"):
             value = _safe_int(item.get(key), default=None)
             if value is not None:
                 return value
-    for rec in compact.get("recommendations") or []:
-        match = re.search(r"batch size\s+(\d+)", str(rec), re.IGNORECASE)
-        if match:
-            return _safe_int(match.group(1), default=None)
-    return None
-
-
-def _recommended_epochs(compact: dict[str, Any]) -> int | None:
-    graph = compact.get("graph_evidence") or {}
-    legacy = graph.get("legacy_job_design_context") or {}
-    epoch_recommendation = legacy.get("epoch_recommendation") or {}
-    value = _safe_int(epoch_recommendation.get("recommended_epochs"), default=None)
-    if value is not None:
-        return value
-    for rec in compact.get("recommendations") or []:
-        match = re.search(r"(?:epoch budget|epochs?)\s+(\d+)", str(rec), re.IGNORECASE)
-        if match:
-            return _safe_int(match.group(1), default=None)
     return None
 
 

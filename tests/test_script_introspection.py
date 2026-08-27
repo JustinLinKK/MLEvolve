@@ -10,6 +10,36 @@ from engine.script_introspection import (
 from localml_scheduler.adapters.mlevolve_runner import _materialize_instrumented_script
 
 
+def test_introspection_extracts_quality_safe_training_contract() -> None:
+    code = """
+import torch
+BATCH_SIZE = 32
+GRADIENT_ACCUMULATION_STEPS = 2
+LEARNING_RATE = 1e-3
+WARMUP_STEPS = 10
+TOTAL_TRAINING_STEPS = 100
+NUM_EPOCHS = 8
+QUALITY_SAFE_PHYSICAL_BATCH_SIZES = [16, 32, 64]
+BATCH_LR_SCALING_POLICY = "sqrt"
+patience = 2
+for epoch in range(NUM_EPOCHS):
+    optimizer.step()
+    validation_score = validate()
+    print("MLEVOLVE_EPOCH_METRIC", epoch, validation_score)
+    if no_improve >= patience:
+        break
+"""
+
+    metadata = introspect_training_script(code)
+
+    assert metadata["effective_batch_size"] == 64
+    assert metadata["warmup_steps"] == 10
+    assert metadata["scheduler_total_steps"] == 100
+    assert metadata["quality_safe_physical_batch_sizes"] == [16, 32, 64]
+    assert metadata["learning_rate_scaling_policy"] == "sqrt"
+    assert metadata["has_validation_early_stopping"] is True
+
+
 def test_training_batch_contract_detects_alias_and_minimum() -> None:
     code = """
 BASE_BATCH_SIZE = 64

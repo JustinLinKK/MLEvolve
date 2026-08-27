@@ -200,7 +200,7 @@ The initial exact-match key should include:
 | Accelerator | GPU model, compute capability, VRAM | Determines supported and efficient kernels and precisions |
 | Resource slice | full GPU, shared GPU, MIG profile, memory cap | Changes available memory and contention assumptions |
 | Runtime stack | framework, CUDA/ROCm, driver, key library versions | Kernel choice and compatibility can change across versions |
-| Backend | exclusive, stream, MPS, CUDA process | Changes concurrency and performance behavior |
+| Backend | `exclusive`, `cuda_process`, `mps_process` | Changes concurrency and performance behavior; packed evidence is exact-backend scoped |
 | Workload bucket | modality, task type, input shape or sequence length | A 224×224 image and a 1024×1024 image are not equivalent |
 
 A conceptual key is:

@@ -57,19 +57,12 @@ The two stores connect through stable ontology keys such as `technology_key`,
 `hardware_feature_key`, `model_family`, `workload_type`, `profile_symptom`,
 `optimization_target`, and `api_symbol`.
 
-## Legacy Files
-
-`property_graph_schema.yaml` is retained only as legacy migration context for
-the previous control-plane-plus-GraphRAG design. New code and docs should not
-use its `RunProfile`, `RuntimeProfile`, `BatchProbeProfile`, `SoloProfile`, or
-`PacketProfile` nodes as Neo4j labels.
-
-## Migration Shape
+## Rebuild Shape
 
 Use a clean rebuild workflow:
 
 1. Read authoritative runtime/profile records from SQLite and scheduler state.
-2. Convert legacy profile concepts into canonical evidence:
+2. Convert scheduler profile records into canonical evidence:
    - batch probes and batch observations -> `SingleJob`
    - runtime profiles -> `SingleJob`
    - solo profiles -> `SingleJob`

@@ -42,7 +42,7 @@ from pathlib import Path
 import yaml
 
 from hardware_knowledge_graph import HardwareKnowledgeSettings
-from hardware_knowledge_graph.store import HardwareKnowledgeGraphStore
+from localml_scheduler.hardware_knowledge.store import HardwareKnowledgeGraphStore
 
 config_path, hardware_name = sys.argv[1:3]
 

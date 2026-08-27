@@ -1,6 +1,6 @@
 """Apply the curated native-training precision policy to the hardware graph.
 
-This migration is intentionally deterministic so the JSON source and generated
+This update is intentionally deterministic so the JSON source and generated
 Cypher mirror can be reproduced together.  It does not infer training support
 from low-level PTX types: only formats with a documented end-to-end MLEvolve
 training path are made visible to datatype optimization.
@@ -366,7 +366,7 @@ def _upsert_edge(edges: list[dict[str, Any]], source: str, feature_id: str, prop
     edges.append(_edge(source, feature_id, properties))
 
 
-def _legacy_hardware_nodes() -> list[dict[str, Any]]:
+def _pre_ampere_hardware_nodes() -> list[dict[str, Any]]:
     shared_recommendations = [
         "Use FP16 through AMP/autocast with loss scaling and retain an FP32 fallback.",
         "Keep batch size and input dimensions configurable and benchmark Tensor Core-friendly shapes.",
@@ -462,7 +462,7 @@ def apply_policy(graph: dict[str, Any]) -> dict[str, Any]:
             nodes.append(node)
             node_index[node_id] = node
 
-    for hardware_node in _legacy_hardware_nodes():
+    for hardware_node in _pre_ampere_hardware_nodes():
         existing = node_index.get(hardware_node["id"])
         if existing is None:
             nodes.append(hardware_node)
@@ -534,11 +534,11 @@ def apply_policy(graph: dict[str, Any]) -> dict[str, Any]:
                 _precision_edge_properties("fp64", architecture, capability),
             )
 
-    legacy_edges = {
+    pre_ampere_edges = {
         "hw:nvidia.volta.tesla_v100_32gb.spec": ("volta", "7.0", ("amp", "fp16", "fp64", "tensor_cores", "sm_70")),
         "hw:nvidia.turing.tesla_t4.spec": ("turing", "7.5", ("amp", "fp16", "int8", "int4", "tensor_cores", "sm_75")),
     }
-    for source, (architecture, capability, feature_ids) in legacy_edges.items():
+    for source, (architecture, capability, feature_ids) in pre_ampere_edges.items():
         for feature_id in feature_ids:
             props = (
                 _precision_edge_properties(feature_id, architecture, capability)

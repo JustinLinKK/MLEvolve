@@ -66,6 +66,12 @@ def get_impl_guideline(
         "• If you switch the model architecture or input geometry in an improvement/evolution, update `MODEL_FAMILY` to a new distinct value.",
         "• If there is no more specific model/backbone name in the script, set the model name/key variable to the same value as `MODEL_FAMILY`.",
         "",
+        "**5. Training Quality/Scheduler Contract**",
+        "• For multi-epoch neural training, validation-based early stopping with patience and best-checkpoint restore is REQUIRED.",
+        "• Print one `MLEVOLVE_EPOCH_METRIC {\"epoch\": one_based_epoch_number, \"metric\": validation_metric, \"metric_name\": metric_name}` line after every completed validation epoch.",
+        "• Define `QUALITY_SAFE_PHYSICAL_BATCH_SIZES` with only agent-approved physical batches and `BATCH_LR_SCALING_POLICY` as `fixed`, `linear`, or `sqrt`.",
+        "• Physical batch changes do not automatically reduce planned epochs. The scheduler may select the fastest feasible physical batch only inside the approved envelope and jointly resolves accumulation, effective batch, learning rate, warmup, and total scheduler steps.",
+        "",
         "📁 **Directories**: Input data in `./input/`, submission in `./submission/`, temp files in `./working/`",
         "",
         f"📦 **Packages & Internet**: numpy, pandas, sklearn, torch, transformers, timm, xgboost, lightgbm (all pre-installed). torch.hub.load(), HuggingFace, etc. available during development."

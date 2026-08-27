@@ -44,7 +44,7 @@ Usage:
   bash scheduler_benchmark_test/run_histopath_scheduler_replay.sh [options]
 
 Options:
-  --preset stress|quick|smoke|full   Replay preset. full preserves legacy defaults.
+  --preset stress|quick|smoke|full   Replay preset. full preserves original defaults.
                                       stress builds/uses the 2-epoch archived-source fixture,
                                       submits all jobs immediately, ignores old cancels,
                                       waits for all jobs, and cleans scheduler state.

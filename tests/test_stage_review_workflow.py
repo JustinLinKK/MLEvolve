@@ -614,7 +614,7 @@ def test_metric_direction_and_leakage_validators_use_expected_owners(
     )
 
 
-def test_debug_reuses_classified_issues_before_legacy_whole_script_agent(
+def test_debug_repairs_only_classified_issue_owners(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     parent = _node("model = 0\n")
@@ -633,11 +633,7 @@ def test_debug_reuses_classified_issues_before_legacy_whole_script_agent(
 
     hardware_ctx = SimpleNamespace(prompt_section="")
     monkeypatch.setattr(debug_agent, "get_hardware_context_for_stage", lambda *_args, **_kwargs: hardware_ctx)
-    monkeypatch.setattr(debug_agent, "hardware_context_instructions", lambda *_args: {})
     monkeypatch.setattr(debug_agent, "build_pipeline_decision", lambda *_args, **_kwargs: {"decision": "keep"})
-    monkeypatch.setattr(debug_agent, "pipeline_decision_instructions", lambda *_args: {})
-    monkeypatch.setattr(debug_agent, "get_impl_guideline_from_agent", lambda *_args: {"Implementation guideline": []})
-    monkeypatch.setattr(debug_agent, "get_internet_clarification", lambda *_args: [])
     monkeypatch.setattr(debug_agent, "apply_hardware_context_to_node", lambda *_args: None)
     monkeypatch.setattr(debug_agent, "apply_pipeline_decision_to_node", lambda *_args: None)
     monkeypatch.setattr(debug_agent, "register_node", lambda *_args, **_kwargs: None)
@@ -650,17 +646,6 @@ def test_debug_reuses_classified_issues_before_legacy_whole_script_agent(
             {"selected_stages": ["model_design"], "stage_calls_skipped": 2},
         ),
     )
-    monkeypatch.setattr(
-        debug_agent,
-        "generate",
-        lambda *_args, **_kwargs: pytest.fail("legacy diff debugger should not run"),
-    )
-    monkeypatch.setattr(
-        debug_agent,
-        "plan_and_code_query",
-        lambda *_args, **_kwargs: pytest.fail("legacy full rewrite debugger should not run"),
-    )
-
     child = debug_agent.run(agent, parent)
     assert child is not None
     assert child.code == "model = 1\n"

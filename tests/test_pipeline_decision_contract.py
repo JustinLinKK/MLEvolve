@@ -386,25 +386,25 @@ def test_child_node_inherits_pipeline_decision_by_default() -> None:
     assert child.pipeline_decision is not parent.pipeline_decision
 
 
-def test_legacy_four_bucket_decision_renders_as_three_stage_trace() -> None:
-    legacy = {
+def test_noncanonical_four_bucket_decision_is_not_translated() -> None:
+    noncanonical = {
         "datatype": {
             "modality": "image",
             "target_type": "classification",
-            "shape_constraints": ["legacy image tensors"],
-            "reason": "legacy datatype reason",
+            "shape_constraints": ["old image tensors"],
+            "reason": "old datatype reason",
         },
         "model": {
             "family": "compact_cnn",
             "alternatives_considered": [],
-            "reason": "legacy model reason",
+            "reason": "old model reason",
             "hardware_fit": "none",
         },
         "optimizer": {
             "loss": "cross entropy",
             "optimizer": "AdamW",
             "scheduler": "none",
-            "reason": "legacy optimizer reason",
+            "reason": "old optimizer reason",
             "advanced_optimizer_used": False,
         },
         "tuning": {
@@ -423,11 +423,10 @@ def test_legacy_four_bucket_decision_renders_as_three_stage_trace() -> None:
         },
     }
 
-    section = format_pipeline_decision_prompt_section(legacy)
+    section = format_pipeline_decision_prompt_section(noncanonical)
     payload = json.loads(re.search(r"```json\n(.*)\n```", section, re.DOTALL).group(1))
 
     assert list(payload) == ["model_design", "datatype_precision", "training_evaluation", "evidence"]
-    assert payload["model_design"]["family"] == "compact_cnn"
-    assert payload["model_design"]["loss"] == "cross entropy"
-    assert payload["datatype_precision"]["precision_policy"] == "disabled"
-    assert payload["training_evaluation"]["optimizer"] == "AdamW"
+    assert payload["model_design"].get("family") != "compact_cnn"
+    assert payload["model_design"].get("loss") != "cross entropy"
+    assert payload["training_evaluation"].get("optimizer") != "AdamW"

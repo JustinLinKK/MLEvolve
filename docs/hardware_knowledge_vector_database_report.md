@@ -108,7 +108,6 @@ technology_keys:
   - cuda_graphs
   - triton_kernel
   - nvidia_mps
-  - cuda_streams
   - cuda_process
 
 hardware_feature_keys:
@@ -600,7 +599,7 @@ Collect:
 - VRAM size and memory type when relevant.
 - Tensor Core generation and supported precision modes.
 - BF16, FP16, TF32, FP8, FP4, INT8, and related constraints.
-- MPS, MIG, CUDA Graphs, CUDA streams, or process-packing support.
+- MPS, MIG, CUDA Graphs, or process-packing support.
 - Driver, CUDA, and toolkit compatibility notes.
 
 Preferred source types:
@@ -855,7 +854,7 @@ Important current behavior:
 - Hardware-feature seed records can be converted to code docs and recipes.
 - Record payloads are embedded using selected text fields plus metadata labels.
 - Search filters currently use exact metadata matches. Consistent ontology spelling is therefore important.
-- Compatibility wrappers such as `search_hardware_features` still exist, but new work should prefer `search_code_knowledge` and `get_code_optimization_context`.
+- Scheduler integrations use `search_code_knowledge` and `get_code_optimization_context`; the standalone hardware graph client keeps its direct feature-search API separate.
 
 ## 13. Requested Assistance
 

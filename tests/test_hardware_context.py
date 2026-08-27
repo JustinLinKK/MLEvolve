@@ -293,12 +293,12 @@ def test_stage_node_direct_fields_are_pruned_by_pipeline_stage() -> None:
         },
         "stage_hardware_features": {
             "found": True,
-            "stage_filter": ["datatype", "tuning"],
+            "stage_filter": ["model_design", "datatype_precision"],
             "stages": [
                     {
-                        "stage": "datatype",
+                        "stage": "model_design",
                         "node": {
-                            "stage_filter": "datatype",
+                            "stage_filter": "model_design",
                             "stage_feature_keys": [
                                 ["bf16", "BFloat16 precision path."],
                                 ["nvimagecodec_gpu_decode", "GPU image decode for data loading."],
@@ -329,9 +329,9 @@ def test_stage_node_direct_fields_are_pruned_by_pipeline_stage() -> None:
                     "feature_count": 1,
                 },
                     {
-                        "stage": "tuning",
+                        "stage": "datatype_precision",
                         "node": {
-                            "stage_filter": "tuning",
+                            "stage_filter": "datatype_precision",
                             "stage_feature_keys": [
                                 ["bf16", "BFloat16 precision path."],
                                 ["amp", "Automatic mixed precision policy."],
@@ -371,20 +371,20 @@ def test_stage_node_direct_fields_are_pruned_by_pipeline_stage() -> None:
     compact = compact_optimization_context(raw)
     prompt = format_hardware_prompt_section(compact, max_chars=2400)
 
-    datatype_line = next(line for line in prompt.splitlines() if line.startswith("  - datatype"))
-    tuning_line = next(line for line in prompt.splitlines() if line.startswith("  - tuning"))
-    assert "nvimagecodec_gpu_decode" in datatype_line
-    assert "GPU image decode for data loading" in datatype_line
-    assert "dataset_decomposition" in datatype_line
-    assert "bf16" not in datatype_line
-    assert "amp" not in datatype_line
-    assert "muon_optimizer" not in datatype_line
-    assert "soap_optimizer" not in datatype_line
-    assert "bf16" in tuning_line
-    assert "BFloat16 precision path" in tuning_line
-    assert "amp" in tuning_line
-    assert "cut_cross_entropy" not in tuning_line
-    assert "muon_optimizer" not in tuning_line
+    design_line = next(line for line in prompt.splitlines() if line.startswith("  - model_design"))
+    precision_line = next(line for line in prompt.splitlines() if line.startswith("  - datatype_precision"))
+    assert "nvimagecodec_gpu_decode" in design_line
+    assert "GPU image decode for data loading" in design_line
+    assert "dataset_decomposition" in design_line
+    assert "bf16" not in design_line
+    assert "amp" not in design_line
+    assert "muon_optimizer" not in design_line
+    assert "soap_optimizer" not in design_line
+    assert "bf16" in precision_line
+    assert "BFloat16 precision path" in precision_line
+    assert "amp" in precision_line
+    assert "cut_cross_entropy" not in precision_line
+    assert "muon_optimizer" not in precision_line
     assert "recommended_patterns" in prompt
     assert "avoid_patterns" in prompt
     assert "https://" not in prompt

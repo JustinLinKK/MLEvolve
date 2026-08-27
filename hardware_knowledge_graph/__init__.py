@@ -1,6 +1,6 @@
 """Hardware capability knowledge graph support."""
 
-from .records import (
+from localml_scheduler.hardware_knowledge.records import (
     HardwareKnowledgeRecordError,
     feature_from_key,
     load_feature_ontology,
@@ -10,7 +10,7 @@ from .records import (
     validate_has_feature,
 )
 from .config import HardwareKnowledgeGraphSettings, HardwareKnowledgeRedisCacheSettings, HardwareKnowledgeSettings
-from .store import HardwareKnowledgeGraphStore
+from localml_scheduler.hardware_knowledge.store import HardwareKnowledgeGraphStore
 from .client import HardwareKnowledgeClient
 
 __all__ = [

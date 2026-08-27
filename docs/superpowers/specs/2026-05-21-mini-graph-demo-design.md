@@ -36,7 +36,7 @@
 
 - Schema B/C/D vector-database integration.
 
-- Schema migration or import from the legacy SQLite store.
+- Schema migration or import from the scheduler SQLite store.
 
 ## 3. Architecture Overview
 

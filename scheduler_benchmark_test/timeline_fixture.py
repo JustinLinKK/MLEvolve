@@ -339,12 +339,12 @@ def _load_replay_settings(runtime_root: Path) -> dict[str, Any]:
     payload = normalize_replay_settings(payload)
     payload.setdefault("gpu_scheduler", {})
     payload.setdefault("baseline_cache", {})
-    for legacy_key in (
+    for disabled_service_key in (
         "graph" + "_db",
         "hardware_feature" + "_db",
         "hardware_knowledge" + "_graph",
     ):
-        payload.pop(legacy_key, None)
+        payload.pop(disabled_service_key, None)
     payload["log_db"] = {**dict(payload.get("log_db") or {}), "enabled": False}
     payload.pop("redis_cache", None)
     payload["baseline_cache"] = {

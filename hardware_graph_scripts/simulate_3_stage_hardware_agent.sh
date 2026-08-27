@@ -15,7 +15,7 @@ query_hardware_graph.sh for Hardware node and Feature node evidence, then
 asserts that the returned payloads contain the expected stage-specific facts.
 
 Three simulated stages:
-  1. candidate_construction (hardware_context_lookup + data_processing + model_design)
+  1. model_design
   2. datatype_precision
   3. training_evaluation
 
@@ -81,7 +81,7 @@ done
 cd "$HARDWARE_GRAPH_REPO_ROOT"
 
 if (( strict_expected && limit < 24 )); then
-  echo "Strict RTX 5090 checks require --limit 24 or higher so merged training_parameters expected features are present." >&2
+  echo "Strict RTX 5090 checks require --limit 24 or higher so expected training features are present." >&2
   echo "Use --generic to run non-empty checks with a smaller limit." >&2
   exit 2
 fi
@@ -99,16 +99,12 @@ if (( db_check )); then
 fi
 
 calls=(
-  "stage1_candidate_construction node datatype"
-  "stage1_candidate_construction features datatype"
-  "stage1_candidate_construction node model_structure"
-  "stage1_candidate_construction features model_structure"
-  "stage2_datatype_precision node datatype"
-  "stage2_datatype_precision features datatype"
-  "stage2_datatype_precision node training_parameters"
-  "stage2_datatype_precision features training_parameters"
-  "stage3_training_evaluation node training_parameters"
-  "stage3_training_evaluation features training_parameters"
+  "stage1_model_design node model_design"
+  "stage1_model_design features model_design"
+  "stage2_datatype_precision node datatype_precision"
+  "stage2_datatype_precision features datatype_precision"
+  "stage3_training_evaluation node training_evaluation"
+  "stage3_training_evaluation features training_evaluation"
 )
 
 for call in "${calls[@]}"; do
@@ -129,50 +125,37 @@ hardware_name = sys.argv[2]
 strict = os.environ.get("HARDWARE_AGENT_STRICT_EXPECTED", "1") == "1"
 
 feature_expectations = {
-    "stage1_candidate_construction_features_datatype.json": [
+    "stage1_model_design_features_model_design.json": [
         "dataset_decomposition",
         "nvimagecodec_gpu_decode",
-    ],
-    "stage1_candidate_construction_features_model_structure.json": [
         "tensor_cores",
         "sm_120",
         "tensor_cores_5gen",
     ],
-    "stage2_datatype_precision_features_datatype.json": [
-        "dataset_decomposition",
-        "nvimagecodec_gpu_decode",
-    ],
-    "stage2_datatype_precision_features_training_parameters.json": [
+    "stage2_datatype_precision_features_datatype_precision.json": [
         "amp",
         "bf16",
         "fp16",
         "tf32",
     ],
-    "stage3_training_evaluation_features_training_parameters.json": [
+    "stage3_training_evaluation_features_training_evaluation.json": [
         "muon_optimizer",
         "gram_newton_schulz_symmetric_gemm",
-        "bf16",
         "async_tensor_parallel",
     ],
 }
 
 node_expectations = {
-    "stage1_candidate_construction_node_datatype.json": {
-        "stage_feature_keys": ["dataset_decomposition", "nvimagecodec_gpu_decode"],
+    "stage1_model_design_node_model_design.json": {
+        "stage_feature_keys": ["dataset_decomposition", "nvimagecodec_gpu_decode", "tensor_cores", "sm_120", "tensor_cores_5gen"],
     },
-    "stage1_candidate_construction_node_model_structure.json": {
-        "stage_feature_keys": ["tensor_cores", "sm_120", "tensor_cores_5gen"],
-    },
-    "stage2_datatype_precision_node_datatype.json": {
-        "stage_feature_keys": ["dataset_decomposition", "nvimagecodec_gpu_decode"],
-    },
-    "stage2_datatype_precision_node_training_parameters.json": {
+    "stage2_datatype_precision_node_datatype_precision.json": {
         "stage_feature_keys": ["amp", "bf16", "fp16", "tf32"],
         "not_recommended_feature_keys": ["fp8_rowwise_scaling"],
     },
-    "stage3_training_evaluation_node_training_parameters.json": {
+    "stage3_training_evaluation_node_training_evaluation.json": {
         "stage_feature_keys": ["muon_optimizer", "gram_newton_schulz_symmetric_gemm"],
-        "not_recommended_feature_keys": ["soap_optimizer", "ademamix_optimizer", "fp8_rowwise_scaling"],
+        "not_recommended_feature_keys": ["soap_optimizer", "ademamix_optimizer"],
     },
 }
 
@@ -272,7 +255,7 @@ for name, required_by_field in node_expectations.items():
             if missing:
                 failures.append(f"{name} field {field} missing: {', '.join(missing)}")
 
-optimizer_payload = load_json("stage3_training_evaluation_features_training_parameters.json")
+optimizer_payload = load_json("stage3_training_evaluation_features_training_evaluation.json")
 optimizer_by_id = {
     str(feature.get("feature_id")): feature
     for feature in optimizer_payload.get("features") or []

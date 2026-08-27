@@ -12,54 +12,26 @@ import sys
 from localml_scheduler.graph_knowledge import SchedulerKnowledgeBase
 from localml_scheduler.hardware import HardwareProfile
 from .config import HardwareKnowledgeSettings
-from .store import HardwareKnowledgeGraphStore
+from localml_scheduler.hardware_knowledge.store import HardwareKnowledgeGraphStore
 from localml_scheduler.redis_cache import RedisLRUCache, graph_cache_enabled
 from localml_scheduler.runtime_environment import (
     detect_runtime_environment,
     validate_generated_training_code as _validate_generated_training_code,
 )
 
-_PIPELINE_HARDWARE_STAGES = ("model_structure", "datatype", "training_parameters")
-
-_HARDWARE_STAGE_ALIASES = {
-    "data": "datatype",
-    "data_type": "datatype",
-    "data_processing": "datatype",
-    "data_processing_and_feature_engineering": "datatype",
-    "feature_engineering": "datatype",
-    "model_design": "model_structure",
-    "architecture": "model_structure",
-    "optimizer_selection": "training_parameters",
-    "loss": "training_parameters",
-    "training": "training_parameters",
-    "training_evaluation": "training_parameters",
-    "training_parameters": "training_parameters",
-    "training_params": "training_parameters",
-    "pre_submit_training_review": "training_parameters",
-}
-
-_COMPOSITE_HARDWARE_STAGE_ALIASES = {
-    "stage1": ("datatype", "model_structure"),
-    "stage_1": ("datatype", "model_structure"),
-    "hardware_context_lookup": ("datatype", "model_structure"),
-    "stage1_candidate_construction": ("datatype", "model_structure"),
-    "candidate_construction": ("datatype", "model_structure"),
-    "datatype_precision": ("datatype", "training_parameters"),
-    "precision": ("datatype", "training_parameters"),
-    "training_evaluation": ("training_parameters",),
-}
+_PIPELINE_HARDWARE_STAGES = ("model_design", "datatype_precision", "training_evaluation")
 
 _AGENT_STAGE_HARDWARE_STAGES = {
-    "draft": ("model_structure", "datatype", "training_parameters"),
-    "improve": ("model_structure", "training_parameters"),
-    "evolution": ("model_structure", "training_parameters"),
-    "fusion": ("model_structure", "training_parameters"),
-    "debug": ("training_parameters",),
-    "code_review": ("training_parameters",),
-    "aggregation": ("training_parameters",),
-    "model_design": ("model_structure",),
-    "datatype_precision": ("datatype", "training_parameters"),
-    "training_evaluation": ("training_parameters",),
+    "draft": _PIPELINE_HARDWARE_STAGES,
+    "improve": _PIPELINE_HARDWARE_STAGES,
+    "evolution": _PIPELINE_HARDWARE_STAGES,
+    "fusion": ("model_design", "datatype_precision"),
+    "debug": ("training_evaluation",),
+    "code_review": ("training_evaluation",),
+    "aggregation": ("training_evaluation",),
+    "model_design": ("model_design",),
+    "datatype_precision": ("datatype_precision",),
+    "training_evaluation": ("training_evaluation",),
 }
 
 
@@ -365,8 +337,12 @@ class HardwareKnowledgeClient:
         normalized = str(stage or "").strip().lower().replace("-", "_")
         if not normalized or normalized == "all":
             return None
-        normalized = _HARDWARE_STAGE_ALIASES.get(normalized, normalized)
-        return normalized if normalized in _PIPELINE_HARDWARE_STAGES else None
+        if normalized not in _PIPELINE_HARDWARE_STAGES:
+            expected = ", ".join(_PIPELINE_HARDWARE_STAGES)
+            raise ValueError(
+                f"Unsupported pipeline stage {stage!r}; expected {expected}, or all"
+            )
+        return normalized
 
     @classmethod
     def _normalize_hardware_stage_list(cls, value: Any) -> list[str]:
@@ -383,14 +359,7 @@ class HardwareKnowledgeClient:
         )
         stages: list[str] = []
         for item in raw_items:
-            normalized = str(item or "").strip().lower().replace("-", "_")
-            expanded = _COMPOSITE_HARDWARE_STAGE_ALIASES.get(normalized)
-            if expanded:
-                for stage in expanded:
-                    if stage not in stages:
-                        stages.append(stage)
-                continue
-            stage = cls._normalize_hardware_stage_name(normalized)
+            stage = cls._normalize_hardware_stage_name(item)
             if stage and stage not in stages:
                 stages.append(stage)
         return stages
@@ -419,7 +388,7 @@ class HardwareKnowledgeClient:
         *, hardware_name: str, stages: list[str], limit: int
     ) -> dict[str, Any]:
         try:
-            from hardware_knowledge_graph.feature_filter import (
+            from localml_scheduler.hardware_knowledge.feature_filter import (
                 query_hardware_features,
                 query_hardware_node,
             )
@@ -706,7 +675,7 @@ class HardwareKnowledgeClient:
             include_scheduler_limits=self.scheduler_context_attached,
         )
         feature_context = self.get_stage_hardware_features(
-            hardware_key, pipeline_stage="model_structure", limit=max(4, int(limit))
+            hardware_key, pipeline_stage="model_design", limit=max(4, int(limit))
         )
         feature_words = self._hardware_feature_words(
             list(feature_context.get("features") or [])

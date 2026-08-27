@@ -76,7 +76,7 @@ def test_all_roles_use_same_shared_assembler_and_freeze_packs(tmp_path: Path) ->
         assert prepared.assembled.dynamic_suffix[0]["content"] == role
         family_ids.add(prepared.family.id)
 
-    # Migration packs add no prompt text, but their semantic contracts split role families.
+    # Role packs add no prompt text, but their semantic contracts split role families.
     assert len(family_ids) == 5
     with CacheTelemetryStore(
         tmp_path / "cache-registry.sqlite3"
@@ -123,7 +123,7 @@ def test_dynamic_override_never_enters_stable_prefix(tmp_path: Path) -> None:
     prepared = prepare_llm_request(
         {
             "model": "x",
-            "messages": [{"role": "system", "content": "legacy combined prompt"}],
+            "messages": [{"role": "system", "content": "combined prompt"}],
         },
         cfg=cfg,
         provider="openrouter",

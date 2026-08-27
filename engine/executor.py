@@ -89,6 +89,66 @@ def _floor_power_of_two(value: Any) -> int | None:
     return 1 << (parsed.bit_length() - 1)
 
 
+def _build_training_quality_contract(
+    script_metadata: dict[str, Any], physical_batch_size: int | None
+) -> dict[str, Any]:
+    """Freeze agent-owned quality choices before live scheduler placement."""
+    if physical_batch_size is None:
+        return {}
+    physical_batch_size = max(1, int(physical_batch_size))
+    accumulation = max(
+        1, int(script_metadata.get("gradient_accumulation_steps") or 1)
+    )
+    target_effective = physical_batch_size * accumulation
+
+    explicit_envelope = script_metadata.get("quality_safe_physical_batch_sizes")
+    if not script_metadata.get("batch_probe_supported"):
+        allowed = {physical_batch_size}
+        envelope_source = "static_batch_override_unsupported"
+    elif explicit_envelope:
+        allowed = {
+            int(value)
+            for value in explicit_envelope
+            if int(value) > 0 and _is_power_of_two(int(value))
+        }
+        allowed.add(physical_batch_size)
+        envelope_source = "agent_explicit"
+    else:
+        # Without an explicit agent approval, only admit physical reductions
+        # whose accumulation can preserve the proposed effective batch.
+        allowed = {physical_batch_size}
+        candidate = physical_batch_size
+        for _ in range(2):
+            candidate = max(1, candidate // 2)
+            allowed.add(candidate)
+        envelope_source = "conservative_effective_batch_preserving_fallback"
+
+    planned_epochs = script_metadata.get("proposed_epochs")
+    return {
+        "schema_version": 1,
+        "owner": "coding_agent",
+        "scheduler_objective": "minimize_expected_completion_time",
+        "proposed_physical_batch_size": physical_batch_size,
+        "allowed_physical_batch_sizes": sorted(allowed),
+        "envelope_source": envelope_source,
+        "base_gradient_accumulation_steps": accumulation,
+        "target_effective_batch_size": target_effective,
+        "max_effective_batch_size": max(target_effective, max(allowed)),
+        "base_learning_rate": script_metadata.get("learning_rate"),
+        "learning_rate_scaling_policy": script_metadata.get(
+            "learning_rate_scaling_policy", "fixed"
+        ),
+        "base_warmup_steps": script_metadata.get("warmup_steps"),
+        "base_scheduler_total_steps": script_metadata.get("scheduler_total_steps"),
+        "planned_epochs": planned_epochs,
+        "epoch_policy": "fixed_exposure_with_validation_early_stopping",
+        "early_stopping_required": bool(planned_epochs and int(planned_epochs) > 1),
+        "has_validation_early_stopping": bool(
+            script_metadata.get("has_validation_early_stopping")
+        ),
+    }
+
+
 def _build_scheduler_preload_source(scheduler_cfg: Any) -> dict[str, str] | None:
     if scheduler_cfg is None:
         return None
@@ -134,7 +194,6 @@ class _PreparedSchedulerJob:
     model_key: str | None
     model_family: str | None
     model_family_source: str | None
-    model_family_profile_key: str | None
     branch_id: int | str | None
     input_resolution: int | str | None
     fold_count: int | None
@@ -147,22 +206,6 @@ class _PreparedSchedulerJob:
     start_time: float
     job_id: str | None = None
     last_probe_event_id: int = 0
-
-
-class _ModelFamilyProbeError(RuntimeError):
-    def __init__(self, message: str, *, node_id: str, start_time: float):
-        super().__init__(message)
-        self.node_id = str(node_id)
-        self.start_time = start_time
-
-    def to_execution_result(self) -> ExecutionResult:
-        return ExecutionResult(
-            term_out=[f"Scheduler model-family probe failed: {self}\n"],
-            exec_time=time.time() - self.start_time,
-            exc_type="RuntimeError",
-            exc_info={"message": str(self), "node_id": self.node_id},
-            exc_stack=[],
-        )
 
 
 
@@ -418,27 +461,6 @@ class Interpreter:
             hints["model_family"] = script_metadata["model_family"]
         return hints
 
-    def _ensure_model_family_profile(
-        self,
-        *,
-        task_id: str,
-        workflow_id: str,
-        model_family: str | None,
-        script_path: Path,
-        working_dir: Path,
-        shape_hints: dict[str, Any],
-        detected_batch_size: int | None,
-        probe_max_batch_size: int | None,
-        submission_defaults: Any,
-        node_id: str,
-        start_time: float,
-    ) -> tuple[str | None, Any | None]:
-        # The hardware branch's time-aware scheduler profiles each submitted
-        # candidate using its native five-option preflight. Separate synthetic
-        # family probes used an obsolete profile-key override and would both
-        # duplicate GPU work and bypass the scheduler's current identity model.
-        return None, None
-
     def _build_scheduler_batch_probe(
         self,
         *,
@@ -447,10 +469,10 @@ class Interpreter:
         script_signature: str,
         model_key: str | None,
         model_family: str | None,
-        model_family_profile_key: str | None,
         shape_hints: dict[str, Any],
         detected_batch_size: int | None,
         batch_probe_enabled: bool,
+        batch_override_supported: bool,
         runner_kwargs: dict[str, Any],
     ) -> tuple[Any, dict[str, Any]]:
         from localml_scheduler.domain import BatchProbeSpec
@@ -458,7 +480,11 @@ class Interpreter:
         from localml_scheduler.adapters.mlevolve import normalize_model_family
 
         normalized_family = normalize_model_family(model_family) if model_family else None
-        adjusted_batch_size = _floor_power_of_two(detected_batch_size) if detected_batch_size is not None else None
+        adjusted_batch_size = (
+            _floor_power_of_two(detected_batch_size)
+            if detected_batch_size is not None and batch_override_supported
+            else detected_batch_size
+        )
         if adjusted_batch_size is not None:
             runner_kwargs["batch_size"] = adjusted_batch_size
         configured_cap = getattr(
@@ -486,9 +512,6 @@ class Interpreter:
         )
         metadata = {
             "model_family": normalized_family,
-            "model_family_profile_key": None,
-            "model_family_reuse_only": False,
-            "startpoint_reuse_only": False,
             "batch_probe_policy": "time_aware_five_options",
         }
 
@@ -684,7 +707,6 @@ class Interpreter:
                         "node_context": item.get("node"),
                         "branch_id": item.get("branch_id"),
                         "model_family": item.get("model_family"),
-                        "active_profile_key": item.get("active_profile_key"),
                         "parent_model_family": item.get("parent_model_family"),
                     }
                 )
@@ -709,23 +731,18 @@ class Interpreter:
         try:
             self._ensure_scheduler_service_available()
             for process_id, item in enumerate(normalized_items):
-                try:
-                    prepared.append(
-                        self._prepare_scheduler_round_job(
-                            code=item["code"],
-                            id=item["node_id"],
-                            working_dir=working_dir,
-                            process_id=process_id,
-                            node_context=item.get("node_context"),
-                            branch_id=item.get("branch_id"),
-                            model_family_hint=item.get("model_family"),
-                            active_profile_key=item.get("active_profile_key"),
-                            parent_model_family=item.get("parent_model_family"),
-                        )
+                prepared.append(
+                    self._prepare_scheduler_round_job(
+                        code=item["code"],
+                        id=item["node_id"],
+                        working_dir=working_dir,
+                        process_id=process_id,
+                        node_context=item.get("node_context"),
+                        branch_id=item.get("branch_id"),
+                        model_family_hint=item.get("model_family"),
+                        parent_model_family=item.get("parent_model_family"),
                     )
-                except _ModelFamilyProbeError as exc:
-                    results[exc.node_id] = exc.to_execution_result()
-
+                )
             if not prepared:
                 return results
 
@@ -858,10 +875,6 @@ class Interpreter:
                 results[prepared_job.node_id] = self._scheduler_execution_result_from_final(prepared_job, final_job)
 
             return results
-        except _ModelFamilyProbeError as e:
-            logger.error("Model-family probe failed for scheduler job preparation: %s", e)
-            results.setdefault(e.node_id, e.to_execution_result())
-            return results
         except Exception as e:
             logger.error("Error in scheduler round execution: %s", e)
             error_trace = traceback.format_exc()
@@ -899,11 +912,15 @@ class Interpreter:
         node_context: Any | None = None,
         branch_id: int | str | None = None,
         model_family_hint: str | None = None,
-        active_profile_key: str | None = None,
         parent_model_family: str | None = None,
     ) -> _PreparedSchedulerJob:
         from localml_scheduler.adapters.mlevolve import build_mlevolve_job
-        from localml_scheduler.domain import PreloadSource, ResourceRequirements, RuntimeProbeSpec
+        from localml_scheduler.domain import (
+            BatchResolution,
+            PreloadSource,
+            ResourceRequirements,
+            RuntimeProbeSpec,
+        )
 
         start_time = time.time()
         logger.info("Prepared scheduler round submission slot: %s", process_id)
@@ -993,38 +1010,18 @@ class Interpreter:
         )
         if model_family:
             script_shape_hints["model_family"] = model_family
-        proposed_probe_cap = None
-        if detected_batch_size is not None:
-            legacy_probe_multiplier = max(1, int(getattr(submission_defaults, "batch_probe_max_multiplier", 4)))
-            proposed_probe_cap = max(
-                _floor_power_of_two(detected_batch_size) or 1,
-                _floor_power_of_two(detected_batch_size * legacy_probe_multiplier) or detected_batch_size,
-            )
-        model_family_profile_key = active_profile_key
-        if model_family:
-            model_family_profile_key, _profile = self._ensure_model_family_profile(
-                task_id=task_id,
-                workflow_id=workflow_id,
-                model_family=model_family,
-                script_path=runfile_path,
-                working_dir=run_wd,
-                shape_hints=script_shape_hints,
-                detected_batch_size=detected_batch_size,
-                probe_max_batch_size=proposed_probe_cap,
-                submission_defaults=submission_defaults,
-                node_id=node_id,
-                start_time=start_time,
-            )
         batch_probe, batch_probe_metadata = self._build_scheduler_batch_probe(
             submission_defaults=submission_defaults,
             task_id=task_id,
             script_signature=script_signature,
             model_key=model_key,
             model_family=model_family,
-            model_family_profile_key=model_family_profile_key,
             shape_hints=script_shape_hints,
             detected_batch_size=detected_batch_size,
             batch_probe_enabled=batch_probe_enabled,
+            batch_override_supported=bool(
+                script_metadata.get("batch_probe_supported")
+            ),
             runner_kwargs=runner_kwargs,
         )
         runtime_probe = RuntimeProbeSpec(
@@ -1052,7 +1049,6 @@ class Interpreter:
             "model_key": model_key,
             "model_family": model_family,
             "model_family_source": model_family_source,
-            "model_family_profile_key": model_family_profile_key,
             "branch_id": branch_id,
             "parent_model_family": parent_model_family,
             "architecture_switch": bool(parent_model_family and model_family and str(parent_model_family) != str(model_family)),
@@ -1068,6 +1064,7 @@ class Interpreter:
             "weight_decay": weight_decay,
             "gradient_accumulation_steps": gradient_accumulation_steps,
             "num_workers": num_workers,
+            "random_seed": script_metadata.get("random_seed"),
             "script_signature": script_signature,
             "scheduler_mode": getattr(scheduler_settings.gpu_scheduler, "mode", None),
             "batch_probe_enabled": batch_probe_enabled,
@@ -1076,6 +1073,26 @@ class Interpreter:
             "packing_backend_allowlist": packing_backend_allowlist,
         }
         job_metadata.update(batch_probe_metadata)
+        initial_physical_batch = runner_kwargs.get("batch_size")
+        quality_contract = _build_training_quality_contract(
+            script_metadata,
+            int(initial_physical_batch) if initial_physical_batch is not None else None,
+        )
+        job_metadata.update(
+            {
+                "training_quality_contract": quality_contract,
+                "planned_epochs": proposed_epochs,
+                "completed_epochs": 0,
+                "best_epoch": None,
+                "warmup_steps": script_metadata.get("warmup_steps"),
+                "scheduler_total_steps": script_metadata.get(
+                    "scheduler_total_steps"
+                ),
+                "has_validation_early_stopping": script_metadata.get(
+                    "has_validation_early_stopping", False
+                ),
+            }
+        )
         job = build_mlevolve_job(
             workflow_id=str(getattr(self.cfg, "exp_name", "mlevolve")),
             baseline_model_id=f"mlevolve-script-{id}",
@@ -1093,14 +1110,15 @@ class Interpreter:
             packing_max_slowdown_ratio=getattr(submission_defaults, "packing_max_slowdown_ratio", None),
             packing_backend_allowlist=packing_backend_allowlist,
             preload_source=PreloadSource.from_dict(preload_source_payload),
+            max_epochs=proposed_epochs,
             metadata=job_metadata,
         )
+        if initial_physical_batch is not None:
+            job = BatchResolution.apply(job, int(initial_physical_batch))
         if node_context is not None:
             try:
                 if model_family:
                     node_context.model_family = model_family
-                if model_family_profile_key:
-                    node_context.active_profile_key = model_family_profile_key
             except Exception:
                 pass
         return _PreparedSchedulerJob(
@@ -1117,7 +1135,6 @@ class Interpreter:
             model_key=model_key,
             model_family=model_family,
             model_family_source=model_family_source,
-            model_family_profile_key=model_family_profile_key,
             branch_id=branch_id,
             input_resolution=input_resolution,
             fold_count=fold_count,
@@ -1255,7 +1272,12 @@ class Interpreter:
     def _run_scheduler_job(self, code: str, id, working_dir: str | None = None, node_context: Any | None = None) -> ExecutionResult:
         """Submit generated code as a localml_scheduler job and wait for its result."""
         from localml_scheduler.adapters.mlevolve import build_mlevolve_job
-        from localml_scheduler.domain import PreloadSource, ResourceRequirements, RuntimeProbeSpec
+        from localml_scheduler.domain import (
+            BatchResolution,
+            PreloadSource,
+            ResourceRequirements,
+            RuntimeProbeSpec,
+        )
 
         if self.scheduler_client is None:
             return self._run_subprocess(code=code, id=id, working_dir=working_dir)
@@ -1372,38 +1394,18 @@ class Interpreter:
             )
             if model_family:
                 script_shape_hints["model_family"] = model_family
-            proposed_probe_cap = None
-            if detected_batch_size is not None:
-                legacy_probe_multiplier = max(1, int(getattr(submission_defaults, "batch_probe_max_multiplier", 4)))
-                proposed_probe_cap = max(
-                    _floor_power_of_two(detected_batch_size) or 1,
-                    _floor_power_of_two(detected_batch_size * legacy_probe_multiplier) or detected_batch_size,
-                )
-            model_family_profile_key = getattr(node_context, "active_profile_key", None)
-            if model_family:
-                model_family_profile_key, _profile = self._ensure_model_family_profile(
-                    task_id=task_id,
-                    workflow_id=workflow_id,
-                    model_family=model_family,
-                    script_path=runfile_path,
-                    working_dir=run_wd,
-                    shape_hints=script_shape_hints,
-                    detected_batch_size=detected_batch_size,
-                    probe_max_batch_size=proposed_probe_cap,
-                    submission_defaults=submission_defaults,
-                    node_id=str(id),
-                    start_time=start_time,
-                )
             batch_probe, batch_probe_metadata = self._build_scheduler_batch_probe(
                 submission_defaults=submission_defaults,
                 task_id=task_id,
                 script_signature=script_signature,
                 model_key=model_key,
                 model_family=model_family,
-                model_family_profile_key=model_family_profile_key,
                 shape_hints=script_shape_hints,
                 detected_batch_size=detected_batch_size,
                 batch_probe_enabled=batch_probe_enabled,
+                batch_override_supported=bool(
+                    script_metadata.get("batch_probe_supported")
+                ),
                 runner_kwargs=runner_kwargs,
             )
             runtime_probe = RuntimeProbeSpec(
@@ -1429,7 +1431,6 @@ class Interpreter:
                 "model_key": model_key,
                 "model_family": model_family,
                 "model_family_source": model_family_source,
-                "model_family_profile_key": model_family_profile_key,
                 "branch_id": branch_id,
                 "parent_model_family": parent_model_family,
                 "architecture_switch": bool(parent_model_family and model_family and str(parent_model_family) != str(model_family)),
@@ -1445,6 +1446,7 @@ class Interpreter:
                 "weight_decay": weight_decay,
                 "gradient_accumulation_steps": gradient_accumulation_steps,
                 "num_workers": num_workers,
+                "random_seed": script_metadata.get("random_seed"),
                 "script_signature": script_signature,
                 "scheduler_mode": getattr(scheduler_settings.gpu_scheduler, "mode", None),
                 "batch_probe_enabled": batch_probe_enabled,
@@ -1453,6 +1455,28 @@ class Interpreter:
                 "packing_backend_allowlist": packing_backend_allowlist,
             }
             job_metadata.update(batch_probe_metadata)
+            initial_physical_batch = runner_kwargs.get("batch_size")
+            quality_contract = _build_training_quality_contract(
+                script_metadata,
+                int(initial_physical_batch)
+                if initial_physical_batch is not None
+                else None,
+            )
+            job_metadata.update(
+                {
+                    "training_quality_contract": quality_contract,
+                    "planned_epochs": proposed_epochs,
+                    "completed_epochs": 0,
+                    "best_epoch": None,
+                    "warmup_steps": script_metadata.get("warmup_steps"),
+                    "scheduler_total_steps": script_metadata.get(
+                        "scheduler_total_steps"
+                    ),
+                    "has_validation_early_stopping": script_metadata.get(
+                        "has_validation_early_stopping", False
+                    ),
+                }
+            )
             job = build_mlevolve_job(
                 workflow_id=str(getattr(self.cfg, "exp_name", "mlevolve")),
                 baseline_model_id=f"mlevolve-script-{id}",
@@ -1470,14 +1494,15 @@ class Interpreter:
                 packing_max_slowdown_ratio=getattr(submission_defaults, "packing_max_slowdown_ratio", None),
                 packing_backend_allowlist=packing_backend_allowlist,
                 preload_source=PreloadSource.from_dict(preload_source_payload),
+                max_epochs=proposed_epochs,
                 metadata=job_metadata,
             )
+            if initial_physical_batch is not None:
+                job = BatchResolution.apply(job, int(initial_physical_batch))
             if node_context is not None:
                 try:
                     if model_family:
                         node_context.model_family = model_family
-                    if model_family_profile_key:
-                        node_context.active_profile_key = model_family_profile_key
                 except Exception:
                     pass
             submitted = self.scheduler_client.submit(job)
@@ -1630,9 +1655,6 @@ class Interpreter:
                 exc_info={"message": reason, "job_id": job_id},
                 exc_stack=[],
             )
-        except _ModelFamilyProbeError as e:
-            logger.error("Model-family probe failed for scheduler job preparation: %s", e)
-            return e.to_execution_result()
         except Exception as e:
             logger.error(f"Error in _run_scheduler_job: {e}")
             error_trace = traceback.format_exc()

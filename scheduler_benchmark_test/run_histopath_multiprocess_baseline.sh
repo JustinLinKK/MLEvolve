@@ -43,7 +43,7 @@ Usage:
   bash scheduler_benchmark_test/run_histopath_multiprocess_baseline.sh [options]
 
 Options:
-  --preset quick|smoke|full          Replay preset. full preserves legacy defaults.
+  --preset quick|smoke|full          Replay preset. full preserves original defaults.
                                       quick uses the original full fixture,
                                       real runner, speedup 100, ignores cancels,
                                       and waits for all jobs to finish.

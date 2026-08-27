@@ -24,7 +24,7 @@ def _stage_config_for_model(
 def _provider(
     model: str, cfg: Config | None = None, stage_name: str | None = None
 ) -> str:
-    """Select LLM backend from explicit provider first, then legacy model-name routing."""
+    """Select the LLM backend from the stage's explicit provider contract."""
     stage = _stage_config_for_model(cfg, model, stage_name)
     provider = (getattr(stage, "provider", "") or "").lower()
     if provider == "vllm":
@@ -33,7 +33,15 @@ def _provider(
         return "openai"
     if provider in {"gemini", "google"}:
         return "gemini"
-    return "gemini" if (model or "").lower().startswith("gemini") else "openai"
+    if stage is None:
+        raise ValueError(
+            f"No stage configuration matches model {model!r}; pass stage_name='code' or 'feedback'."
+        )
+    raise ValueError(
+        f"Unsupported or missing LLM provider {provider!r} for {stage_name or model!r}. "
+        "Configure one of: vllm, openrouter, openai, openai-compatible, "
+        "deepseek, gemini, or google."
+    )
 
 
 def query(

@@ -129,11 +129,44 @@ GRADIENT_ACCUMULATION_PARAM_NAMES = (
     "accumulation_steps",
 )
 
+WARMUP_STEPS_PARAM_NAMES = (
+    "WARMUP_STEPS",
+    "NUM_WARMUP_STEPS",
+    "warmup_steps",
+    "num_warmup_steps",
+)
+
+SCHEDULER_TOTAL_STEPS_PARAM_NAMES = (
+    "TOTAL_TRAINING_STEPS",
+    "NUM_TRAINING_STEPS",
+    "MAX_TRAINING_STEPS",
+    "total_training_steps",
+    "num_training_steps",
+    "max_training_steps",
+)
+
+QUALITY_SAFE_BATCH_PARAM_NAMES = (
+    "QUALITY_SAFE_PHYSICAL_BATCH_SIZES",
+    "quality_safe_physical_batch_sizes",
+)
+
+LEARNING_RATE_SCALING_POLICY_PARAM_NAMES = (
+    "BATCH_LR_SCALING_POLICY",
+    "batch_lr_scaling_policy",
+)
+
 NUM_WORKERS_PARAM_NAMES = (
     "NUM_WORKERS",
     "DATALOADER_WORKERS",
     "num_workers",
     "dataloader_workers",
+)
+
+RANDOM_SEED_PARAM_NAMES = (
+    "SEED",
+    "RANDOM_SEED",
+    "seed",
+    "random_seed",
 )
 
 _FLOAT_LITERAL = r"([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"
@@ -190,8 +223,24 @@ _WEIGHT_DECAY_PARAM_PATTERN = re.compile(
 _GRADIENT_ACCUMULATION_PARAM_PATTERN = re.compile(
     rf"\b(?:{'|'.join(re.escape(name) for name in GRADIENT_ACCUMULATION_PARAM_NAMES)})\b\s*=\s*(\d+)"
 )
+_WARMUP_STEPS_PARAM_PATTERN = re.compile(
+    rf"\b(?:{'|'.join(re.escape(name) for name in WARMUP_STEPS_PARAM_NAMES)})\b\s*=\s*(\d+)"
+)
+_SCHEDULER_TOTAL_STEPS_PARAM_PATTERN = re.compile(
+    rf"\b(?:{'|'.join(re.escape(name) for name in SCHEDULER_TOTAL_STEPS_PARAM_NAMES)})\b\s*=\s*(\d+)"
+)
+_QUALITY_SAFE_BATCH_PARAM_PATTERN = re.compile(
+    rf"\b(?:{'|'.join(re.escape(name) for name in QUALITY_SAFE_BATCH_PARAM_NAMES)})\b\s*=\s*[\[\(]([^\]\)]*)[\]\)]"
+)
+_LEARNING_RATE_SCALING_POLICY_PATTERN = re.compile(
+    rf"\b(?:{'|'.join(re.escape(name) for name in LEARNING_RATE_SCALING_POLICY_PARAM_NAMES)})\b\s*=\s*['\"](fixed|linear|sqrt|square_root)['\"]",
+    re.IGNORECASE,
+)
 _NUM_WORKERS_PARAM_PATTERN = re.compile(
     rf"\b(?:{'|'.join(re.escape(name) for name in NUM_WORKERS_PARAM_NAMES)})\b\s*=\s*(\d+)"
+)
+_RANDOM_SEED_PARAM_PATTERN = re.compile(
+    rf"\b(?:{'|'.join(re.escape(name) for name in RANDOM_SEED_PARAM_NAMES)})\b\s*=\s*(\d+)"
 )
 _BATCH_PROBE_NORMALIZE_PATTERNS = (
     rf"(\b(?:{'|'.join(re.escape(name) for name in BATCH_PARAM_NAMES)})\b\s*=\s*)([^,\n\)]*)",
@@ -814,8 +863,61 @@ def detect_gradient_accumulation_steps(code: str) -> int | None:
     return _safe_int(match.group(1))
 
 
+def detect_warmup_steps(code: str) -> int | None:
+    match = _WARMUP_STEPS_PARAM_PATTERN.search(code or "")
+    if not match:
+        return None
+    return _safe_int(match.group(1))
+
+
+def detect_scheduler_total_steps(code: str) -> int | None:
+    match = _SCHEDULER_TOTAL_STEPS_PARAM_PATTERN.search(code or "")
+    if not match:
+        return None
+    return _safe_int(match.group(1))
+
+
+def detect_quality_safe_physical_batch_sizes(code: str) -> list[int] | None:
+    """Read the agent-approved physical-batch envelope when it is explicit."""
+    match = _QUALITY_SAFE_BATCH_PARAM_PATTERN.search(code or "")
+    if not match:
+        return None
+    values = []
+    for token in match.group(1).split(","):
+        parsed = _safe_int(token.strip())
+        if parsed is not None and parsed > 0:
+            values.append(parsed)
+    return sorted(set(values)) or None
+
+
+def detect_learning_rate_scaling_policy(code: str) -> str | None:
+    match = _LEARNING_RATE_SCALING_POLICY_PATTERN.search(code or "")
+    return match.group(1).lower() if match else None
+
+
+def detect_validation_early_stopping(code: str) -> bool:
+    """Conservatively recognize validation-driven early stopping in raw scripts."""
+    lowered = (code or "").lower()
+    if "earlystopping(" in lowered or "early_stopping_patience" in lowered:
+        return "val" in lowered or "validation" in lowered or "eval" in lowered
+    has_patience_state = any(
+        token in lowered
+        for token in ("patience", "epochs_without_improvement", "no_improve", "bad_epochs")
+    )
+    return has_patience_state and "break" in lowered and (
+        "val" in lowered or "validation" in lowered or "eval" in lowered
+    )
+
+
 def detect_num_workers(code: str) -> int | None:
     match = _NUM_WORKERS_PARAM_PATTERN.search(code or "")
+    if not match:
+        return None
+    return _safe_int(match.group(1))
+
+
+def detect_random_seed(code: str) -> int | None:
+    match = _RANDOM_SEED_PARAM_PATTERN.search(code or "")
     if not match:
         return None
     return _safe_int(match.group(1))
@@ -1002,7 +1104,18 @@ def introspect_training_script(code: str) -> dict[str, Any]:
         "learning_rate": detect_learning_rate(code),
         "weight_decay": detect_weight_decay(code),
         "gradient_accumulation_steps": detect_gradient_accumulation_steps(code),
+        "effective_batch_size": (
+            (detect_initial_batch_size(code) or 0)
+            * (detect_gradient_accumulation_steps(code) or 1)
+        )
+        or None,
+        "warmup_steps": detect_warmup_steps(code),
+        "scheduler_total_steps": detect_scheduler_total_steps(code),
+        "quality_safe_physical_batch_sizes": detect_quality_safe_physical_batch_sizes(code),
+        "learning_rate_scaling_policy": detect_learning_rate_scaling_policy(code),
+        "has_validation_early_stopping": detect_validation_early_stopping(code),
         "num_workers": detect_num_workers(code),
+        "random_seed": detect_random_seed(code),
         "framework": detect_framework(code),
     }
     return {key: value for key, value in candidate.items() if value is not None}

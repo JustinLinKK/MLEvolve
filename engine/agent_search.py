@@ -378,6 +378,7 @@ class AgentSearch:
                             self.refresh_hardware_context(result_node)
                         else:
                             logger.info(f"Node {result_node.id} passed code review without changes")
+                    self._review_training_parameters_before_submission(result_node)
                     self._validate_node_precision_before_execution(result_node)
                     if result_node.review_status == "rejected":
                         if not execute_immediately:
@@ -390,15 +391,11 @@ class AgentSearch:
                         return _root, result_node
                     try:
                         from engine.script_introspection import introspect_training_script
-                        from localml_scheduler.adapters.mlevolve import build_model_family_profile_key, normalize_model_family
+                        from localml_scheduler.adapters.mlevolve import normalize_model_family
 
                         script_metadata = introspect_training_script(result_node.code)
                         if script_metadata.get("model_family"):
                             result_node.model_family = normalize_model_family(str(script_metadata["model_family"]))
-                            result_node.active_profile_key = build_model_family_profile_key(
-                                task_id=str(getattr(self.cfg, "exp_id", "mlevolve")),
-                                model_family=result_node.model_family,
-                            )
                     except Exception as exc:
                         logger.debug("Skipping node model-family metadata refresh: %s", exc)
 
@@ -462,6 +459,7 @@ class AgentSearch:
         try:
             from agents.hardware_context import get_hardware_context_for_stage
             from agents.precision_validation import validate_training_precision
+            from agents.training_contract_validation import validate_training_contract
             from agents.review_contracts import append_review_issue
 
             precision_context = get_hardware_context_for_stage(
@@ -475,16 +473,18 @@ class AgentSearch:
                 node.code,
                 context=precision_context,
             )
-            if not precision_issues:
+            training_contract_issues = validate_training_contract(node.code)
+            policy_issues = tuple([*precision_issues, *training_contract_issues])
+            if not policy_issues:
                 return True
-            for issue in precision_issues:
+            for issue in policy_issues:
                 append_review_issue(node, issue)
             node.review_status = "rejected"
             history = list(getattr(node, "review_history", None) or [])
             history.append(
                 {
                     "event": "pre_execution_precision_policy_rejected",
-                    "issues": [issue.to_dict() for issue in precision_issues],
+                    "issues": [issue.to_dict() for issue in policy_issues],
                 }
             )
             node.review_history = history
@@ -497,6 +497,31 @@ class AgentSearch:
             )
             node.review_status = "rejected"
             return False
+
+    def _review_training_parameters_before_submission(self, node: SearchNode) -> None:
+        """Apply the live scheduler/graph contract to every execution path once."""
+        if getattr(node, "_pre_submit_training_reviewed", False):
+            return
+        if getattr(self, "scheduler_client", None) is None:
+            return
+        try:
+            from agents.hardware_context import optimize_training_parameters_for_round
+            from utils.pipeline_logging import log_pipeline_event
+
+            decisions = optimize_training_parameters_for_round(self, [node])
+            node._pre_submit_training_reviewed = True
+            if decisions:
+                log_pipeline_event(
+                    self,
+                    "hardware_pre_submit_review",
+                    payload={"node_id": str(node.id), "decisions": decisions},
+                )
+        except Exception as exc:
+            logger.debug(
+                "Skipping live pre-submit training review for node %s: %s",
+                getattr(node, "id", ""),
+                exc,
+            )
 
     def step(
         self,
@@ -557,6 +582,7 @@ class AgentSearch:
         logger.info(f"Executing deferred node {node.id}")
         parent_node = node.parent
 
+        self._review_training_parameters_before_submission(node)
         if node.review_status != "rejected":
             self._validate_node_precision_before_execution(node)
         if node.review_status == "rejected":
@@ -679,7 +705,6 @@ class AgentSearch:
                     "node": node,
                     "branch_id": getattr(node, "branch_id", None),
                     "model_family": getattr(node, "model_family", None),
-                    "active_profile_key": getattr(node, "active_profile_key", None),
                     "parent_model_family": getattr(getattr(node, "parent", None), "model_family", None),
                 }
                 for node in runnable_nodes

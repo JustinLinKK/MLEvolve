@@ -16,6 +16,10 @@ from agents.prompts import (
 from agents.prompts.validation_template_prompts import get_code_review_prompt
 from agents.review_contracts import ReviewDecision, ReviewOutcome
 from agents.precision_validation import merge_precision_review_issues, validate_training_precision
+from agents.training_contract_validation import (
+    merge_training_contract_review_issues,
+    validate_training_contract,
+)
 from agents.stage_repair import is_hardware_aware, repair_selected_stages
 from engine.search_node import SearchNode
 from llm import FunctionSpec, query
@@ -151,6 +155,7 @@ def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecisi
     stable_prompt, dynamic_prompt = _partition_review_cache_prompt(prompt)
     hardware_context_used = bool(hardware_ctx.prompt_section)
     policy_issues = validate_training_precision(agent, code, context=hardware_ctx)
+    training_contract_issues = validate_training_contract(code)
     retries = max(1, int(getattr(_review_config(agent), "classifier_retries", 3)))
     started = time.monotonic()
     last_error = "reviewer unavailable"
@@ -173,6 +178,9 @@ def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecisi
             )
             decision = ReviewDecision.from_mapping(response, hardware_aware=is_hardware_aware(agent))
             decision = merge_precision_review_issues(decision, policy_issues)
+            decision = merge_training_contract_review_issues(
+                decision, training_contract_issues
+            )
             return decision, {
                 "attempts": attempt + 1,
                 "latency_seconds": time.monotonic() - started,
@@ -185,13 +193,18 @@ def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecisi
                     "Code review attempt %s/%s failed for node %s: %s",
                     attempt + 1, retries, node.id, exc,
                 )
-    if policy_issues:
-        return merge_precision_review_issues(None, policy_issues), {
+    if policy_issues or training_contract_issues:
+        deterministic_decision = merge_precision_review_issues(None, policy_issues)
+        deterministic_decision = merge_training_contract_review_issues(
+            deterministic_decision, training_contract_issues
+        )
+        return deterministic_decision, {
             "attempts": retries,
             "latency_seconds": time.monotonic() - started,
             "hardware_context_used": hardware_context_used,
             "error": last_error,
             "deterministic_precision_validation": True,
+            "deterministic_training_contract_validation": True,
         }
     return None, {
         "attempts": retries,
@@ -215,12 +228,14 @@ def review_and_repair(agent: Any, node: SearchNode) -> ReviewOutcome:
             agent, "code_review", parent_node=getattr(node, "parent", None), code=node.code
         )
         policy_issues = validate_training_precision(agent, node.code, context=hardware_ctx)
-        if policy_issues:
+        training_contract_issues = validate_training_contract(node.code)
+        deterministic_issues = tuple([*policy_issues, *training_contract_issues])
+        if deterministic_issues:
             outcome = ReviewOutcome(
                 code=node.code,
                 status="rejected",
-                unresolved_issues=policy_issues,
-                history=({"event": "precision_policy_rejected_with_review_disabled"},),
+                unresolved_issues=deterministic_issues,
+                history=({"event": "deterministic_policy_rejected_with_review_disabled"},),
             )
             _store_outcome(node, outcome)
             return outcome
@@ -325,8 +340,3 @@ def review_and_repair(agent: Any, node: SearchNode) -> ReviewOutcome:
         },
     )
     return outcome
-
-
-def run(agent: Any, node: SearchNode) -> str:
-    """Compatibility wrapper for callers that still expect a code string."""
-    return review_and_repair(agent, node).code

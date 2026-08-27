@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 import os
 import sys
-import warnings
 
 
 @dataclass(slots=True)
@@ -163,13 +162,6 @@ class HardwareKnowledgeSettings:
     ) -> "HardwareKnowledgeSettings":
         data = dict(payload or {})
         data.update(overrides)
-        if data.pop("branch_profile_db_path", None) is not None:
-            warnings.warn(
-                "hardware_knowledge.settings.branch_profile_db_path is ignored; "
-                "profile evidence now comes from an attached scheduler client",
-                UserWarning,
-                stacklevel=2,
-            )
         return cls(**data)
 
     def ensure_runtime_layout(self) -> None:

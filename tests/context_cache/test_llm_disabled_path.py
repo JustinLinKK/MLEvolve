@@ -29,7 +29,7 @@ class _FakeOpenAI:
         self.chat = SimpleNamespace(completions=_Completions(self.capture))
 
 
-def test_disabled_path_serializes_legacy_request_byte_for_byte(monkeypatch) -> None:
+def test_disabled_path_serializes_original_request_byte_for_byte(monkeypatch) -> None:
     capture = {}
     _FakeOpenAI.capture = capture
     monkeypatch.setattr(backend, "OpenAI", _FakeOpenAI)
@@ -85,7 +85,7 @@ def test_enabled_shared_backend_sends_stable_then_dynamic_without_duplication(
     )
 
     backend.query(
-        "legacy stable and dynamic",
+        "combined stable and dynamic",
         None,
         cfg=cfg,
         model=stage.model,
@@ -97,6 +97,5 @@ def test_enabled_shared_backend_sends_stable_then_dynamic_without_duplication(
     serialized_messages = json.dumps(capture["messages"], sort_keys=True)
     assert "stable rules" in serialized_messages
     assert "dynamic candidate" in serialized_messages
-    assert "legacy stable and dynamic" not in serialized_messages
+    assert "combined stable and dynamic" not in serialized_messages
     assert capture["extra_body"]["session_id"].startswith("mlevolve:")
-

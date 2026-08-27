@@ -157,7 +157,7 @@ from pathlib import Path
 import yaml
 
 from hardware_knowledge_graph import HardwareKnowledgeSettings
-from hardware_knowledge_graph.store import HardwareKnowledgeGraphStore
+from localml_scheduler.hardware_knowledge.store import HardwareKnowledgeGraphStore
 
 payload = yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8")) or {}
 settings_payload = payload.get("hardware_knowledge", {}).get("settings", payload)

@@ -431,7 +431,7 @@ def _fallback_decision(*, task_desc: Any, data_preview: str, evidence_state: dic
 
 
 def _stage_decision_view(decision: dict[str, Any] | None) -> dict[str, Any]:
-    """Return a three-stage view, upgrading older four-bucket traces if needed."""
+    """Return the canonical three-stage decision view."""
     if not isinstance(decision, dict):
         return {}
 
@@ -439,46 +439,12 @@ def _stage_decision_view(decision: dict[str, Any] | None) -> dict[str, Any]:
     datatype_precision = dict(decision.get("datatype_precision") or {})
     training_evaluation = dict(decision.get("training_evaluation") or decision.get("training") or {})
 
-    legacy_datatype = decision.get("datatype") if isinstance(decision.get("datatype"), dict) else {}
-    legacy_model = decision.get("model") if isinstance(decision.get("model"), dict) else {}
-    legacy_optimizer = decision.get("optimizer") if isinstance(decision.get("optimizer"), dict) else {}
-    legacy_tuning = decision.get("tuning") if isinstance(decision.get("tuning"), dict) else {}
-
-    _setdefault_from(model_design, "modality", legacy_datatype.get("modality"))
-    _setdefault_from(model_design, "target_type", legacy_datatype.get("target_type"))
-    _setdefault_from(model_design, "shape_constraints", legacy_datatype.get("shape_constraints"))
-    _setdefault_from(model_design, "family", legacy_model.get("family"))
-    _setdefault_from(model_design, "alternatives_considered", legacy_model.get("alternatives_considered"))
-    _setdefault_from(model_design, "loss", legacy_optimizer.get("loss"))
-    _setdefault_from(model_design, "reason", legacy_model.get("reason") or legacy_datatype.get("reason"))
-    _setdefault_from(model_design, "hardware_fit", legacy_model.get("hardware_fit"))
-
-    _setdefault_from(datatype_precision, "precision_policy", legacy_tuning.get("precision_policy"))
-    _setdefault_from(datatype_precision, "precision_model_adaptation", legacy_tuning.get("precision_model_adaptation"))
-    _setdefault_from(datatype_precision, "fallback_policy", "; ".join(_string_list(legacy_tuning.get("fallbacks"))))
-
-    _setdefault_from(training_evaluation, "optimizer", legacy_optimizer.get("optimizer"))
-    _setdefault_from(training_evaluation, "scheduler", legacy_optimizer.get("scheduler"))
-    _setdefault_from(training_evaluation, "batch_size_policy", legacy_tuning.get("batch_size_policy"))
-    _setdefault_from(training_evaluation, "dataloader_policy", legacy_tuning.get("dataloader_policy"))
-    _setdefault_from(training_evaluation, "fallbacks", legacy_tuning.get("fallbacks"))
-    _setdefault_from(training_evaluation, "metrics_to_log", legacy_tuning.get("metrics_to_log"))
-    _setdefault_from(training_evaluation, "advanced_optimizer_used", legacy_optimizer.get("advanced_optimizer_used"))
-    _setdefault_from(training_evaluation, "reason", legacy_optimizer.get("reason"))
-
     return {
         "model_design": model_design,
         "datatype_precision": datatype_precision,
         "training_evaluation": training_evaluation,
         "evidence": dict(decision.get("evidence") or {}),
     }
-
-
-def _setdefault_from(target: dict[str, Any], key: str, value: Any) -> None:
-    if key not in target and value not in (None, "", [], {}):
-        target[key] = value
-
-
 def _collect_evidence_state(hardware_contexts: list[Any]) -> dict[str, Any]:
     compact_contexts: list[dict[str, Any]] = []
     evidence_refs: list[str] = []

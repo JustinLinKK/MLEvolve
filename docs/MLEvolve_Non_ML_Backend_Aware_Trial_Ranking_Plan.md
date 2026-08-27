@@ -1,5 +1,10 @@
 # MLEvolve Non-ML Backend-Aware Colocation Trial Ranking Plan
 
+> Historical design document. Its CUDA-stream and hybrid action domains were
+> retired by [ADR 0001](adr/0001-retire-cuda-stream-backend.md). Current
+> production ranking is restricted to the single configured `cuda_process` or
+> `mps_process` mode; the sections below are retained only as design history.
+
 ## 1. Purpose
 
 Implement a deterministic, source-informed colocation trial-ranking layer for the MLEvolve single-GPU scheduler.

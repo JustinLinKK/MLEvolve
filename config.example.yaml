@@ -34,7 +34,7 @@ exec:
   agent_file_name: runfile.py
 context_cache:
   # Global kill switch. When false, existing providers retain the uncached request path.
-  enabled: false
+  enabled: true
   local_pack_cache_enabled: true
   provider_prompt_cache_enabled: true
   provider_prompt_cache_roles: []

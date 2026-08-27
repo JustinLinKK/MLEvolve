@@ -107,16 +107,12 @@ def _write_config(path: Path, *, marker: str, scheduler_runtime: str = "./runtim
 
 def test_config_resolution_precedence(monkeypatch, tmp_path: Path, caplog) -> None:
     root = tmp_path / "config.yaml"
-    legacy = tmp_path / "legacy" / "config.yaml"
     example = tmp_path / "config.example.yaml"
     explicit = tmp_path / "explicit.yaml"
-    legacy.parent.mkdir()
     _write_config(root, marker="root")
-    _write_config(legacy, marker="legacy")
     _write_config(example, marker="example")
     _write_config(explicit, marker="explicit")
     monkeypatch.setattr(mle_config, "ROOT_CONFIG_PATH", root)
-    monkeypatch.setattr(mle_config, "LEGACY_CONFIG_PATH", legacy)
     monkeypatch.setattr(mle_config, "ROOT_CONFIG_EXAMPLE_PATH", example)
     monkeypatch.delenv("MLEVOLVE_CONFIG", raising=False)
 
@@ -129,11 +125,8 @@ def test_config_resolution_precedence(monkeypatch, tmp_path: Path, caplog) -> No
 
     monkeypatch.delenv("MLEVOLVE_CONFIG")
     with caplog.at_level(logging.WARNING):
-        assert mle_config.resolve_config_path() == legacy.resolve()
-    assert "legacy config path" in caplog.text
-
-    legacy.unlink()
-    assert mle_config.resolve_config_path() == example.resolve()
+        assert mle_config.resolve_config_path() == example.resolve()
+    assert "sanitized config.example.yaml" in caplog.text
 
 
 def test_env_and_cli_overrides_still_win(monkeypatch, tmp_path: Path) -> None:
@@ -171,7 +164,6 @@ def test_scheduler_settings_prefer_nested_config(tmp_path: Path) -> None:
             "cache_socket_name": "nested.sock",
             "graph_db": {"enabled": False, "mode": "off"},
         },
-        settings_path=None,
     )
 
     settings = _scheduler_settings_from_cfg(cfg, scheduler_cfg)

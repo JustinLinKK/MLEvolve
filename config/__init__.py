@@ -32,7 +32,6 @@ logger = logging.getLogger("MLEvolve")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ROOT_CONFIG_PATH = REPO_ROOT / "config.yaml"
 ROOT_CONFIG_EXAMPLE_PATH = REPO_ROOT / "config.example.yaml"
-LEGACY_CONFIG_PATH = Path(__file__).parent / "config.yaml"
 CONFIG_ENV_VAR = "MLEVOLVE_CONFIG"
 
 EXPERIMENT_MODE_ORIGIN = "origin"
@@ -206,7 +205,6 @@ class ExecConfig:
 @dataclass
 class SchedulerBridgeConfig:
     enabled: bool = False
-    settings_path: str | None = None
     settings: dict | None = None
     runtime_root: str | None = None
     start_service: bool = True
@@ -301,8 +299,8 @@ def _get_next_logindex(dir: Path) -> int:
 def resolve_config_path(path: str | Path | None = None) -> Path:
     """Resolve the unified MLEvolve config path.
 
-    Precedence: explicit path, MLEVOLVE_CONFIG, root config.yaml, legacy
-    config/config.yaml, root config.example.yaml.
+    Precedence: explicit path, MLEVOLVE_CONFIG, root config.yaml, then the
+    root config.example.yaml.
     """
     if path is not None:
         return Path(path).expanduser().resolve()
@@ -313,13 +311,6 @@ def resolve_config_path(path: str | Path | None = None) -> Path:
 
     if ROOT_CONFIG_PATH.exists():
         return ROOT_CONFIG_PATH.resolve()
-
-    if LEGACY_CONFIG_PATH.exists():
-        logger.warning(
-            "Loading legacy config path %s; move local settings to root config.yaml.",
-            LEGACY_CONFIG_PATH,
-        )
-        return LEGACY_CONFIG_PATH.resolve()
 
     if ROOT_CONFIG_EXAMPLE_PATH.exists():
         logger.warning(

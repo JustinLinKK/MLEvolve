@@ -117,7 +117,7 @@ def test_agent_prompt_assembly_orders_hardware_docs_pipeline_then_instructions()
 ):
     from agents import debug_agent, draft_agent, improve_agent
 
-    for module in (debug_agent, draft_agent, improve_agent):
+    for module in (draft_agent, improve_agent):
         source = inspect.getsource(module.run)
         assembly = source[source.find("user_prompt =") :]
         hardware = assembly.find("hardware_section")
@@ -126,6 +126,12 @@ def test_agent_prompt_assembly_orders_hardware_docs_pipeline_then_instructions()
         instructions = assembly.find("instructions")
         assert -1 not in {hardware, cuda_docs, pipeline, instructions}
         assert hardware < cuda_docs < pipeline < instructions
+
+    debug_source = inspect.getsource(debug_agent.run)
+    assert debug_source.find("cuda_docs_section") < debug_source.find(
+        "repair_selected_stages"
+    )
+    assert "pipeline_decision = build_pipeline_decision" in debug_source
 
 
 def test_selective_repair_receives_bounded_evidence_without_journal_mutation() -> None:

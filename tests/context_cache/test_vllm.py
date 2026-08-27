@@ -75,7 +75,7 @@ def _cfg(*, require_salt: bool = True):
     )
 
 
-def test_adapter_uses_only_session_header_and_normalizes_legacy_and_modern_usage():
+def test_adapter_uses_only_session_header_and_normalizes_optional_usage_fields():
     adapter = VLLMCacheAdapter(session_affinity=True)
     family = _family()
     params = {
@@ -98,7 +98,7 @@ def test_adapter_uses_only_session_header_and_normalizes_legacy_and_modern_usage
     ):
         assert unsupported not in serialized
 
-    legacy = adapter.extract_cache_usage(
+    read_only = adapter.extract_cache_usage(
         {
             "usage": {
                 "prompt_tokens": 100,
@@ -119,7 +119,7 @@ def test_adapter_uses_only_session_header_and_normalizes_legacy_and_modern_usage
             }
         }
     )
-    assert (legacy.cache_read_tokens, legacy.cache_write_tokens) == (80, None)
+    assert (read_only.cache_read_tokens, read_only.cache_write_tokens) == (80, None)
     assert (modern.cache_read_tokens, modern.cache_write_tokens) == (80, 20)
     assert modern.cache_miss_tokens == 20
 
@@ -300,7 +300,7 @@ def test_nonstreaming_named_tool_request_sends_salt_affinity_and_metrics(
     assert row["server_tokens_per_second"] == 50.0
 
 
-def test_streaming_text_requests_usage_and_accepts_legacy_shape(monkeypatch, tmp_path):
+def test_streaming_text_requests_usage_and_accepts_minimal_shape(monkeypatch, tmp_path):
     capture = {}
     empty = SimpleNamespace(
         choices=[SimpleNamespace(delta=SimpleNamespace(content=None), finish_reason=None)],

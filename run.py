@@ -44,17 +44,6 @@ def _scheduler_settings_from_cfg(cfg, scheduler_cfg) -> SchedulerSettings:
         payload = OmegaConf.to_container(nested_settings, resolve=True) if not isinstance(nested_settings, dict) else nested_settings
         return SchedulerSettings.from_dict(payload, runtime_root=scheduler_runtime_root)
 
-    scheduler_settings_path = getattr(scheduler_cfg, "settings_path", None)
-    if scheduler_settings_path:
-        logger = logging.getLogger("MLEvolve")
-        logger.warning(
-            "scheduler.settings_path is deprecated; move scheduler settings under scheduler.settings in root config.yaml."
-        )
-        return SchedulerSettings.from_file(
-            scheduler_settings_path,
-            runtime_root=scheduler_runtime_root,
-        )
-
     return SchedulerSettings(runtime_root=scheduler_runtime_root)
 
 
@@ -69,8 +58,7 @@ def _submit_startpoint_probe_jobs(
 ) -> list[str]:
     gpu_settings = scheduler_settings.gpu_scheduler
     # The current time-aware scheduler probes each real candidate natively.
-    # Only submit synthetic cold-start probes when an older/extended config
-    # explicitly opts into them.
+    # Synthetic cold-start probes are an explicit opt-in.
     if not bool(getattr(gpu_settings, "startpoint_probe_enabled", False)):
         return []
     if not startpoint_specs:

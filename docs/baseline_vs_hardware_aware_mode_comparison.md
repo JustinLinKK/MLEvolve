@@ -180,7 +180,7 @@ Important distinction:
 
 - `baseline` mode disables hardware prompt/context injection.
 - It does not disable the scheduler execution bridge if the config still has `scheduler.enabled=true`.
-- The comparison script keeps scheduler execution enabled for baseline by default, while origin disables it; use `--disable-scheduler-baseline` only for legacy subprocess-only baseline comparisons.
+- The comparison script keeps scheduler execution enabled for baseline by default, while origin disables it; use `--disable-scheduler-baseline` only for subprocess-only reference comparisons.
 
 Source: `run.py`.
 

@@ -92,6 +92,151 @@ bash docker_host_databases.sh        # local Neo4j / databases
 bash bootstrap.sh                    # HWKB checks + optional knowledge ingest (MLEVOLVE_INGEST_KNOWLEDGE=1)
 ```
 
+## Reducing End-to-End Run Time
+
+MLEvolve has separate optimizations for LLM requests and GPU training jobs.
+Enable and measure them separately: prompt caching primarily reduces repeated
+LLM-prefix processing, while the scheduler reduces training time and queue drain
+time. Start from `config.example.yaml`; the fragments below are intended as
+edits to that complete configuration, not as standalone configuration files.
+
+### Enable local context and provider prompt caching
+
+Use a deterministic local pack cache and allow supported providers to reuse the
+stable prompt prefix shared across agent calls:
+
+```yaml
+context_cache:
+  enabled: true
+  local_pack_cache_enabled: true
+  provider_prompt_cache_enabled: true
+  # Empty lists mean all configured roles and models. Populate either list for
+  # a gradual rollout, for example: [reviewer].
+  provider_prompt_cache_roles: []
+  provider_prompt_cache_models: []
+  cache_dir: var/context-cache
+  policy: auto
+  # This prepares local packs. The first real provider request warms its cache
+  # family; MLEvolve does not send a synthetic, billable warm-up request.
+  prewarm: true
+  telemetry: true
+  capture_prompts: false
+  openrouter_sticky_routing: true
+  openrouter_routing_shards: 1
+```
+
+Provider prompt-cache integration is implemented for OpenRouter, OpenAI,
+DeepSeek, and vLLM. Direct Gemini and Anthropic integrations currently retain
+the uncached request path. OpenRouter users should keep sticky routing enabled
+and use one routing shard for the highest reuse; additional shards trade cache
+hit rate for distribution. Provider misses and unsupported cache fields are
+non-fatal.
+
+For a self-hosted vLLM stage, enable automatic prefix caching in the vLLM
+deployment and provide a private salt of at least 32 bytes. Do not commit it to
+YAML:
+
+```bash
+export MLEVOLVE_VLLM_CACHE_SALT="$(openssl rand -base64 32)"
+```
+
+```yaml
+vllm_client:
+  cache_salt_env: MLEVOLVE_VLLM_CACHE_SALT
+  require_cache_salt: true
+  session_affinity: true
+```
+
+After a representative run, confirm real cache-read tokens rather than
+inferring a hit from latency alone:
+
+```bash
+python -m context_cache export --format jsonl --output observations.jsonl
+python -m benchmarks.context_cache_bench observations.jsonl \
+  --output-dir benchmark-results/context-cache
+```
+
+See [Context Caching](docs/context-cache.md) for provider behavior, role/model
+allowlists, environment-variable equivalents, staged rollout, and rollback.
+
+### Enable time-aware GPU scheduling
+
+The following settings let the scheduler reuse runtime profiles, probe
+quality-safe batch choices, and admit concurrent jobs only when measured drain
+time improves:
+
+```yaml
+experiment:
+  mode: hardware_aware
+
+scheduler:
+  enabled: true
+  start_service: true
+  settings:
+    prediction:
+      mode: branch_profile
+    gpu_scheduler:
+      enabled: true
+      mode: parallel_time_aware
+      packing_backend: cuda_process
+      parallel_job_cap: null
+      batch_probe_enabled: true
+      profiling:
+        reuse_profile_if_confidence_ge: 0.8
+      source_trial_ranking:
+        source_analysis:
+          cache_enabled: true
+      submission_defaults:
+        packing_eligible: true
+        backend_allowlist: [cuda_process]
+        batch_probe_enabled: true
+        runtime_probe_enabled: true
+```
+
+Use `mps_process` in both backend fields only when the host is configured for
+NVIDIA MPS; otherwise use `cuda_process`. A `null` parallel cap does not mean
+unconditional concurrency: the scheduler incrementally applies backend,
+quality, live-memory, compatibility, and measured drain-time gates before
+admitting each additional job. Set a numeric cap if the machine has a stricter
+operational limit.
+
+Batch probing follows the quality contract: the agent approves
+`QUALITY_SAFE_PHYSICAL_BATCH_SIZES` and the learning-rate scaling policy, then
+the scheduler chooses the fastest currently feasible physical batch inside
+that envelope. Do not increase batch size or reduce epochs mechanically;
+validation quality and convergence evidence determine the safe envelope.
+
+Scheduler-level early stopping requires a runner that emits epoch safe points.
+Raw generated scripts are instead required by code review to implement
+validation-based patience, save and restore the best checkpoint, and emit
+`MLEVOLVE_EPOCH_METRIC` JSON after each validation epoch. Configure the
+scheduler's `early_stopping.metric_name` to match the runner (`loss` in the
+included examples, or preferably `val_loss` when available). Planned,
+completed, and best epochs are recorded separately.
+
+If sibling jobs share one immutable source or model artifact, configure
+`scheduler.preload_source_model_path`, `scheduler.preload_source_model_id`, and
+`scheduler.preload_source_loader_target` to avoid repeated loading. See
+[localml_scheduler](localml_scheduler/README.md) for preload,
+safe-point, profile-reuse, early-stopping, and backend details.
+
+### Use bounded agent parallelism
+
+Independent search branches and compact code patches can reduce wall-clock LLM
+time:
+
+```yaml
+agent:
+  use_diff_mode: true
+  search:
+    parallel_search_num: 2
+```
+
+Increase `parallel_search_num` only while provider rate limits, CPU capacity,
+and scheduler/GPU admission remain healthy. Excess concurrency can increase
+total time through throttling or GPU contention; two branches are a reasonable
+starting point, not a universal optimum.
+
 ## Running the Trace Benchmark
 
 ```bash

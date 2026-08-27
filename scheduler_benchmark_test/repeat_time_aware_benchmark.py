@@ -136,7 +136,7 @@ def markdown_report(report: dict[str, Any]) -> str:
         "| Policy | Runs | Complete | Makespan (s) | Total flow (s) | Mean flow (s) | Weighted flow (s) | Median flow (s) | p95 flow (s) | Max wait (s) | Jobs/hour | Slowdown | Pred/actual VRAM (MiB) | Actual over-budget packs | Early epochs/time saved | Speedup vs serial |",
         "|---|---:|:---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
-    for name in ("serial_fifo", "legacy_vram_fill", "parallel_time_aware"):
+    for name in ("serial_fifo", "vram_fill_reference", "parallel_time_aware"):
         policy = report["policies"].get(name)
         if policy is None:
             continue
