@@ -121,7 +121,9 @@ def determine_metric_direction(agent) -> None:
                     func_spec=metric_direction_func_spec,
                     model=agent.acfg.feedback.model,
                     temperature=agent.acfg.feedback.temp,
-                    cfg=agent.cfg
+                    cfg=agent.cfg,
+                    stage_name="feedback",
+                    context_cache_role="result_parser",
                 ),
             )
 
@@ -522,6 +524,10 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
                 "Implementation": wrap_code(node.code),
                 "Execution output": wrap_code(node.term_out, lang=""),
             }
+            stable_prompt = {"Introduction": prompt["Introduction"]}
+            dynamic_prompt = {
+                key: value for key, value in prompt.items() if key != "Introduction"
+            }
 
             response = cast(
                 dict,
@@ -531,7 +537,11 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
                     func_spec=get_review_func_spec(getattr(agent.acfg, "use_global_memory", False)),
                     model=agent.acfg.feedback.model,
                     temperature=agent.acfg.feedback.temp,
-                    cfg=agent.cfg
+                    cfg=agent.cfg,
+                    stage_name="feedback",
+                    context_cache_role="result_parser",
+                    context_cache_stable_prefix=stable_prompt,
+                    context_cache_dynamic_system_message=dynamic_prompt,
                 ),
             )
 

@@ -363,6 +363,11 @@ def run_planner(
             temperature=agent_instance.acfg.code.temp,
             cfg=agent_instance.cfg,
             json_schema=json_schema,
+            context_cache_stable_prefix=(
+                planning_prompt_complete.get("system")
+                if isinstance(planning_prompt_complete, dict)
+                else None
+            ),
         )
 
         planning_result = parse_planning_response(planning_response)

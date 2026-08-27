@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import time
+from contextlib import nullcontext
 from typing import Any
 
 from openai import OpenAI
@@ -108,8 +109,10 @@ def _extract_json_object(text: str) -> str:
 OutputType = str | dict
 
 
-def _stage_config_for_model(cfg: Config, model: str):
+def _stage_config_for_model(cfg: Config, model: str, stage_name: str | None = None):
     """Return code or feedback config depending on which model is being used."""
+    if stage_name in {"code", "feedback"}:
+        return getattr(cfg.agent, stage_name)
     if cfg.agent.code.model == model:
         return cfg.agent.code
     return cfg.agent.feedback
@@ -117,6 +120,71 @@ def _stage_config_for_model(cfg: Config, model: str):
 
 def _is_openrouter_stage(stage) -> bool:
     return (getattr(stage, "provider", "") or "").lower() == "openrouter"
+
+
+def _provider_name(stage) -> str:
+    provider = (getattr(stage, "provider", "") or "").strip().lower()
+    if provider in {"openrouter", "openai", "deepseek"}:
+        return provider
+    return provider or "openai-compatible"
+
+
+def _prepare_context_cache(
+    params: dict[str, Any],
+    *,
+    cfg: Config,
+    stage,
+    model: str,
+    role: str,
+    stable_prefix: str | None,
+    dynamic_messages_override: list[dict[str, str]] | None,
+    reasoning_config: dict[str, Any],
+    provider_override: str | None = None,
+):
+    from context_cache.coordinator import prepare_llm_request
+
+    return prepare_llm_request(
+        params,
+        cfg=cfg,
+        provider=provider_override or _provider_name(stage),
+        model=model,
+        agent_role=role,
+        stable_system_instructions=stable_prefix,
+        dynamic_messages_override=dynamic_messages_override,
+        reasoning_config=reasoning_config,
+    )
+
+
+def _finish_telemetry(prepared, **kwargs) -> None:
+    telemetry = getattr(prepared, "telemetry", None)
+    if telemetry is None:
+        return
+    try:
+        telemetry.finish(**kwargs)
+    except Exception as exc:
+        logger.warning("Context-cache telemetry persistence failed: %s", exc)
+
+
+def _cache_response_details(prepared, raw_response, *, prompt_tokens=None, output_tokens=None):
+    from context_cache.models import NormalizedCacheUsage, NormalizedRequestMetrics
+
+    adapter = getattr(prepared, "adapter", None)
+    if adapter is None:
+        return NormalizedCacheUsage(
+            prompt_tokens=prompt_tokens,
+            output_tokens=output_tokens,
+        ), None, NormalizedRequestMetrics()
+    try:
+        usage = adapter.extract_cache_usage(raw_response)
+        upstream = adapter.extract_upstream_provider(raw_response)
+        metrics = adapter.extract_request_metrics(raw_response)
+        return usage, upstream, metrics
+    except Exception as exc:
+        logger.warning("Context-cache usage normalization failed; retaining response: %s", exc)
+        return NormalizedCacheUsage(
+            prompt_tokens=prompt_tokens,
+            output_tokens=output_tokens,
+        ), None, NormalizedRequestMetrics()
 
 
 def _build_messages(system_message: str | None, user_message: str | None) -> list[dict[str, str]]:
@@ -138,10 +206,19 @@ def query(
     """OpenAI-compatible query (chat completions, optional function calling). Same return shape as gemini.query."""
     if cfg is None:
         raise ValueError("cfg is required for OpenAI backend")
+    stage_name = model_kwargs.pop("stage_name", None)
+    client_override = model_kwargs.pop("_client", None)
+    provider_override = model_kwargs.pop("_provider_override", None)
+    vllm_cache_salt = model_kwargs.pop("_vllm_cache_salt", None)
+    context_cache_role = str(model_kwargs.pop("context_cache_role", "analysis"))
+    context_cache_stable_prefix = model_kwargs.pop("context_cache_stable_prefix", None)
+    context_cache_dynamic_system_message = model_kwargs.pop(
+        "context_cache_dynamic_system_message", None
+    )
     filtered = {k: v for k, v in model_kwargs.items() if v is not None}
     model = filtered.get("model", "")
-    stage = _stage_config_for_model(cfg, model)
-    client = OpenAI(
+    stage = _stage_config_for_model(cfg, model, stage_name)
+    client = client_override or OpenAI(
         api_key=stage.api_key,
         base_url=stage.base_url or None,
         timeout=1200.0,
@@ -149,6 +226,13 @@ def query(
     messages = _build_messages(system_message, user_message)
     if not messages:
         raise ValueError("Either system_message or user_message must be provided")
+    dynamic_messages_override = None
+    if context_cache_dynamic_system_message is not None:
+        dynamic_messages_override = [
+            {"role": "system", "content": str(context_cache_dynamic_system_message)}
+        ]
+        if user_message:
+            dynamic_messages_override.append({"role": "user", "content": user_message})
 
     # Function calling requires non_thinking mode, otherwise Qwen API errors:
     # "tool_choice does not support required/object in thinking mode"
@@ -180,16 +264,61 @@ def query(
         params["tools"] = [tool_dict]
         params["tool_choice"] = func_spec.openai_tool_choice_dict
 
+    prepared = _prepare_context_cache(
+        params,
+        cfg=cfg,
+        stage=stage,
+        model=model,
+        role=context_cache_role,
+        stable_prefix=context_cache_stable_prefix,
+        dynamic_messages_override=dynamic_messages_override,
+        reasoning_config={
+            "profile": {key: profile[key] for key in sorted(profile)},
+            "response_format": params.get("response_format"),
+            "tool_choice": params.get("tool_choice"),
+        },
+        provider_override=provider_override,
+    )
+    params = prepared.params
+    if vllm_cache_salt is not None:
+        extra_body = dict(params.get("extra_body") or {})
+        extra_body["cache_salt"] = vllm_cache_salt
+        params["extra_body"] = extra_body
+
     t0 = time.time()
     logger.info(f"Querying OpenAI-compatible API with model: {model}")
     try:
-        completion = client.chat.completions.create(**params)
+        if prepared.telemetry is not None:
+            prepared.telemetry.request_started()
+        gate = prepared.request_gate() if prepared.request_gate else nullcontext()
+        with gate as lease:
+            completion = client.chat.completions.create(**params)
     except Exception as e:
+        _finish_telemetry(prepared, error_type=type(e).__name__)
         logger.error(f"Error calling OpenAI-compatible API: {e}")
         raise
     req_time = time.time() - t0
     choice = completion.choices[0]
     message = choice.message
+    if prepared.telemetry is not None:
+        prepared.telemetry.first_meaningful_delta()
+    in_tok = getattr(completion.usage, "prompt_tokens", 0) or 0
+    out_tok = getattr(completion.usage, "completion_tokens", 0) or 0
+    cache_usage, upstream_provider, server_metrics = _cache_response_details(
+        prepared,
+        completion,
+        prompt_tokens=in_tok,
+        output_tokens=out_tok,
+    )
+    _finish_telemetry(
+        prepared,
+        usage=cache_usage,
+        raw_usage=getattr(completion, "usage", None),
+        upstream_provider=upstream_provider,
+        finish_reason=getattr(choice, "finish_reason", None),
+        cost_usd=getattr(getattr(completion, "usage", None), "cost", None),
+        server_metrics=server_metrics,
+    )
 
     if getattr(choice, "finish_reason", None) == "length":
         logger.warning(f"Response truncated by max_tokens ({params.get('max_tokens')}), consider increasing it")
@@ -215,12 +344,13 @@ def query(
             output = _parse_json_args(json_payload)
             logger.info(f"OpenAI JSON content fallback response: {output}", extra={"verbose": True})
 
-    in_tok = getattr(completion.usage, "prompt_tokens", 0) or 0
-    out_tok = getattr(completion.usage, "completion_tokens", 0) or 0
     info = {
         "model": getattr(completion, "model", model),
         "created": getattr(completion, "created", int(time.time())),
     }
+    if prepared.family is not None:
+        info["cache_family_id"] = prepared.family.id
+        info["stable_prefix_hash"] = prepared.assembled.stable_prefix_hash if prepared.assembled else None
     return output, req_time, in_tok, out_tok, info
 
 
@@ -266,12 +396,17 @@ def generate(
     json_schema: dict | None = None,
     max_retries: int = 20,
     retry_delay: float = 3,
+    context_cache_role: str = "model_generator",
+    context_cache_stable_prefix: str | None = None,
+    _client: Any = None,
+    _provider_override: str | None = None,
+    _vllm_cache_salt: str | None = None,
 ) -> str:
     """Streaming text generation via OpenAI-compatible Chat API. Supports chat format {system, user, assistant} for Qwen."""
     stage = cfg.agent.code
     model = stage.model
     messages = _prompt_to_messages(prompt, model=model)
-    client = OpenAI(
+    client = _client or OpenAI(
         api_key=stage.api_key,
         base_url=stage.base_url or None,
         timeout=1200.0,
@@ -312,21 +447,81 @@ def generate(
         else:
             params["response_format"] = {"type": "json_object"}
 
+    prepared = _prepare_context_cache(
+        params,
+        cfg=cfg,
+        stage=stage,
+        model=model,
+        role=context_cache_role,
+        stable_prefix=context_cache_stable_prefix,
+        dynamic_messages_override=None,
+        reasoning_config={
+            "profile": {key: profile[key] for key in sorted(profile)},
+            "response_format": params.get("response_format"),
+        },
+        provider_override=_provider_override,
+    )
+    params = prepared.params
+    if _vllm_cache_salt is not None:
+        extra_body = dict(params.get("extra_body") or {})
+        extra_body["cache_salt"] = _vllm_cache_salt
+        params["extra_body"] = extra_body
+    if prepared.telemetry is not None:
+        params.setdefault("stream_options", {"include_usage": True})
+
     logger.info(f"generate messages: {len(messages)} turns", extra={"verbose": True})
     for attempt in range(max_retries):
         try:
-            stream = client.chat.completions.create(**params)
-            full_text = ""
-            for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    full_text += chunk.choices[0].delta.content
+            if prepared.telemetry is not None:
+                prepared.telemetry.request_started()
+            gate = prepared.request_gate() if prepared.request_gate else nullcontext()
+            with gate as lease:
+                stream = client.chat.completions.create(**params)
+                full_text = ""
+                stream_usage = None
+                finish_reason = None
+                last_chunk = None
+                for chunk in stream:
+                    last_chunk = chunk
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        if prepared.telemetry is not None:
+                            prepared.telemetry.first_meaningful_delta()
+                        marker = getattr(lease, "mark_warm", None)
+                        if marker is not None:
+                            marker()
+                        full_text += chunk.choices[0].delta.content
+                    if chunk.choices and getattr(chunk.choices[0], "finish_reason", None):
+                        finish_reason = chunk.choices[0].finish_reason
+                    if getattr(chunk, "usage", None) is not None:
+                        stream_usage = chunk.usage
             if "</think>" in full_text:
                 full_text = full_text[full_text.find("</think>") + 8:]
             logger.info(f"generate response: {full_text}", extra={"verbose": True})
+            raw_response = {"usage": stream_usage}
+            if last_chunk is not None and getattr(last_chunk, "provider", None):
+                raw_response["provider"] = last_chunk.provider
+            if last_chunk is not None:
+                extra = getattr(last_chunk, "model_extra", None) or {}
+                metrics = extra.get("metrics") if isinstance(extra, dict) else None
+                if metrics is not None:
+                    raw_response["metrics"] = metrics
+            cache_usage, upstream_provider, server_metrics = _cache_response_details(
+                prepared, raw_response
+            )
+            _finish_telemetry(
+                prepared,
+                usage=cache_usage,
+                raw_usage=stream_usage,
+                upstream_provider=upstream_provider,
+                finish_reason=finish_reason,
+                cost_usd=getattr(stream_usage, "cost", None),
+                server_metrics=server_metrics,
+            )
             return full_text
         except Exception as e:
             logger.warning(f"generate failed, retrying {attempt + 1}/{max_retries}: {e}")
             if attempt >= max_retries - 1:
+                _finish_telemetry(prepared, error_type=type(e).__name__)
                 logger.error("generate retry limit reached")
                 raise
             time.sleep(retry_delay)

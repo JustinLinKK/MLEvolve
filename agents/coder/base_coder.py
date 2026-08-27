@@ -39,6 +39,9 @@ def plan_and_code_query(
             prompt=prompt,
             temperature=agent_instance.acfg.code.temp,
             cfg=agent_instance.cfg,
+            context_cache_stable_prefix=(
+                prompt.get("system") if isinstance(prompt, dict) else None
+            ),
         )
         code = extract_code(completion_text)
         nl_text = extract_text_up_to_code(completion_text)

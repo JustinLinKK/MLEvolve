@@ -66,6 +66,9 @@ def diff_generate_and_apply(
         prompt=diff_prompt,
         temperature=agent_instance.acfg.code.temp,
         cfg=agent_instance.cfg,
+        context_cache_stable_prefix=(
+            diff_prompt.get("system") if isinstance(diff_prompt, dict) else None
+        ),
     )
 
     def regenerate_fn(current_code: str, retry_note: str) -> str:
@@ -84,6 +87,9 @@ def diff_generate_and_apply(
             prompt=new_prompt,
             temperature=agent_instance.acfg.code.temp,
             cfg=agent_instance.cfg,
+            context_cache_stable_prefix=(
+                new_prompt.get("system") if isinstance(new_prompt, dict) else None
+            ),
         )
 
     final_code, total_applied, _ = apply_diff_with_retry(

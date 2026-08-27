@@ -1,14 +1,19 @@
 import logging
 from . import gemini as _gemini
 from . import openai as _openai
+from . import vllm as _vllm
 from .gemini import FunctionSpec, OutputType, PromptType, compile_prompt_to_md
 from config import Config
 logger = logging.getLogger("MLEvolve")
 
 
-def _stage_config_for_model(cfg: Config | None, model: str):
+def _stage_config_for_model(
+    cfg: Config | None, model: str, stage_name: str | None = None
+):
     if cfg is None:
         return None
+    if stage_name in {"code", "feedback"}:
+        return getattr(cfg.agent, stage_name)
     if getattr(cfg.agent.code, "model", None) == model:
         return cfg.agent.code
     if getattr(cfg.agent.feedback, "model", None) == model:
@@ -16,11 +21,15 @@ def _stage_config_for_model(cfg: Config | None, model: str):
     return None
 
 
-def _provider(model: str, cfg: Config | None = None) -> str:
+def _provider(
+    model: str, cfg: Config | None = None, stage_name: str | None = None
+) -> str:
     """Select LLM backend from explicit provider first, then legacy model-name routing."""
-    stage = _stage_config_for_model(cfg, model)
+    stage = _stage_config_for_model(cfg, model, stage_name)
     provider = (getattr(stage, "provider", "") or "").lower()
-    if provider in {"openrouter", "openai", "openai-compatible"}:
+    if provider == "vllm":
+        return "vllm"
+    if provider in {"openrouter", "openai", "openai-compatible", "deepseek"}:
         return "openai"
     if provider in {"gemini", "google"}:
         return "gemini"
@@ -35,6 +44,10 @@ def query(
     max_tokens: int | None = None,
     func_spec: FunctionSpec | None = None,
     cfg:Config=None,
+    context_cache_role: str = "analysis",
+    context_cache_stable_prefix: PromptType | None = None,
+    context_cache_dynamic_system_message: PromptType | None = None,
+    stage_name: str | None = None,
     **model_kwargs,
 ) -> OutputType:
     """
@@ -75,13 +88,42 @@ def query(
     if func_spec:
         logger.info(f"function spec: {func_spec.to_dict()}", extra={"verbose": True})
 
-    provider = _provider(model, cfg)
+    cache_dynamic_system_message = (
+        compile_prompt_to_md(context_cache_dynamic_system_message)
+        if context_cache_dynamic_system_message
+        else None
+    )
+    cache_stable_prefix = (
+        compile_prompt_to_md(context_cache_stable_prefix)
+        if context_cache_stable_prefix
+        else None
+    )
+
+    if stage_name not in {None, "code", "feedback"}:
+        raise ValueError("stage_name must be 'code', 'feedback', or None")
+    provider = _provider(model, cfg, stage_name)
     if provider == "openai":
         output, req_time, in_tok_count, out_tok_count, info = _openai.query(
             system_message=system_message,
             user_message=user_message,
             func_spec=func_spec,
             cfg=cfg,
+            context_cache_role=context_cache_role,
+            context_cache_stable_prefix=cache_stable_prefix,
+            context_cache_dynamic_system_message=cache_dynamic_system_message,
+            stage_name=stage_name,
+            **model_kwargs,
+        )
+    elif provider == "vllm":
+        output, req_time, in_tok_count, out_tok_count, info = _vllm.query(
+            system_message=system_message,
+            user_message=user_message,
+            func_spec=func_spec,
+            cfg=cfg,
+            context_cache_role=context_cache_role,
+            context_cache_stable_prefix=cache_stable_prefix,
+            context_cache_dynamic_system_message=cache_dynamic_system_message,
+            stage_name=stage_name,
             **model_kwargs,
         )
     else:
@@ -106,10 +148,13 @@ def generate(
     json_schema=None,
     max_retries=20,
     retry_delay=3,
+    context_cache_role="model_generator",
+    context_cache_stable_prefix=None,
 ):
     """Streaming text generation. Dispatches to Gemini or OpenAI-compatible backend by cfg.agent.code.model."""
     model = getattr(cfg.agent.code, "model", "") or ""
-    if _provider(model, cfg) == "openai":
+    provider = _provider(model, cfg, "code")
+    if provider == "openai":
         return _openai.generate(
             prompt=prompt,
             cfg=cfg,
@@ -119,6 +164,21 @@ def generate(
             json_schema=json_schema,
             max_retries=max_retries,
             retry_delay=retry_delay,
+            context_cache_role=context_cache_role,
+            context_cache_stable_prefix=context_cache_stable_prefix,
+        )
+    if provider == "vllm":
+        return _vllm.generate(
+            prompt=prompt,
+            cfg=cfg,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stop_tokens=stop_tokens,
+            json_schema=json_schema,
+            max_retries=max_retries,
+            retry_delay=retry_delay,
+            context_cache_role=context_cache_role,
+            context_cache_stable_prefix=context_cache_stable_prefix,
         )
     return _gemini.generate(
         prompt=prompt,

@@ -110,9 +110,45 @@ def _build_review_prompt(agent: Any, node: SearchNode, code: str) -> tuple[dict[
     return prompt, hardware_ctx
 
 
+def _partition_review_cache_prompt(
+    prompt: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Separate stable reviewer rules from candidate-specific evidence."""
+
+    stable_instruction_names = {
+        "Code review guidelines",
+        "Response format",
+        "⚠️ Internet Access Clarification",
+    }
+    instructions = dict(prompt.get("Instructions") or {})
+    stable_instructions = {
+        key: value
+        for key, value in instructions.items()
+        if key in stable_instruction_names
+    }
+    dynamic_instructions = {
+        key: value
+        for key, value in instructions.items()
+        if key not in stable_instruction_names
+    }
+    stable = {
+        "Introduction": prompt.get("Introduction", ""),
+        "Instructions": stable_instructions,
+    }
+    dynamic = {
+        key: value
+        for key, value in prompt.items()
+        if key not in {"Introduction", "Instructions"}
+    }
+    if dynamic_instructions:
+        dynamic["Instructions"] = dynamic_instructions
+    return stable, dynamic
+
+
 def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecision | None, dict[str, Any]]:
     """Return a validated decision, or None when the reviewer stays unavailable/invalid."""
     prompt, hardware_ctx = _build_review_prompt(agent, node, code)
+    stable_prompt, dynamic_prompt = _partition_review_cache_prompt(prompt)
     hardware_context_used = bool(hardware_ctx.prompt_section)
     policy_issues = validate_training_precision(agent, code, context=hardware_ctx)
     retries = max(1, int(getattr(_review_config(agent), "classifier_retries", 3)))
@@ -129,6 +165,10 @@ def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecisi
                     model=agent.acfg.code.model,
                     temperature=agent.acfg.code.temp,
                     cfg=agent.cfg,
+                    stage_name="code",
+                    context_cache_role="reviewer",
+                    context_cache_stable_prefix=stable_prompt,
+                    context_cache_dynamic_system_message=dynamic_prompt,
                 ),
             )
             decision = ReviewDecision.from_mapping(response, hardware_aware=is_hardware_aware(agent))

@@ -6,6 +6,7 @@ import logging
 import sys
 
 import yaml
+import pytest
 
 import config as mle_config
 from localml_scheduler.config import SchedulerConfig
@@ -230,6 +231,38 @@ def test_scheduler_and_hardware_graph_configs_are_decoupled(tmp_path: Path) -> N
     assert settings.hardware_knowledge_graph.uri == "bolt://hardware-neo4j:7687"
     assert settings.hardware_knowledge_graph.password_env == "LOCALML_SCHEDULER_HARDWARE_NEO4J_PASSWORD"
     assert HardwareKnowledgeGraphStore(settings, driver=object()).config.uri == "bolt://hardware-neo4j:7687"
+
+
+def test_vllm_configuration_fails_before_requests_when_cache_salt_is_missing(
+    monkeypatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "vllm.yaml"
+    _write_config(path, marker="vllm")
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    payload["log_dir"] = str(tmp_path / "runs")
+    payload["workspace_dir"] = str(tmp_path / "workspaces")
+    payload["agent"]["code"].update(
+        {
+            "provider": "vllm",
+            "model": "same-model",
+            "base_url": "http://vllm:8000/v1",
+            "api_key": "",
+        }
+    )
+    payload["vllm_client"] = {
+        "cache_salt_env": "TEST_STARTUP_VLLM_SALT",
+        "require_cache_salt": True,
+        "session_affinity": True,
+    }
+    path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+
+    monkeypatch.delenv("TEST_STARTUP_VLLM_SALT", raising=False)
+    with pytest.raises(ValueError, match="32 bytes"):
+        mle_config.prep_cfg(mle_config._load_cfg(path, use_cli_args=False))
+
+    monkeypatch.setenv("TEST_STARTUP_VLLM_SALT", "z" * 32)
+    cfg = mle_config.prep_cfg(mle_config._load_cfg(path, use_cli_args=False))
+    assert cfg.agent.code.provider == "vllm"
 
 
 def test_local_compose_defines_separate_profile_and_hardware_neo4j_services() -> None:

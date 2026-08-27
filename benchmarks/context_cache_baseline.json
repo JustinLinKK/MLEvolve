@@ -1,0 +1,24 @@
+{
+  "captured_at": "2026-08-22T00:00:00Z",
+  "calls_per_primary_model": 0,
+  "live_api_measurements": false,
+  "reason": "No provider credentials or API budget were supplied to the implementation environment.",
+  "boundaries": {
+    "t0": "knowledge retrieval begins",
+    "t1": "knowledge pack and prompt prefix are ready",
+    "t2": "provider request starts",
+    "t3": "first meaningful text or complete tool-call response is available",
+    "t4": "response completes"
+  },
+  "metrics": {
+    "retrieval_ms_p50": null,
+    "retrieval_ms_p95": null,
+    "ttft_ms_p50": null,
+    "ttft_ms_p95": null,
+    "total_request_ms_p50": null,
+    "total_request_ms_p95": null,
+    "end_to_end_ms_p50": null,
+    "end_to_end_ms_p95": null
+  }
+}
+

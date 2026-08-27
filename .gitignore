@@ -107,6 +107,8 @@ config.yaml
 config/config.yaml
 localml_scheduler/configs/*.yaml
 localml_scheduler/runtime/
+var/context-cache/
+benchmark-results/context-cache/
 
 # ===== Generated Scheduler Benchmark Outputs =====
 scheduler_benchmark_test/fixtures/*_scheduler_stress*/

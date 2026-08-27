@@ -107,6 +107,7 @@ def _default_patch_generator(agent: Any, prompt: str) -> str:
             prompt=prompt,
             temperature=agent.acfg.code.temp,
             cfg=agent.cfg,
+            context_cache_role="reviewer",
         )
         or ""
     )

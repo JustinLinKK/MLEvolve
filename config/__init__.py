@@ -22,6 +22,10 @@ def _get_journal_classes():
 
 from utils import copytree, preproc_data, serialize
 from utils.precision_policy import normalize_precision_optimization_mode
+from context_cache.config import (
+    ContextCacheSettings,
+    environment_overrides as context_cache_environment_overrides,
+)
 
 shutup.mute_warnings()
 logger = logging.getLogger("MLEvolve")
@@ -54,6 +58,15 @@ class StageConfig:
     base_url: str
     api_key: str
     provider: str = ""
+
+
+@dataclass
+class VLLMClientConfig:
+    """Client-only controls for an OpenAI-compatible vLLM deployment."""
+
+    cache_salt_env: str = "MLEVOLVE_VLLM_CACHE_SALT"
+    require_cache_salt: bool = True
+    session_affinity: bool = True
 
 @dataclass
 class DecayConfig:
@@ -265,6 +278,8 @@ class Config(Hashable):
 
     coldstart: ColdstartConfig
 
+    context_cache: ContextCacheSettings = field(default_factory=ContextCacheSettings)
+    vllm_client: VLLMClientConfig = field(default_factory=VLLMClientConfig)
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     use_grading_server: bool = True
     init_solution: InitSolutionConfig = field(default_factory=InitSolutionConfig)
@@ -321,6 +336,9 @@ def _load_cfg(path: str | Path | None = None, use_cli_args=True) -> Config:
     env_mode = os.getenv("MLEVOLVE_EXPERIMENT_MODE")
     if env_mode:
         cfg = OmegaConf.merge(cfg, {"experiment": {"mode": env_mode}})
+    cache_overrides = context_cache_environment_overrides()
+    if cache_overrides:
+        cfg = OmegaConf.merge(cfg, {"context_cache": cache_overrides})
     if use_cli_args:
         cfg = OmegaConf.merge(cfg, OmegaConf.from_cli())
     return cfg
@@ -369,6 +387,31 @@ def prep_cfg(cfg: Config):
     # validate the config
     cfg_schema: Config = OmegaConf.structured(Config)
     cfg = OmegaConf.merge(cfg_schema, cfg)
+    validated_context_cache = ContextCacheSettings.from_mapping(cfg.context_cache)
+    for field_name in ContextCacheSettings.__dataclass_fields__:
+        setattr(
+            cfg.context_cache,
+            field_name,
+            getattr(validated_context_cache, field_name),
+        )
+    vllm_stages = [
+        stage
+        for stage in (cfg.agent.code, cfg.agent.feedback)
+        if str(getattr(stage, "provider", "") or "").strip().lower() == "vllm"
+    ]
+    if vllm_stages:
+        for stage in vllm_stages:
+            if not str(getattr(stage, "base_url", "") or "").strip():
+                raise ValueError("A vLLM stage requires agent.<stage>.base_url")
+        salt_env = str(cfg.vllm_client.cache_salt_env or "").strip()
+        if cfg.vllm_client.require_cache_salt:
+            if not salt_env:
+                raise ValueError("vllm_client.cache_salt_env must not be empty")
+            salt = os.getenv(salt_env, "")
+            if len(salt.encode("utf-8")) < 32:
+                raise ValueError(
+                    f"{salt_env} must contain at least 32 bytes of private cache salt"
+                )
     cfg.experiment.mode = normalize_experiment_mode(cfg.experiment.mode)
     cfg.agent.precision_optimization_mode = normalize_precision_optimization_mode(
         cfg.agent.precision_optimization_mode
