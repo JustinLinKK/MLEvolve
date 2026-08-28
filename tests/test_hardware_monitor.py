@@ -96,3 +96,16 @@ def test_hardware_monitor_writes_bounded_compressed_csv(tmp_path: Path) -> None:
     assert len(rows) <= 10
     assert "sample_count" in rows[0]
     assert sum(int(row.get("sample_count") or "1") for row in rows) == 18
+
+
+def test_hardware_monitor_uses_configured_nvidia_smi_path(
+    tmp_path: Path, monkeypatch
+) -> None:
+    binary = tmp_path / "nvidia-smi"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setenv("MLEVOLVE_NVIDIA_SMI", str(binary))
+    cfg = SimpleNamespace(log_dir=tmp_path, monitor=SimpleNamespace(enabled=True))
+
+    monitor = HardwareMonitor(cfg)
+
+    assert monitor._nvidia_smi_path == str(binary)

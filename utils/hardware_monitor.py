@@ -47,6 +47,17 @@ CSV_FIELDS = [
 ]
 
 
+def _resolve_nvidia_smi() -> str | None:
+    configured = os.environ.get("MLEVOLVE_NVIDIA_SMI")
+    if configured and Path(configured).is_file():
+        return configured
+    discovered = shutil.which("nvidia-smi")
+    if discovered:
+        return discovered
+    wsl_binary = Path("/usr/lib/wsl/lib/nvidia-smi")
+    return str(wsl_binary) if wsl_binary.is_file() else None
+
+
 @dataclass
 class GpuSample:
     index: str
@@ -130,7 +141,7 @@ class HardwareMonitor:
         self._end_monotonic = 0.0
         self._start_wall = ""
         self._end_wall = ""
-        self._nvidia_smi_path = shutil.which("nvidia-smi")
+        self._nvidia_smi_path = _resolve_nvidia_smi()
         self._gpu_discovery_status = "not checked"
         self._cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "unset")
 
