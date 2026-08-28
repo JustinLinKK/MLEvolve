@@ -117,9 +117,7 @@ class HardwareKnowledgeClient:
             else None
         )
         self.store = _EmptyProfileStore(self.settings, self)
-        self.knowledge = SchedulerKnowledgeBase(
-            self.store, redis_cache=self._hardware_neighborhood_cache
-        )
+        self.knowledge = SchedulerKnowledgeBase(self.store)
         self.profile_evidence_used = False
 
     def attach_scheduler_client(self, scheduler_client: Any | None) -> None:
@@ -134,9 +132,7 @@ class HardwareKnowledgeClient:
             self.store = scheduler_client.store
         else:
             self.store = _EmptyProfileStore(self.settings, self)
-        self.knowledge = SchedulerKnowledgeBase(
-            self.store, redis_cache=self._hardware_neighborhood_cache
-        )
+        self.knowledge = SchedulerKnowledgeBase(self.store)
         self.profile_evidence_used = False
 
     @property
