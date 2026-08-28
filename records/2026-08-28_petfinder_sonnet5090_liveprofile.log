@@ -1,0 +1,111 @@
+[2026-08-28 15:26:23,662] INFO: Starting run "20260828_152623_petfinder_sonnet5090_liveprofile"
+[2026-08-28 15:26:23,663] INFO: Hardware monitor started: interval=5.0s, samples=/home/justin/MLEvolve/runs/20260828_152623_petfinder_sonnet5090_liveprofile/logs/hardware_samples.csv, report=/home/justin/MLEvolve/runs/20260828_152623_petfinder_sonnet5090_liveprofile/logs/hardware_report.md
+[2026-08-28 15:26:23,684] INFO: Loading guidance from knowledge base
+[2026-08-28 15:26:23,684] INFO: Guidance description: None model
+[2026-08-28 15:26:23,688] INFO: Extracting: /home/justin/MLEvolve/runs/20260828_152623_petfinder_sonnet5090_liveprofile/workspace/input/petfinder-pawpularity-score.zip
+[2026-08-28 15:26:33,495] INFO: Task description cleaned for code review
+[2026-08-28 15:26:33,498] INFO: Added submission format example from sample_submission.csv
+[2026-08-28 15:26:33,498] INFO: Generating Task desc: 
+  ## Task goal
+
+Petfinder Pawpularity task 1. Using only files in ./input, train a reproducible GPU model to minimize held-out validation root mean squared error for Pawpularity. Write ./submission/submission.csv with Id and Pawpularity. Print Final Validation Score followed by the numeric RMSE. Do not use network downloads or external data. Train for at most 3 epochs including warm-up and use early stopping if appropriate.
+
+## Task evaluation
+
+Minimize held-out validation RMSE; lower is better.
+
+============================================================
+**REQUIRED SUBMISSION FORMAT**
+============================================================
+The final submission file must match this format:
+
+                              Id  Pawpularity
+4128bae22183829d2b5fea10effdb0c3        67.75
+43a2262d7738e3d420d453815151079e        59.15
+4e429cead1848a298432a0acad014c9d        20.02
+80bc3ccafcc51b66303c2c263aa38486        94.53
+8f49844c382931444e68dffbe20228f4        89.82
+
+(Showing first 5 rows as example)
+============================================================
+**Submission File Location**: Must save the submission to `./submission/submission.csv`
+. 
+
+[2026-08-28 15:26:33,498] INFO: ================================================================================
+[2026-08-28 15:26:33,498] INFO: Starting pre-determination of metric optimization direction...
+[2026-08-28 15:26:33,498] INFO: ================================================================================
+[2026-08-28 15:26:33,498] INFO: Attempt 1/3 to determine metric direction...
+[2026-08-28 15:26:41,089] INFO: ================================================================================
+[2026-08-28 15:26:41,089] INFO: Pre-determination completed successfully:
+[2026-08-28 15:26:41,089] INFO:   - lower_is_better = True
+[2026-08-28 15:26:41,089] INFO:   - maximize = False
+[2026-08-28 15:26:41,089] INFO:   - Reasoning: The task explicitly states: 'Minimize held-out validation RMSE; lower is better.' RMSE (Root Mean Squared Error) is an error metric, so lower values indicate better model performance.
+[2026-08-28 15:26:41,089] INFO: ================================================================================
+[2026-08-28 15:26:41,089] INFO: All subsequent nodes MUST use maximize=False, otherwise they will be marked as buggy
+[2026-08-28 15:26:41,089] INFO: ================================================================================
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/199 [00:00<?, ?it/s]Loading weights:  64%|██████▍   | 127/199 [00:00<00:00, 1269.34it/s]Loading weights: 100%|██████████| 199/199 [00:00<00:00, 1448.31it/s]
+[2026-08-28 15:26:46,354] INFO: [AgentSearch] Global memory enabled and initialized at /home/justin/MLEvolve/runs/20260828_152623_petfinder_sonnet5090_liveprofile/workspace/global_memory
+[2026-08-28 15:26:46,433] INFO: Prepared and froze 6 context-cache pack(s) for run 20260828_152623_petfinder_sonnet5090_liveprofile.
+Graph evidence mirror unavailable; continuing with SQLite primary only: Couldn't connect to 127.0.0.1:7687 (resolved to ('127.0.0.1:7687',)):
+Failed to establish connection to ResolvedIPv4Address(('127.0.0.1', 7687)) (reason [Errno 111] Connection refused)
+2026-08-28 15:26:46,476 | INFO | Scheduler service started
+[2026-08-28 15:26:46,476] INFO: 🧭 localml_scheduler service started at /home/justin/MLEvolve/runs/20260828_152623_petfinder_sonnet5090_liveprofile/workspace/scheduler_runtime
+[2026-08-28 15:26:46,480] INFO: Hardware graph prewarm completed without a matching node: Couldn't connect to 127.0.0.1:7688 (resolved to ('127.0.0.1:7688',)):
+Failed to establish connection to ResolvedIPv4Address(('127.0.0.1', 7688)) (reason [Errno 111] Connection refused)
+[2026-08-28 15:26:46,483] INFO: 🚀 Scheduler execution enabled; MLEvolve will submit each node as soon as it is ready and let the scheduler choose parallelism.
+[2026-08-28 15:26:46,483] INFO: 🎯 Initial draft count: 0 (will be executed sequentially for diversity)
+[2026-08-28 15:26:46,483] INFO: 🚀 Phase 2: Pipelined parallel execution
+[2026-08-28 15:26:46,483] INFO:    - Pending draft executions: 0
+[2026-08-28 15:26:46,483] INFO:    - Remaining steps: 1
+[2026-08-28 15:26:46,483] INFO: [step_task] Processing virtual root node.
+[2026-08-28 15:26:46,484] INFO: 📤 Submitted initial step_task to fill thread pool
+[2026-08-28 15:26:47,023] INFO: 📊 Exploration mode (weight=100.00%, time=0.0%)
+[2026-08-28 15:26:47,023] INFO: [select] → node 46bf2a0b16cf4193b03b4c29155e0564 (method=expand)
+[2026-08-28 15:26:47,027] INFO: fetch_child_memory
+INFO:sentence_transformers.base.model:No device provided, using cuda:0
+INFO:sentence_transformers.base.model:Loading SentenceTransformer model from BAAI/bge-base-en-v1.5.
+Loading weights:   0%|          | 0/199 [00:00<?, ?it/s]Loading weights:  78%|███████▊  | 156/199 [00:00<00:00, 1537.24it/s]Loading weights: 100%|██████████| 199/199 [00:00<00:00, 1725.99it/s]
+[2026-08-28 15:28:02,231] INFO: Using stepwise generation route.
+[2026-08-28 15:28:02,231] INFO: Step 1/3: model_design
+[2026-08-28 15:29:13,050] INFO: Step 2/3: datatype_precision
+[2026-08-28 15:29:51,332] INFO: Step 3/3: training_evaluation
+[2026-08-28 15:30:47,013] INFO: Merging all steps...
+[2026-08-28 15:31:28,451] INFO: Stepwise generation completed.
+[2026-08-28 15:31:28,501] INFO: [draft] → node 7c4876a907fb4da5a7d224ac9fda1422 (branch=1)
+[2026-08-28 15:31:28,501] INFO: [_run_single_step] Draft node 7c4876a907fb4da5a7d224ac9fda1422 is locked.
+[2026-08-28 15:31:59,334] INFO: Node 7c4876a907fb4da5a7d224ac9fda1422 passed code review without changes
+[2026-08-28 15:31:59,799] INFO: REPL is submitting code to localml_scheduler
+[2026-08-28 15:31:59,799] INFO: Assigned scheduler submission slot: 0
+[2026-08-28 15:31:59,843] INFO: Submitted scheduler job 6695143b-ba5b-49a8-bc1c-bf246bf03adb for node 7c4876a907fb4da5a7d224ac9fda1422
+[2026-08-28 15:33:44,958] INFO: Agent is parsing execution results for node 7c4876a907fb4da5a7d224ac9fda1422
+[2026-08-28 15:34:54,740] INFO: Saved code summary for node 7c4876a907fb4da5a7d224ac9fda1422
+[2026-08-28 15:34:54,743] ERROR: Failed to connect to http://127.0.0.1:5005, connection error.
+[2026-08-28 15:34:54,743] INFO: Retrying... (1/3)
+[2026-08-28 15:34:55,743] ERROR: Failed to connect to http://127.0.0.1:5005, connection error.
+[2026-08-28 15:34:55,743] INFO: Retrying... (2/3)
+[2026-08-28 15:34:56,744] ERROR: Failed to connect to http://127.0.0.1:5005, connection error.
+[2026-08-28 15:34:56,745] ERROR: Server is not online after 3 retries.
+[2026-08-28 15:34:56,745] ERROR: An unexpected error occurred: Server at http://127.0.0.1:5005 is not online, skip this stage.
+[2026-08-28 15:34:56,745] INFO: Node 7c4876a907fb4da5a7d224ac9fda1422 format validation passed. Now checking content quality...
+[2026-08-28 15:34:56,787] INFO: [validate] node 7c4876a907fb4da5a7d224ac9fda1422: valid
+[2026-08-28 15:34:56,787] INFO: Node 7c4876a907fb4da5a7d224ac9fda1422 metric direction validated: maximize=False
+[2026-08-28 15:34:56,787] INFO: [parse] node 7c4876a907fb4da5a7d224ac9fda1422: PASS | metric=20.70016267132074
+[2026-08-28 15:34:56,792] INFO: Computing embeddings for 1 texts...
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  3.62it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  3.62it/s]
+[2026-08-28 15:34:57,071] INFO: Built vector index with 1 vectors
+INFO:memory:[GlobalMemory] Saved node 7c4876a907fb4da5a7d224ac9fda1422 (stage=draft, label=1, parent_metric=None, current_metric=20.70016267132074, exec_time=103.25933384895325)
+[2026-08-28 15:34:57,076] INFO: The metric value of node 7c4876a907fb4da5a7d224ac9fda1422 is 20.70016267132074.
+[2026-08-28 15:34:57,077] INFO: [eval] node 7c4876a907fb4da5a7d224ac9fda1422: improvement=N/A, action=continue
+[2026-08-28 15:34:57,080] INFO: [step] 46bf2a0b16cf4193b03b4c29155e0564 → 7c4876a907fb4da5a7d224ac9fda1422: metric=20.70016267132074, best=None
+[2026-08-28 15:34:57,080] INFO: Saved top1 submission for node 7c4876a907fb4da5a7d224ac9fda1422
+[2026-08-28 15:34:57,081] INFO: [best] updated: node 7c4876a907fb4da5a7d224ac9fda1422, metric=20.70016267132074
+[2026-08-28 15:34:57,083] INFO: [stats] step=2, nodes=2, branches=1, best=20.70016267132074
+[2026-08-28 15:34:57,083] INFO: ✅ Task completed: node_id=7c4876a907fb4da5a7d224ac9fda1422, step=1, is_buggy=False, metric=20.70016267132074
+[2026-08-28 15:34:57,097] INFO: Solution tree
+● None [root] (ID: 46bf2a0b16cf4193b03b4c29155e0564)
+  ● 20.700 [draft] (best) (ID: 7c4876a907fb4da5a7d224ac9fda1422)
+
+[2026-08-28 15:34:57,097] INFO: 📊 Progress: 1/1 steps completed, 0 tasks running
+2026-08-28 15:34:57,123 | INFO | Scheduler service stopped
+[2026-08-28 15:34:57,367] INFO: Hardware report written to /home/justin/MLEvolve/runs/20260828_152623_petfinder_sonnet5090_liveprofile/logs/hardware_report.md
