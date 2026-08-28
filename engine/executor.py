@@ -254,6 +254,7 @@ class Interpreter:
         self._active_procs: dict[int, subprocess.Popen] = {}
         self.scheduler_client = None
         self.scheduler_cfg = None
+        self.metric_maximize: bool | None = None
         self._scheduler_service = None
         self._scheduler_job_ids: set[str] = set()
         self._scheduler_jobs_lock = threading.Lock()
@@ -340,6 +341,10 @@ class Interpreter:
         """Route future executions through localml_scheduler."""
         self.scheduler_client = client
         self.scheduler_cfg = scheduler_cfg
+
+    def set_metric_direction(self, maximize: bool | None) -> None:
+        """Carry the task-level metric direction into every scheduler job."""
+        self.metric_maximize = None if maximize is None else bool(maximize)
 
     def set_startpoint_model_specs(self, specs: list[dict[str, Any]] | None) -> None:
         """Register ordered cold-start startpoints for derivative probe reuse."""
@@ -1043,6 +1048,7 @@ class Interpreter:
             "node_id": node_id,
             "submission_slot": process_id,
             "experiment_mode": experiment_mode,
+            "metric_maximize": self.metric_maximize,
             "detected_batch_size": detected_batch_size,
             "proposed_batch_size": detected_batch_size,
             "proposed_epochs": proposed_epochs,
@@ -1426,6 +1432,7 @@ class Interpreter:
                 "mlevolve_node_id": str(id),
                 "submission_slot": process_id,
                 "experiment_mode": experiment_mode,
+                "metric_maximize": self.metric_maximize,
                 "detected_batch_size": detected_batch_size,
                 "proposed_epochs": proposed_epochs,
                 "model_key": model_key,

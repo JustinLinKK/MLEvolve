@@ -216,6 +216,7 @@ def run():
                         scheduler_settings.runtime_root,
                     )
             interpreter.attach_scheduler(scheduler_client, scheduler_cfg)
+            interpreter.set_metric_direction(agent.metric_maximize)
             agent.attach_scheduler(scheduler_client)
             pipeline_logger.emit(
                 "scheduler_attached",
