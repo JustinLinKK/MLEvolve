@@ -142,6 +142,22 @@ def test_env_and_cli_overrides_still_win(monkeypatch, tmp_path: Path) -> None:
     assert cfg.agent.steps == 7
 
 
+def test_hardware_knowledge_mapping_is_accepted_by_unified_config(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    _write_config(path, marker="hardware-knowledge")
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    payload["hardware_knowledge"] = {
+        "enabled": True,
+        "include_profile_evidence": True,
+        "settings": {"runtime_root": "./hardware-knowledge-runtime"},
+    }
+    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    cfg = mle_config.prep_cfg(mle_config._load_cfg(path, use_cli_args=False))
+
+    assert cfg.hardware_knowledge["enabled"] is True
+
+
 def test_origin_mode_disables_hardware_context_and_scheduler(monkeypatch, tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     _write_config(path, marker="root")

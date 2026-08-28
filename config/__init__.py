@@ -278,6 +278,9 @@ class Config(Hashable):
 
     context_cache: ContextCacheSettings = field(default_factory=ContextCacheSettings)
     vllm_client: VLLMClientConfig = field(default_factory=VLLMClientConfig)
+    # Retain the independent hardware-knowledge mapping in the unified config.
+    # HardwareKnowledgeClient validates its nested settings at its own boundary.
+    hardware_knowledge: dict = field(default_factory=dict)
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     use_grading_server: bool = True
     init_solution: InitSolutionConfig = field(default_factory=InitSolutionConfig)
