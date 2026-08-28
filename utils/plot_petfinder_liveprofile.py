@@ -53,7 +53,8 @@ def main() -> None:
     metric.text(
         0.02,
         0.06,
-        "runtime profile: 49.0 s after epoch 1; calibrated to 103.3 s at completion\n"
+        "runtime profile: 49.0 s after epoch 1; observed completion: 103.3 s\n"
+        "latest runner code calibrates matching profiles at completion\n"
         "parallel_job_cap = null; placement used exclusive cold-profile fallback",
         transform=metric.transAxes,
         fontsize=9,

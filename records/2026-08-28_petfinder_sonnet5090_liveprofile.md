@@ -36,7 +36,7 @@
 | Validation RMSE | **20.70016267132074** |
 | Scheduler execution time | 103.259 s |
 | Epoch-1 runtime estimate | 48.9999 s |
-| Completed-profile calibration | 103.259 s |
+| Observed subprocess wall-clock duration | 103.259 s |
 | Peak model memory emitted by candidate | 2,808 MiB |
 | Submission | `submission_7c4876a907fb4da5a7d224ac9fda1422.csv` |
 
@@ -44,8 +44,9 @@ The first cold job necessarily used `exclusive` placement because no matching
 profile existed at submission. Crucially, the profile was created before the
 job completed; it is therefore available for the next same-signature branch.
 The first-epoch estimate was low because it did not yet include all later
-validation and submission work; completion calibration fixes that persistent
-profile for subsequent scheduling.
+validation and submission work. The completion-calibration code was added
+immediately after this run and is regression-tested; this pre-fix run itself
+still stores its original 49.0-second profile.
 
 ## Artifacts
 
