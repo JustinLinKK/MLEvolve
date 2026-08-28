@@ -1,6 +1,6 @@
 """Replay a Poisson job trace under three execution conditions and record metrics.
 
-  mp_only            no scheduler; multiprocessing with a fixed parallel cap
+  mp_only            no scheduler; sequential exclusive baseline
   scheduler_profile  localml_scheduler, prediction mode = branch_profile
   scheduler_ml       localml_scheduler, prediction mode = ml_predictor
 """
@@ -88,7 +88,7 @@ def load_trace(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def run_mp_only(trace, outdir: Path, *, max_parallel: int, python: str) -> dict:
+def run_mp_only(trace, outdir: Path, *, python: str) -> dict:
     spec_dir = outdir / "specs"
     result_dir = outdir / "results"
     spec_dir.mkdir(parents=True, exist_ok=True)
@@ -119,7 +119,7 @@ def run_mp_only(trace, outdir: Path, *, max_parallel: int, python: str) -> dict:
                         "peak_reserved_mib": payload.get("peak_reserved_mib"),
                         "peak_allocated_mib": payload.get("peak_allocated_mib")})
                 running[:] = still
-            if not block or len(running) < max_parallel:
+            if not block or not running:
                 return
             time.sleep(0.1)
 
@@ -131,7 +131,7 @@ def run_mp_only(trace, outdir: Path, *, max_parallel: int, python: str) -> dict:
             reap(block=False)
             time.sleep(min(0.05, max(0.0, target - time.time())))
         reap(block=False)
-        while len(running) >= max_parallel:
+        while running:
             reap(block=True)
         spec_path = spec_dir / f"step_{idx:03d}.json"
         spec_path.write_text(json.dumps(step))
@@ -153,14 +153,59 @@ def run_mp_only(trace, outdir: Path, *, max_parallel: int, python: str) -> dict:
     return {"t0": t0, "per_job": [records[k] for k in sorted(records)]}
 
 
-def run_scheduler(trace, outdir: Path, *, prediction_mode: str, max_parallel: int,
+def build_scheduler_settings(
+    *,
+    gpu_vram_gib: float,
+    prediction_mode: str,
+    runtime_root: Path,
+):
+    from localml_scheduler.config import (
+        GpuMemorySettings,
+        GpuProfilingSettings,
+        GpuSchedulerSettings,
+        SchedulerSettings,
+    )
+
+    gpu = GpuSchedulerSettings()
+    gpu.mode = "parallel_time_aware"
+    gpu.packing_backend = "cuda_process"
+    gpu.exclusive_fallback_enabled = True
+    # VRAM constrains admission only; timing evidence determines placement value.
+    gpu.memory = GpuMemorySettings(
+        gpu_vram_gib=gpu_vram_gib,
+        predicted_budget_fraction=0.85,
+        live_admission_stop_fraction=0.92,
+        live_admission_resume_fraction=0.87,
+    )
+    gpu.profiling = GpuProfilingSettings(
+        warmup_steps=3,
+        solo_probe_steps=6,
+        pair_probe_steps=4,
+        reuse_profile_if_confidence_ge=0.8,
+    )
+    gpu.batch_probe_enabled = False
+    return SchedulerSettings(
+        runtime_root=runtime_root,
+        scheduler_poll_interval_seconds=0.2,
+        gpu_scheduler=gpu,
+        prediction={"mode": prediction_mode},
+        graph_db={"enabled": False},
+        hardware_feature_db={"enabled": False},
+        baseline_cache={
+            "warm_queue_policy": "top_k",
+            "warm_queue_top_k": 4,
+            "entry_capacity": 8,
+            "max_ram_percent": 0.2,
+            "memory_budget_bytes": 8 * (1024 ** 3),
+        },
+    )
+
+
+def run_scheduler(trace, outdir: Path, *, prediction_mode: str,
                   gpu_vram_gib: float, timeout_s: float, runtime_root: Path,
                   ) -> dict:
     from localml_scheduler.adapters.mlevolve import build_mlevolve_job
     from localml_scheduler.client import SchedulerClient
-    from localml_scheduler.config import (
-        GpuMemorySettings, GpuProfilingSettings, GpuSchedulerSettings,
-        SchedulerSettings)
     from localml_scheduler.domain import CheckpointPolicy, ResourceRequirements
     from scheduler_benchmark_test.stress_bench.stress_runner import make_baseline_checkpoint
 
@@ -173,25 +218,11 @@ def run_scheduler(trace, outdir: Path, *, prediction_mode: str, max_parallel: in
     result_dir = outdir / "results"
     result_dir.mkdir(parents=True, exist_ok=True)
 
-    gpu = GpuSchedulerSettings()
-    gpu.mode = "parallel_time_aware"
-    gpu.packing_backend = "cuda_process"
-    gpu.exclusive_fallback_enabled = True
-    # VRAM constrains admission only; timing evidence determines placement value.
-    gpu.memory = GpuMemorySettings(gpu_vram_gib=gpu_vram_gib,
-        predicted_budget_fraction=0.85, live_admission_stop_fraction=0.92,
-        live_admission_resume_fraction=0.87)
-    gpu.profiling = GpuProfilingSettings(warmup_steps=3, solo_probe_steps=6, pair_probe_steps=4,
-        reuse_profile_if_confidence_ge=0.8)
-    gpu.parallel_job_cap = max_parallel
-    gpu.batch_probe_enabled = False
-
-    settings = SchedulerSettings(
-        runtime_root=runtime_root, scheduler_poll_interval_seconds=0.2, gpu_scheduler=gpu,
-        prediction={"mode": prediction_mode}, graph_db={"enabled": False},
-        hardware_feature_db={"enabled": False},
-        baseline_cache={"warm_queue_policy": "top_k", "warm_queue_top_k": 4, "entry_capacity": 8,
-            "max_ram_percent": 0.2, "memory_budget_bytes": 8 * (1024 ** 3)})
+    settings = build_scheduler_settings(
+        gpu_vram_gib=gpu_vram_gib,
+        prediction_mode=prediction_mode,
+        runtime_root=runtime_root,
+    )
 
     api = SchedulerClient(settings)
     service = api.create_service().start(background=True)
@@ -270,7 +301,6 @@ def main() -> int:
     ap.add_argument("--condition", required=True, choices=["mp_only", "scheduler_profile", "scheduler_ml"])
     ap.add_argument("--trace", required=True)
     ap.add_argument("--outdir", required=True)
-    ap.add_argument("--max-parallel", type=int, default=2)
     ap.add_argument("--gpu-vram-gib", type=float, default=20.0)
     ap.add_argument("--timeout-s", type=float, default=3600.0)
     ap.add_argument("--python", default=sys.executable)
@@ -284,16 +314,16 @@ def main() -> int:
     sampler.start()
     wall_start = time.time()
     if args.condition == "mp_only":
-        payload = run_mp_only(trace, outdir, max_parallel=args.max_parallel, python=args.python)
+        payload = run_mp_only(trace, outdir, python=args.python)
     else:
         mode = "branch_profile" if args.condition == "scheduler_profile" else "ml_predictor"
-        payload = run_scheduler(trace, outdir, prediction_mode=mode, max_parallel=args.max_parallel,
+        payload = run_scheduler(trace, outdir, prediction_mode=mode,
             gpu_vram_gib=args.gpu_vram_gib, timeout_s=args.timeout_s,
             runtime_root=Path(args.runtime_root or f"/tmp/sb_{args.condition}"))
     wall_end = time.time()
     gpu = sampler.stop()
     summary = {"condition": args.condition, "trace": str(args.trace), "job_count": len(trace),
-        "max_parallel": args.max_parallel, "wall_seconds": wall_end - wall_start, "gpu": gpu,
+        "admission_mode": "incremental_profile_and_telemetry", "wall_seconds": wall_end - wall_start, "gpu": gpu,
         "gpu_idle_baseline": idle}
     payload["summary"] = summary
     (outdir / "raw.json").write_text(json.dumps(payload, indent=2, default=str))
