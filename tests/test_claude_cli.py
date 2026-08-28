@@ -51,7 +51,9 @@ def test_claude_cli_query_uses_subscription_cli_without_tools(monkeypatch) -> No
     assert captured["command"] == [
         "/opt/claude",
         "-p",
-        "SYSTEM:\nSystem rule\n\nUSER:\nUser task",
+        "User task",
+        "--system-prompt",
+        "System rule",
         "--model",
         "sonnet",
         "--output-format",

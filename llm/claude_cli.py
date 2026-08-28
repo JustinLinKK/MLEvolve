@@ -35,22 +35,30 @@ def _command_path() -> str:
     )
 
 
-def _prompt(system_message: str | None, user_message: str | None) -> str:
-    parts: list[str] = []
-    if system_message:
-        parts.append(f"SYSTEM:\n{system_message.strip()}")
-    if user_message:
-        parts.append(f"USER:\n{user_message.strip()}")
-    if not parts:
+def _prompt(user_message: str | None) -> str:
+    if user_message and user_message.strip():
+        return user_message.strip()
+    return "Proceed according to the system instructions."
+
+
+def _run(
+    prompt: str,
+    *,
+    model: str,
+    json_schema: dict[str, Any] | None,
+    timeout_seconds: float,
+    system_prompt: str | None = None,
+) -> tuple[str, float, int, int, dict[str, Any]]:
+    if not prompt.strip():
         raise ValueError("Claude CLI query needs a system_message or user_message")
-    return "\n\n".join(parts)
-
-
-def _run(prompt: str, *, model: str, json_schema: dict[str, Any] | None, timeout_seconds: float) -> tuple[str, float, int, int, dict[str, Any]]:
     command = [
         _command_path(),
         "-p",
         prompt,
+    ]
+    if system_prompt and system_prompt.strip():
+        command.extend(["--system-prompt", system_prompt.strip()])
+    command.extend([
         "--model",
         model,
         "--output-format",
@@ -58,7 +66,7 @@ def _run(prompt: str, *, model: str, json_schema: dict[str, Any] | None, timeout
         "--no-session-persistence",
         "--tools",
         "",
-    ]
+    ])
     if json_schema is not None:
         command.extend(["--json-schema", json.dumps(json_schema, separators=(",", ":"))])
     started = time.monotonic()
@@ -109,7 +117,7 @@ def query(
     max_tokens = model_kwargs.get("max_tokens")
     timeout_seconds = max(1.0, float(model_kwargs.get("timeout_seconds") or 1200.0))
     schema = func_spec.json_schema if func_spec is not None else None
-    prompt = _prompt(system_message, user_message)
+    prompt = _prompt(user_message)
     if max_tokens is not None:
         prompt = f"{prompt}\n\nKeep the response within {int(max_tokens)} tokens."
     if func_spec is not None:
@@ -118,7 +126,11 @@ def query(
             "they must validate against the supplied JSON schema."
         )
     response, elapsed, input_tokens, output_tokens, info = _run(
-        prompt, model=model, json_schema=schema, timeout_seconds=timeout_seconds
+        prompt,
+        model=model,
+        json_schema=schema,
+        timeout_seconds=timeout_seconds,
+        system_prompt=system_message,
     )
     output: OutputType = response
     if func_spec is not None:
