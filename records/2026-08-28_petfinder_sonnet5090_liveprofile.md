@@ -31,7 +31,7 @@
 | Item | Value |
 |---|---:|
 | Candidate | `7c4876a907fb4da5a7d224ac9fda1422` |
-| Model | ResNet-18 tabular fusion |
+| Model | EfficientNet-B0 tabular fusion |
 | Epochs | 3 / 3 |
 | Validation RMSE | **20.70016267132074** |
 | Scheduler execution time | 103.259 s |

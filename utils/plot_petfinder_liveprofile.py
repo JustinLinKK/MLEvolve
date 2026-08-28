@@ -48,7 +48,7 @@ def main() -> None:
     metric.set_xticks(epochs)
     metric.set_xlabel("Epoch")
     metric.set_ylabel("Validation RMSE (lower is better)")
-    metric.set_title("Scheduler node 7c4876a9 — ResNet-18 tabular fusion")
+    metric.set_title("Scheduler node 7c4876a9 — EfficientNet-B0 tabular fusion")
     metric.grid(alpha=0.25)
     metric.text(
         0.02,
