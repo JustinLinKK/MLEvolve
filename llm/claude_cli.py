@@ -82,13 +82,15 @@ def _run(
         raise RuntimeError(f"Claude Code CLI error: {payload.get('result') or payload}")
     usage = payload.get("usage") or {}
     model_usage = payload.get("modelUsage") or {}
+    configured_model = model.lower()
+    reported_models = [
+        usage_info.get("canonicalModel")
+        for usage_info in model_usage.values()
+        if isinstance(usage_info, dict) and usage_info.get("canonicalModel")
+    ]
     canonical_model = next(
-        (
-            usage_info.get("canonicalModel")
-            for usage_info in model_usage.values()
-            if isinstance(usage_info, dict) and usage_info.get("canonicalModel")
-        ),
-        model,
+        (reported for reported in reported_models if configured_model in reported.lower()),
+        reported_models[0] if reported_models else model,
     )
     info = {
         "model": model,

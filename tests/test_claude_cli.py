@@ -28,7 +28,10 @@ def test_claude_cli_query_uses_subscription_cli_without_tools(monkeypatch) -> No
                     "result": "agent answer",
                     "duration_ms": 125,
                     "usage": {"input_tokens": 11, "output_tokens": 7},
-                    "modelUsage": {"claude-sonnet-5": {"canonicalModel": "claude-sonnet-5"}},
+                    "modelUsage": {
+                        "claude-haiku-4-5": {"canonicalModel": "claude-haiku-4-5"},
+                        "claude-sonnet-5": {"canonicalModel": "claude-sonnet-5"},
+                    },
                     "is_error": False,
                 }
             ),
