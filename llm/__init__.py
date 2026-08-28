@@ -2,6 +2,7 @@ import logging
 from . import gemini as _gemini
 from . import openai as _openai
 from . import vllm as _vllm
+from . import claude_cli as _claude_cli
 from .gemini import FunctionSpec, OutputType, PromptType, compile_prompt_to_md
 from config import Config
 logger = logging.getLogger("MLEvolve")
@@ -29,6 +30,8 @@ def _provider(
     provider = (getattr(stage, "provider", "") or "").lower()
     if provider == "vllm":
         return "vllm"
+    if provider in {"claude_cli", "claude-code-cli"}:
+        return "claude_cli"
     if provider in {"openrouter", "openai", "openai-compatible", "deepseek"}:
         return "openai"
     if provider in {"gemini", "google"}:
@@ -40,7 +43,7 @@ def _provider(
     raise ValueError(
         f"Unsupported or missing LLM provider {provider!r} for {stage_name or model!r}. "
         "Configure one of: vllm, openrouter, openai, openai-compatible, "
-        "deepseek, gemini, or google."
+            "deepseek, gemini, google, or claude_cli."
     )
 
 
@@ -134,6 +137,14 @@ def query(
             stage_name=stage_name,
             **model_kwargs,
         )
+    elif provider == "claude_cli":
+        output, req_time, in_tok_count, out_tok_count, info = _claude_cli.query(
+            system_message=system_message,
+            user_message=user_message,
+            func_spec=func_spec,
+            cfg=cfg,
+            **model_kwargs,
+        )
     else:
         output, req_time, in_tok_count, out_tok_count, info = _gemini.query(
             system_message=system_message,
@@ -177,6 +188,19 @@ def generate(
         )
     if provider == "vllm":
         return _vllm.generate(
+            prompt=prompt,
+            cfg=cfg,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stop_tokens=stop_tokens,
+            json_schema=json_schema,
+            max_retries=max_retries,
+            retry_delay=retry_delay,
+            context_cache_role=context_cache_role,
+            context_cache_stable_prefix=context_cache_stable_prefix,
+        )
+    if provider == "claude_cli":
+        return _claude_cli.generate(
             prompt=prompt,
             cfg=cfg,
             temperature=temperature,
