@@ -4,10 +4,15 @@ import pytest
 
 from engine.script_introspection import (
     analyze_training_batch_contract,
+    detect_epoch_count,
     detect_precision_mode,
     introspect_training_script,
 )
 from localml_scheduler.adapters.mlevolve_runner import _materialize_instrumented_script
+
+
+def test_detect_epoch_count_accepts_uppercase_max_epochs() -> None:
+    assert detect_epoch_count("MAX_EPOCHS = 25\n") == 25
 
 
 def test_introspection_extracts_quality_safe_training_contract() -> None:

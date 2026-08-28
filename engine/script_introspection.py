@@ -28,6 +28,7 @@ BATCH_PARAM_NAMES = (
 EPOCH_PARAM_NAMES = (
     "EPOCHS",
     "NUM_EPOCHS",
+    "MAX_EPOCHS",
     "epochs",
     "num_epochs",
     "max_epochs",
