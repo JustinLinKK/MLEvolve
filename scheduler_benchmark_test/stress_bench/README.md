@@ -24,5 +24,5 @@ files as historical evidence, not runnable scheduler configurations.
 ```bash
 python -m scheduler_benchmark_test.stress_bench.run_bench \
   --condition scheduler_profile --trace <trace.jsonl> --outdir <out> \
-  --max-parallel 4 --gpu-vram-gib 20
+  --gpu-vram-gib 20
 ```
