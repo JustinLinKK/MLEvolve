@@ -509,7 +509,7 @@ def _check_data_leakage(agent, node: SearchNode, response: dict):
 
 
 def _save_to_global_memory(agent, node: SearchNode):
-    if agent.global_memory and not node.is_buggy and node.metric and node.metric.value is not None:
+    if getattr(agent, "global_memory", None) and not node.is_buggy and node.metric and node.metric.value is not None:
         try:
             parent_node = node.parent
             agent.global_memory.save_node(node, parent_node)

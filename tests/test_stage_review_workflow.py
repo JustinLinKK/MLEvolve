@@ -742,6 +742,7 @@ def test_result_parser_keeps_completed_metric_when_llm_parser_is_unavailable(
             repair_instruction="retry parser",
         ).to_dict()
     ]
+    del agent.global_memory
     monkeypatch.setattr(result_parse_agent, "query", lambda **_: (_ for _ in ()).throw(RuntimeError("parser offline")))
     monkeypatch.setattr(result_parse_agent, "_validate_format_with_retry", lambda *_: None)
 
