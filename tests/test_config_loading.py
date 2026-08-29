@@ -162,6 +162,23 @@ def test_resume_journal_reuses_its_existing_run_directories(tmp_path: Path) -> N
     assert cfg.exp_name == run_root.name
 
 
+def test_resume_accepts_a_path_typed_persisted_data_directory(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    _write_config(path, marker="resume-path")
+    run_root = tmp_path / "prior-run"
+    journal_path = run_root / "logs" / "journal.json"
+    journal_path.parent.mkdir(parents=True)
+    journal_path.write_text("{}", encoding="utf-8")
+    (run_root / "workspace").mkdir()
+    raw_cfg = mle_config._load_cfg(path, use_cli_args=False)
+    raw_cfg.data_dir = tmp_path / "data"
+    raw_cfg.resume_journal = str(journal_path)
+
+    cfg = mle_config.prep_cfg(raw_cfg)
+
+    assert cfg.data_dir == (tmp_path / "data").resolve()
+
+
 def test_hardware_knowledge_mapping_is_accepted_by_unified_config(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     _write_config(path, marker="hardware-knowledge")
