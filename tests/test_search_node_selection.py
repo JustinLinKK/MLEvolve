@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from engine import node_selection
+from engine.agent_search import AgentSearch
 from engine.search_node import Journal, SearchNode
 
 
@@ -40,3 +41,26 @@ def test_root_at_draft_limit_with_locked_children_has_no_selectable_work() -> No
 
     assert node_selection.select(agent, root) is None
     assert node_selection.has_selectable_work(agent) is False
+
+
+def test_restore_search_state_releases_stale_locks_and_rebuilds_branch_indexes() -> None:
+    root = SearchNode(code="", plan="root", stage="root")
+    child = SearchNode(code="", plan="draft", parent=root, stage="draft")
+    child.branch_id = 3
+    child.lock = True
+    child.is_buggy = False
+    child.is_valid = True
+
+    search = AgentSearch.__new__(AgentSearch)
+    search.scfg = SimpleNamespace(top_candidates_size=3)
+    search.metric_maximize = False
+    search.best_metric_history = []
+
+    AgentSearch.restore_search_state(search, Journal(nodes=[root, child]))
+
+    assert search.virtual_root is root
+    assert search.current_step == 1
+    assert child.lock is False
+    assert child.expected_child_count == 0
+    assert search.branch_all_nodes == {3: [child]}
+    assert search.next_branch_id == 4

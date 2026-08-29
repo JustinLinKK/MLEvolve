@@ -284,6 +284,7 @@ class Config(Hashable):
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     use_grading_server: bool = True
     init_solution: InitSolutionConfig = field(default_factory=InitSolutionConfig)
+    resume_journal: Path | None = None
 
 
 def _get_next_logindex(dir: Path) -> int:
@@ -358,15 +359,36 @@ def prep_cfg(cfg: Config):
     if cfg.desc_file is not None:
         cfg.desc_file = Path(cfg.desc_file).resolve()
 
+    resume_journal_value = getattr(cfg, "resume_journal", None)
+    resume_journal = (
+        Path(resume_journal_value).expanduser().resolve()
+        if resume_journal_value is not None
+        else None
+    )
+    if resume_journal is not None:
+        if resume_journal.name != "journal.json" or not resume_journal.is_file():
+            raise ValueError("resume_journal must be an existing logs/journal.json file.")
+        if resume_journal.parent.name != "logs":
+            raise ValueError("resume_journal must be located directly in a run logs directory.")
+        resumed_run_root = resume_journal.parent.parent
+        resumed_workspace = resumed_run_root / "workspace"
+        if not resumed_workspace.is_dir():
+            raise ValueError("The resumed run workspace directory is missing.")
+
     top_log_dir = Path(cfg.log_dir).resolve()
     top_workspace_dir = Path(cfg.workspace_dir).resolve()
     # generate experiment name and prefix with consecutive index
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     cfg.exp_name = f"{timestamp}_{cfg.exp_name or coolname.generate_slug(3)}"
 
+    if resume_journal is not None:
+        cfg.resume_journal = resume_journal
+        cfg.exp_name = resumed_run_root.name
+        cfg.log_dir = resume_journal.parent
+        cfg.workspace_dir = resumed_workspace.resolve()
     # If log_dir and workspace_dir point to the same path, treat it as a unified
     # "runs" root and place logs/workspace under the per-run directory
-    if top_log_dir == top_workspace_dir:
+    elif top_log_dir == top_workspace_dir:
         runs_root = top_log_dir
         runs_root.mkdir(parents=True, exist_ok=True)
         per_run_root = (runs_root / cfg.exp_name).resolve()

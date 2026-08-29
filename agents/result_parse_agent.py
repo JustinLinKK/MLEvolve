@@ -1,4 +1,6 @@
 import logging
+import math
+import re
 import time
 from typing import cast
 
@@ -13,6 +15,11 @@ from agents.triggers import should_check_data_leakage
 from agents.review_contracts import ReviewIssue, append_review_issue, normalize_review_issues
 
 logger = logging.getLogger("MLEvolve")
+
+_FINAL_VALIDATION_SCORE_RE = re.compile(
+    r"Final\s+Validation\s+Score\s*:\s*"
+    r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)"
+)
 
 _RUNTIME_ISSUE_SCHEMA = {
     "type": "object",
@@ -510,6 +517,50 @@ def _save_to_global_memory(agent, node: SearchNode):
             logger.warning(f"[AgentSearch] Failed to save node {node.id} to global memory: {e}")
 
 
+def _recover_completed_result_without_llm(agent, node: SearchNode) -> bool:
+    """Recover a completed result from the mandatory final-score contract.
+
+    The language-model review is enrichment, not an execution commit point: a
+    temporary parser outage must never turn an already-completed scheduler job
+    into a failed search-tree node.
+    """
+    if node.exc_type is not None:
+        return False
+    matches = _FINAL_VALIDATION_SCORE_RE.findall(node.term_out)
+    if not matches:
+        return False
+    try:
+        metric = float(matches[-1])
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(metric) or not _check_submission_file(agent, node):
+        return False
+
+    node.is_buggy = False
+    node.metric = MetricValue(metric, maximize=agent.metric_maximize)
+    node.analysis = (
+        "Execution completed and emitted the required final validation score; "
+        "language-model result parsing was unavailable."
+    )
+    _append_runtime_issue(
+        node,
+        category="result_parser_unavailable",
+        owner="integration",
+        evidence="The execution result parser failed after retries; the final-score contract was recovered locally.",
+        repair_instruction="Restore the result-parser service for richer execution summaries.",
+        severity="warning",
+    )
+    _validate_format_with_retry(agent, node)
+    if node.is_buggy:
+        return False
+    logger.warning(
+        "[parse] recovered completed node %s from Final Validation Score without language-model parsing",
+        node.id,
+    )
+    _save_to_global_memory(agent, node)
+    return True
+
+
 def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
     max_retries = 3
     for retry_idx in range(max_retries):
@@ -627,6 +678,9 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
         except Exception as e:
             logger.warning(f"[parse] tool call failed: {e}")
             continue
+
+    if _recover_completed_result_without_llm(agent, node):
+        return node
 
     logger.error(f"All {max_retries} parse attempts failed for node {node.id}, marking as buggy")
     node.is_buggy = True

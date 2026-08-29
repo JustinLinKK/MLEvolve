@@ -43,14 +43,17 @@ class AgentSearch:
         self.scfg = cfg.agent.search
         self.task_desc = clean_task_desc(task_desc, cfg)
         self.journal = journal
+        resuming = bool(journal.nodes)
         self.data_preview: str | None = None
         self.current_step = 0
         self.current_node: SearchNode | None = None
         self.all_root = True
-        self.virtual_root = SearchNode(parent=None, plan="(root)", code="", metric=WorstMetricValue(),
-                                     stage="root")
+        self.virtual_root = None
         self.current_node_list = []
-        self.journal.append(self.virtual_root)
+        if not resuming:
+            self.virtual_root = SearchNode(parent=None, plan="(root)", code="", metric=WorstMetricValue(),
+                                           stage="root")
+            self.journal.append(self.virtual_root)
         self.best_metric: float = None
         self.best_node: SearchNode = None
         self.search_start_time = None
@@ -88,7 +91,11 @@ class AgentSearch:
 
         self.metric_maximize: bool | None = None
         self.metric_maximize_reasoning: str | None = None
-        result_parse_agent.determine_metric_direction(self)
+        if resuming:
+            self.restore_search_state(journal)
+            self.metric_maximize_reasoning = "Recovered from the persisted journal metric contract."
+        else:
+            result_parse_agent.determine_metric_direction(self)
         from utils.pipeline_logging import log_pipeline_event
 
         log_pipeline_event(
@@ -127,6 +134,75 @@ class AgentSearch:
         self.scheduler_client = scheduler_client
         self.hardware_cache_status = self._prewarm_current_hardware_context(scheduler_client)
         self.cuda_docs_status = self._attach_cuda_docs(scheduler_client)
+
+    def restore_search_state(self, journal: Journal) -> None:
+        """Rebuild runtime-only search indexes from a persisted journal.
+
+        A journal is saved after every completed node, while locks and expected
+        child counts can also contain stale in-flight state if a process exits.
+        Resuming therefore preserves completed nodes and tree links, but clears
+        only locks that cannot correspond to a live worker.
+        """
+        roots = [node for node in journal.nodes if node.stage == "root" and node.parent is None]
+        if len(roots) != 1:
+            raise ValueError("A resumable journal must contain exactly one virtual root node.")
+
+        self.journal = journal
+        self.virtual_root = roots[0]
+        self.current_step = max(0, len(journal) - 1)
+        self.current_node = None
+        self.current_node_list = []
+        self.all_root = False
+        self.branch_all_nodes = {}
+        self.branch_successful_nodes = {}
+        self.branch_node_count = {}
+        branch_ids: list[int] = []
+        valid_nodes: list[SearchNode] = []
+
+        for node in journal.nodes:
+            node.lock = False
+            node.expected_child_count = len(node.children)
+            if node.branch_id is not None:
+                branch_id = int(node.branch_id)
+                branch_ids.append(branch_id)
+                self.branch_all_nodes.setdefault(branch_id, []).append(node)
+                self.branch_node_count[branch_id] = self.branch_node_count.get(branch_id, 0) + 1
+                if node.is_buggy is False and node.metric and node.metric.value is not None:
+                    self.branch_successful_nodes.setdefault(branch_id, []).append(node)
+            if node.is_buggy is False and node.metric and node.metric.value is not None:
+                valid_nodes.append(node)
+
+        self.next_branch_id = max(branch_ids, default=0) + 1
+        if valid_nodes:
+            metric_directions = {node.metric.maximize for node in valid_nodes}
+            if len(metric_directions) != 1:
+                raise ValueError("A resumable journal contains inconsistent metric directions.")
+            self.metric_maximize = metric_directions.pop()
+            self.best_node = min(
+                valid_nodes,
+                key=lambda node: node.metric.value,
+            ) if self.metric_maximize is False else max(
+                valid_nodes,
+                key=lambda node: node.metric.value,
+            )
+            self.best_metric = self.best_node.metric.value
+            self.best_metric_history = [node.metric.value for node in valid_nodes]
+            self.top_candidates = sorted(
+                [node for node in valid_nodes if node.is_valid is not False],
+                key=lambda node: node.metric.value,
+                reverse=bool(self.metric_maximize),
+            )[: self.scfg.top_candidates_size]
+        else:
+            self.best_node = None
+            self.best_metric = None
+            self.best_metric_history = []
+            self.top_candidates = []
+
+        logger.info(
+            "Restored %s completed node(s), %s branch(es), and reset stale worker locks.",
+            self.current_step,
+            len(self.branch_all_nodes),
+        )
 
     def _attach_cuda_docs(self, scheduler_client) -> dict:
         """Construct agent-owned enrichment only in hardware-aware enabled runs."""

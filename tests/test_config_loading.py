@@ -142,6 +142,26 @@ def test_env_and_cli_overrides_still_win(monkeypatch, tmp_path: Path) -> None:
     assert cfg.agent.steps == 7
 
 
+def test_resume_journal_reuses_its_existing_run_directories(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    _write_config(path, marker="resume")
+    run_root = tmp_path / "prior-run"
+    journal_path = run_root / "logs" / "journal.json"
+    journal_path.parent.mkdir(parents=True)
+    journal_path.write_text("{}", encoding="utf-8")
+    (run_root / "workspace").mkdir()
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    payload["resume_journal"] = str(journal_path)
+    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    cfg = mle_config.prep_cfg(mle_config._load_cfg(path, use_cli_args=False))
+
+    assert cfg.resume_journal == journal_path.resolve()
+    assert cfg.log_dir == journal_path.parent.resolve()
+    assert cfg.workspace_dir == (run_root / "workspace").resolve()
+    assert cfg.exp_name == run_root.name
+
+
 def test_hardware_knowledge_mapping_is_accepted_by_unified_config(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     _write_config(path, marker="hardware-knowledge")

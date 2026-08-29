@@ -20,6 +20,7 @@ from utils.logging_config import setup_logging
 from utils.hardware_monitor import HardwareMonitor
 from utils.experiment_metrics import build_comparison_metrics, write_comparison_metrics
 from utils.pipeline_logging import PipelineActionLogger
+from utils.serialize import load_json
 import torch
 from localml_scheduler.client import SchedulerClient
 from localml_scheduler.config import SchedulerSettings
@@ -149,18 +150,21 @@ def run():
             startpoint_specs = collect_startpoint_model_specs(cfg)
             logger.info(f"Guidance description: {cfg.coldstart.description}")
 
-        with Status("Preparing agent workspace (copying and extracting files) ..."):
-            prep_agent_workspace(cfg)
+        if cfg.resume_journal is None:
+            with Status("Preparing agent workspace (copying and extracting files) ..."):
+                prep_agent_workspace(cfg)
+        else:
+            logger.info("Resuming from %s; preserving its existing workspace and scheduler state.", cfg.resume_journal)
 
         global_step = 0
 
         def cleanup():
-            if global_step == 0:
+            if global_step == 0 and cfg.resume_journal is None:
                 shutil.rmtree(cfg.workspace_dir)
 
         atexit.register(cleanup)
 
-        journal = Journal()
+        journal = load_json(cfg.resume_journal, Journal) if cfg.resume_journal is not None else Journal()
         agent = Agent(
             task_desc=task_desc,
             cfg=cfg,
@@ -260,10 +264,10 @@ def run():
         logger.info(f"🎯 Initial draft count: {initial_draft_count} (will be executed sequentially for diversity)")
 
         lock = threading.Lock()
-        completed = 0
+        completed = len(journal) - 1  # Exclude the virtual root; retained nodes count toward the same run.
 
         pending_draft_nodes = []
-        if initial_draft_count > 0 and total_steps > 0:
+        if cfg.resume_journal is None and initial_draft_count > 0 and total_steps > 0:
             logger.info(f"📝 Phase 1: Sequential draft generation (code only, {initial_draft_count} drafts)")
 
             def step_task_generate_only():

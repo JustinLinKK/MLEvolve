@@ -12,6 +12,9 @@ exp_id: ''
 log_dir: ./runs
 log_level: INFO
 workspace_dir: ./runs
+# Optional path to a stopped run's logs/journal.json. Reuses its workspace,
+# logs, scheduler state, and completed tree nodes.
+resume_journal: null
 preprocess_data: true
 copy_data: false
 experiment:

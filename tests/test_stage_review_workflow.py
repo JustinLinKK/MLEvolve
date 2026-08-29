@@ -14,6 +14,7 @@ from agents.stage_repair import group_repair_issues, repair_selected_stages
 from engine.agent_search import AgentSearch
 from engine import evaluation
 from engine.execution import validate_executed_node
+from engine.executor import ExecutionResult
 from engine.search_node import Journal, SearchNode
 from utils.metric import MetricValue
 from utils.experiment_metrics import build_comparison_metrics
@@ -677,12 +678,16 @@ def test_review_fields_round_trip_and_metrics() -> None:
     node.is_buggy = True
     node.is_valid = False
     node.exec_time = 0.0
+    node.metric = MetricValue(0.5, maximize=True)
+    node.local_best_node = node
     journal = Journal(nodes=[root, node])
     restored_journal = loads_json(dumps_json(journal), Journal)
     restored = restored_journal.nodes[1]
     assert restored.review_status == "rejected"
     assert restored.review_issues == node.review_issues
     assert restored.review_history == node.review_history
+    assert restored.parent is restored_journal.nodes[0]
+    assert restored.local_best_node is restored
 
     cfg = SimpleNamespace(
         experiment=SimpleNamespace(mode="hardware_aware"), exp_name="run", exp_id="task"
@@ -695,3 +700,42 @@ def test_review_fields_round_trip_and_metrics() -> None:
     assert metrics["review_patch_conflict_count"] == 1
     assert metrics["review_rejection_count"] == 1
     assert metrics["gpu_executions_avoided"] == 1
+
+
+def test_result_parser_keeps_completed_metric_when_llm_parser_is_unavailable(
+    tmp_path, monkeypatch
+) -> None:
+    """A feedback outage must not discard a scheduler-completed training result."""
+    node = _node()
+    workspace = tmp_path / "workspace"
+    submission_dir = workspace / "submission"
+    submission_dir.mkdir(parents=True)
+    (submission_dir / f"submission_{node.id}.csv").write_text("Id,Pawpularity\n0,50\n")
+    agent = SimpleNamespace(
+        cfg=SimpleNamespace(
+            workspace_dir=workspace,
+            exp_name="20260828_154842_petfinder",
+            experiment=SimpleNamespace(mode="hardware_aware"),
+        ),
+        acfg=SimpleNamespace(
+            feedback=SimpleNamespace(model="fake", temp=0),
+            use_global_memory=False,
+            check_data_leakage=False,
+        ),
+        metric_maximize=False,
+        metric_maximize_reasoning="Petfinder uses root mean squared error.",
+        global_memory=None,
+    )
+    result = ExecutionResult(
+        term_out=["MLEVOLVE_EPOCH_METRIC {\"epoch\": 1, \"metric\": 20.9}\nFinal Validation Score: 20.667\n"],
+        exec_time=12.0,
+        exc_type=None,
+    )
+    monkeypatch.setattr(result_parse_agent, "query", lambda **_: (_ for _ in ()).throw(RuntimeError("parser offline")))
+    monkeypatch.setattr(result_parse_agent, "_validate_format_with_retry", lambda *_: None)
+
+    parsed = result_parse_agent.run(agent, node, result)
+
+    assert parsed.is_buggy is False
+    assert parsed.metric.value == pytest.approx(20.667)
+    assert parsed.metric.maximize is False
