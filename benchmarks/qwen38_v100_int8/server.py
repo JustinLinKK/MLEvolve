@@ -21,9 +21,15 @@ from transformers import (
 
 MODEL_PATH = os.environ.get("QWEN_MODEL_PATH", "models/Qwen3.8-27B")
 QUANTIZATION = os.environ.get("QWEN_QUANTIZATION", "int8").lower()
-SERVED_MODEL_NAME = "Qwen3.8-27B-INT8-V100" if QUANTIZATION == "int8" else "Qwen3.8-27B-FP16-V100"
+if QUANTIZATION == "int8":
+    SERVED_MODEL_NAME = "Qwen3.8-27B-INT8-V100"
+elif QUANTIZATION == "prequantized":
+    SERVED_MODEL_NAME = "Qwen3.8-27B-INT8-Prequantized"
+else:
+    SERVED_MODEL_NAME = "Qwen3.8-27B-FP16-V100"
 GPU_COUNT = int(os.environ.get("QWEN_GPU_COUNT", "3"))
 MAX_GPU_MEMORY_GIB = os.environ.get("QWEN_MAX_GPU_MEMORY_GIB", "30")
+GPU0_LAYER_COUNT = int(os.environ.get("QWEN_GPU0_LAYER_COUNT", "0"))
 
 
 class ChatRequest(BaseModel):
@@ -44,13 +50,24 @@ def load_model() -> None:
     global model, tokenizer
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
     model_kwargs: dict[str, Any] = {
-        "torch_dtype": torch.float16,
-        "device_map": "balanced",
+        "torch_dtype": torch.bfloat16 if QUANTIZATION == "prequantized" else torch.float16,
         "max_memory": {index: f"{MAX_GPU_MEMORY_GIB}GiB" for index in range(GPU_COUNT)},
     }
+    if GPU0_LAYER_COUNT:
+        device_map = {"model.embed_tokens": 0}
+        device_map.update(
+            {
+                f"model.layers.{index}": 0 if index < GPU0_LAYER_COUNT else 1
+                for index in range(64)
+            }
+        )
+        device_map.update({"model.norm": 1, "model.rotary_emb": 1, "lm_head": 1})
+        model_kwargs["device_map"] = device_map
+    else:
+        model_kwargs["device_map"] = "balanced"
     if QUANTIZATION == "int8":
         model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
-    elif QUANTIZATION != "fp16":
+    elif QUANTIZATION not in {"fp16", "prequantized"}:
         raise ValueError(f"unsupported QWEN_QUANTIZATION: {QUANTIZATION}")
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_PATH,
