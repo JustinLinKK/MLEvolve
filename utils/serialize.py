@@ -1,5 +1,6 @@
 import copy
 import json
+import threading
 from pathlib import Path
 from typing import Type, TypeVar
 
@@ -66,6 +67,8 @@ def loads_json(s: str, cls: Type[G]) -> G:
 
     if isinstance(obj, Journal):
         id2nodes = {n.id: n for n in obj.nodes}
+        for node in obj.nodes:
+            node.child_count_lock = threading.Lock()
         for child_id, parent_id in obj_dict.get("node2parent", {}).items():
             id2nodes[child_id].parent = id2nodes[parent_id]
             id2nodes[child_id].__post_init__()

@@ -688,6 +688,7 @@ def test_review_fields_round_trip_and_metrics() -> None:
     assert restored.review_history == node.review_history
     assert restored.parent is restored_journal.nodes[0]
     assert restored.local_best_node is restored
+    assert restored.reached_child_limit(SimpleNamespace(num_drafts=2, num_bugs=2)) is False
 
     cfg = SimpleNamespace(
         experiment=SimpleNamespace(mode="hardware_aware"), exp_name="run", exp_id="task"
