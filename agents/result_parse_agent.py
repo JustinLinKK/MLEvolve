@@ -20,12 +20,31 @@ _FINAL_VALIDATION_SCORE_RE = re.compile(
     r"Final\s+Validation\s+Score\s*:\s*"
     r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)"
 )
+_ADVISORY_QUALITY_CATEGORY_MARKERS = (
+    "model_quality",
+    "underfit",
+    "overfit",
+    "non_improving",
+    "no_learned_signal",
+    "poor_model_performance",
+    "weak_metric",
+    "resource_utilization",
+    "auxiliary_loss_design",
+)
 
 _RUNTIME_ISSUE_SCHEMA = {
     "type": "object",
     "properties": {
         "source": {"type": "string", "description": "Use 'runtime'."},
-        "severity": {"type": "string", "enum": ["warning", "critical"]},
+        "severity": {
+            "type": "string",
+            "enum": ["warning", "critical"],
+            "description": (
+                "Use critical only when the execution result is unusable and is_bug=true. "
+                "Underfitting, overfitting, weak/non-improving metrics, and resource "
+                "utilization concerns are warnings, not execution failures."
+            ),
+        },
         "category": {"type": "string"},
         "owner": {
             "type": "string",
@@ -197,7 +216,8 @@ def get_review_func_spec(use_memory: bool) -> FunctionSpec:
         "is_bug": {
             "type": "boolean",
             "description": "true if the output log shows that the execution failed or has some bug, otherwise false. "
-                           "Focus only on actual execution errors, exceptions, or crashes.",
+                           "Focus only on actual execution errors, exceptions, crashes, or unusable outputs. "
+                           "A weak/non-improving metric or underfit/overfit model is not a bug.",
         },
         "summary": {
             "type": "string",
@@ -217,7 +237,10 @@ def get_review_func_spec(use_memory: bool) -> FunctionSpec:
         "issues": {
             "type": "array",
             "items": _RUNTIME_ISSUE_SCHEMA,
-            "description": "Stage-owned execution issues. Return [] when execution succeeded without issues.",
+            "description": (
+                "Stage-owned execution issues. Successful but weak/non-improving model quality "
+                "must be a warning; return [] when execution succeeded without issues."
+            ),
         },
     }
     required = ["is_bug", "summary", "metric", "lower_is_better", "issues"]
@@ -247,6 +270,7 @@ def _build_introduction(agent) -> str:
         "- \"lower_is_better\": (boolean) true if the metric should be minimized, false if maximized. Must be a JSON boolean (true/false), NOT a string.\n"
         "- \"issues\": (array) Stage-owned issues with source, severity, category, owner, evidence, and repair_instruction. Use [] on success.\n"
         "  Optimizer/scheduler/batch/training-loop/metric/submission issues belong to training_evaluation; cross-stage interface failures belong to integration.\n"
+        "  A completed run with a finite metric and valid submission is NOT buggy merely because it underfits, overfits, fails to improve its parent, or uses resources poorly. Record those findings as warnings and preserve the metric.\n"
     )
     if use_memory:
         intro += (
@@ -285,15 +309,27 @@ def _save_code_summary(agent, node: SearchNode, response: dict):
 
 
 def _determine_buggy(node: SearchNode, response: dict, has_csv_submission: bool):
+    """Set execution validity from hard result signals, not quality opinions."""
     failure_reasons = []
     if response["is_bug"]:
         failure_reasons.append("execution error detected")
-    if any(issue.get("severity") == "critical" for issue in (node.review_issues or [])):
-        failure_reasons.append("critical runtime issue classified")
+    if any(
+        issue.get("severity") == "critical"
+        and not _is_advisory_quality_issue(issue)
+        for issue in (node.review_issues or [])
+    ):
+        failure_reasons.append("critical runtime failure classified")
     if node.exc_type is not None:
         failure_reasons.append(f"exception raised: {node.exc_type}")
-    if response["metric"] is None:
-        failure_reasons.append("no metric value reported")
+    try:
+        has_usable_metric = response["metric"] is not None and math.isfinite(
+            float(response["metric"])
+        )
+    except (TypeError, ValueError):
+        has_usable_metric = False
+    if not has_usable_metric:
+        response["metric"] = None
+        failure_reasons.append("no finite metric value reported")
         _append_runtime_issue(
             node,
             category="missing_metric",
@@ -314,6 +350,47 @@ def _determine_buggy(node: SearchNode, response: dict, has_csv_submission: bool)
     node.is_buggy = len(failure_reasons) > 0
     if node.is_buggy:
         logger.warning(f"Node {node.id} marked as buggy: {'; '.join(failure_reasons)}")
+
+
+def _completed_execution_response(
+    node: SearchNode,
+    response: dict,
+    has_csv_submission: bool,
+) -> bool:
+    """Return whether the parser response describes a usable completed result."""
+    if response.get("is_bug") or node.exc_type is not None or not has_csv_submission:
+        return False
+    try:
+        return math.isfinite(float(response.get("metric")))
+    except (TypeError, ValueError):
+        return False
+
+
+def _normalize_runtime_issue_for_result(
+    issue: ReviewIssue,
+    *,
+    completed_successfully: bool,
+) -> ReviewIssue:
+    """Keep advisory feedback from contradicting a successful result contract."""
+    if (
+        not completed_successfully
+        or issue.severity != "critical"
+        or not _is_advisory_quality_issue(issue)
+    ):
+        return issue
+    logger.warning(
+        "Downgrading runtime issue %s from critical to warning because execution "
+        "completed with a finite metric and submission.",
+        issue.category,
+    )
+    return ReviewIssue(
+        source=issue.source,
+        severity="warning",
+        category=issue.category,
+        owner=issue.owner,
+        evidence=issue.evidence,
+        repair_instruction=issue.repair_instruction,
+    )
 
 
 def _validate_format_with_retry(agent, node: SearchNode):
@@ -517,6 +594,75 @@ def _save_to_global_memory(agent, node: SearchNode):
             logger.warning(f"[AgentSearch] Failed to save node {node.id} to global memory: {e}")
 
 
+def _completed_metric_from_contract(agent, node: SearchNode) -> float | None:
+    """Read a finite final score only from a completed job with a submission."""
+    if node.exc_type is not None:
+        return None
+    matches = _FINAL_VALIDATION_SCORE_RE.findall(node.term_out)
+    if not matches:
+        return None
+    try:
+        metric = float(matches[-1])
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(metric) or not _check_submission_file(agent, node):
+        return None
+    return metric
+
+
+def _is_advisory_quality_issue(issue: dict | ReviewIssue) -> bool:
+    if isinstance(issue, ReviewIssue):
+        raw_category = issue.category
+    else:
+        raw_category = issue.get("category")
+    category = re.sub(
+        r"[^a-z0-9]+",
+        "_",
+        str(raw_category or "").lower(),
+    ).strip("_")
+    return any(marker in category for marker in _ADVISORY_QUALITY_CATEGORY_MARKERS)
+
+
+def _recover_completed_quality_gate_result(agent, node: SearchNode) -> bool:
+    """Restore old nodes incorrectly failed only for advisory model quality."""
+    if node.review_status == "rejected":
+        return False
+    critical_issues = [
+        issue
+        for issue in (node.review_issues or [])
+        if issue.get("severity") == "critical"
+    ]
+    if not critical_issues or any(
+        not _is_advisory_quality_issue(issue) for issue in critical_issues
+    ):
+        return False
+    metric = _completed_metric_from_contract(agent, node)
+    if metric is None:
+        return False
+
+    node.review_issues = [
+        {**issue, "severity": "warning"}
+        if issue.get("severity") == "critical" and _is_advisory_quality_issue(issue)
+        else issue
+        for issue in (node.review_issues or [])
+    ]
+    node.is_buggy = False
+    node.metric = MetricValue(metric, maximize=agent.metric_maximize)
+    quality_summary = str(node.analysis or "").strip()
+    node.analysis = (
+        f"{quality_summary}\n\n" if quality_summary else ""
+    ) + "Execution succeeded; model-quality findings are advisory and the metric is preserved."
+    _validate_format_with_retry(agent, node)
+    if node.is_buggy:
+        return False
+    logger.warning(
+        "[parse] recovered completed node %s from an advisory quality-gate failure",
+        node.id,
+    )
+    _save_to_global_memory(agent, node)
+    return True
+
+
 def _recover_completed_result_without_llm(agent, node: SearchNode) -> bool:
     """Recover a completed result from the mandatory final-score contract.
 
@@ -524,16 +670,8 @@ def _recover_completed_result_without_llm(agent, node: SearchNode) -> bool:
     temporary parser outage must never turn an already-completed scheduler job
     into a failed search-tree node.
     """
-    if node.exc_type is not None:
-        return False
-    matches = _FINAL_VALIDATION_SCORE_RE.findall(node.term_out)
-    if not matches:
-        return False
-    try:
-        metric = float(matches[-1])
-    except (TypeError, ValueError):
-        return False
-    if not math.isfinite(metric) or not _check_submission_file(agent, node):
+    metric = _completed_metric_from_contract(agent, node)
+    if metric is None:
         return False
 
     node.is_buggy = False
@@ -625,13 +763,24 @@ def run(agent, node: SearchNode, exec_result: ExecutionResult) -> SearchNode:
 
             node.analysis = response["summary"]
             _save_code_summary(agent, node, response)
+            completed_successfully = _completed_execution_response(
+                node,
+                response,
+                has_csv_submission,
+            )
             try:
                 for issue in normalize_review_issues(
                     response.get("issues") or [],
                     default_source="runtime",
                     hardware_aware=_hardware_aware(agent),
                 ):
-                    append_review_issue(node, issue)
+                    append_review_issue(
+                        node,
+                        _normalize_runtime_issue_for_result(
+                            issue,
+                            completed_successfully=completed_successfully,
+                        ),
+                    )
             except Exception as exc:
                 logger.warning("Ignoring malformed runtime issue classification for node %s: %s", node.id, exc)
             _determine_buggy(node, response, has_csv_submission)

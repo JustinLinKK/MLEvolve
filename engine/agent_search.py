@@ -172,18 +172,20 @@ class AgentSearch:
         for node in journal.nodes:
             node.lock = False
             node.expected_child_count = len(node.children)
-            if (
-                node.is_buggy is True
-                and any(
+            if node.is_buggy is True:
+                parser_failed = any(
                     issue.get("category") == "result_parser_failure"
                     for issue in (node.review_issues or [])
                 )
-            ):
-                from agents.result_parse_agent import _recover_completed_result_without_llm
-
-                if _recover_completed_result_without_llm(self, node):
+                if parser_failed:
+                    if result_parse_agent._recover_completed_result_without_llm(self, node):
+                        logger.info(
+                            "Recovered persisted node %s from its final-score execution contract.",
+                            node.id,
+                        )
+                elif result_parse_agent._recover_completed_quality_gate_result(self, node):
                     logger.info(
-                        "Recovered persisted node %s from its final-score execution contract.",
+                        "Recovered persisted node %s from an advisory quality gate.",
                         node.id,
                     )
             if node.branch_id is not None:
@@ -480,6 +482,8 @@ class AgentSearch:
                             logger.info(f"Node {result_node.id} passed code review without changes")
                     self._review_training_parameters_before_submission(result_node)
                     self._validate_node_precision_before_execution(result_node)
+                    if result_node.review_status != "rejected":
+                        self._validate_node_dependencies_before_execution(result_node)
                     if result_node.review_status == "rejected":
                         if not execute_immediately:
                             result_node.pending_execution = True
@@ -598,6 +602,43 @@ class AgentSearch:
             node.review_status = "rejected"
             return False
 
+    def _validate_node_dependencies_before_execution(self, node: SearchNode) -> bool:
+        """Reject unavailable unguarded imports before any GPU submission."""
+        try:
+            from agents.review_contracts import append_review_issue
+            from agents.runtime_dependencies import (
+                execution_python_executable,
+                validate_runtime_dependencies,
+            )
+
+            dependency_issues = validate_runtime_dependencies(
+                node.code,
+                python_executable=execution_python_executable(self),
+            )
+            if not dependency_issues:
+                return True
+            for issue in dependency_issues:
+                append_review_issue(node, issue)
+            node.review_status = "rejected"
+            history = list(getattr(node, "review_history", None) or [])
+            history.append(
+                {
+                    "event": "pre_execution_dependency_rejected",
+                    "issues": [issue.to_dict() for issue in dependency_issues],
+                }
+            )
+            node.review_history = history
+            return False
+        except Exception as exc:
+            logger.warning(
+                "Pre-execution dependency validation failed for node %s; "
+                "rejecting conservatively: %s",
+                node.id,
+                exc,
+            )
+            node.review_status = "rejected"
+            return False
+
     def _review_training_parameters_before_submission(self, node: SearchNode) -> None:
         """Apply the live scheduler/graph contract to every execution path once."""
         if getattr(node, "_pre_submit_training_reviewed", False):
@@ -685,6 +726,8 @@ class AgentSearch:
         self._review_training_parameters_before_submission(node)
         if node.review_status != "rejected":
             self._validate_node_precision_before_execution(node)
+        if node.review_status != "rejected":
+            self._validate_node_dependencies_before_execution(node)
         if node.review_status == "rejected":
             self._finalize_review_rejected_node(node)
             return node
@@ -781,7 +824,12 @@ class AgentSearch:
         policy_rejected: list[SearchNode] = []
         still_runnable: list[SearchNode] = []
         for node in runnable_nodes:
-            if self._validate_node_precision_before_execution(node):
+            precision_valid = self._validate_node_precision_before_execution(node)
+            dependencies_valid = (
+                precision_valid
+                and self._validate_node_dependencies_before_execution(node)
+            )
+            if dependencies_valid:
                 still_runnable.append(node)
             else:
                 self._finalize_review_rejected_node(node)

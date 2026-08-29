@@ -4,6 +4,8 @@ import time
 
 import humanize
 
+from agents.runtime_dependencies import advertised_package_names
+
 
 def get_impl_guideline_from_agent(agent):
     """Build implementation guideline from agent config."""
@@ -37,6 +39,7 @@ def get_impl_guideline(
     pretrain_model_dir: str = "",
 ) -> dict:
     """Build implementation guideline from time and config."""
+    runtime_packages = ", ".join(advertised_package_names())
     impl_guideline = [
         f"**Resource Budget**: Time left ≈ {_format_time(tot_time_remaining)} | Steps left = {steps_remaining} | Max execution time per run = {humanize.naturaldelta(exec_timeout)}",
         "",
@@ -74,7 +77,7 @@ def get_impl_guideline(
         "",
         "📁 **Directories**: Input data in `./input/`, submission in `./submission/`, temp files in `./working/`",
         "",
-        f"📦 **Packages & Internet**: numpy, pandas, sklearn, torch, transformers, timm, xgboost, lightgbm (all pre-installed). torch.hub.load(), HuggingFace, etc. available during development."
+        f"📦 **Packages & Internet**: Guaranteed installed packages: {runtime_packages}. Do not assume unlisted third-party packages are installed; avoid them or provide an ImportError-guarded fallback. Never run pip from generated code. torch.hub.load(), HuggingFace, etc. are available during development."
         + (f" Offline models at `{pretrain_model_dir}`" if pretrain_model_dir else ""),
         "",
         "⚠️ **API Compatibility**: LightGBM/XGBoost: ❌ `fit(..., early_stopping_rounds=...)` → ✅ LightGBM: `fit(..., callbacks=[lgb.early_stopping(...)])` ✅ XGBoost: `XGBClassifier(early_stopping_rounds=...)`",

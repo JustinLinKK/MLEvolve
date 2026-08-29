@@ -16,6 +16,11 @@ from agents.prompts import (
 from agents.prompts.validation_template_prompts import get_code_review_prompt
 from agents.review_contracts import ReviewDecision, ReviewOutcome
 from agents.precision_validation import merge_precision_review_issues, validate_training_precision
+from agents.runtime_dependencies import (
+    execution_python_executable,
+    merge_dependency_review_issues,
+    validate_runtime_dependencies,
+)
 from agents.training_contract_validation import (
     merge_training_contract_review_issues,
     validate_training_contract,
@@ -156,6 +161,10 @@ def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecisi
     hardware_context_used = bool(hardware_ctx.prompt_section)
     policy_issues = validate_training_precision(agent, code, context=hardware_ctx)
     training_contract_issues = validate_training_contract(code)
+    dependency_issues = validate_runtime_dependencies(
+        code,
+        python_executable=execution_python_executable(agent),
+    )
     retries = max(1, int(getattr(_review_config(agent), "classifier_retries", 3)))
     started = time.monotonic()
     last_error = "reviewer unavailable"
@@ -181,6 +190,7 @@ def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecisi
             decision = merge_training_contract_review_issues(
                 decision, training_contract_issues
             )
+            decision = merge_dependency_review_issues(decision, dependency_issues)
             return decision, {
                 "attempts": attempt + 1,
                 "latency_seconds": time.monotonic() - started,
@@ -193,10 +203,13 @@ def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecisi
                     "Code review attempt %s/%s failed for node %s: %s",
                     attempt + 1, retries, node.id, exc,
                 )
-    if policy_issues or training_contract_issues:
+    if policy_issues or training_contract_issues or dependency_issues:
         deterministic_decision = merge_precision_review_issues(None, policy_issues)
         deterministic_decision = merge_training_contract_review_issues(
             deterministic_decision, training_contract_issues
+        )
+        deterministic_decision = merge_dependency_review_issues(
+            deterministic_decision, dependency_issues
         )
         return deterministic_decision, {
             "attempts": retries,
@@ -205,6 +218,7 @@ def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecisi
             "error": last_error,
             "deterministic_precision_validation": True,
             "deterministic_training_contract_validation": True,
+            "deterministic_dependency_validation": True,
         }
     return None, {
         "attempts": retries,
@@ -229,7 +243,13 @@ def review_and_repair(agent: Any, node: SearchNode) -> ReviewOutcome:
         )
         policy_issues = validate_training_precision(agent, node.code, context=hardware_ctx)
         training_contract_issues = validate_training_contract(node.code)
-        deterministic_issues = tuple([*policy_issues, *training_contract_issues])
+        dependency_issues = validate_runtime_dependencies(
+            node.code,
+            python_executable=execution_python_executable(agent),
+        )
+        deterministic_issues = tuple(
+            [*policy_issues, *training_contract_issues, *dependency_issues]
+        )
         if deterministic_issues:
             outcome = ReviewOutcome(
                 code=node.code,

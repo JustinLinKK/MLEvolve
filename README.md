@@ -86,7 +86,10 @@ In practice, this improves MLEvolve in three places:
 ## Setup
 
 ```bash
-pip install --no-deps -r requirements_base.txt
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+./install_dependencies.sh
 cp config.example.yaml config.yaml   # fill in hardware_knowledge + scheduler settings
 bash docker_host_databases.sh        # local Neo4j / databases
 bash bootstrap.sh                    # HWKB checks + optional knowledge ingest (MLEVOLVE_INGEST_KNOWLEDGE=1)

@@ -22,10 +22,20 @@ typer>=0.25.1
 google-genai>=2.6.0
 openai>=2.38.0
 sentence-transformers>=5.5.1
+transformers>=4.51
+
+# Generated-solution runtime contract
+Pillow>=10.4
+bayesian-optimization>=2.0
+lightgbm>=4.5
+opencv-python-headless>=4.10
+statsmodels>=0.14
+torch-geometric>=2.6
+xgboost>=2.1
 
 # Scheduler, graph, and memory backends
 faiss-cpu>=1.14.2
-mcp>=1.27.1
+mcp>=1.27.1,<2
 neo4j>=6.2.0
 psycopg[binary]>=3.2.0
 qdrant-client>=1.12,<1.14

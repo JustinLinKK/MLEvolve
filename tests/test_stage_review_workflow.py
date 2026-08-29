@@ -443,6 +443,45 @@ def test_pre_execution_guard_rejects_precision_violation_after_review_bypass() -
     assert node.review_history[-1]["event"] == "pre_execution_precision_policy_rejected"
 
 
+def test_pre_execution_guard_rejects_missing_dependency_before_dispatch() -> None:
+    search = AgentSearch.__new__(AgentSearch)
+    base = _agent()
+    search.acfg = base.acfg
+    search.cfg = base.cfg
+    search.scheduler_client = None
+    search.task_desc = base.task_desc
+    node = _node("import mlevolve_package_that_does_not_exist\n")
+    node.review_status = "unavailable_fail_open"
+
+    allowed = search._validate_node_dependencies_before_execution(node)
+
+    assert allowed is False
+    assert node.review_status == "rejected"
+    assert any(
+        issue["category"] == "missing_dependency"
+        and issue["owner"] == "integration"
+        for issue in node.review_issues
+    )
+    assert node.review_history[-1]["event"] == "pre_execution_dependency_rejected"
+
+
+def test_pre_execution_guard_allows_import_error_guarded_optional_dependency() -> None:
+    search = AgentSearch.__new__(AgentSearch)
+    base = _agent()
+    search.acfg = base.acfg
+    search.cfg = base.cfg
+    search.scheduler_client = None
+    node = _node(
+        "try:\n"
+        "    import mlevolve_package_that_does_not_exist\n"
+        "except ImportError:\n"
+        "    mlevolve_package_that_does_not_exist = None\n"
+    )
+
+    assert search._validate_node_dependencies_before_execution(node) is True
+    assert node.review_status != "rejected"
+
+
 @pytest.mark.parametrize("path", ["deferred", "scheduler_batch"])
 def test_deferred_execution_rechecks_precision_immediately_before_dispatch(
     monkeypatch: pytest.MonkeyPatch, path: str
@@ -752,3 +791,167 @@ def test_result_parser_keeps_completed_metric_when_llm_parser_is_unavailable(
     assert parsed.metric.value == pytest.approx(20.667)
     assert parsed.metric.maximize is False
     assert not any(issue["category"] == "result_parser_failure" for issue in parsed.review_issues)
+
+
+def test_result_parser_keeps_successful_underfit_run_as_valid(
+    tmp_path, monkeypatch
+) -> None:
+    """Weak model quality is advisory; it must not erase a completed metric."""
+    node = _node()
+    workspace = tmp_path / "workspace"
+    submission_dir = workspace / "submission"
+    submission_dir.mkdir(parents=True)
+    (submission_dir / f"submission_{node.id}.csv").write_text(
+        "Id,Pawpularity\n0,49.5\n1,50.5\n",
+        encoding="utf-8",
+    )
+    agent = SimpleNamespace(
+        cfg=SimpleNamespace(
+            workspace_dir=workspace,
+            exp_name="20260828_154842_petfinder",
+            experiment=SimpleNamespace(mode="hardware_aware"),
+        ),
+        acfg=SimpleNamespace(
+            feedback=SimpleNamespace(model="fake", temp=0),
+            use_global_memory=False,
+            check_data_leakage=False,
+        ),
+        metric_maximize=False,
+        metric_maximize_reasoning="Petfinder uses root mean squared error.",
+        global_memory=None,
+    )
+    result = ExecutionResult(
+        term_out=["Final Validation Score: 20.15415913449\n"],
+        exec_time=103.0,
+        exc_type=None,
+    )
+    monkeypatch.setattr(
+        result_parse_agent,
+        "query",
+        lambda **_: {
+            "is_bug": False,
+            "summary": "Run completed but the model underfit.",
+            "metric": 20.15415913449,
+            "lower_is_better": True,
+            "issues": [
+                {
+                    "source": "runtime",
+                    "severity": "critical",
+                    "category": "model_quality",
+                    "owner": "model_design",
+                    "evidence": "The score did not improve its parent.",
+                    "repair_instruction": "Try a stronger model in a later experiment.",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(result_parse_agent, "_validate_format_with_retry", lambda *_: None)
+
+    parsed = result_parse_agent.run(agent, node, result)
+
+    assert parsed.is_buggy is False
+    assert parsed.metric.value == pytest.approx(20.15415913449)
+    quality_issue = next(
+        issue for issue in parsed.review_issues if issue["category"] == "model_quality"
+    )
+    assert quality_issue["severity"] == "warning"
+
+
+def test_result_parser_still_marks_hard_execution_failure_buggy() -> None:
+    node = _node()
+    node.exc_type = "RuntimeError"
+
+    result_parse_agent._determine_buggy(
+        node,
+        {
+            "is_bug": True,
+            "metric": None,
+        },
+        has_csv_submission=False,
+    )
+
+    assert node.is_buggy is True
+    assert any(issue["category"] == "missing_metric" for issue in node.review_issues)
+    assert any(issue["category"] == "missing_submission" for issue in node.review_issues)
+
+
+def test_result_parser_keeps_non_quality_critical_issue_blocking() -> None:
+    node = _node()
+    node.review_issues = [
+        ReviewIssue(
+            source="runtime",
+            severity="critical",
+            category="data_leakage",
+            owner="model_design",
+            evidence="Validation labels entered the training features.",
+            repair_instruction="Remove validation-derived features.",
+        ).to_dict()
+    ]
+
+    result_parse_agent._determine_buggy(
+        node,
+        {
+            "is_bug": False,
+            "metric": 0.99,
+        },
+        has_csv_submission=True,
+    )
+
+    assert node.is_buggy is True
+
+
+@pytest.mark.parametrize("metric", [float("nan"), float("inf"), float("-inf")])
+def test_result_parser_rejects_nonfinite_metric(metric: float) -> None:
+    node = _node()
+
+    result_parse_agent._determine_buggy(
+        node,
+        {
+            "is_bug": False,
+            "metric": metric,
+        },
+        has_csv_submission=True,
+    )
+
+    assert node.is_buggy is True
+    assert any(issue["category"] == "missing_metric" for issue in node.review_issues)
+
+
+def test_persisted_quality_gate_failure_is_recovered(
+    tmp_path, monkeypatch
+) -> None:
+    """Old journals with the former quality-gate decision recover on resume."""
+    node = _node()
+    node.review_status = "approved"
+    node.is_buggy = True
+    node._term_out = ["Final Validation Score: 20.44862590174536\n"]
+    node.review_issues = [
+        ReviewIssue(
+            source="runtime",
+            severity="critical",
+            category="underfitting / no learned signal",
+            owner="model_design",
+            evidence="The metric was weak.",
+            repair_instruction="Try another experiment.",
+        ).to_dict()
+    ]
+    workspace = tmp_path / "workspace"
+    submission_dir = workspace / "submission"
+    submission_dir.mkdir(parents=True)
+    (submission_dir / f"submission_{node.id}.csv").write_text(
+        "Id,Pawpularity\n0,49.5\n1,50.5\n",
+        encoding="utf-8",
+    )
+    agent = SimpleNamespace(
+        cfg=SimpleNamespace(workspace_dir=workspace),
+        metric_maximize=False,
+        global_memory=None,
+    )
+    monkeypatch.setattr(result_parse_agent, "_validate_format_with_retry", lambda *_: None)
+
+    recovered = result_parse_agent._recover_completed_quality_gate_result(agent, node)
+
+    assert recovered is True
+    assert node.is_buggy is False
+    assert node.metric.value == pytest.approx(20.44862590174536)
+    assert node.review_issues[0]["severity"] == "warning"

@@ -41,6 +41,18 @@ install_git_lfs() {
   return 1
 }
 
+install_git_submodules() {
+  if [[ ! -f "$ROOT/.gitmodules" ]]; then
+    return 0
+  fi
+  if ! command -v git >/dev/null 2>&1; then
+    echo "Git is required to initialize project submodules." >&2
+    return 1
+  fi
+  git -C "$ROOT" submodule sync --recursive
+  git -C "$ROOT" submodule update --init --recursive
+}
+
 require_python() {
   if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
     echo "Python executable not found: $PYTHON_BIN" >&2
@@ -56,6 +68,8 @@ verify_imports() {
   "$PYTHON_BIN" - <<'PY'
 import importlib
 
+from agents.runtime_dependencies import guaranteed_import_names
+
 modules = [
     "backoff",
     "black",
@@ -68,6 +82,7 @@ modules = [
     "google.genai",
     "humanize",
     "mcp",
+    "mcp.server.fastmcp",
     "mlebench",
     "neo4j",
     "numpy",
@@ -89,6 +104,7 @@ modules = [
     "typer",
     "yaml",
 ]
+modules = sorted(set(modules).union(guaranteed_import_names()))
 
 missing = []
 for module in modules:
@@ -109,14 +125,17 @@ PY
 
 main() {
   require_python
+  echo "Installing into: $($PYTHON_BIN -c 'import sys; print(sys.executable)')"
   install_git_lfs
+  install_git_submodules
 
   "$PYTHON_BIN" -m pip install -r "$ROOT/requirements_base.txt" "$@"
 
   verify_imports
 
-  if ! command -v mlebench >/dev/null 2>&1; then
-    echo "mlebench CLI was not found on PATH after install." >&2
+  mlebench_bin="$($PYTHON_BIN -c 'import pathlib, sysconfig; print(pathlib.Path(sysconfig.get_path("scripts")) / "mlebench")')"
+  if [[ ! -x "$mlebench_bin" ]]; then
+    echo "mlebench CLI was not installed beside the configured Python: $mlebench_bin" >&2
     exit 1
   fi
 

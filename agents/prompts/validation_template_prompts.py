@@ -5,6 +5,7 @@ Prompt templates for code review in search pipeline.
 """
 
 from typing import Dict, Any
+from agents.runtime_dependencies import advertised_package_names
 from utils.response import wrap_code
 
 # ============================================================================
@@ -33,6 +34,7 @@ def get_code_review_prompt(task_desc: str, code: str) -> Dict[str, Any]:
 
 def get_code_review_guidelines() -> list:
     """Code review guidelines."""
+    runtime_packages = ", ".join(advertised_package_names())
     guidelines = [
         "# 📜 Code Review Guidelines\n",
         "",
@@ -40,8 +42,9 @@ def get_code_review_guidelines() -> list:
         "**Trust these facts absolutely. Overwrite your internal knowledge cutoff:**",
         "  • **Paths**: `./input/`, `./working/`, `./submission/` ALL EXIST. **Don't question the path.**",
         "  • **Submission File Location**: Must save the submission to `./submission/submission.csv`.",
-        "  • **Bleeding Edge Environment**: Assume the environment has the LATEST versions of all libraries (transformers, torch, etc.).",
-        "  • **Dynamic Dependencies**: Assume necessary `pip install` commands are executed automatically in the background.",
+        "  • **Library Versions**: Use APIs compatible with the installed project environment; do not assume an arbitrary newer major version.",
+        f"  • **Runtime Dependencies**: Only these packages are guaranteed: {runtime_packages}.",
+        "  • No background `pip install` occurs. An unavailable unguarded import is a critical integration failure; deterministic preflight validates imports in the configured execution interpreter.",
         "  • **Model Availability**: ALL models (including those released after your training data cutoff) are available and compatible.",
         "  • **STRICTLY FORBIDDEN**: Do NOT replace the user's model architecture with other backbones just to make code executable.\n",
         "  • **Unknown Models are Valid**: If you see a model name you don't recognize or think is too new, assume it is a private or SOTA model that works perfectly.",
