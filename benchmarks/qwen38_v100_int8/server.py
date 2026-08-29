@@ -45,6 +45,15 @@ tokenizer: Any | None = None
 model: Any | None = None
 
 
+def release_unused_cuda_cache() -> None:
+    """Release allocator fragments before compressed-tensor first-use unpacking."""
+    if not torch.cuda.is_available():
+        return
+    for device_index in range(torch.cuda.device_count()):
+        with torch.cuda.device(device_index):
+            torch.cuda.empty_cache()
+
+
 @app.on_event("startup")
 def load_model() -> None:
     global model, tokenizer
@@ -64,7 +73,10 @@ def load_model() -> None:
         device_map.update({"model.norm": 1, "model.rotary_emb": 1, "lm_head": 1})
         model_kwargs["device_map"] = device_map
     else:
-        model_kwargs["device_map"] = "balanced"
+        # Keep device 0 clear for compressed-tensors' first-use unpacking.
+        model_kwargs["device_map"] = (
+            "balanced_low_0" if QUANTIZATION == "prequantized" else "balanced"
+        )
     if QUANTIZATION == "int8":
         model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
     elif QUANTIZATION not in {"fp16", "prequantized"}:
@@ -105,6 +117,8 @@ def generation_kwargs(request: ChatRequest, streamer: TextIteratorStreamer | Non
 def sse_response(request: ChatRequest) -> StreamingResponse:
     assert tokenizer is not None and model is not None
     inputs = prompt_inputs(request.messages)
+    if QUANTIZATION == "prequantized":
+        release_unused_cuda_cache()
     streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
     worker = threading.Thread(
         target=model.generate,
@@ -138,6 +152,8 @@ def chat_completions(request: ChatRequest):
     if request.stream:
         return sse_response(request)
     inputs = prompt_inputs(request.messages)
+    if QUANTIZATION == "prequantized":
+        release_unused_cuda_cache()
     started = time.perf_counter()
     with torch.inference_mode():
         generated = model.generate(**inputs, **generation_kwargs(request))
