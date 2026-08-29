@@ -159,9 +159,33 @@ class AgentSearch:
         branch_ids: list[int] = []
         valid_nodes: list[SearchNode] = []
 
+        persisted_valid_nodes = [
+            node for node in journal.nodes
+            if node.is_buggy is False and node.metric and node.metric.value is not None
+        ]
+        persisted_directions = {node.metric.maximize for node in persisted_valid_nodes}
+        if len(persisted_directions) > 1:
+            raise ValueError("A resumable journal contains inconsistent metric directions.")
+        if persisted_directions:
+            self.metric_maximize = persisted_directions.pop()
+
         for node in journal.nodes:
             node.lock = False
             node.expected_child_count = len(node.children)
+            if (
+                node.is_buggy is True
+                and any(
+                    issue.get("category") == "result_parser_failure"
+                    for issue in (node.review_issues or [])
+                )
+            ):
+                from agents.result_parse_agent import _recover_completed_result_without_llm
+
+                if _recover_completed_result_without_llm(self, node):
+                    logger.info(
+                        "Recovered persisted node %s from its final-score execution contract.",
+                        node.id,
+                    )
             if node.branch_id is not None:
                 branch_id = int(node.branch_id)
                 branch_ids.append(branch_id)

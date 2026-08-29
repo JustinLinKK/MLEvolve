@@ -537,6 +537,11 @@ def _recover_completed_result_without_llm(agent, node: SearchNode) -> bool:
         return False
 
     node.is_buggy = False
+    node.review_issues = [
+        issue
+        for issue in (node.review_issues or [])
+        if issue.get("category") != "result_parser_failure"
+    ]
     node.metric = MetricValue(metric, maximize=agent.metric_maximize)
     node.analysis = (
         "Execution completed and emitted the required final validation score; "

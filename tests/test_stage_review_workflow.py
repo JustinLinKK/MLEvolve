@@ -732,6 +732,16 @@ def test_result_parser_keeps_completed_metric_when_llm_parser_is_unavailable(
         exec_time=12.0,
         exc_type=None,
     )
+    node.review_issues = [
+        ReviewIssue(
+            source="runtime_validator",
+            severity="critical",
+            category="result_parser_failure",
+            owner="integration",
+            evidence="parser unavailable",
+            repair_instruction="retry parser",
+        ).to_dict()
+    ]
     monkeypatch.setattr(result_parse_agent, "query", lambda **_: (_ for _ in ()).throw(RuntimeError("parser offline")))
     monkeypatch.setattr(result_parse_agent, "_validate_format_with_retry", lambda *_: None)
 
@@ -740,3 +750,4 @@ def test_result_parser_keeps_completed_metric_when_llm_parser_is_unavailable(
     assert parsed.is_buggy is False
     assert parsed.metric.value == pytest.approx(20.667)
     assert parsed.metric.maximize is False
+    assert not any(issue["category"] == "result_parser_failure" for issue in parsed.review_issues)
