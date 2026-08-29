@@ -164,17 +164,23 @@ def generate(base_path, include_file_details=True, simple=False):
         for fn in _walk(base_path):
             file_name = str(fn.relative_to(base_path))
 
-            if fn.suffix == ".csv":
-                out.append(preview_csv(fn, file_name, simple=simple))
-            elif fn.suffix == ".json":
-                out.append(preview_json(fn, file_name))
-            elif fn.suffix in plaintext_files:
-                if get_file_len_size(fn)[0] < 30:
-                    with open(fn) as f:
-                        content = f.read()
-                        if fn.suffix in code_files:
-                            content = f"```\n{content}\n```"
-                        out.append(f"-> {file_name} has content:\n\n{content}")
+            try:
+                if fn.suffix == ".csv":
+                    out.append(preview_csv(fn, file_name, simple=simple))
+                elif fn.suffix == ".json":
+                    out.append(preview_json(fn, file_name))
+                elif fn.suffix in plaintext_files:
+                    if get_file_len_size(fn)[0] < 30:
+                        with open(fn) as f:
+                            content = f.read()
+                            if fn.suffix in code_files:
+                                content = f"```\n{content}\n```"
+                            out.append(f"-> {file_name} has content:\n\n{content}")
+            except OSError:
+                # A candidate can remove a transient file after _walk() has
+                # yielded it.  Data previews are advisory and must not block
+                # the scheduler from progressing to the next candidate.
+                continue
 
     base_path_obj = Path(base_path)
     input_dir = base_path_obj / "input"
