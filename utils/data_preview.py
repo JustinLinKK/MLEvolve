@@ -23,12 +23,18 @@ def get_file_len_size(f: Path) -> tuple[int, str]:
     Calculate the size of a file (#lines for plaintext files, otherwise #bytes)
     Also returns a human-readable string representation of the size.
     """
-    if f.suffix in plaintext_files:
-        num_lines = sum(1 for _ in open(f))
-        return num_lines, f"{num_lines} lines"
-    else:
-        s = f.stat().st_size
-        return s, humanize.naturalsize(s)
+    try:
+        if f.suffix in plaintext_files:
+            with f.open() as handle:
+                num_lines = sum(1 for _ in handle)
+            return num_lines, f"{num_lines} lines"
+
+        size = f.stat().st_size
+        return size, humanize.naturalsize(size)
+    except OSError:
+        # Candidate processes can remove transient logs while this advisory
+        # preview is being generated; the preview must not block scheduling.
+        return 0, "unavailable"
 
 
 def file_tree(path: Path, depth=0) -> str:
