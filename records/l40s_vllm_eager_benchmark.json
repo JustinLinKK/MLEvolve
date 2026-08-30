@@ -1,0 +1,74 @@
+{
+  "hardware": "1x NVIDIA L40S",
+  "runtime": "vLLM 0.28.0; text-only; INT8 W8A16 compressed-tensors/Marlin; FlashAttention2; FlashInfer; Qwen GDN Triton/FLA prefill + CUDA decode",
+  "server": {
+    "max_model_len": 8192,
+    "gpu_memory_utilization": 0.85,
+    "enforce_eager": true
+  },
+  "warmup_excluded": {
+    "ttft_s": 0.14733675699972082,
+    "e2e_s": 3.0583952870001667,
+    "completion_tokens": 64,
+    "decode_tps": 21.641612269468986,
+    "whole_tps": 20.926006612694767,
+    "text": "We need answer user's request: \"Write a concise factual paragraph of approximately fifty English words about why a local language model reduces experimental latency.\" Need produce final only paragraph approx 50 English words. Need count words. Let's draft around 50 words.\n\nDraft: \"A local language model reduces experimental latency"
+  },
+  "streaming_trials": [
+    {
+      "ttft_s": 0.13116205900587374,
+      "e2e_s": 3.0275862100024824,
+      "completion_tokens": 64,
+      "decode_tps": 21.75095797979823,
+      "whole_tps": 21.13895214232315,
+      "text": "We need answer user's request: \"Write a concise factual paragraph of approximately fifty English words about why a local language model reduces experimental latency.\" Need produce final only paragraph approx 50 English words. Need count words. Let's draft around 50 words.\n\nDraft: \"A local language model reduces experimental latency"
+    },
+    {
+      "ttft_s": 0.13222205400234088,
+      "e2e_s": 3.0540106120024575,
+      "completion_tokens": 64,
+      "decode_tps": 21.562135229635423,
+      "whole_tps": 20.956050299391855,
+      "text": "We need answer user's request: \"Write a concise factual paragraph of approximately fifty English words about why a local language model reduces experimental latency.\" Need produce final only paragraph approx 50 English words. Need count words. Let's draft around 50 words.\n\nDraft: \"A local language model reduces experimental latency"
+    },
+    {
+      "ttft_s": 0.13294037400191883,
+      "e2e_s": 3.0732793700008187,
+      "completion_tokens": 64,
+      "decode_tps": 21.426100897116957,
+      "whole_tps": 20.82466066206762,
+      "text": "We need answer user's request: \"Write a concise factual paragraph of approximately fifty English words about why a local language model reduces experimental latency.\" Need produce final only paragraph approx 50 English words. Need count words. Let's draft around 50 words.\n\nDraft: \"A local language model reduces experimental latency"
+    }
+  ],
+  "batch4": {
+    "requests": [
+      {
+        "index": 0,
+        "latency_s": 6.032189195997489,
+        "completion_tokens": 64,
+        "text": "We need answer user's request: \"Write a concise factual paragraph of approximately fifty English words about why a local language model reduces experimental latency.\" Need produce final only paragraph approx 50 English words. Need count words. Let's draft around 50 words.\n\nDraft: \"A local language model reduces experimental latency"
+      },
+      {
+        "index": 1,
+        "latency_s": 6.028499605003162,
+        "completion_tokens": 64,
+        "text": "We need answer user's request: \"Write a concise factual paragraph of approximately fifty English words about why a local language model reduces experimental latency.\" Need produce final only paragraph approx 50 English words. Need count words. Let's draft around 50 words.\n\nDraft: \"A local language model reduces experimental latency"
+      },
+      {
+        "index": 2,
+        "latency_s": 6.03045347200532,
+        "completion_tokens": 64,
+        "text": "We need answer user's request: \"Write a concise factual paragraph of approximately fifty English words about why a local language model reduces experimental latency.\" Need produce final only paragraph approx 50 English words. Need count words. Let's draft around 50 words.\n\nDraft: \"A local language model reduces experimental latency"
+      },
+      {
+        "index": 3,
+        "latency_s": 6.028770775999874,
+        "completion_tokens": 64,
+        "text": "We need answer user's request: \"Write a concise factual paragraph of approximately fifty English words about why a local language model reduces experimental latency.\" Need produce final only paragraph approx 50 English words. Need count words. Let's draft around 50 words.\n\nDraft: \"A local language model reduces experimental latency"
+      }
+    ],
+    "wall_s": 6.033668677002424,
+    "aggregate_completion_tokens": 256,
+    "aggregate_tps": 42.428580968616075
+  }
+}
