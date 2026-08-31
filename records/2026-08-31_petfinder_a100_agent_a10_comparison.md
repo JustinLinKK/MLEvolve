@@ -114,3 +114,19 @@ prediction, scheduler/HWKD/preflight enabled, and both
 then passed 81/81 both locally and inside the A10 Pod. These tests cover profile
 persistence, epoch-based estimation when no runtime profile exists, zero-value
 fallback, and per-job fallback from an unavailable predictor to branch profiles.
+
+### Effective-node visualization validation
+
+The comparison renderer now imports the same `node_counts_toward_budget`
+helper used by the live runner and final phase verifier. Consequently, a buggy
+node with less than 60 seconds of execution remains in the raw journal but is
+absent from both the Gantt chart and completed-node count; a long failed run
+still appears and consumes a node. The metric graph renumbers the filtered
+nodes consecutively, so its horizontal axis is the budget-counted node number
+rather than the raw attempt number. The plot title also records the actual
+A100-hosted Qwen agent and one-A10 execution setup.
+
+A preview made from the live baseline journal reported 10/50 completed nodes,
+6 scored nodes, best RMSE 18.1561, and a 1.44-hour span. The preview was checked
+visually at `.cache/petfinder_a100_a10_live/baseline_preview.png`. Focused
+accounting and renderer regression tests passed 4/4.

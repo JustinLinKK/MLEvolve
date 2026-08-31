@@ -2,8 +2,8 @@
 
 Each run occupies one column. The top row is a Gantt view of completed node
 windows and the bottom row is validation RMSE versus search step. The script
-accepts any number of runs, but the live experiment passes the A100 baseline,
-A100 scheduler plus Hardware Knowledge Database, and A10 scheduler journals.
+accepts any number of runs. The current comparison uses an A100-hosted Qwen
+agent and runs both baseline and profile-based scheduler workloads on one A10.
 """
 
 from __future__ import annotations
@@ -21,6 +21,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+
+from engine.node_accounting import node_counts_toward_budget
 
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = REPO / "records/petfinder_a100_a10_scheduler_comparison.png"
@@ -86,7 +88,7 @@ def load_run(spec: RunSpec) -> LoadedRun:
 
     nodes: list[NodeWindow] = []
     for raw in raw_nodes:
-        if raw.get("stage") == "root":
+        if not node_counts_toward_budget(raw):
             continue
         created_time = raw.get("created_time")
         finish_time = raw.get("finish_time")
@@ -102,7 +104,7 @@ def load_run(spec: RunSpec) -> LoadedRun:
         nodes.append(
             NodeWindow(
                 node_id=str(raw.get("id") or "unknown"),
-                step=int(raw.get("step") or 0),
+                step=len(nodes) + 1,
                 created_at=created_at,
                 finished_at=finished_at,
                 execution_seconds=max(0.0, float(raw.get("exec_time") or 0.0)),
@@ -231,7 +233,7 @@ def _draw_metrics(ax, run: LoadedRun) -> None:
             f"best RMSE {min(ys):.4f} from {len(points)} scored nodes", fontsize=9
         )
         ax.legend(fontsize=8)
-    ax.set_xlabel("search step")
+    ax.set_xlabel("budget-counted node")
     ax.set_ylabel("validation RMSE (lower is better)")
     ax.set_xlim(
         0,
@@ -260,7 +262,8 @@ def render_comparison(runs: Sequence[LoadedRun], output: Path) -> None:
             axis.set_ylim(lower - padding, upper + padding)
 
     figure.suptitle(
-        "PetFinder Pawpularity | L40S local Qwen agent | profile-based scheduling | no fixed job cap",
+        "PetFinder Pawpularity | A100 Qwen agent | A10 execution | "
+        "profile-based scheduling | no fixed job cap",
         fontsize=12,
     )
     figure.legend(

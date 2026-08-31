@@ -54,13 +54,23 @@ def _write_journal(path) -> None:
                         "metric": {"value": None, "maximize": None},
                         "is_buggy": True,
                     },
+                    {
+                        "id": "long_failure",
+                        "stage": "improve",
+                        "step": 4,
+                        "created_time": "2026-08-30T00:09:00",
+                        "finish_time": "2026-08-30T00:11:00",
+                        "exec_time": 75.0,
+                        "metric": {"value": None, "maximize": None},
+                        "is_buggy": True,
+                    },
                 ]
             }
         )
     )
 
 
-def test_load_run_and_execution_concurrency(tmp_path) -> None:
+def test_load_run_excludes_quick_failures_from_completed_nodes(tmp_path) -> None:
     journal = tmp_path / "journal.json"
     _write_journal(journal)
 
