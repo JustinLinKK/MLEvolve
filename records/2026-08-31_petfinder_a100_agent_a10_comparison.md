@@ -158,3 +158,11 @@ Immediately before it, a separate overlapping candidate encountered CUDA
 Out-of-Memory after only 36.49 seconds. That quick failure is retained as raw
 attempt 24 but excluded from the effective-node total, directly validating the
 requested short-failure accounting rule under a real memory-pressure event.
+
+At 2026-08-31 23:54 UTC, the baseline reached 16/50 effective nodes. The
+effective node ran for 7,207.66 seconds and hit its two-hour execution limit
+after completing five-fold CNN validation but before full-data retraining, so
+it correctly counts as a long attempted node. Two intervening attempts failed
+after 38.96 seconds (invalid tensor dimensionality) and 28.24 seconds (CUDA
+Out-of-Memory); both remain diagnostic journal entries but are excluded from
+the effective-node budget. Two other candidate processes remained active.
