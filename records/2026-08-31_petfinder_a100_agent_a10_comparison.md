@@ -5,7 +5,7 @@
 Running. The A100 agent deployment and serving benchmark are complete. The
 fresh same-agent comparison is in the original-MLEvolve baseline phase; the
 profile-based scheduler plus Hardware Knowledge Database phase will start only
-after the baseline retains exactly 50 nodes.
+after the baseline completes 50 budget-counted nodes.
 
 ## A100 agent deployment
 
@@ -41,8 +41,8 @@ and metric-node image is
 - Execution GPU: exactly one NVIDIA A10, exposed as `CUDA_VISIBLE_DEVICES=0`
   inside `gpu-dev-a10-experiment-746c959459-2xwdd`.
 - Task: PetFinder Pawpularity Score.
-- Both phases use the same A100 Agent endpoint, model, seed 42, and 50 retained
-  nodes.
+- Both phases use the same A100 Agent endpoint, model, seed 42, and 50
+  budget-counted nodes.
 - Both phases use a 43,200-second search budget. The original 28,800-second
   value was too close to the projected wall time at the measured 13.21
   tokens/second and would eventually make the prompt's remaining-time value
@@ -63,8 +63,8 @@ and metric-node image is
   the 50-node budget. Successful fast nodes and failures lasting at least 60
   seconds still count. The original baseline source remains unchanged; the
   experiment uses an isolated copy with only this shared accounting rule.
-- The sequence controller validates the retained journal count and refuses to
-  advance after an early exit with fewer than 50 nodes.
+- The sequence controller validates the budget-counted journal total and
+  refuses to advance after an early exit with fewer than 50 effective nodes.
 
 Active comparison root:
 
@@ -78,6 +78,16 @@ The earlier A100-agent baseline diagnostic at
 counter incorrectly charged three 25--43 second dtype/metadata failures against
 the node budget. It was stopped and preserved. The active run uses the isolated
 budget-aware baseline copy and starts from an empty journal.
+
+### Live baseline validation
+
+At 2026-08-31 20:23 UTC, the active baseline had six retained attempts and two
+budget-counted nodes. Four failed attempts with execution times of 7.82, 9.13,
+37.83, and 35.66 seconds remained in the journal as diagnostics but did not
+consume the search budget. The first long execution ran for 1,164.37 seconds
+and failed after real training, so it correctly counted. The second effective
+node completed successfully with PetFinder RMSE 18.1561. The controller then
+reported `2/50 steps completed` and continued with three tasks in flight.
 
 The now-unused L40S continues serving its existing model and is kept occupied
 by the owned `keep_qwen_l40s_busy.sh` request loop. Its PID and command marker
