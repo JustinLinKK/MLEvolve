@@ -63,3 +63,8 @@ Active comparison root:
 
 The superseded L40S diagnostic run was stopped without deleting its journal or
 artifacts. It is excluded from the final same-agent comparison.
+
+The now-unused L40S continues serving its existing model and is kept occupied
+by the owned `keep_qwen_l40s_busy.sh` request loop. Its PID and command marker
+are checked before reuse or termination, so the filler cannot be confused with
+the A100 agent or A10 experiment process.
