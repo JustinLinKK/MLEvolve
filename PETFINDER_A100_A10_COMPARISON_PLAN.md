@@ -24,6 +24,9 @@ Qwen3.8-27B INT8 agent served by vLLM on one NVIDIA A100.
   and live GPU telemetry with `parallel_job_cap=null`.
 - Candidates rejected before GPU execution by stage review or preflight are
   discarded and do not count toward the 50 retained nodes.
+- Failed executions detected in less than 60 seconds remain in the journal for
+  debugging lineage but do not consume the 50-node experiment budget. The
+  final comparison uses the first 50 budget-counted nodes from each phase.
 
 ## Execution and evidence
 

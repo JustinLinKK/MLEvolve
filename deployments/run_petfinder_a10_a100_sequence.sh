@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo="${REPO:-/root/downeyflyfan/.cache/mlevolve_a10_a100_comparison_20260831}"
-baseline_repo="${BASELINE_REPO:-/root/downeyflyfan/mlevolve_a10_baseline_20260829}"
+baseline_repo="${BASELINE_REPO:-/root/downeyflyfan/.cache/mlevolve_a10_baseline_budgeted_20260831}"
 python_bin="${A10_PYTHON_BIN:-/tmp/mlevolve-a10-run-venv/bin/python}"
 python_fallback="/root/downeyflyfan/mlevolve_a10_baseline_20260829/.venv/bin/python"
 state_dir="${STATE_DIR:-/root/downeyflyfan/.cache/mlevolve_a100_a10_sequence}"
@@ -105,10 +105,10 @@ run_phase() {
     journal="$(find "$phase_root" -type f -path '*/logs/journal.json' -printf '%T@ %p\n' | sort -nr | head -n 1 | cut -d' ' -f2-)"
     local retained=0
     if [[ -n "$journal" ]]; then
-      retained="$($python_bin -c 'import json,sys; print(max(0, len(json.load(open(sys.argv[1])).get("nodes", [])) - 1))' "$journal")"
+      retained="$($python_bin -c 'import sys; from engine.node_accounting import count_budget_nodes_from_json; print(count_budget_nodes_from_json(sys.argv[1]))' "$journal")"
     fi
-    if [[ "$retained" -ne 50 ]]; then
-      echo "$phase exited without 50 retained nodes (found $retained)." >&2
+    if [[ "$retained" -lt 50 ]]; then
+      echo "$phase exited without 50 budget-counted nodes (found $retained)." >&2
       status=75
     fi
   fi

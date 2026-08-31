@@ -58,15 +58,26 @@ and metric-node image is
   also sets `parallel_job_cap=null`; live admission owns concurrency.
 - Stage-review or preflight rejections that avoid GPU execution are discarded
   and do not count toward the 50-node target.
+- Failed executions with `exec_time < 60` seconds are retained as diagnostic
+  attempts and parent nodes, but a shared accounting rule excludes them from
+  the 50-node budget. Successful fast nodes and failures lasting at least 60
+  seconds still count. The original baseline source remains unchanged; the
+  experiment uses an isolated copy with only this shared accounting rule.
 - The sequence controller validates the retained journal count and refuses to
   advance after an early exit with fewer than 50 nodes.
 
 Active comparison root:
 
-`/root/downeyflyfan/.cache/mlevolve_a10_a100_comparison_20260831/runs/a100_agent_a10_comparison_20260831_190026`
+`/root/downeyflyfan/.cache/mlevolve_a10_a100_comparison_20260831/runs/a100_agent_a10_comparison_20260831_193545`
 
 The superseded L40S diagnostic run was stopped without deleting its journal or
 artifacts. It is excluded from the final same-agent comparison.
+
+The earlier A100-agent baseline diagnostic at
+`a100_agent_a10_comparison_20260831_191248` demonstrated that the unmodified
+counter incorrectly charged three 25--43 second dtype/metadata failures against
+the node budget. It was stopped and preserved. The active run uses the isolated
+budget-aware baseline copy and starts from an empty journal.
 
 The now-unused L40S continues serving its existing model and is kept occupied
 by the owned `keep_qwen_l40s_busy.sh` request loop. Its PID and command marker

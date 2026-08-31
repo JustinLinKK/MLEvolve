@@ -9,6 +9,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from engine.agent_search import AgentSearch as Agent
 from engine.executor import Interpreter
+from engine.node_accounting import count_budget_nodes
 from engine.search_node import Journal
 from omegaconf import OmegaConf
 from rich.status import Status
@@ -282,7 +283,7 @@ def run():
         logger.info(f"🎯 Initial draft count: {initial_draft_count} (will be executed sequentially for diversity)")
 
         lock = threading.Lock()
-        completed = len(journal) - 1  # Exclude the virtual root; retained nodes count toward the same run.
+        completed = count_budget_nodes(journal.nodes)
 
         pending_draft_nodes = []
         if cfg.resume_journal is None and initial_draft_count > 0 and total_steps > 0:
@@ -376,8 +377,15 @@ def run():
 
                         with lock:
                             save_run(cfg, journal)
-                            completed = len(journal) - 1  # Exclude virtual node
-                            if completed == total_steps:
+                            completed = count_budget_nodes(journal.nodes)
+                            retained_attempts = max(0, len(journal) - 1)
+                            excluded_quick_failures = retained_attempts - completed
+                            if excluded_quick_failures:
+                                logger.info(
+                                    "Budget progress excludes %s quickly detected failed node(s)",
+                                    excluded_quick_failures,
+                                )
+                            if completed >= total_steps:
                                 logger.info(journal_to_string_tree(journal))
 
                         if completed + len(futures) < total_steps:
