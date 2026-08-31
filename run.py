@@ -178,15 +178,6 @@ def run():
 
             frozen_context_packs = prepare_run_context_cache(cfg)
             if frozen_context_packs:
-                logger.info("Prepared and froze %s context-cache pack(s) for run %s.", len(frozen_context_packs), cfg.exp_name)
-        except Exception as exc:
-            logger.warning("Context-cache run preparation failed; continuing without prewarm: %s", exc)
-
-        try:
-            from context_cache.coordinator import prepare_run_context_cache
-
-            frozen_context_packs = prepare_run_context_cache(cfg)
-            if frozen_context_packs:
                 logger.info(
                     "Prepared and froze %s context-cache pack(s) for run %s.",
                     len(frozen_context_packs),
