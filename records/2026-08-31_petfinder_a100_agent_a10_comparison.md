@@ -94,6 +94,13 @@ against `prepared/public/sample_submission.csv`: both had 992 rows, identical
 `Id` order, and columns `Id, Pawpularity`; the result had no nulls, 992 unique
 predictions, and a prediction range of 19.165056--84.26641.
 
+At 2026-08-31 21:25 UTC, the baseline reached 10/50 budget-counted nodes from
+19 retained attempts. Nine quickly detected failures remained available for
+diagnosis but were excluded from the node budget. Six of the ten effective
+nodes completed successfully. The best RMSE remained 18.1561; the tenth
+effective node completed with RMSE 18.5498, after which the controller
+immediately replenished the three-task pipeline.
+
 The now-unused L40S continues serving its existing model and is kept occupied
 by the owned `keep_qwen_l40s_busy.sh` request loop. Its PID and command marker
 are checked before reuse or termination, so the filler cannot be confused with
