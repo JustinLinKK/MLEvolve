@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+set -u
+
+namespace="${NAMESPACE:-ecepxie}"
+a10_pod="${A10_POD:-gpu-dev-a10-experiment-746c959459-2xwdd}"
+a100_pod="${A100_POD:-mlevolve-a100-1gpu-77d4fc9848-vx6sv}"
+l40s_pod="${L40S_POD:-gpu-dev-l40s-1gpu-8599df9fd4-nqp2g}"
+state_dir="${STATE_DIR:-/root/downeyflyfan/.cache/mlevolve_a100_a10_sequence_v5}"
+interval_seconds="${INTERVAL_SECONDS:-60}"
+
+while true; do
+    date -u +%Y-%m-%dT%H:%M:%SZ
+    kubectl exec -n "$namespace" "$a10_pod" -- env STATE_DIR="$state_dir" bash -lc '
+        root=$(cat "$STATE_DIR/comparison_root" 2>/dev/null || true)
+        phase=$(cat "$STATE_DIR/active_phase" 2>/dev/null || echo unknown)
+        journal=$(find "$root/$phase" -type f -path "*/logs/journal.json" -printf "%T@ %p\n" 2>/dev/null | sort -nr | head -n 1 | cut -d" " -f2-)
+        budget=0
+        attempts=0
+        if test -n "$journal"; then
+            if test "$phase" = baseline; then
+                repo=/root/downeyflyfan/.cache/mlevolve_a10_baseline_budgeted_20260831
+            else
+                repo=/root/downeyflyfan/.cache/mlevolve_a10_a100_comparison_20260831
+            fi
+            budget=$(cd "$repo" && /tmp/mlevolve-a10-run-venv/bin/python -c "import sys; from engine.node_accounting import count_budget_nodes_from_json; print(count_budget_nodes_from_json(sys.argv[1]))" "$journal" 2>/dev/null || echo 0)
+            attempts=$(jq "[(.nodes // [])[] | select(.stage != \"root\")] | length" "$journal" 2>/dev/null || echo 0)
+        fi
+        pid=$(cat "$STATE_DIR/controller.pid" 2>/dev/null || echo 0)
+        if kill -0 "$pid" 2>/dev/null; then
+            controller=running
+        else
+            controller=stopped
+        fi
+        echo "phase=$phase budget_nodes=$budget attempts=$attempts controller=$controller root=$root"
+        nvidia-smi --query-gpu=memory.used,utilization.gpu,power.draw --format=csv,noheader
+    '
+    kubectl exec -n "$namespace" "$a100_pod" -- nvidia-smi --query-gpu=memory.used,utilization.gpu,power.draw --format=csv,noheader
+    kubectl exec -n "$namespace" "$l40s_pod" -- nvidia-smi --query-gpu=memory.used,utilization.gpu,power.draw --format=csv,noheader
+    sleep "$interval_seconds"
+done
