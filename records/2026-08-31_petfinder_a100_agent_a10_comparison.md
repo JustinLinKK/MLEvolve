@@ -151,3 +151,10 @@ node-specific submission contains 992 rows with exactly the required
 992 distinct predictions, and a prediction range of 21.960424--100.0. The
 other two candidate processes remained active, and A10 utilization stayed at
 100 percent after the successful process released its memory.
+
+At 2026-08-31 22:20 UTC, the baseline reached 15/50 effective nodes. A second
+long training completed successfully after 3,027.35 seconds with RMSE 18.4460.
+Immediately before it, a separate overlapping candidate encountered CUDA
+Out-of-Memory after only 36.49 seconds. That quick failure is retained as raw
+attempt 24 but excluded from the effective-node total, directly validating the
+requested short-failure accounting rule under a real memory-pressure event.
