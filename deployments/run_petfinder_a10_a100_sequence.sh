@@ -2,6 +2,7 @@
 set -euo pipefail
 
 repo="${REPO:-/root/downeyflyfan/.cache/mlevolve_a10_a100_comparison_20260831}"
+baseline_repo="${BASELINE_REPO:-/root/downeyflyfan/mlevolve_a10_baseline_20260829}"
 python_bin="${A10_PYTHON_BIN:-/tmp/mlevolve-a10-run-venv/bin/python}"
 python_fallback="/root/downeyflyfan/mlevolve_a10_baseline_20260829/.venv/bin/python"
 state_dir="${STATE_DIR:-/root/downeyflyfan/.cache/mlevolve_a100_a10_sequence}"
@@ -41,6 +42,8 @@ run_phase() {
   local mode="$2"
   local phase_root="$comparison_root/$phase"
   local phase_log="$comparison_root/${phase}.runner.out"
+  local phase_repo="$repo"
+  local config_path="$repo/config/config.yaml"
   mkdir -p "$phase_root"
   printf '%s\n' "$phase" > "$state_dir/active_phase"
 
@@ -48,15 +51,12 @@ run_phase() {
     "exp_name=petfinder_${phase}_a100_agent_a10"
     "log_dir=$phase_root"
     "workspace_dir=$phase_root"
-    "experiment.mode=$mode"
     "agent.steps=50"
     "agent.seed=42"
     "agent.code.model=$model_name"
-    "agent.code.provider=vllm"
     "agent.code.base_url=$agent_base_url"
     "agent.code.api_key=EMPTY"
     "agent.feedback.model=$model_name"
-    "agent.feedback.provider=vllm"
     "agent.feedback.base_url=$agent_base_url"
     "agent.feedback.api_key=EMPTY"
     "agent.search.parallel_search_num=null"
@@ -65,16 +65,17 @@ run_phase() {
 
   local variant=()
   if [[ "$phase" == baseline ]]; then
+    phase_repo="$baseline_repo"
+    config_path="$baseline_repo/config/config.yaml"
     variant=(
       "scheduler.enabled=false"
-      "hardware_knowledge.enabled=false"
-      "preflight.enabled=false"
-      "agent.hardware_context_enabled=false"
-      "agent.pipeline_decision_enabled=false"
-      "agent.review.enabled=false"
+      "agent.code.provider=openai-compatible"
+      "agent.feedback.provider=openai-compatible"
+      "agent.use_stepwise_generation=false"
     )
   else
     variant=(
+      "experiment.mode=$mode"
       "scheduler.enabled=true"
       "scheduler.settings.prediction.mode=branch_profile"
       "scheduler.settings.gpu_scheduler.parallel_job_cap=null"
@@ -86,12 +87,14 @@ run_phase() {
       "agent.hardware_context_enabled=true"
       "agent.pipeline_decision_enabled=true"
       "agent.review.enabled=true"
+      "agent.code.provider=vllm"
+      "agent.feedback.provider=vllm"
     )
   fi
 
-  cd "$repo"
+  cd "$phase_repo"
   set +e
-  env CUDA_VISIBLE_DEVICES=0 MLEVOLVE_CONFIG="$repo/config/config.yaml" \
+  env CUDA_VISIBLE_DEVICES=0 MLEVOLVE_CONFIG="$config_path" \
     "$python_bin" run.py "${common[@]}" "${variant[@]}" \
     > "$phase_log" 2>&1
   local status=$?

@@ -13,8 +13,8 @@ Qwen3.8-27B INT8 agent served by vLLM on one NVIDIA A100.
 - Retained search nodes: 50 per phase.
 - Agent: `qwen3.8-27b-int8-a100` at the cluster-local A100 service.
 - Execution device: exactly one NVIDIA A10.
-- Baseline: scheduler, preflight, stage review, hardware context, and Hardware
-  Knowledge Database disabled.
+- Baseline: the previously validated original-MLEvolve source snapshot, with
+  scheduler disabled and non-stepwise generation (`use_stepwise_generation=false`).
 - Modified method: hardware-aware mode, scheduler and Hardware Knowledge
   Database enabled, profile-based runtime prediction, and CPU preflight enabled.
 - Neither phase configures a fixed maximum parallel-job count. The baseline uses
@@ -34,4 +34,3 @@ Qwen3.8-27B INT8 agent served by vLLM on one NVIDIA A100.
    process logs, and GPU telemetry for recovery.
 6. Produce one comparison PNG with Gantt charts above and metric-versus-node
    graphs below, then write the final experiment record and push the result.
-

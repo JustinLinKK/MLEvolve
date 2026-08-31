@@ -43,8 +43,11 @@ and metric-node image is
 - Task: PetFinder Pawpularity Score.
 - Both phases use the same A100 Agent endpoint, model, seed 42, and 50 retained
   nodes.
-- Baseline phase disables scheduler, preflight, stage review, hardware context,
-  pipeline decisions, and Hardware Knowledge Database.
+- Baseline phase uses the previously validated original-MLEvolve snapshot at
+  `/root/downeyflyfan/mlevolve_a10_baseline_20260829`, with scheduler disabled
+  and `use_stepwise_generation=false`. This is necessary because the modified
+  source hard-codes stepwise generation and cannot represent the original
+  baseline by configuration switches alone.
 - Modified phase enables hardware-aware mode, profile-based runtime prediction,
   preflight, scheduler, and Hardware Knowledge Database.
 - `agent.search.parallel_search_num=null` in both phases. The modified phase
@@ -60,4 +63,3 @@ Active comparison root:
 
 The superseded L40S diagnostic run was stopped without deleting its journal or
 artifacts. It is excluded from the final same-agent comparison.
-
