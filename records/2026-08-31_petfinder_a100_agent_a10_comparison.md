@@ -130,3 +130,15 @@ A preview made from the live baseline journal reported 10/50 completed nodes,
 6 scored nodes, best RMSE 18.1561, and a 1.44-hour span. The preview was checked
 visually at `.cache/petfinder_a100_a10_live/baseline_preview.png`. Focused
 accounting and renderer regression tests passed 4/4.
+
+At 2026-08-31 21:43 UTC, the baseline reached 12/50 budget-counted nodes from
+21 attempts. The twelfth effective node failed with CUDA Out-of-Memory after
+267.26 seconds: two concurrent candidates already held approximately 9.07 and
+10.49 GiB, while the third candidate had approximately 2.47 GiB in use and
+could not allocate another 50 MiB. This is not a quick static failure and
+therefore correctly consumes a node. It is also direct baseline evidence for
+the scheduler comparison: original MLEvolve admitted the third GPU workload
+without profile or live-telemetry placement, while the modified phase is
+expected to reject or delay the equivalent admission without a fixed job cap.
+The two established training processes remained alive and the controller
+continued after recording the failed node.
