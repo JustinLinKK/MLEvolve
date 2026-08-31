@@ -72,3 +72,12 @@ The now-unused L40S continues serving its existing model and is kept occupied
 by the owned `keep_qwen_l40s_busy.sh` request loop. Its PID and command marker
 are checked before reuse or termination, so the filler cannot be confused with
 the A100 agent or A10 experiment process.
+
+Before the delayed scheduler phase, the exact remote configuration was composed
+through MLEvolve's own configuration loader. It resolved to hardware-aware
+mode, 50 nodes, a 43,200-second budget, the A100 vLLM endpoint, profile-based
+prediction, scheduler/HWKD/preflight enabled, and both
+`parallel_search_num=null` and `parallel_job_cap=null`. Runtime-profile tests
+then passed 81/81 both locally and inside the A10 Pod. These tests cover profile
+persistence, epoch-based estimation when no runtime profile exists, zero-value
+fallback, and per-job fallback from an unavailable predictor to branch profiles.
