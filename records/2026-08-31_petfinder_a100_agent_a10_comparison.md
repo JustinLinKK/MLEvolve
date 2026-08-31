@@ -142,3 +142,12 @@ without profile or live-telemetry placement, while the modified phase is
 expected to reject or delay the equivalent admission without a fixed job cap.
 The two established training processes remained alive and the controller
 continued after recording the failed node.
+
+At 2026-08-31 22:15 UTC, the baseline reached 14/50 effective nodes and
+produced a new best RMSE of 17.9916. The node executed for 2,974.21 seconds,
+stopped after epoch 13 of 40, and replaced the previous 18.1561 best. Its
+node-specific submission contains 992 rows with exactly the required
+`Id, Pawpularity` columns and sample-submission ID order, no missing values,
+992 distinct predictions, and a prediction range of 21.960424--100.0. The
+other two candidate processes remained active, and A10 utilization stayed at
+100 percent after the successful process released its memory.
