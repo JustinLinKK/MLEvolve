@@ -1,0 +1,37 @@
+# PetFinder A100-Agent / A10-Execution Comparison Plan
+
+## Objective
+
+Compare original MLEvolve with the scheduler plus Hardware Knowledge Database
+variant on the same single NVIDIA A10. Both phases use the same text-only
+Qwen3.8-27B INT8 agent served by vLLM on one NVIDIA A100.
+
+## Controlled settings
+
+- Task: PetFinder Pawpularity Score.
+- Search seed: 42.
+- Retained search nodes: 50 per phase.
+- Agent: `qwen3.8-27b-int8-a100` at the cluster-local A100 service.
+- Execution device: exactly one NVIDIA A10.
+- Baseline: scheduler, preflight, stage review, hardware context, and Hardware
+  Knowledge Database disabled.
+- Modified method: hardware-aware mode, scheduler and Hardware Knowledge
+  Database enabled, profile-based runtime prediction, and CPU preflight enabled.
+- Neither phase configures a fixed maximum parallel-job count. The baseline uses
+  original MLEvolve worker admission; the modified method uses branch profiles
+  and live GPU telemetry with `parallel_job_cap=null`.
+- Candidates rejected before GPU execution by stage review or preflight are
+  discarded and do not count toward the 50 retained nodes.
+
+## Execution and evidence
+
+1. Terminate only the owned A100 filler and verify GPU memory release.
+2. Start and health-check the A100 vLLM service.
+3. Record post-warmup Time to First Token (TTFT) and generation tokens/second.
+4. Preserve the superseded L40S diagnostic run, then run baseline followed by
+   the modified method on the same A10.
+5. Persist journal, generated code, scheduler events, hardware evidence,
+   process logs, and GPU telemetry for recovery.
+6. Produce one comparison PNG with Gantt charts above and metric-versus-node
+   graphs below, then write the final experiment record and push the result.
+

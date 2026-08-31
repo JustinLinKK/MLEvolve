@@ -10,7 +10,7 @@ from agents import code_review_agent
 from agents import debug_agent
 from agents import result_parse_agent
 from agents.review_contracts import ReviewDecision, ReviewIssue, StageRepairResult
-from agents.stage_repair import group_repair_issues, repair_selected_stages
+from agents.stage_repair import generate_stage_patch, group_repair_issues, repair_selected_stages
 from engine.agent_search import AgentSearch
 from engine import evaluation
 from engine.execution import validate_executed_node
@@ -282,6 +282,50 @@ def test_non_overlapping_patch_preserves_unaffected_bytes() -> None:
         generator=lambda _agent, _prompt: _patch_for("model_design"),
     )
     assert code == "model = 1\nkeep = '  spaces  '  # unchanged\ntrain = 0\n"
+
+
+def test_qwen_plain_search_replace_patch_is_normalized_and_applied() -> None:
+    original = "model = 0\nkeep = 'byte-for-byte'\n"
+    qwen_patch = """```python
+SEARCH:
+model = 0
+REPLACE:
+model = 1
+```"""
+
+    code, results, _ = repair_selected_stages(
+        _agent(),
+        _node(original),
+        original,
+        [_issue("model_design")],
+        generator=lambda _agent, _prompt: qwen_patch,
+    )
+
+    assert code == "model = 1\nkeep = 'byte-for-byte'\n"
+    assert results[0].applied is True
+    assert results[0].failure_reason is None
+
+
+def test_repair_prompt_specifies_canonical_patch_delimiters() -> None:
+    prompts: list[str] = []
+
+    def generator(_agent, prompt: str) -> str:
+        prompts.append(prompt)
+        return _patch_for("model_design")
+
+    result = generate_stage_patch(
+        _agent(),
+        _node(),
+        _node().code,
+        "model_design",
+        [_issue("model_design")],
+        generator=generator,
+    )
+
+    assert result.failure_reason is None
+    assert "<<<<<<< SEARCH" in prompts[0]
+    assert "=======" in prompts[0]
+    assert ">>>>>>> REPLACE" in prompts[0]
 
 
 def _decision(*issues: ReviewIssue) -> ReviewDecision:

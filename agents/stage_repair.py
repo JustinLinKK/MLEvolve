@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import json
 import logging
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -20,6 +21,52 @@ logger = logging.getLogger("MLEvolve")
 
 STAGE_ORDER = ("model_design", "datatype_precision", "training_evaluation", "integration")
 _PATCH_PATTERN = SearchReplacePatcher.PATCH_PATTERN
+_PLAIN_PATCH_HEADER = re.compile(r"(?m)^[ \t]*(SEARCH|REPLACE)[ \t]*:?[ \t]*$")
+
+
+def _normalize_patch_response(response: str) -> str:
+    """Convert Qwen's plain SEARCH:/REPLACE: blocks to canonical markers."""
+    patch = response.strip()
+    canonical_blocks = list(_PATCH_PATTERN.finditer(patch))
+    if canonical_blocks and not _PATCH_PATTERN.sub("", patch).strip():
+        return patch
+
+    lines = patch.splitlines()
+    if (
+        len(lines) >= 2
+        and re.fullmatch(r"[ \t]*```(?:python)?[ \t]*", lines[0], re.IGNORECASE)
+        and re.fullmatch(r"[ \t]*```[ \t]*", lines[-1])
+    ):
+        patch = "\n".join(lines[1:-1]).strip()
+
+    headers = list(_PLAIN_PATCH_HEADER.finditer(patch))
+    if not headers or patch[: headers[0].start()].strip() or len(headers) % 2:
+        return response.strip()
+    if any(
+        header.group(1) != ("SEARCH" if index % 2 == 0 else "REPLACE")
+        for index, header in enumerate(headers)
+    ):
+        return response.strip()
+
+    blocks: list[str] = []
+    for index in range(0, len(headers), 2):
+        search_header = headers[index]
+        replace_header = headers[index + 1]
+        next_search_start = (
+            headers[index + 2].start() if index + 2 < len(headers) else len(patch)
+        )
+        search = patch[search_header.end() : replace_header.start()].strip("\n")
+        replacement = patch[replace_header.end() : next_search_start].strip("\n")
+        if not search.strip():
+            return response.strip()
+        blocks.append(
+            "<<<<<<< SEARCH\n"
+            f"{search}\n"
+            "=======\n"
+            f"{replacement}\n"
+            ">>>>>>> REPLACE"
+        )
+    return "\n".join(blocks)
 
 
 def is_hardware_aware(agent: Any) -> bool:
@@ -98,7 +145,13 @@ def _build_repair_prompt(
         "Repair only the assigned stage-owned critical issues in the complete merged Python script below. "
         "Preserve every other stage's behavior and public variables/interfaces. Return one or more raw "
         "SEARCH/REPLACE blocks and no prose or markdown fences. Every SEARCH block must be non-empty and "
-        "copied exactly from the merged script. Keep each SEARCH span as small as safely possible.\n\n"
+        "copied exactly from the merged script. Keep each SEARCH span as small as safely possible. "
+        "Use these exact delimiters for every block:\n"
+        "<<<<<<< SEARCH\n"
+        "exact original lines\n"
+        "=======\n"
+        "replacement lines\n"
+        ">>>>>>> REPLACE\n\n"
         + json.dumps(payload, indent=2, default=str)
     )
 
@@ -140,7 +193,7 @@ def generate_stage_patch(
     )
     for _ in range(retries):
         try:
-            patch = generator(agent, prompt).strip()
+            patch = _normalize_patch_response(generator(agent, prompt))
             blocks = list(_PATCH_PATTERN.finditer(patch))
             if not blocks:
                 last_error = "malformed SEARCH/REPLACE response"

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlevolve-qwen-a100
+  namespace: ecepxie
+spec:
+  selector:
+    app: mlevolve-a100-1gpu
+  ports:
+    - name: openai
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP
