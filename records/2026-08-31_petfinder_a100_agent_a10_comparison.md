@@ -88,6 +88,11 @@ consume the search budget. The first long execution ran for 1,164.37 seconds
 and failed after real training, so it correctly counted. The second effective
 node completed successfully with PetFinder RMSE 18.1561. The controller then
 reported `2/50 steps completed` and continued with three tasks in flight.
+The optional MLEBench format service on port 5005 was not installed in the
+runtime environment, so the successful submission was validated directly
+against `prepared/public/sample_submission.csv`: both had 992 rows, identical
+`Id` order, and columns `Id, Pawpularity`; the result had no nulls, 992 unique
+predictions, and a prediction range of 19.165056--84.26641.
 
 The now-unused L40S continues serving its existing model and is kept occupied
 by the owned `keep_qwen_l40s_busy.sh` request loop. Its PID and command marker
