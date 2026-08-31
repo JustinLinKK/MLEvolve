@@ -14,6 +14,11 @@ from agents.hardware_context import (
     apply_hardware_context_to_node,
     get_hardware_context_for_stage,
 )
+from agents.lesson_context import (
+    apply_lesson_context_to_node,
+    apply_lesson_context_to_pipeline_decision,
+    get_lesson_context_for_stage,
+)
 from agents.prompts import (
     apply_pipeline_decision_to_node,
     build_pipeline_decision,
@@ -162,6 +167,9 @@ def run(agent: object, parent_node: SearchNode) -> SearchNode | None:
         service=getattr(agent, "cuda_docs_service", None),
         role="debug",
     )
+    lesson_ctx = get_lesson_context_for_stage(
+        agent, "debug", parent_node=parent_node, code=parent_node.code
+    )
     pipeline_decision = build_pipeline_decision(
         agent,
         stage="debug",
@@ -172,6 +180,7 @@ def run(agent: object, parent_node: SearchNode) -> SearchNode | None:
         execution_output=parent_node.term_out,
         stage_context=str(getattr(parent_node, "analysis", "") or ""),
     )
+    apply_lesson_context_to_pipeline_decision(pipeline_decision, lesson_ctx)
     critical_issues = _canonical_repair_issues(agent, parent_node)
     repaired_code, repair_results, repair_stats = repair_selected_stages(
         agent,
@@ -210,6 +219,7 @@ def run(agent: object, parent_node: SearchNode) -> SearchNode | None:
     )
     apply_hardware_context_to_node(new_node, hardware_ctx)
     apply_pipeline_decision_to_node(new_node, pipeline_decision)
+    apply_lesson_context_to_node(new_node, lesson_ctx)
     register_node(
         agent,
         new_node,

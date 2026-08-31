@@ -24,6 +24,7 @@ from utils.serialize import load_json
 import torch
 from localml_scheduler.client import SchedulerClient
 from localml_scheduler.config import SchedulerSettings
+from lesson_profile_database import LessonProfileClient
 
 
 class SignalShutdown(BaseException):
@@ -114,6 +115,7 @@ def run():
     hardware_monitor.start()
     scheduler_service = None
     scheduler_client = None
+    lesson_profile_client = None
     pipeline_logger = PipelineActionLogger(
         cfg.log_dir / "pipeline.sqlite3",
         run_id=cfg.exp_name,
@@ -171,6 +173,14 @@ def run():
             journal=journal,
             pipeline_logger=pipeline_logger,
         )
+        try:
+            from context_cache.coordinator import prepare_run_context_cache
+
+            frozen_context_packs = prepare_run_context_cache(cfg)
+            if frozen_context_packs:
+                logger.info("Prepared and froze %s context-cache pack(s) for run %s.", len(frozen_context_packs), cfg.exp_name)
+        except Exception as exc:
+            logger.warning("Context-cache run preparation failed; continuing without prewarm: %s", exc)
 
         try:
             from context_cache.coordinator import prepare_run_context_cache
@@ -228,6 +238,23 @@ def run():
                     "settings_runtime_root": str(scheduler_settings.runtime_root),
                     "scheduler_mode": scheduler_settings.gpu_scheduler.mode,
                     "start_service": bool(getattr(scheduler_cfg, "start_service", True)),
+                },
+            )
+
+        lesson_profile_client = LessonProfileClient.from_config(cfg)
+        agent.attach_lesson_profiles(lesson_profile_client)
+        if bool(getattr(cfg.lesson_profiles, "enabled", True)):
+            # SQLite initialization is local and fast. Qdrant/embedding setup is
+            # deferred to the durable daemon so prompt generation never waits.
+            lesson_profile_client.initialize(initialize_qdrant=False)
+            lesson_profile_client.start_worker()
+            pipeline_logger.emit(
+                "lesson_profiles_attached",
+                payload={
+                    "read_enabled": bool(cfg.lesson_profiles.read_enabled),
+                    "write_enabled": bool(cfg.lesson_profiles.write_enabled),
+                    "sqlite_path": str(lesson_profile_client.registry.path),
+                    "qdrant_collection": cfg.lesson_profiles.qdrant.collection_name,
                 },
             )
 
@@ -422,6 +449,8 @@ def run():
             interpreter.cleanup_session(-1)
         if scheduler_service is not None:
             scheduler_service.stop()
+        if lesson_profile_client is not None:
+            lesson_profile_client.stop_worker()
         hardware_monitor.stop()
         pipeline_logger.close()
     if shutdown_exit_code is not None:

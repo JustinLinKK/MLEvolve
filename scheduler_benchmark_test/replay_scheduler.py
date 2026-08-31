@@ -71,7 +71,6 @@ def build_settings(
     *,
     mode: str,
     backend: str,
-    parallel_job_cap: int | None,
     gpu_vram_gib: float,
     runtime_root: Path,
     cache_warm_top_k: int,
@@ -99,10 +98,6 @@ def build_settings(
         pair_probe_steps=4,
         reuse_profile_if_confidence_ge=0.8,
     )
-    gpu.parallel_job_cap = (
-        None if parallel_job_cap is None else max(1, int(parallel_job_cap))
-    )
-
     if backend == "exclusive":
         gpu.packing_backend = "cuda_process"
         gpu.exclusive_fallback_enabled = True
@@ -437,7 +432,6 @@ def main():
     settings = build_settings(
         mode=args.mode,
         backend=args.backend,
-        parallel_job_cap=None,
         gpu_vram_gib=args.gpu_vram_gib,
         runtime_root=runtime_root,
         cache_warm_policy=args.cache_warm_policy,
@@ -678,7 +672,7 @@ def main():
             "packed_group_size_counts": packed_group_size_counts,
             "placement_mode_counts": placement_mode_counts,
             "packing_policy": {
-                "parallel_job_cap": settings.gpu_scheduler.parallel_job_cap,
+                "incremental_admission": True,
             },
             "cache_policy": {
                 "warm_queue_policy": args.cache_warm_policy,

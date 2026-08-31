@@ -69,6 +69,7 @@ class AgentSearch:
         self.use_coldstart = cfg.coldstart.use_coldstart
         self.coldstart_description = cfg.coldstart.description
         self.scheduler_client = None
+        self.lesson_profile_client = None
         self.hardware_cache_status: dict | None = None
         self.cuda_docs_service = None
         self.cuda_docs_status: dict | None = None
@@ -275,6 +276,10 @@ class AgentSearch:
             except Exception:
                 pass
 
+    def attach_lesson_profiles(self, lesson_profile_client) -> None:
+        """Attach the independent, fail-open lesson profile client."""
+        self.lesson_profile_client = lesson_profile_client
+
     def _hardware_context_enabled(self) -> bool:
         experiment = getattr(self.cfg, "experiment", None)
         mode = str(getattr(experiment, "mode", "") or "").strip().lower().replace("-", "_")
@@ -353,7 +358,12 @@ class AgentSearch:
             f"{issue.get('owner', 'unclassified')}: {issue.get('evidence', 'critical review issue')}"
             for issue in critical
         ) or "Static review left unresolved critical issues."
-        node.analysis = f"Execution rejected by stage-aware review. {summary}"
+        rejection_layer = (
+            "CPU model preflight"
+            if getattr(node, "preflight_admitted", None) is False
+            else "stage-aware review"
+        )
+        node.analysis = f"Execution rejected by {rejection_layer}. {summary}"
         node._term_out = [node.analysis]
         node.exec_time = 0.0
         node.metric = WorstMetricValue()
@@ -364,13 +374,23 @@ class AgentSearch:
 
         from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
 
+        preflight_rejected = getattr(node, "preflight_admitted", None) is False
         payload = {
-            "reason": "unresolved critical review issues",
+            "reason": "preflight admission rejected" if preflight_rejected else "unresolved critical review issues",
             "critical_issue_count": len(critical),
             "gpu_execution_avoided": True,
         }
+        try:
+            from engine.preflight import node_preflight_metadata
+
+            payload.update(node_preflight_metadata(node))
+        except Exception:
+            pass
         log_pipeline_event(self, "review_execution_avoided", node=node, payload=payload)
         record_pipeline_node_action(self, node, "review_execution_avoided", payload=payload)
+        if preflight_rejected:
+            log_pipeline_event(self, "preflight_execution_avoided", node=node, payload=payload)
+            record_pipeline_node_action(self, node, "preflight_execution_avoided", payload=payload)
 
         should_return_to_root = evaluation.check_improvement(self, node, parent_node)
         if node.stage in ["draft", "fusion_draft"]:
@@ -481,6 +501,8 @@ class AgentSearch:
                         else:
                             logger.info(f"Node {result_node.id} passed code review without changes")
                     self._review_training_parameters_before_submission(result_node)
+                    if result_node.review_status != "rejected":
+                        self._run_node_preflight(result_node, generated=not bool(init_solution_path))
                     self._validate_node_precision_before_execution(result_node)
                     if result_node.review_status != "rejected":
                         self._validate_node_dependencies_before_execution(result_node)
@@ -512,7 +534,17 @@ class AgentSearch:
                         return _root, result_node
                     from utils.pipeline_logging import record_pipeline_node_action
 
-                    record_pipeline_node_action(self, result_node, "execution_started")
+                    if not self._ensure_node_preflight_before_execution(result_node):
+                        _root = self._finalize_review_rejected_node(result_node)
+                        return _root, result_node
+                    from engine.preflight import node_preflight_metadata
+
+                    record_pipeline_node_action(
+                        self,
+                        result_node,
+                        "execution_started",
+                        payload=node_preflight_metadata(result_node),
+                    )
                     exe_res = exec_callback(result_node.code, result_node.id, True, node_context=result_node)
                     result_node = result_parse_agent.run(self,
                         node=result_node,
@@ -557,6 +589,108 @@ class AgentSearch:
             evaluation.backpropagate(node=parent_node, value=0)
             _root = True
         return _root, result_node
+
+    def _run_node_preflight(
+        self,
+        node: SearchNode,
+        *,
+        generated: bool,
+        allow_repair: bool = True,
+    ) -> bool:
+        """Run the CPU gate and at most one targeted stage-owned repair round."""
+        from agents.review_contracts import append_review_issue
+        from engine.preflight import (
+            ModelPreflightGate,
+            apply_outcome_to_node,
+            node_preflight_metadata,
+            preflight_enabled,
+        )
+        from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
+
+        node.preflight_generated = bool(generated)
+        if not preflight_enabled(self.cfg):
+            node.preflight_status = "SKIPPED"
+            node.preflight_mode = "disabled"
+            node.preflight_admitted = True
+            return True
+
+        gate = ModelPreflightGate(self.cfg)
+        repair_count = int(getattr(node, "preflight_repair_count", 0) or 0)
+        outcome = gate.run(node, generated=generated, attempt=repair_count)
+        for issue in outcome.issues:
+            append_review_issue(node, issue)
+        apply_outcome_to_node(node, outcome, repair_count=repair_count)
+        history = list(getattr(node, "review_history", None) or [])
+        history.append({"event": "model_preflight_completed", **node_preflight_metadata(node)})
+        node.review_history = history
+        log_pipeline_event(self, "model_preflight_completed", node=node, payload=node_preflight_metadata(node))
+        record_pipeline_node_action(self, node, "model_preflight_completed", payload=node_preflight_metadata(node))
+
+        max_rounds = max(0, int(getattr(self.cfg.preflight, "max_repair_rounds", 1) or 0))
+        should_repair = (
+            allow_repair
+            and outcome.status == "FAIL"
+            and bool(outcome.issues)
+            and repair_count < max_rounds
+        )
+        if should_repair:
+            from agents.stage_repair import repair_selected_stages
+
+            repaired_code, results, stats = repair_selected_stages(
+                self,
+                node,
+                node.code,
+                outcome.issues,
+            )
+            repair_count += 1
+            if repaired_code.strip() != node.code.strip():
+                node.code = repaired_code
+                self.refresh_hardware_context(node)
+            repair_payload = {
+                "repair_count": repair_count,
+                "results": [result.to_dict() for result in results],
+                "stats": stats,
+            }
+            log_pipeline_event(self, "model_preflight_repair", node=node, payload=repair_payload)
+            record_pipeline_node_action(self, node, "model_preflight_repair", payload=repair_payload)
+
+            outcome = gate.run(node, generated=generated, attempt=repair_count)
+            for issue in outcome.issues:
+                append_review_issue(node, issue)
+            apply_outcome_to_node(node, outcome, repair_count=repair_count)
+            history = list(getattr(node, "review_history", None) or [])
+            history.append({"event": "model_preflight_rechecked", **node_preflight_metadata(node)})
+            node.review_history = history
+            log_pipeline_event(self, "model_preflight_rechecked", node=node, payload=node_preflight_metadata(node))
+            record_pipeline_node_action(self, node, "model_preflight_rechecked", payload=node_preflight_metadata(node))
+
+        if outcome.admitted:
+            if repair_count and node.review_status != "rejected":
+                node.review_status = "repaired"
+            return True
+        node.review_status = "rejected"
+        return False
+
+    def _ensure_node_preflight_before_execution(self, node: SearchNode) -> bool:
+        """Re-run admission if any code change invalidated the persisted report hash."""
+        from engine.preflight import is_fresh_preflight, node_preflight_metadata, preflight_enabled
+        from utils.pipeline_logging import log_pipeline_event
+
+        if not preflight_enabled(self.cfg):
+            return True
+        if not is_fresh_preflight(node):
+            log_pipeline_event(
+                self,
+                "model_preflight_stale_hash",
+                node=node,
+                payload=node_preflight_metadata(node),
+            )
+            return self._run_node_preflight(
+                node,
+                generated=bool(getattr(node, "preflight_generated", True)),
+                allow_repair=False,
+            )
+        return getattr(node, "preflight_admitted", None) is not False
 
     def _validate_node_precision_before_execution(self, node: SearchNode) -> bool:
         """Run the non-bypassable precision guard immediately before execution."""
@@ -725,6 +859,8 @@ class AgentSearch:
 
         self._review_training_parameters_before_submission(node)
         if node.review_status != "rejected":
+            self._ensure_node_preflight_before_execution(node)
+        if node.review_status != "rejected":
             self._validate_node_precision_before_execution(node)
         if node.review_status != "rejected":
             self._validate_node_dependencies_before_execution(node)
@@ -735,7 +871,14 @@ class AgentSearch:
         try:
             from utils.pipeline_logging import record_pipeline_node_action
 
-            record_pipeline_node_action(self, node, "execution_started")
+            from engine.preflight import node_preflight_metadata
+
+            record_pipeline_node_action(
+                self,
+                node,
+                "execution_started",
+                payload=node_preflight_metadata(node),
+            )
             exe_res = exec_callback(node.code, node.id, True, node_context=node)
             node = result_parse_agent.run(self,
                 node=node,
@@ -829,7 +972,8 @@ class AgentSearch:
                 precision_valid
                 and self._validate_node_dependencies_before_execution(node)
             )
-            if dependencies_valid:
+            preflight_valid = self._ensure_node_preflight_before_execution(node)
+            if preflight_valid and dependencies_valid:
                 still_runnable.append(node)
             else:
                 self._finalize_review_rejected_node(node)
@@ -842,8 +986,15 @@ class AgentSearch:
 
         from utils.pipeline_logging import record_pipeline_node_action
 
+        from engine.preflight import node_preflight_metadata
+
         for node in runnable_nodes:
-            record_pipeline_node_action(self, node, "execution_started")
+            record_pipeline_node_action(
+                self,
+                node,
+                "execution_started",
+                payload=node_preflight_metadata(node),
+            )
 
         results = exec_many_callback(
             [

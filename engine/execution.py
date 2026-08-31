@@ -23,6 +23,7 @@ def validate_executed_node(agent, node: SearchNode):
     """Check submission.csv exists, metric=0.0 anomaly; register successful node to branch."""
     if node.is_buggy:
         _log_validation(agent, node, "skipped_buggy")
+        _enqueue_lesson_observation(agent, node, "skipped_buggy")
         return
 
     submission_path = agent.cfg.workspace_dir / "submission" / f"submission_{node.id}.csv"
@@ -42,6 +43,7 @@ def validate_executed_node(agent, node: SearchNode):
         )
         logger.info(f"Node {node.id} did not produce a submission.csv")
         _log_validation(agent, node, "missing_submission")
+        _enqueue_lesson_observation(agent, node, "missing_submission")
         return
 
     if node.metric.maximize and node.metric.value == 0.0:
@@ -63,6 +65,7 @@ def validate_executed_node(agent, node: SearchNode):
             f"Node {node.id} has metric=0.0 (maximize=True), marking as buggy for debugging."
         )
         _log_validation(agent, node, "zero_metric")
+        _enqueue_lesson_observation(agent, node, "zero_metric")
         return
 
     if hasattr(node, 'branch_id') and node.branch_id:
@@ -70,6 +73,7 @@ def validate_executed_node(agent, node: SearchNode):
             agent.branch_successful_nodes[node.branch_id] = []
         agent.branch_successful_nodes[node.branch_id].append(node)
     _log_validation(agent, node, "valid")
+    _enqueue_lesson_observation(agent, node, "valid")
 
 
 def _log_validation(agent, node: SearchNode, outcome: str) -> None:
@@ -86,3 +90,16 @@ def _log_validation(agent, node: SearchNode, outcome: str) -> None:
         record_pipeline_node_action(agent, node, "validation_completed", payload=payload)
     except Exception:
         pass
+
+
+def _enqueue_lesson_observation(agent, node: SearchNode, outcome: str) -> None:
+    """Final-validation-only durable hook; failures never affect search."""
+    client = getattr(agent, "lesson_profile_client", None)
+    if client is None:
+        return
+    try:
+        result = client.enqueue_validated_node(agent, node, outcome=outcome)
+        if not result.get("ok"):
+            logger.debug("Lesson observation skipped for node %s: %s", node.id, result.get("reason"))
+    except Exception as exc:
+        logger.warning("Lesson observation enqueue failed open for node %s: %s", node.id, exc)

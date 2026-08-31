@@ -330,7 +330,7 @@ agent:
   memory_embedding_device: cuda
   memory_embedding_model_path: BAAI/bge-base-en-v1.5
   search:
-    parallel_search_num: 2
+    parallel_search_num: null
     num_gpus: 1
     num_drafts: 5
     num_bugs: 1

@@ -5,12 +5,19 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-$ROOT/docker-compose.local.yml}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-mlevolve}"
 NEO4J_HARDWARE_CONTAINER="${NEO4J_HARDWARE_CONTAINER:-mlevolve-neo4j-hardware}"
+QDRANT_CONTAINER="${QDRANT_CONTAINER:-mlevolve-qdrant}"
+REDIS_CONTAINER="${REDIS_CONTAINER:-mlevolve-redis}"
 NEO4J_IMAGE="${NEO4J_IMAGE:-neo4j:5.26}"
+QDRANT_IMAGE="${QDRANT_IMAGE:-qdrant/qdrant:v1.12.6}"
+REDIS_IMAGE="${REDIS_IMAGE:-redis:7.4-alpine}"
 NEO4J_HARDWARE_DATA_VOLUME="${NEO4J_HARDWARE_DATA_VOLUME:-mlevolve_neo4j_hardware_data}"
 NEO4J_HARDWARE_LOGS_VOLUME="${NEO4J_HARDWARE_LOGS_VOLUME:-mlevolve_neo4j_hardware_logs}"
 NEO4J_HARDWARE_HTTP_PORT="${NEO4J_HARDWARE_HTTP_PORT:-7475}"
 NEO4J_HARDWARE_BOLT_PORT="${NEO4J_HARDWARE_BOLT_PORT:-7688}"
 HARDWARE_KNOWLEDGE_NEO4J_PASSWORD="${HARDWARE_KNOWLEDGE_NEO4J_PASSWORD:-test12345}"
+QDRANT_HTTP_PORT="${QDRANT_HTTP_PORT:-6333}"
+QDRANT_GRPC_PORT="${QDRANT_GRPC_PORT:-6334}"
+REDIS_PORT="${REDIS_PORT:-6379}"
 if [[ -f /.dockerenv ]]; then
   DOCKER_ACCESS_HOST="${DOCKER_ACCESS_HOST:-host.docker.internal}"
 else
@@ -24,7 +31,7 @@ Usage:
 
 Run this on the Docker host, or inside the MLEvolve devcontainer after the
 docker-outside-of-docker feature is installed and the container has been rebuilt.
-It starts/reuses the independent hardware knowledge Neo4j database.
+It starts/reuses hardware Neo4j plus persistent Qdrant and Redis services.
 
 Environment overrides:
   HARDWARE_KNOWLEDGE_NEO4J_PASSWORD  Hardware Neo4j password. Default: test12345
@@ -34,6 +41,8 @@ Environment overrides:
   COMPOSE_FILE                               Compose file. Default: ./docker-compose.local.yml
   DOCKER_ACCESS_HOST                         Hostname reachable from this shell.
   NEO4J_HARDWARE_CONTAINER                   Container name. Default: mlevolve-neo4j-hardware
+  QDRANT_HTTP_PORT                           Qdrant HTTP port. Default: 6333
+  REDIS_PORT                                 Redis port. Default: 6379
 EOF
 }
 
@@ -78,8 +87,66 @@ start_neo4j_hardware() {
     "$NEO4J_IMAGE" >/dev/null
 }
 
+start_qdrant() {
+  if container_exists "$QDRANT_CONTAINER"; then
+    docker start "$QDRANT_CONTAINER" >/dev/null
+    return 0
+  fi
+  docker run -d \
+    --name "$QDRANT_CONTAINER" \
+    --restart unless-stopped \
+    -p "${QDRANT_HTTP_PORT}:6333" -p "${QDRANT_GRPC_PORT}:6334" \
+    -v mlevolve_qdrant:/qdrant/storage \
+    "$QDRANT_IMAGE" >/dev/null
+}
+
+start_redis() {
+  if container_exists "$REDIS_CONTAINER"; then
+    docker start "$REDIS_CONTAINER" >/dev/null
+    return 0
+  fi
+  docker run -d \
+    --name "$REDIS_CONTAINER" \
+    --restart unless-stopped \
+    -p "${REDIS_PORT}:6379" \
+    -v mlevolve_redis:/data \
+    "$REDIS_IMAGE" redis-server --appendonly yes >/dev/null
+}
+
 start_compose_stack() {
-  compose_cmd up -d neo4j-hardware
+  compose_cmd up -d qdrant redis neo4j-hardware
+}
+
+wait_for_qdrant() {
+  local waited=0
+  local max_wait="${QDRANT_WAIT_SECONDS:-120}"
+  until curl --fail --silent "http://${DOCKER_ACCESS_HOST}:${QDRANT_HTTP_PORT}/collections" >/dev/null 2>&1; do
+    if (( waited >= max_wait )); then
+      echo "Qdrant did not become reachable on port ${QDRANT_HTTP_PORT} within ${max_wait}s." >&2
+      return 1
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
+}
+
+wait_for_redis() {
+  local waited=0
+  local max_wait="${REDIS_WAIT_SECONDS:-120}"
+  until {
+    if use_compose; then
+      compose_cmd exec -T redis redis-cli ping
+    else
+      docker exec "$REDIS_CONTAINER" redis-cli ping
+    fi
+  } 2>/dev/null | grep -q PONG; do
+    if (( waited >= max_wait )); then
+      echo "Redis did not become reachable on port ${REDIS_PORT} within ${max_wait}s." >&2
+      return 1
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
 }
 
 neo4j_cypher() {
@@ -117,6 +184,8 @@ print_status() {
   else
     docker ps -a \
       --filter "name=^/${NEO4J_HARDWARE_CONTAINER}$" \
+      --filter "name=^/${QDRANT_CONTAINER}$" \
+      --filter "name=^/${REDIS_CONTAINER}$" \
       --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
   fi
 }
@@ -124,11 +193,13 @@ print_status() {
 print_devcontainer_hint() {
   cat <<EOF
 
-Hardware knowledge database is ready.
+Hardware knowledge and lesson profile services are ready.
 
 From inside the devcontainer, run:
 
   export HARDWARE_KNOWLEDGE_NEO4J_PASSWORD='${HARDWARE_KNOWLEDGE_NEO4J_PASSWORD}'
+  export LESSON_QDRANT_URL='http://${DOCKER_ACCESS_HOST}:${QDRANT_HTTP_PORT}'
+  export MLEVOLVE_LESSON_REDIS_URL='redis://${DOCKER_ACCESS_HOST}:${REDIS_PORT}/1'
   HARDWARE_GRAPH_URI=bolt://${DOCKER_ACCESS_HOST}:${NEO4J_HARDWARE_BOLT_PORT} \\
   ./bootstrap.sh
 
@@ -148,19 +219,27 @@ case "$cmd" in
       start_compose_stack
     else
       start_neo4j_hardware
+      start_qdrant
+      start_redis
     fi
     wait_for_neo4j
+    wait_for_qdrant
+    wait_for_redis
     print_status
     print_devcontainer_hint
     ;;
   restart)
     require_docker
     if use_compose; then
-      compose_cmd restart neo4j-hardware
+      compose_cmd restart qdrant redis neo4j-hardware
     else
       docker restart "$NEO4J_HARDWARE_CONTAINER"
+      docker restart "$QDRANT_CONTAINER"
+      docker restart "$REDIS_CONTAINER"
     fi
     wait_for_neo4j
+    wait_for_qdrant
+    wait_for_redis
     print_status
     print_devcontainer_hint
     ;;
@@ -171,17 +250,21 @@ case "$cmd" in
   logs)
     require_docker
     if use_compose; then
-      compose_cmd logs --tail="${LOG_LINES:-120}" neo4j-hardware
+      compose_cmd logs --tail="${LOG_LINES:-120}" qdrant redis neo4j-hardware
     else
       docker logs --tail="${LOG_LINES:-120}" "$NEO4J_HARDWARE_CONTAINER" || true
+      docker logs --tail="${LOG_LINES:-120}" "$QDRANT_CONTAINER" || true
+      docker logs --tail="${LOG_LINES:-120}" "$REDIS_CONTAINER" || true
     fi
     ;;
   stop)
     require_docker
     if use_compose; then
-      compose_cmd stop neo4j-hardware
+      compose_cmd stop qdrant redis neo4j-hardware
     else
       docker stop "$NEO4J_HARDWARE_CONTAINER"
+      docker stop "$QDRANT_CONTAINER"
+      docker stop "$REDIS_CONTAINER"
     fi
     ;;
   -h|--help|help)

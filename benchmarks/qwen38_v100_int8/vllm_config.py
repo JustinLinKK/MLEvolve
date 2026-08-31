@@ -23,7 +23,7 @@ def build_vllm_server_command(model_path: str) -> list[str]:
 def build_exact_int8_mtp_command() -> list[str]:
     """Return the exact three-V100 Qwen3.8 27B INT8 MTP vLLM command."""
     return [
-        "CUDA_VISIBLE_DEVICES=0,1,2",
+        "CUDA_VISIBLE_DEVICES=0,1,3",
         "vllm",
         "serve",
         EXACT_INT8_MTP_MODEL,

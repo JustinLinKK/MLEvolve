@@ -19,6 +19,12 @@ from agents.hardware_context import (
     hardware_context_instructions,
 )
 from agents.cuda_docs_context import get_cuda_docs_context, format_cuda_docs_prompt_section
+from agents.lesson_context import (
+    apply_lesson_context_to_node,
+    apply_lesson_context_to_pipeline_decision,
+    get_lesson_context_for_stage,
+    lesson_context_instructions,
+)
 from agents.prompts import (
     ROBUSTNESS_GENERALIZATION_STRATEGY,
     apply_pipeline_decision_to_node,
@@ -68,6 +74,8 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
                 local_best_node=agent.virtual_root,
             )
             apply_hardware_context_to_node(new_node, hardware_ctx)
+            lesson_ctx = get_lesson_context_for_stage(agent, "draft", parent_node=new_node, code=code)
+            apply_lesson_context_to_node(new_node, lesson_ctx)
             register_node(agent, new_node, "User-provided init solution (no LLM).", new_branch=True)
             logger.info(f"[draft] → node {new_node.id} (branch={new_node.branch_id}) [init_solution]")
             return new_node
@@ -113,17 +121,23 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
         service=getattr(agent, "cuda_docs_service", None),
         role="draft",
     )
+    lesson_ctx = get_lesson_context_for_stage(agent, "draft", parent_node=agent.virtual_root)
+    lesson_section = lesson_ctx.prompt_section
+    if lesson_section:
+        prompt["Family–Hardware Lesson Profile"] = lesson_section
     pipeline_decision = build_pipeline_decision(
         agent,
         stage="draft",
         data_preview=agent.data_preview,
         hardware_contexts=[hardware_design_brief, hardware_ctx],
     )
+    apply_lesson_context_to_pipeline_decision(pipeline_decision, lesson_ctx)
     pipeline_decision_section = format_pipeline_decision_prompt_section(pipeline_decision)
     prompt["Pipeline Decision"] = pipeline_decision
     prompt["Pipeline Decision Contract"] = pipeline_decision_section
     prompt["Instructions"] |= prompt_resp_fmt()
     prompt["Instructions"] |= hardware_context_instructions(hardware_ctx)
+    prompt["Instructions"] |= lesson_context_instructions(lesson_ctx)
     prompt["Instructions"] |= pipeline_decision_instructions(pipeline_decision)
 
     prompt["Instructions"] |= {
@@ -225,7 +239,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
     if prompt.get("Memory", "").strip():
         memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
 
-    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{hardware_section}\n{cuda_docs_section}\n{pipeline_decision_section}\n{instructions}"
+    user_prompt = f"\n# Task description\n{prompt['Task description']}{memory_section}\n{hardware_section}\n{lesson_section}\n{cuda_docs_section}\n{pipeline_decision_section}\n{instructions}"
     assistant_prefix = f"Let me approach this systematically.\nFirst, I'll examine the dataset:\n{agent.data_preview}"
     prompt_complete = build_chat_prompt_for_model(
         agent.acfg.code.model, introduction, user_prompt, assistant_prefix
@@ -247,6 +261,8 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
                 "execution_context": hardware_ctx.compact_context,
             },
             "cuda_docs_prompt_section": cuda_docs_section,
+            "lesson_profile_section": lesson_section,
+            "lesson_profile_context": lesson_ctx.compact_context,
             "pipeline_decision": pipeline_decision,
             "pipeline_decision_section": pipeline_decision_section,
         }
@@ -269,6 +285,7 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
     apply_hardware_context_to_node(new_node, hardware_ctx)
     apply_hardware_design_brief_to_node(new_node, hardware_design_brief)
     apply_pipeline_decision_to_node(new_node, pipeline_decision)
+    apply_lesson_context_to_node(new_node, lesson_ctx)
     apply_stepwise_hardware_decisions_to_node(
         new_node,
         stepwise_metadata,

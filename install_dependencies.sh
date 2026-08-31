@@ -81,9 +81,11 @@ modules = [
     "genson",
     "google.genai",
     "humanize",
+    "jsonschema",
     "mcp",
     "mcp.server.fastmcp",
     "mlebench",
+    "model_preflight",
     "neo4j",
     "numpy",
     "omegaconf",
@@ -128,6 +130,8 @@ main() {
   echo "Installing into: $($PYTHON_BIN -c 'import sys; print(sys.executable)')"
   install_git_lfs
   install_git_submodules
+
+  git submodule update --init --recursive -- nn-model-preflight-checker
 
   "$PYTHON_BIN" -m pip install -r "$ROOT/requirements_base.txt" "$@"
 

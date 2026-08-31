@@ -26,6 +26,7 @@ from context_cache.config import (
     ContextCacheSettings,
     environment_overrides as context_cache_environment_overrides,
 )
+from lesson_profile_database.config import LessonProfileSettings
 
 shutup.mute_warnings()
 logger = logging.getLogger("MLEvolve")
@@ -86,7 +87,7 @@ class SearchConfig:
     num_improves: int
     topk_max_improves: int
     max_improve_failure: int
-    parallel_search_num: int
+    parallel_search_num: int | None
     branch_stagnation_threshold: int
     topk_stagnation_threshold: int
     top_candidates_size: int
@@ -216,6 +217,28 @@ class SchedulerBridgeConfig:
 
 
 @dataclass
+class PreflightConfig:
+    """CPU admission-gate settings for generated training candidates."""
+
+    enabled: bool = True
+    enabled_modes: list[str] = field(default_factory=lambda: [EXPERIMENT_MODE_HARDWARE_AWARE])
+    policy_mode: str = "balanced"
+    target_profile: str = "auto"
+    require_adapter_for_generated: bool = True
+    max_repair_rounds: int = 1
+    fail_open_on_internal_error: bool = True
+    abstract_timeout_seconds: float = 30.0
+    cpu_timeout_seconds: float = 90.0
+    maximum_cpu_memory_mb: int = 8192
+    maximum_processes: int = 32
+    maximum_output_bytes: int = 1_000_000
+    disable_network: bool = True
+    allow_real_cpu_abstract_fallback: bool = False
+    cache: bool = False
+    knowledge_version: str | None = None
+
+
+@dataclass
 class ExperimentConfig:
     mode: str = EXPERIMENT_MODE_HARDWARE_AWARE
 
@@ -276,11 +299,13 @@ class Config(Hashable):
 
     coldstart: ColdstartConfig
 
+    preflight: PreflightConfig = field(default_factory=PreflightConfig)
     context_cache: ContextCacheSettings = field(default_factory=ContextCacheSettings)
     vllm_client: VLLMClientConfig = field(default_factory=VLLMClientConfig)
     # Retain the independent hardware-knowledge mapping in the unified config.
     # HardwareKnowledgeClient validates its nested settings at its own boundary.
     hardware_knowledge: dict = field(default_factory=dict)
+    lesson_profiles: LessonProfileSettings = field(default_factory=LessonProfileSettings)
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     use_grading_server: bool = True
     init_solution: InitSolutionConfig = field(default_factory=InitSolutionConfig)
@@ -410,6 +435,16 @@ def prep_cfg(cfg: Config):
             field_name,
             getattr(validated_context_cache, field_name),
         )
+    if cfg.context_cache.enabled:
+        preflight_version = str(
+            getattr(cfg.preflight, "knowledge_version", "") or ""
+        ).strip()
+        if preflight_version and preflight_version != cfg.context_cache.knowledge_version:
+            raise ValueError(
+                "preflight.knowledge_version must match "
+                "context_cache.knowledge_version within a run"
+            )
+        cfg.preflight.knowledge_version = cfg.context_cache.knowledge_version
     vllm_stages = [
         stage
         for stage in (cfg.agent.code, cfg.agent.feedback)
@@ -429,11 +464,24 @@ def prep_cfg(cfg: Config):
                     f"{salt_env} must contain at least 32 bytes of private cache salt"
                 )
     cfg.experiment.mode = normalize_experiment_mode(cfg.experiment.mode)
+    cfg.preflight.policy_mode = str(cfg.preflight.policy_mode or "balanced").strip().lower()
+    if cfg.preflight.policy_mode not in {"audit", "balanced", "strict"}:
+        raise ValueError("preflight.policy_mode must be one of: audit, balanced, strict")
+    cfg.preflight.enabled_modes = [
+        normalize_experiment_mode(value) for value in cfg.preflight.enabled_modes
+    ]
+    if int(cfg.preflight.max_repair_rounds) < 0:
+        raise ValueError("preflight.max_repair_rounds must be non-negative")
+    if not str(cfg.preflight.target_profile or "").strip():
+        raise ValueError("preflight.target_profile must not be empty")
     cfg.agent.precision_optimization_mode = normalize_precision_optimization_mode(
         cfg.agent.precision_optimization_mode
     )
     if cfg.experiment.mode in {EXPERIMENT_MODE_ORIGIN, EXPERIMENT_MODE_BASELINE}:
         cfg.agent.hardware_context_enabled = False
+        if not cfg.lesson_profiles.enable_in_baseline_modes:
+            cfg.lesson_profiles.read_enabled = False
+            cfg.lesson_profiles.write_enabled = False
     if cfg.experiment.mode == EXPERIMENT_MODE_ORIGIN:
         cfg.scheduler.enabled = False
 

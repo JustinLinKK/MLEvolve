@@ -27,6 +27,20 @@
 - Batch-observation-only remaining-runtime estimate, graph runtime estimate, and
   replay configuration with no parallel-job cap: 3 passed.
 
+## Follow-up scheduler repair
+
+- A runtime profile with `estimated_total_runtime_seconds = 0` previously
+  overrode valid branch-observation epoch timing and made the scheduler treat
+  remaining work as zero.
+- Non-positive or invalid total-runtime profile values now fall back to the
+  batch observation's `seconds_per_epoch` and remaining epoch count.
+- Runtime scheduler paths no longer read `parallel_job_cap`; decision replay,
+  benchmark configuration, and baseline replay use incremental branch-profile
+  and live-telemetry admission instead.
+- Validation: 109 scheduler and benchmark tests passed; one unrelated
+  Unix-socket integration test was excluded because this sandbox rejects
+  `AF_UNIX` socket binding.
+
 ## Nautilus V100 local model deployment
 
 - SSH alias: `Nautilus-V100`. SSH aliases cannot contain spaces.

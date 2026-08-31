@@ -50,6 +50,7 @@ class StepwiseContext:
     hardware_stage_sections: Dict[str, str] = field(default_factory=dict)
     hardware_candidate: Dict[str, Any] = field(default_factory=dict)
     hardware_context: Dict[str, Any] = field(default_factory=dict)
+    lesson_profile_section: str = ""
     cuda_docs_evidence: str = ""
     pipeline_decision: Dict[str, Any] = field(default_factory=dict)
     pipeline_decision_section: str = ""
@@ -246,6 +247,7 @@ class StepAgent:
             "Data preview": data_preview_str,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
             "Hardware/Profile Optimization Context": context.hardware_section_for(self.name),
+            "Family–Hardware Lesson Profile": context.lesson_profile_section,
             "CUDA Documentation Evidence": context.cuda_docs_evidence,
             "Pipeline Decision Contract": context.pipeline_decision_section,
             "Cross-Stage Note Board": context.note_board_section(self.name),
@@ -311,6 +313,7 @@ class StepAgent:
                 memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
 
         hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
+        lesson_section = prompt.get("Family–Hardware Lesson Profile", "")
         cuda_docs_section = prompt.get("CUDA Documentation Evidence", "")
         pipeline_decision_section = prompt.get("Pipeline Decision Contract", "")
         note_board_section = prompt.get("Cross-Stage Note Board", "")
@@ -323,6 +326,7 @@ class StepAgent:
             f"\n# Task description\n{prompt['Task description']}\n\n"
             f"{memory_section}\n"
             f"{hardware_section}\n"
+            f"{lesson_section}\n"
             f"{cuda_docs_section}\n"
             f"{pipeline_decision_section}\n"
             f"{note_board_section}\n"
@@ -441,6 +445,7 @@ class MetaAgent:
             "Task description": task_desc,
             "Memory": prompt_base.get("Memory", context.memory if context.memory else ""),
             "Hardware/Profile Optimization Context": context.hardware_section_for_merge(),
+            "Family–Hardware Lesson Profile": context.lesson_profile_section,
             "CUDA Documentation Evidence": context.cuda_docs_evidence,
             "Pipeline Decision Contract": context.pipeline_decision_section,
             "Cross-Stage Note Board": context.note_board_section("merge"),
@@ -467,6 +472,7 @@ class MetaAgent:
             else:
                 memory_section = f"\n# Memory\nBelow is a record of previous solution attempts and their outcomes:\n {prompt['Memory']}\n"
         hardware_section = prompt.get("Hardware/Profile Optimization Context", "")
+        lesson_section = prompt.get("Family–Hardware Lesson Profile", "")
         cuda_docs_section = prompt.get("CUDA Documentation Evidence", "")
         pipeline_decision_section = prompt.get("Pipeline Decision Contract", "")
         note_board_section = prompt.get("Cross-Stage Note Board", "")
@@ -493,6 +499,7 @@ class MetaAgent:
             f"\n# Task description\n{prompt['Task description']}\n\n"
             f"{memory_section}\n\n"
             f"{hardware_section}\n"
+            f"{lesson_section}\n"
             f"{cuda_docs_section}\n"
             f"{pipeline_decision_section}\n"
             f"{note_board_section}\n"
@@ -849,6 +856,7 @@ def stepwise_plan_and_code_query(
         hardware_stage_sections=context.get("hardware_stage_sections", {}) or {},
         hardware_candidate=context.get("hardware_candidate", {}) or {},
         hardware_context=context.get("hardware_context", {}) or {},
+        lesson_profile_section=context.get("lesson_profile_section", ""),
         cuda_docs_evidence=context.get("cuda_docs_prompt_section", ""),
         pipeline_decision=context.get("pipeline_decision", {}) or {},
         pipeline_decision_section=context.get("pipeline_decision_section", ""),

@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-dev-a10
+  namespace: ecepxie
+  labels:
+    app: gpu-dev-a10
+    purpose: qwen38-inference-benchmark
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gpu-dev-a10
+  template:
+    metadata:
+      labels:
+        app: gpu-dev-a10
+        purpose: qwen38-inference-benchmark
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.product
+                    operator: In
+                    values:
+                      - NVIDIA-A10
+      containers:
+        - name: qwen38-benchmark
+          image: nvcr.io/nvidia/pytorch:26.04-py3
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              /init/init.sh &
+              init_pid=$!
+              until pgrep -x sshd >/dev/null; do sleep 1; done
+              /bootstrap/bootstrap_qwen38_a10.sh
+              wait "$init_pid"
+          ports:
+            - containerPort: 22
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "8"
+              memory: 32Gi
+              nvidia.com/gpu: "4"
+            limits:
+              cpu: "16"
+              memory: 64Gi
+              nvidia.com/gpu: "4"
+          volumeMounts:
+            - name: home
+              mountPath: /root
+            - name: init
+              mountPath: /init
+              readOnly: true
+            - name: bootstrap
+              mountPath: /bootstrap
+              readOnly: true
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: home
+          persistentVolumeClaim:
+            claimName: yuw-home
+        - name: init
+          configMap:
+            name: nautilus-init
+            defaultMode: 493
+        - name: bootstrap
+          configMap:
+            name: qwen38-a10-bootstrap
+            defaultMode: 493
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Gi

@@ -1,19 +1,31 @@
 # Rules
 
-- Tasks in your experiement you designed must always fulfill my GPU RAM
+- `ssh Nautilus` to connect to Nautilus, where you have access to 4 `V100` GPUs
 
-- `./schema/schema-guidance.md` is your guidance of wrting guidance
+- Claude Code is available on Nautilus
 
-- Schema Style should be the same across all schemas
+- Every trace is saved in this repo
 
-- Make sure keys are aligned in different schemas in both Vector DB and Graph DB
+- Only Branch-Profile based method is adopted in this experiment.
 
-- Check against official documentation every time you make new changes to schema yaml files to make sure your changes are correct
+- Memory upperbound is 31GB for this scheduler
 
-- All `texts` must be from official docs
+- Use 3 V100 with vllm to run `Qwen3.8-27B-int8` model (text only) as agent and the other one to run experiments.
 
-- Use GPUs on Nautilus to verify the feasibility of code examples if you add new ones
+- Never configure a fixed `Max Parallel Jobs` / `parallel_job_cap` for baseline or scheduler experiments. Incremental admission determines safe concurrency from branch profiles and live VRAM telemetry.
 
-- When visualizing a graph, show all of its nodes.
+- Draw a image with Gantt Chart above and Metric-Node graphs below to show the schedule and performance of jobs after **every experiment**. Put them in 1 png image
 
-# 
+- If multiple comparison experiments are conducted, put all results in 1 image
+
+# Scheduler improvement
+
+- Labels for Predictor Training: Training Time per epoch, Avg/Peak VRAM, Avg/Peak Power(Optional)
+
+- Scheduler Target: Saturate Flops not VRAM
+
+- Backend: MPS, Cuda Process
+
+## Persistent execution preferences
+
+- Do not pause or stop an active task when the user interrupts with a correction. Treat it as a scope update and resume immediately unless the user explicitly cancels or replaces the task.

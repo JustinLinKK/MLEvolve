@@ -8,6 +8,11 @@ from typing import Any, cast
 
 from agents.hardware_context import get_hardware_context_for_stage, hardware_context_instructions
 from agents.cuda_docs_context import get_cuda_docs_context, format_cuda_docs_prompt_section
+from agents.lesson_context import (
+    apply_lesson_context_to_node,
+    get_lesson_context_for_stage,
+    lesson_context_instructions,
+)
 from agents.prompts import (
     format_pipeline_decision_prompt_section,
     get_internet_clarification,
@@ -104,6 +109,13 @@ def _build_review_prompt(agent: Any, node: SearchNode, code: str) -> tuple[dict[
         ]
     if cuda_docs_section:
         prompt["CUDA Documentation Evidence"] = cuda_docs_section
+    lesson_ctx = get_lesson_context_for_stage(
+        agent, "code_review", parent_node=node, code=code
+    )
+    if lesson_ctx.prompt_section:
+        prompt["Family–Hardware Lesson Profile"] = lesson_ctx.prompt_section
+        instructions |= lesson_context_instructions(lesson_ctx)
+        apply_lesson_context_to_node(node, lesson_ctx)
     pipeline_decision = getattr(node, "pipeline_decision", None) or {}
     pipeline_section = format_pipeline_decision_prompt_section(pipeline_decision)
     if pipeline_section:

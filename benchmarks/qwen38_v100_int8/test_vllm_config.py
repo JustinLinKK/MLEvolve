@@ -24,7 +24,7 @@ def test_exact_int8_mtp_command_uses_three_v100_devices() -> None:
 
     command = build_exact_int8_mtp_command()
 
-    assert command[:2] == ["CUDA_VISIBLE_DEVICES=0,1,2", "vllm"]
+    assert command[:2] == ["CUDA_VISIBLE_DEVICES=0,1,3", "vllm"]
     assert "lued/Qwen3.8-27B-INT8-W8A16-MTP" in command
     assert "--tensor-parallel-size=1" in command
     assert "--pipeline-parallel-size=3" in command

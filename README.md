@@ -4,7 +4,7 @@ This repository combines the MLEvolve search-agent framework with the hardware-a
 
 - **Agentic search runtime** (`agents/`, `engine/`, `llm/`, `run.py`) — plans, generates, reviews, selectively repairs, executes, and evolves ML solutions.
 - **Trace replay benchmark** (`scheduler_benchmark_test/`) — replays recorded MLEvolve candidate timelines against the scheduler and a multiprocess baseline, plus stress-test fixtures.
-- **Hardware Knowledge Base (HWKB)** (`hardware_knowledge_graph/`, `schema/`, `hardware_graph_scripts/`) — Neo4j graph + vector store of hardware capability knowledge queried by the scheduler.
+- **Lesson Profile Database** (`lesson_profile_database/`) — independent SQLite/Qdrant/Redis memory built only from final-validated search nodes.
 - **Scheduler** (`localml_scheduler/`) — local machine-learning-job scheduler with profiling, prediction, early stopping, checkpointing, packing, and observability.
 
 ## Layout
@@ -15,14 +15,16 @@ This repository combines the MLEvolve search-agent framework with the hardware-a
 | `scheduler_benchmark_test/` | Trace replay entry points (`run_histopath_*.sh`), timeline extraction, stress-test data |
 | `replay_model_sources/` | Archived model-source traces used by the replay fixtures |
 | `localml_scheduler/` | Scheduler package (`client`, `scheduler/`, `execution/`, `prediction/`, `profiling/`, `storage/`, CLI) |
+| `nn-model-preflight-checker/` | Pinned CPU model-preflight checker submodule used before GPU admission |
 | `hardware_knowledge_graph/` | HWKB client/store code (Neo4j + vector DB) |
+| `lesson_profile_database/` | Family/hardware observations, immutable revisions, role-scoped lessons, worker, CLI, and read-only MCP API |
 | `hardware_graph_scripts/` | HWKB database setup, ingest, query, and verification scripts |
 | `schema/` | Graph/vector DB schema YAMLs and `schema-guidance.md` |
 | `engine/script_introspection.py` | Static introspection of training scripts (batch size, framework, script signature) used by the scheduler adapter |
 | `utils/` | `candidate_timing.py` (phase instrumentation), `plot_hardware_awareness_comparison.py` |
 | `tests/` | Scheduler and HWKB unit tests |
 | `reports/` | Experiment records (stress-test benchmark) |
-| `docker-compose.local.yml`, `docker_host_databases.sh`, `bootstrap.sh` | Local Neo4j/database infrastructure |
+| `docker-compose.local.yml`, `docker_host_databases.sh`, `bootstrap.sh` | Local Neo4j, Qdrant, Redis, and database bootstrap infrastructure |
 
 ## Agent Framework
 
@@ -86,13 +88,18 @@ In practice, this improves MLEvolve in three places:
 ## Setup
 
 ```bash
+# For a new checkout, use: git clone --recurse-submodules <MLEvolve repository URL>
+# For an existing checkout, including after switching to this branch:
+git submodule update --init --recursive
+
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 ./install_dependencies.sh
-cp config.example.yaml config.yaml   # fill in hardware_knowledge + scheduler settings
-bash docker_host_databases.sh        # local Neo4j / databases
-bash bootstrap.sh                    # HWKB checks + optional knowledge ingest (MLEVOLVE_INGEST_KNOWLEDGE=1)
+python -c "import jsonschema, model_preflight; print('model preflight ready')"
+cp config.example.yaml config.yaml   # fill in hardware_knowledge, lesson_profiles, and scheduler settings
+bash docker_host_databases.sh        # local Neo4j + Qdrant + persistent Redis
+bash bootstrap.sh                    # checks services; initializes lesson SQLite/Qdrant indexes
 ```
 
 ## Reducing End-to-End Run Time
@@ -240,6 +247,12 @@ and scheduler/GPU admission remain healthy. Excess concurrency can increase
 total time through throttling or GPU contention; two branches are a reasonable
 starting point, not a universal optimum.
 
+`install_dependencies.sh` initializes the checker submodule automatically and verifies both
+`jsonschema` and `model_preflight` imports. See [CPU Model-Preflight Admission](docs/model_preflight_admission.md)
+for policy, adapter, profile, and artifact details.
+
+MLEvolve keeps two logical knowledge domains. Hardware knowledge is curated capability and optimization guidance in the existing Neo4j/Qdrant stores. Lesson profiles are run-derived experience in their own SQLite authority and the dedicated Qdrant collection `lesson_profile_records_v1`; Redis database 1 is only a cache. Records are never mixed across these domains. See [Lesson Profile Database](docs/lesson_profile_database.md).
+
 ## Running the Trace Benchmark
 
 ```bash
@@ -261,17 +274,6 @@ Results and comparison plots are written under the benchmark output roots; stres
 pytest tests/ localml_scheduler/tests/
 ```
 
-## Acknowledgments
+# Current Status
 
-We thank [AIDE](https://github.com/WecoAI/aideml) and [ML-Master](https://github.com/sjtu-sai-agents/ML-Master) for their contributions to the development of the MCTS in MLE, and [InternAgent 1.5](https://github.com/InternScience/InternAgent) for its contributions to the development of the agentic memory mechanism.
-
-## Citation
-
-```bibtex
-@article{du2025automlgen,
-  title={AutoMLGen: Navigating Fine-Grained Optimization for Coding Agents},
-  author={Du, Shangheng and Yan, Xiangchao and Jiang, Dengyang and Yuan, Jiakang and Hu, Yusong and Li, Xin and He, Liang and Zhang, Bo and Bai, Lei},
-  journal={arXiv preprint arXiv:2510.08511},
-  year={2025}
-}
-```
+- Task: petfinder-pawpularity-score

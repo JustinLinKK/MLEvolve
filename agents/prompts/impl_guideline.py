@@ -69,11 +69,12 @@ def get_impl_guideline(
         "• If you switch the model architecture or input geometry in an improvement/evolution, update `MODEL_FAMILY` to a new distinct value.",
         "• If there is no more specific model/backbone name in the script, set the model name/key variable to the same value as `MODEL_FAMILY`.",
         "",
-        "**5. Training Quality/Scheduler Contract**",
-        "• For multi-epoch neural training, validation-based early stopping with patience and best-checkpoint restore is REQUIRED.",
-        "• Print one `MLEVOLVE_EPOCH_METRIC {\"epoch\": one_based_epoch_number, \"metric\": validation_metric, \"metric_name\": metric_name}` line after every completed validation epoch.",
-        "• Define `QUALITY_SAFE_PHYSICAL_BATCH_SIZES` with only agent-approved physical batches and `BATCH_LR_SCALING_POLICY` as `fixed`, `linear`, or `sqrt`.",
-        "• Physical batch changes do not automatically reduce planned epochs. The scheduler may select the fastest feasible physical batch only inside the approved envelope and jointly resolves accumulation, effective batch, learning rate, warmup, and total scheduler steps.",
+        "**5. CPU Model-Preflight Adapter Contract**",
+        "• The module MUST be import-safe: definitions and lightweight constants may be top-level, but all training, validation, inference, and submission execution MUST be called only inside `if __name__ == \"__main__\":`.",
+        "• MUST define a no-argument top-level `CandidateAdapter` class with methods `build_model(context)`, `build_optimizer(model, context)`, `build_train_batch(scenario, device)`, `build_validation_batch(scenario, device)`, `training_step(model, batch, context)`, and `validation_step(model, batch, context)`.",
+        "• `training_step` MUST return the real scalar loss tensor connected to model parameters; adapter methods must reuse the script's real model, loss, transforms, collate logic, and optimizer rather than mocks.",
+        "• Batch builders MUST honor `scenario['batch_size']` and `device`; use `os.environ.get('MLEVOLVE_INPUT_DIR', './input')` to locate input fixtures during the isolated CPU check.",
+        "• Adapter construction and a one-batch CPU step must be lightweight and must not download weights or require CUDA.",
         "",
         "📁 **Directories**: Input data in `./input/`, submission in `./submission/`, temp files in `./working/`",
         "",
@@ -93,6 +94,7 @@ def get_impl_guideline(
         "□ Did I generate submission.csv in correct path with ALL test predictions?",
         "□ Did I print validation metric as the last line?",
         "□ Did I use the COMPLETE training dataset (not a tiny subset)?",
+        "□ Is execution behind the main guard and is CandidateAdapter complete and CPU-safe?",
     ]
     if expose_prediction:
         impl_guideline.append(

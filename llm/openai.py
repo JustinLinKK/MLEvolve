@@ -16,6 +16,46 @@ from .model_profiles import get_profile, supports_json_schema, thinking_json_inc
 logger = logging.getLogger("MLEvolve")
 
 
+def _default_max_tokens(model: str) -> int:
+    """Use the verified local-Qwen output budget without changing other APIs."""
+    return 8192 if (model or "").lower().startswith("qwen") else 16384
+
+
+def _context_safe_max_tokens(error: Exception | str, requested_tokens: int) -> int | None:
+    """Retry with the largest useful output budget that fits the context."""
+    message = str(error).lower()
+    if "maximum context length" not in message:
+        return None
+    requested = int(requested_tokens)
+    if requested <= 2048:
+        return None
+
+    context_match = re.search(r"maximum context length is\s+(\d+)\s+tokens", message)
+    prompt_match = re.search(
+        r"prompt contains at least\s+(\d+)\s+input tokens",
+        message,
+    )
+    if context_match is not None and prompt_match is not None:
+        context_tokens = int(context_match.group(1))
+        prompt_tokens = int(prompt_match.group(1))
+        available = context_tokens - prompt_tokens - 512
+        safe = (min(requested - 1, available) // 512) * 512
+        return safe if 512 <= safe < requested else None
+
+    safe = (requested // 2 // 512) * 512
+    return safe if 2048 <= safe < requested else None
+
+
+def _use_thinking_for_request(model: str, func_spec: FunctionSpec | None, stage: Any) -> bool:
+    """Disable hidden reasoning on the local Qwen endpoint to protect code budget."""
+    provider = str(getattr(stage, "provider", "") or "").strip().lower()
+    local_qwen = (model or "").lower().startswith("qwen") and provider in {
+        "vllm",
+        "openai-compatible",
+    }
+    return func_spec is None and not local_qwen
+
+
 def _strip_markdown_fences(args: str) -> str:
     """Remove markdown code fences that LLMs sometimes append inside JSON string values."""
     cleaned = re.sub(r'\\n```[a-z]*\s*("?\s*\}?\s*)$', r'\1', args.rstrip())
@@ -236,7 +276,7 @@ def query(
 
     # Function calling requires non_thinking mode, otherwise Qwen API errors:
     # "tool_choice does not support required/object in thinking mode"
-    use_thinking = func_spec is None
+    use_thinking = _use_thinking_for_request(model, func_spec, stage)
     profile = get_profile(model, use_thinking=use_thinking)
 
     extra_body: dict[str, Any] = {}
@@ -249,7 +289,7 @@ def query(
         "model": model,
         "messages": messages,
         "temperature": profile.get("temperature", filtered.get("temperature", 1.0)),
-        "max_tokens": filtered.get("max_tokens", 16384),
+        "max_tokens": filtered.get("max_tokens", _default_max_tokens(model)),
     }
     if "top_p" in profile:
         params["top_p"] = profile["top_p"]
@@ -414,7 +454,7 @@ def generate(
     # Qwen: thinking + json_schema are mutually exclusive — drop schema, keep thinking.
     if json_schema is not None and thinking_json_incompatible(model):
         json_schema = None
-    use_thinking = json_schema is None
+    use_thinking = json_schema is None and _use_thinking_for_request(model, None, stage)
     profile = get_profile(model, use_thinking=use_thinking)
 
     extra_body: dict[str, Any] = {}
@@ -427,7 +467,7 @@ def generate(
         "model": model,
         "messages": messages,
         "temperature": profile.get("temperature", temperature if temperature is not None else 1.0),
-        "max_tokens": max_tokens if max_tokens is not None else 16384,
+        "max_tokens": max_tokens if max_tokens is not None else _default_max_tokens(model),
         "stream": True,
     }
     if "top_p" in profile:
@@ -519,6 +559,14 @@ def generate(
             )
             return full_text
         except Exception as e:
+            safe_max_tokens = _context_safe_max_tokens(e, int(params["max_tokens"]))
+            if safe_max_tokens is not None:
+                params["max_tokens"] = safe_max_tokens
+                logger.warning(
+                    "vLLM context rejection: retrying with max_tokens=%s",
+                    safe_max_tokens,
+                )
+                continue
             logger.warning(f"generate failed, retrying {attempt + 1}/{max_retries}: {e}")
             if attempt >= max_retries - 1:
                 _finish_telemetry(prepared, error_type=type(e).__name__)
