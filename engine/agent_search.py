@@ -348,7 +348,7 @@ class AgentSearch:
         node.lock = False
 
     def _finalize_review_rejected_node(self, node: SearchNode) -> bool:
-        """Journal a statically rejected node without invoking an execution backend."""
+        """Record and discard a statically rejected candidate without counting a node."""
         parent_node = node.parent
         critical = [
             issue for issue in (node.review_issues or [])
@@ -392,14 +392,14 @@ class AgentSearch:
             log_pipeline_event(self, "preflight_execution_avoided", node=node, payload=payload)
             record_pipeline_node_action(self, node, "preflight_execution_avoided", payload=payload)
 
-        should_return_to_root = evaluation.check_improvement(self, node, parent_node)
-        if node.stage in ["draft", "fusion_draft"]:
-            node.lock = False
-        with self.journal_lock:
-            if node not in self.journal.nodes:
-                self.journal.append(node)
-        logger.info("Node %s rejected before execution and journaled as buggy", node.id)
-        return should_return_to_root
+        self._discard_unfinished_node(node)
+        if parent_node is not None:
+            parent_node.sub_expected_child_count()
+        logger.info(
+            "Candidate %s rejected before execution and excluded from the node count",
+            node.id,
+        )
+        return True
 
     def _serialize_prompt(self, prompt_complete) -> str | None:
         """Serialize prompt (str or dict) to string for saving in node."""

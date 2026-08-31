@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEPLOY_ROOT="$HOME/qwen38-v100-int8"
+DEPLOY_ROOT="${DEPLOY_ROOT:-/root/downeyflyfan/qwen38-v100-int8}"
 MODEL_DIR="$DEPLOY_ROOT/models/Qwen3.8-27B-INT8-W8A16-MTP"
 RUNTIME_DIR="$DEPLOY_ROOT/runtime-vllm-l40s"
 LOG_DIR="$DEPLOY_ROOT/logs"

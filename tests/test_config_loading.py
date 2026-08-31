@@ -131,6 +131,18 @@ def test_example_config_leaves_parallel_job_count_to_incremental_admission(
     assert cfg.agent.search.parallel_search_num is None
 
 
+def test_example_config_enables_hardware_aware_preflight_explicitly(monkeypatch) -> None:
+    """Catch merges that keep the code but silently drop the preflight config block."""
+    monkeypatch.setattr(sys, "argv", ["prog"])
+
+    cfg = mle_config._load_cfg(mle_config.ROOT_CONFIG_EXAMPLE_PATH, use_cli_args=True)
+
+    assert cfg.preflight.enabled is True
+    assert list(cfg.preflight.enabled_modes) == ["hardware_aware"]
+    assert cfg.preflight.policy_mode == "balanced"
+    assert cfg.preflight.target_profile == "auto"
+
+
 def test_config_resolution_precedence(monkeypatch, tmp_path: Path, caplog) -> None:
     root = tmp_path / "config.yaml"
     example = tmp_path / "config.example.yaml"

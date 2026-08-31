@@ -583,7 +583,7 @@ def test_rejected_nodes_never_invoke_executor(
         assert returned == [node]
 
     assert calls == 0
-    assert node in search.journal.nodes
+    assert node not in search.journal.nodes
     assert node.is_buggy is True
     assert node.metric.is_worst
     assert node.pending_execution is False

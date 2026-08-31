@@ -482,12 +482,10 @@ def test_mixed_batch_submits_only_admitted_nodes(monkeypatch, tmp_path):
         lambda self, node: True, agent
     )
 
-    def finalize(_self, node):
-        node.pending_execution = False
-        agent.journal.append(node)
-        return False
-
-    agent._finalize_review_rejected_node = types.MethodType(finalize, agent)
+    agent._finalize_review_rejected_node = types.MethodType(
+        AgentSearch._finalize_review_rejected_node,
+        agent,
+    )
     monkeypatch.setattr(
         "agents.hardware_context.optimize_training_parameters_for_round",
         lambda *args: {},
@@ -517,4 +515,4 @@ def test_mixed_batch_submits_only_admitted_nodes(monkeypatch, tmp_path):
     )
     assert submitted == ["admitted"]
     assert {node.id for node in results} == {"rejected", "admitted"}
-    assert {node.id for node in agent.journal.nodes} == {"rejected", "admitted"}
+    assert [node.id for node in agent.journal.nodes] == ["admitted"]
