@@ -2,9 +2,8 @@
 
 ## Objective
 
-Serve the text-only Qwen3.8-27B INT8 agent with vLLM on one L40S GPU. On the
-same physical A10 GPU 2, run these 50-node PetFinder Pawpularity searches
-sequentially:
+Serve the text-only Qwen3.8-27B INT8 agent with vLLM on one L40S. On one A10,
+run these 50-node PetFinder Pawpularity searches sequentially:
 
 1. Original MLEvolve baseline with the scheduler disabled.
 2. Modified MLEvolve with the scheduler and Hardware Knowledge Database.

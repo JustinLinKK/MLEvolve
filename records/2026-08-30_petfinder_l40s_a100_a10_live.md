@@ -279,3 +279,213 @@ will be generated only after all three 50-node journals are final.
 - A recoverable local checkpoint containing the 9-node journal, filtered
   journal, current best submission, and runner log is stored at
   `.cache/petfinder_live_20260830/snapshots/20260831_0100_a10_baseline_first_valid`.
+
+## 2026-08-31 01:27 UTC A10 baseline progress
+
+- The original baseline reached 13/50 completed search steps and produced four
+  valid submissions. Best RMSE improved through 19.4535, 19.0419, and 18.7125;
+  the fourth valid candidate scored 19.4483 and did not replace the best.
+- Node `3ab4ee1f66344a9e9e13fb8aa00d5f6f` is the current best at RMSE 18.7125.
+  Its improvement over its parent was 0.7410 RMSE.
+- Three baseline candidates continued concurrently on physical A10 GPU 2. The
+  card remained at 100% utilization with about 18.2/23.0 GiB allocated and no
+  out-of-memory event.
+
+## 2026-08-31 02:33 UTC A10 baseline 20-node checkpoint
+
+- The original baseline reached 20/50 completed search steps. The current best
+  is node `d133988b37774feb9ba6973b425537e2` at RMSE 18.2042; later valid nodes
+  scored 18.6373 and 18.8847 without replacing it.
+- Step 20 failed quickly with an `AttributeError` in the generated candidate;
+  original MLEvolve immediately submitted its debug child. This is counted as
+  a baseline search step, consistent with the original algorithm.
+- The live run remains on physical A10 GPU 2 with no fixed scheduler job cap.
+  A local recovery snapshot of the journal, filtered journal, best submission,
+  and runner log is at
+  `.cache/petfinder_live_20260830/snapshots/20260831_0233_a10_baseline_20`.
+
+## 2026-08-31 03:50 UTC A10 baseline 30-node checkpoint
+
+- The original baseline reached 30/50 completed search steps. Node
+  `24b425fcb02e4609aa111b0767da2952` set a new best RMSE of 18.0473 at step 26;
+  subsequent candidates had not improved it by step 30.
+- Concurrent baseline candidates reached about 21.6/23.0 GiB on physical A10
+  GPU 2 without an out-of-memory failure. All three long-running candidates
+  completed, released the GPU, and the search continued through result parsing
+  and new code generation.
+- A second live recovery checkpoint is stored at
+  `.cache/petfinder_live_20260830/snapshots/20260831_0350_a10_baseline_30`.
+
+## 2026-08-31 05:04 UTC A10 baseline 40-node checkpoint
+
+- The original baseline reached 40/50 completed search steps. Node
+  `902458b51e9a4da4a5ecd2341d5fc924` established the current best RMSE of
+  17.680440943125806 at step 37, improving on the previous 18.0473 best.
+- The baseline remained on physical A10 GPU 2 throughout, with the L40S agent
+  producing the code and reviews. No fixed scheduler cap was configured and no
+  out-of-memory event interrupted the search.
+- The 40-node recovery snapshot is stored at
+  `.cache/petfinder_live_20260830/snapshots/20260831_0504_a10_baseline_40`.
+
+## 2026-08-31 A10-agent correction and runtime diagnosis
+
+- The superseded L40S-agent baseline completed 50/50 search steps on physical
+  A10 GPU 2. Its best result was RMSE 17.680440943125806. The complete local
+  recovery copy is
+  `.cache/petfinder_live_20260830/final_a10_baseline_gpu2_l40s_20260831_003039`.
+  This result remains diagnostic and will not be reported as the final
+  same-agent comparison.
+- The requested final comparison was corrected to use the local A10-hosted
+  Qwen3.8-27B INT8 agent. Three-way tensor parallelism is structurally invalid
+  for this checkpoint because its 16 vision attention heads are not divisible
+  by 3, even in vLLM text-only mode. The viable allocation is therefore two
+  A10s for the agent and one A10 for the PetFinder experiment.
+- vLLM 0.28.0 with PyTorch 2.13.0 and CUDA 12.9 loaded the compressed-tensors
+  checkpoint on two A10s at about 15.1 GiB per GPU using the Marlin INT8
+  kernel. Startup then exposed two independent runtime faults: the custom
+  all-reduce path returned `invalid argument`, and the packaged PyTorch CUDA
+  runtime produced illegal-memory-access errors in an isolated ordinary
+  BF16 `torch.sort` test. PyTorch 2.11.0 with CUDA 13.0 reproduced the same
+  isolated failure, so model weights and scheduler code are not the cause.
+- A CUDA 12.8 PyTorch environment was downloaded for the compatibility test,
+  but the Nautilus node became `ContainerStatusUnknown` before that test ran.
+  Kubernetes created a replacement deployment request. Because three
+  co-located A10s remained unschedulable, the allocation was split into a
+  two-A10 local-agent Pod and a later one-A10 experiment Pod. The two-A10
+  request remains Pending, so no A10-agent TTFT/TPS or corrected 50-node
+  comparison is yet claimed.
+- The live ConfigMap no longer auto-launches the obsolete four-A10 TP4
+  comparison when the replacement Pod starts. Controller PID 2092640 waits
+  for readiness and will automatically install the PyTorch 2.11 CUDA 12.8
+  stack, the vLLM 0.26 CUDA 12.9 binary, and run an isolated BF16 sort check
+  before any model server is started.
+- A separate one-A10 `gpu-dev-a10-experiment` Deployment is also queued for
+  PetFinder. The `qwen38-a10-agent` ClusterIP service exposes port 8000 from
+  the two-A10 agent Pod to the experiment Pod without a remote Internet agent
+  call. Both requests are Pending at this checkpoint.
+- Focused regression coverage for positive runtime estimates, nullable search
+  parallelism, and absent fixed scheduler cap passed 44/44 locally after the
+  node loss.
+
+## 2026-08-31 09:47 UTC restored L40S-agent/A10-experiment contract
+
+- The active comparison is again the original contract: one L40S serves the
+  text-only Qwen3.8-27B INT8 agent, while one A10 runs the PetFinder baseline
+  and scheduler+Hardware Knowledge Database phases sequentially. The attempted
+  A10-agent deployment is diagnostic only and has been scaled to zero; no
+  persistent data was deleted.
+- The completed L40S-agent baseline is accepted as the final baseline half of
+  the comparison. Its journal contains the virtual root plus 50 search nodes,
+  its log ends at `50/50 steps completed`, scheduler mode is disabled,
+  `parallel_search_num` is null, and its best RMSE is 17.680440943125806.
+- The fresh one-A10 experiment Deployment requests 4 CPU cores, 16 GiB RAM,
+  and one NVIDIA A10, with a 64 GiB RAM limit. Reducing only the reservation
+  removed the scheduler's `Insufficient memory` rejection while retaining the
+  larger runtime safety limit. It is still Pending because available A10 nodes
+  are tainted/reserved or have no schedulable GPU capacity.
+- The one-L40S agent Deployment remains Pending. Its ClusterIP service and
+  selector are correct, but there is no ready endpoint until the Pod is placed
+  and the vLLM health check succeeds. No scheduler result is claimed yet.
+- The A10 run tree has been prepared on the shared persistent volume at
+  `/root/downeyflyfan/mlevolve_a10_scheduler_active_20260831`; its synchronized
+  source is now commit `dce797b`. Its operational config was checked before launch: 50 nodes,
+  L40S service endpoint, scheduler and Hardware Knowledge Database enabled,
+  `prediction.mode=branch_profile`, `parallel_search_num=null`, and
+  `parallel_job_cap=null`. Python compilation, required imports, task data, and
+  task-description checks passed from the same environment the A10 will use.
+- Detached tmux controller `mlevolve-a10-goal-controller` polls both requests
+  every 30 seconds. Two consecutive ticks were verified. If one GPU arrives
+  first, the controller keeps it compute-busy with a controller-owned filler;
+  after both the L40S health endpoint and the A10 device check succeed, it
+  stops only its own fillers and launches the scheduler phase on CUDA device 0.
+
+## 2026-08-31 10:11 UTC pre-launch merge repair and A10 placement
+
+- Inspection of the merged `run.py` found that commit `5a1b838` had added a
+  second call to `prepare_run_context_cache` beside the implementation already
+  present from commit `368c926`. This would prepare and freeze context packs
+  twice for every run. A lifecycle regression test reproduced two calls before
+  the interpreter was constructed; after removing only the merge-added block,
+  the local and shared-volume suites both passed 85/85 tests.
+- The corrected `run.py` and regression test were synchronized into the A10
+  active run tree. The controller was also made idempotent: it will not launch
+  a second `run.py`, will resume a stopped partial journal in place, and will
+  keep polling until a 50-node journal and 50-node comparison metrics agree.
+- The A10 Pod was assigned to `hcc-nrp-shor-c5825.unl.edu` at about 10:09 UTC.
+  Its persistent volume attached successfully and the NVIDIA PyTorch image is
+  being pulled. This is placement evidence, not yet a Ready GPU or experiment
+  launch. The L40S request remains Pending.
+- The A10 container became Ready at 10:12 UTC. Live detection reports NVIDIA
+  A10, 22,589 MiB VRAM, compute capability 8.6, CUDA 13.2, driver 595.71.05,
+  and PyTorch 2.12.0a0 from the NVIDIA 26.04 image. Isolated BF16 `torch.sort`
+  and FP16 matrix multiplication both completed successfully, ruling out the
+  illegal-memory-access fault seen on the lost older A10 runtime.
+- After that self-test, the detached controller was restarted and verified to
+  hold the A10 at 100% compute utilization with its owned filler while the L40S
+  agent remains unscheduled. The filler uses 2,579 MiB and will be stopped only
+  after the L40S API passes its health check.
+
+## 2026-08-31 10:33 UTC A10 local-runtime validation
+
+- A full config validation using the dependency environment on the shared Ceph
+  volume stalled in `ceph_mdsc_wait_request` while reading an OpenAI client
+  bytecode file. This was filesystem metadata latency, not scheduler code or a
+  CUDA deadlock. A plain Python process remained healthy.
+- The first node-local environment attempt used `uv pip`; its resolver ignored
+  the visible system packages and installed PyTorch 2.13.0, the runtime family
+  that previously failed on A10. That temporary `/tmp` environment and cache
+  were deleted. The replacement was created with system-site-packages and pip,
+  which retained the NVIDIA image's PyTorch
+  `2.12.0a0+0291f960b6.nv26.04.48445190` and added only missing packages.
+- Node-local imports now complete in 12 seconds. Full config construction on
+  the physical A10 proves: PetFinder, 50 nodes, `hardware_aware` mode,
+  Hardware Knowledge Database enabled, CUDA-process packing,
+  `prediction.mode=branch_profile`, `parallel_search_num=null`, and
+  `parallel_job_cap=null`. BF16 sort and FP16 matmul both pass from this exact
+  runtime. The launch controller now selects the node-local interpreter with a
+  persistent-volume fallback and has restored its A10 filler to 100% compute.
+
+## 2026-08-31 18:15 UTC preflight repair and live scheduler launch
+
+- Commit `85655dc` restores the preflight block that the branch merge had
+  dropped from `config.example.yaml`. It also changes node accounting so a
+  candidate rejected by stage review or CPU preflight is recorded in pipeline
+  telemetry but discarded from the search journal; a seconds-fast rejection
+  therefore cannot consume one of the 50 PetFinder nodes. The immediate,
+  deferred, and scheduler-batch regression paths pass, and 94 directly related
+  tests pass together.
+- The exact A10 runtime now has the pinned `model-preflight` submodule installed.
+  A real A10-profile smoke candidate completed all static, construction,
+  abstract-forward, CPU-training, validation, and memory stages with
+  `overall_status=PASS` and `gpu_submission_recommended=true`. The operational
+  config uses `nvidia/a10_24gb` and `fail_open_on_internal_error=false`, so a
+  broken preflight installation cannot be silently bypassed.
+- The synchronized A10 source marker is `85655dc`. Live config construction
+  proves `hardware_aware`, 50 retained nodes, `branch_profile`,
+  `cuda_process`, `parallel_search_num=null`, `parallel_job_cap=null`, and
+  preflight enabled only for hardware-aware mode.
+- The L40S Pod became Ready on `hcc-nrp-pki-c1705.unl.edu`. The original
+  bootstrap incorrectly resolved the model under `/root`; the actual 29.44-GiB
+  checkpoint is under `/root/downeyflyfan`. Installing the vLLM runtime onto
+  Ceph then stalled in `ceph_mdsc_wait_request`, so the runtime was moved to
+  node-local `/tmp` while the model remained on the persistent volume. vLLM
+  0.27.1 recognized `Qwen3_5ForConditionalGeneration`, compressed-tensors
+  INT8, the Marlin WNA16 kernel, text-only mode, and a 32,768-token context.
+  It reserved 8.59 GiB for 130,343 KV-cache tokens and exposes nearly four
+  full-context concurrent requests.
+- The live endpoint reached HTTP 200 at 18:10:39 UTC with 39.1/46.1 GiB VRAM.
+  During the actual MLEvolve workload, the first ten requests averaged 5.57 s
+  time to first token, including Triton just-in-time compilation. Three
+  concurrent agent requests sustained 53-59 aggregate generated tokens/s,
+  about 18-20 tokens/s per request, with no waiting requests and no errors.
+- The profile-based scheduler phase launched on the physical A10 at 18:11:05
+  UTC, PID 32631. Its resolved run directory is
+  `/root/downeyflyfan/mlevolve_a10_scheduler_active_20260831/runs/a10_scheduler_profile_hkwd_l40s_20260831_181108/20260831_181136_petfinder_scheduler_profile_hkwd_a10_l40s`.
+  Hardware sampling is active every two seconds. The controller was repaired
+  in place to resolve this nested run directory for progress, completion, and
+  resume checks; the live process was not interrupted.
+- A broad local scheduler suite reported 384 passes and five execution-test
+  failures. An isolated rerun proves the local `.venv` PyTorch lacks RTX 5070
+  Ti `sm_120` support; this is a local test-runtime incompatibility, not the
+  A10 runtime used by the experiment. The A10's NVIDIA image has independently
+  passed its CUDA BF16-sort and FP16-matmul checks.

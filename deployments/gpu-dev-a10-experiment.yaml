@@ -1,21 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gpu-dev-l40s-1gpu
+  name: gpu-dev-a10-experiment
   namespace: ecepxie
   labels:
-    app: gpu-dev-l40s-1gpu
+    app: gpu-dev-a10-experiment
+    purpose: petfinder-scheduler-experiment
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: gpu-dev-l40s-1gpu
+      app: gpu-dev-a10-experiment
   template:
     metadata:
       labels:
-        app: gpu-dev-l40s-1gpu
+        app: gpu-dev-a10-experiment
+        purpose: petfinder-scheduler-experiment
     spec:
       affinity:
         nodeAffinity:
@@ -25,9 +27,9 @@ spec:
                   - key: nvidia.com/gpu.product
                     operator: In
                     values:
-                      - NVIDIA-L40S
+                      - NVIDIA-A10
       containers:
-        - name: jupyter
+        - name: petfinder-experiment
           image: nvcr.io/nvidia/pytorch:26.04-py3
           imagePullPolicy: IfNotPresent
           command:
@@ -37,7 +39,6 @@ spec:
               /init/init.sh &
               init_pid=$!
               until pgrep -x sshd >/dev/null; do sleep 1; done
-              /bootstrap/bootstrap.sh
               wait "$init_pid"
           ports:
             - containerPort: 22
@@ -45,33 +46,20 @@ spec:
           resources:
             requests:
               cpu: "4"
-              memory: 4Gi
+              memory: 16Gi
               nvidia.com/gpu: "1"
             limits:
-              cpu: "8"
+              cpu: "16"
               memory: 64Gi
               nvidia.com/gpu: "1"
-          env:
-            - name: ACCELERATOR
-              value: l40s
-            - name: MODEL_CUDA_VISIBLE_DEVICES
-              value: "0"
-            - name: TENSOR_PARALLEL_SIZE
-              value: "1"
-            - name: MAX_MODEL_LEN
-              value: "32768"
-            - name: SERVED_MODEL_NAME
-              value: qwen3.8-27b-int8-l40s
           volumeMounts:
             - name: home
               mountPath: /root
             - name: init
               mountPath: /init
+              readOnly: true
             - name: dshm
               mountPath: /dev/shm
-            - name: bootstrap
-              mountPath: /bootstrap
-              readOnly: true
       volumes:
         - name: home
           persistentVolumeClaim:
@@ -83,8 +71,4 @@ spec:
         - name: dshm
           emptyDir:
             medium: Memory
-            sizeLimit: 12Gi
-        - name: bootstrap
-          configMap:
-            name: qwen38-l40s-bootstrap
-            defaultMode: 493
+            sizeLimit: 32Gi
