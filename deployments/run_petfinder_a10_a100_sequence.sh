@@ -52,6 +52,7 @@ run_phase() {
     "log_dir=$phase_root"
     "workspace_dir=$phase_root"
     "agent.steps=50"
+    "agent.time_limit=43200"
     "agent.seed=42"
     "agent.code.model=$model_name"
     "agent.code.base_url=$agent_base_url"

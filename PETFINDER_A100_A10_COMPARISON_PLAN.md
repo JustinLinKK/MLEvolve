@@ -11,6 +11,8 @@ Qwen3.8-27B INT8 agent served by vLLM on one NVIDIA A100.
 - Task: PetFinder Pawpularity Score.
 - Search seed: 42.
 - Retained search nodes: 50 per phase.
+- Search time budget: 43,200 seconds (12 hours) per phase, preventing the
+  slower local Agent from producing negative remaining-time guidance.
 - Agent: `qwen3.8-27b-int8-a100` at the cluster-local A100 service.
 - Execution device: exactly one NVIDIA A10.
 - Baseline: the previously validated original-MLEvolve source snapshot, with

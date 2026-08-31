@@ -43,6 +43,10 @@ and metric-node image is
 - Task: PetFinder Pawpularity Score.
 - Both phases use the same A100 Agent endpoint, model, seed 42, and 50 retained
   nodes.
+- Both phases use a 43,200-second search budget. The original 28,800-second
+  value was too close to the projected wall time at the measured 13.21
+  tokens/second and would eventually make the prompt's remaining-time value
+  negative, even though it is not a process-level hard stop.
 - Baseline phase uses the previously validated original-MLEvolve snapshot at
   `/root/downeyflyfan/mlevolve_a10_baseline_20260829`, with scheduler disabled
   and `use_stepwise_generation=false`. This is necessary because the modified
