@@ -338,3 +338,14 @@ RMSE was 18.1407 and held-out validation RMSE was 17.9833; a 992-row
 submission was produced. The journal contained 86 non-root attempts, 39
 budget-counted nodes, 47 excluded quick failures, and 26 scored effective
 nodes; the best remained 17.9433.
+
+At 2026-09-01 07:22 UTC, the baseline reached 40/50 effective nodes. Node
+`21ff28211ca24db9b1936097c6b82461` ran for 943.59 seconds before a
+ConvNeXt-Large fine-tuning forward pass encountered CUDA Out-of-Memory. Two
+other baseline candidates already occupied about 18.6 GiB, leaving only about
+40 MiB free; the node produced neither a validation metric nor a submission.
+It correctly counts because it ran well beyond the 60-second threshold. Four
+intervening 0.06--23.34-second failures remained excluded. The journal
+contained 91 non-root attempts, 40 budget-counted nodes, 51 excluded quick
+failures, and 26 scored effective nodes; the best remained 17.9433. The two
+surviving candidates continued at about 19.1 GiB total resident A10 memory.
