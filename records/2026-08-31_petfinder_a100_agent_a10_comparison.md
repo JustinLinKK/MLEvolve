@@ -166,3 +166,11 @@ it correctly counts as a long attempted node. Two intervening attempts failed
 after 38.96 seconds (invalid tensor dimensionality) and 28.24 seconds (CUDA
 Out-of-Memory); both remain diagnostic journal entries but are excluded from
 the effective-node budget. Two other candidate processes remained active.
+
+At 2026-09-01 00:09 UTC, those concurrent candidates completed and advanced
+the baseline from 16/50 to 19/50. Their RMSE values were 18.0570, 18.5776, and
+18.7309 after 6,302.64, 6,164.66, and 547.19 seconds respectively. A separate
+9.93-second dependency-version failure remained in the journal but was
+excluded. The A10 briefly reached zero resident processes after all three
+completions while the still-running controller requested the next candidates
+from the A100 agent; no filler was inserted into that experiment transition.
