@@ -391,3 +391,26 @@ remained excluded. The journal contained 97 non-root attempts, 44
 budget-counted nodes, 53 excluded quick failures, and 27 scored effective
 nodes; the best remained 17.9433. Two surviving candidates continued with
 about 13.8 GiB resident A10 memory and 100 percent GPU utilization.
+
+At 2026-09-01 09:04 UTC, the baseline reached 45/50 effective nodes. Node
+`6e71cab1e0824fb0b7fbf5efa974d7ab` executed for 2,748.38 seconds, but all
+three result-parsing calls failed with an agent connection error, so the node
+was marked buggy without a metric. It correctly counts because the underlying
+candidate ran well beyond the 60-second threshold. The journal contained 98
+non-root attempts, 45 budget-counted nodes, 53 excluded quick failures, and 27
+scored effective nodes; the best remained 17.9433.
+
+The connection failure was traced to the A100 host rather than the model or
+scheduler: `node-1-3.sdsc.optiputer.net` became NotReady, Kubernetes marked its
+A100 unhealthy, and the agent Pod ended in `UnexpectedAdmissionError` with
+`Allocate failed due to no healthy devices present`. Only that already-Failed
+Pod was deleted; the Deployment, Service, persistent volume, model, and A10
+experiments were preserved. Its replacement Pod remained Pending because the
+scheduler reported `Insufficient nvidia.com/a100`. The tested bootstrap,
+identity-aware vLLM monitor, and a new ordered container entrypoint were copied
+to the shared persistent volume. A condition-based recovery process now waits
+for that exact replacement Pod to become Ready, then starts the same
+Qwen3.8-27B INT8 server and its monitor. The entrypoint/monitor regression set
+passed 5/5 tests. Meanwhile two existing candidates continued on the A10 at
+100 percent utilization and about 20.3 GiB resident memory; neither was killed
+or restarted.
