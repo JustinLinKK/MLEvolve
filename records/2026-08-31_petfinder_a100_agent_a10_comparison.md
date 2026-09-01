@@ -370,3 +370,13 @@ contained 94 non-root attempts, 42 budget-counted nodes, 52 excluded quick
 failures, and 27 scored effective nodes; the best remained 17.9433. Two
 candidates continued at about 11.7 GiB resident A10 memory while the A100 agent
 generated the replacement.
+
+At 2026-09-01 08:10 UTC, the baseline reached 43/50 effective nodes. Node
+`2a87c2d0c00e4a049c8a04de822fcd47` ran for 1,487.09 seconds before test-set
+inference failed with `KeyError: 'Pawpularity'`. Its shared
+`PetRegressionDataset` unconditionally read the target column even for
+`test_df`, so no final validation metric or submission completed. It correctly
+counts as a long failed attempt. The journal contained 95 non-root attempts,
+43 budget-counted nodes, 52 excluded quick failures, and 27 scored effective
+nodes; the best remained 17.9433. One GPU candidate continued at about 9.8 GiB
+while the A100 agent generated replacements for two free slots.
