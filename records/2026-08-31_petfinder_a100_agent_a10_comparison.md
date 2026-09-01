@@ -453,3 +453,11 @@ tests passed 16/16. On the actual A10, after stopping only the verified filler,
 the scheduler bridge, GPU scheduler, integration, and time-aware suites passed
 99 tests plus 4 subtests. The A100 was still Pending and no real A10 candidate
 had appeared, so the filler was restored after verification.
+
+The profile-based time path was also re-audited before launch. Four focused
+tests passed: a running MLEvolve script persists a positive estimated total
+runtime before exit; batch observations provide a non-None epoch-time fallback;
+a completed runtime profile is reused only within the same hardware-aware
+workflow branch and model family; and a zero-valued exact profile falls back to
+the positive branch estimate. This directly covers the earlier failure mode in
+which scheduler estimation time was `None` while profile evidence existed.
