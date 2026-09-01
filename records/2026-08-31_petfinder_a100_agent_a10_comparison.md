@@ -287,3 +287,13 @@ whose predictions ranged from 26.78 to 82.68. The journal contained 79
 non-root attempts, 35 budget-counted nodes, 44 excluded quick failures, and 22
 scored effective nodes; the best RMSE remained 17.9916. Two other real
 candidates continued on the A10 while the controller requested a replacement.
+
+At 2026-09-01 06:24 UTC, the baseline reached 36/50 effective nodes. Node
+`9dc0c2b68d314e5d8f6a82834338eeb8` completed successfully after 1,984.23
+seconds. Patience-5 early stopping fired at epoch 10; its raw best validation
+RMSE was 18.1103 and test-time augmentation improved the final score to
+17.9433. It produced a 992-row submission with predictions from 21.11 to
+93.77. This became the new best baseline score. The journal contained 80
+non-root attempts, 36 budget-counted nodes, 44 excluded quick failures, and 23
+scored effective nodes. One long candidate remained active while the A100
+agent generated replacements for the two newly free execution slots.
