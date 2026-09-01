@@ -241,3 +241,12 @@ attempt and correctly consumes one effective-node slot. Four neighboring
 18.75--44.79-second ViT failures remained excluded. After memory release, the
 next candidate began on the same A10 and the A100 agent continued planning a
 multi-branch fusion candidate.
+
+At 2026-09-01 03:55 UTC, the baseline reached 31/50 effective nodes. Node
+`eee741ef762d472392c2395e35b7f564` ran for 130.96 seconds before its
+validation test-time-augmentation path failed because PyTorch does not support
+the negative-step tensor slice used after `rot90`. The attempt therefore
+crossed the 60-second threshold and correctly counts as a long failed node.
+The two preceding NaN-validation failures each ran for roughly 43 seconds and
+remained excluded. One separate candidate continued in its CPU/data stage
+while the A100 agent generated the replacement.
