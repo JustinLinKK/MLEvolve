@@ -307,3 +307,24 @@ non-root attempts, 37 budget-counted nodes, 44 excluded quick failures, and 24
 scored effective nodes; the best remained 17.9433. The A10 briefly became
 empty only after all three candidates completed, while the A100 vLLM agent was
 at 40 percent utilization generating replacements, so no filler was inserted.
+
+At 2026-09-01 06:37 UTC, the A100 vLLM EngineCore encountered a CUDA
+unspecified launch failure in the native fused RMSNorm path and shut down; the
+Kubernetes pod itself remained Running because vLLM had been a manually
+started child process. The full crash log was preserved under the remote
+`.cache` directory before restarting the exact Qwen3.8-27B INT8 text-only
+server. After reload, local health and an A10-to-Service chat completion both
+passed: the model returned exactly `READY` with HTTP 200 in 0.567 seconds and
+used about 73.5 GiB on the A100. A new identity-aware monitor now invokes the
+existing bootstrap only when the recorded vLLM process is truly dead; it does
+nothing while a matching process is loading or healthy and preserves the old
+server log before recovery. Its four focused tests and shell syntax check
+passed, and remote server PID 44703 plus monitor PID 45655 were verified alive.
+
+At 2026-09-01 06:53 UTC, the baseline reached 38/50 effective nodes. Node
+`02e2285091954f90a600189e971429ab` completed successfully after 1,554.15
+seconds with final TTA validation RMSE 18.3330, improving its non-TTA best of
+18.5948, and wrote a 992-row submission. Three intervening failures ran for
+49.55, 8.56, and 20.47 seconds and remained excluded. The journal therefore
+contained 85 non-root attempts, 38 budget-counted nodes, 47 excluded quick
+failures, and 25 scored effective nodes; the best remained 17.9433.
