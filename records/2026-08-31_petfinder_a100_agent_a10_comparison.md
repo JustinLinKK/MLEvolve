@@ -250,3 +250,12 @@ crossed the 60-second threshold and correctly counts as a long failed node.
 The two preceding NaN-validation failures each ran for roughly 43 seconds and
 remained excluded. One separate candidate continued in its CPU/data stage
 while the A100 agent generated the replacement.
+
+At 2026-09-01 04:41 UTC, the baseline reached 32/50 effective nodes. Node
+`a8061185e78b4b7781f27380cc8bd89e` completed successfully after 2,364.75
+seconds with validation RMSE 18.3646. Its multi-scale CNN plus metadata model
+stopped early at epoch 16, applied five-view test-time augmentation, and wrote
+a 992-row submission. The journal then contained 74 non-root attempts: 32
+budget-counted nodes, 42 excluded quick failures, and 20 scored effective
+nodes; the best RMSE remained 17.9916. Two other long candidates continued on
+the A10 after this process released its memory.
