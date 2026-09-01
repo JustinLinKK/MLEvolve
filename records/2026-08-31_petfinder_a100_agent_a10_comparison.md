@@ -349,3 +349,14 @@ intervening 0.06--23.34-second failures remained excluded. The journal
 contained 91 non-root attempts, 40 budget-counted nodes, 51 excluded quick
 failures, and 26 scored effective nodes; the best remained 17.9433. The two
 surviving candidates continued at about 19.1 GiB total resident A10 memory.
+
+At 2026-09-01 07:44 UTC, the baseline reached 41/50 effective nodes. Node
+`011adf686eb9486b9ec3e6d30cfbf35d` ran for 985.01 seconds before the
+EfficientNet-B3 regression backward pass failed with `Found dtype Double but
+expected Float`. Its embedding and quality-feature extraction completed, but
+the labels remained float64 inside mixed-precision training, so no training
+epoch, metric, or submission completed. It correctly counts as a long failed
+attempt. One separate 7.97-second device-property failure remained excluded,
+leaving 93 non-root attempts, 41 budget-counted nodes, 52 excluded quick
+failures, and 26 scored effective nodes. Two candidates continued at about
+19.1 GiB resident A10 memory.
