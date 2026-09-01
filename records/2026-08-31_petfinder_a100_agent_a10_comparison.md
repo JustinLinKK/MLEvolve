@@ -174,3 +174,9 @@ the baseline from 16/50 to 19/50. Their RMSE values were 18.0570, 18.5776, and
 excluded. The A10 briefly reached zero resident processes after all three
 completions while the still-running controller requested the next candidates
 from the A100 agent; no filler was inserted into that experiment transition.
+
+At 2026-09-01 00:17 UTC, the baseline reached 20/50 effective nodes. The
+twentieth node extracted image embeddings, fit five LightGBM folds, and
+completed successfully in 315.94 seconds with held-out RMSE 18.7644. The
+controller had already launched the next candidate, which restored A10 load
+without any fixed parallel-job cap or external filler.
