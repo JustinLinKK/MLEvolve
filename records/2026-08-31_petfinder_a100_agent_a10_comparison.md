@@ -297,3 +297,13 @@ RMSE was 18.1103 and test-time augmentation improved the final score to
 non-root attempts, 36 budget-counted nodes, 44 excluded quick failures, and 23
 scored effective nodes. One long candidate remained active while the A100
 agent generated replacements for the two newly free execution slots.
+
+At 2026-09-01 06:25 UTC, the baseline reached 37/50 effective nodes. Node
+`f5ac7ee367294a9c9102be603100eb1a` completed successfully after 5,809.24
+seconds with validation RMSE 18.2141. Its patience-10 early stopping triggered
+after 34 epochs, test-time augmentation improved the non-TTA best of about
+18.32, and it produced a 992-row submission. The journal contained 81
+non-root attempts, 37 budget-counted nodes, 44 excluded quick failures, and 24
+scored effective nodes; the best remained 17.9433. The A10 briefly became
+empty only after all three candidates completed, while the A100 vLLM agent was
+at 40 percent utilization generating replacements, so no filler was inserted.
