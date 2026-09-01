@@ -395,10 +395,15 @@ about 13.8 GiB resident A10 memory and 100 percent GPU utilization.
 At 2026-09-01 09:04 UTC, the baseline reached 45/50 effective nodes. Node
 `6e71cab1e0824fb0b7fbf5efa974d7ab` executed for 2,748.38 seconds, but all
 three result-parsing calls failed with an agent connection error, so the node
-was marked buggy without a metric. It correctly counts because the underlying
-candidate ran well beyond the 60-second threshold. The journal contained 98
-non-root attempts, 45 budget-counted nodes, 53 excluded quick failures, and 27
-scored effective nodes; the best remained 17.9433.
+was marked buggy without a metric. A later raw-terminal audit established that
+the candidate itself had succeeded: both ensemble models completed, the final
+validation RMSE was 17.965638, and a 992-row submission was saved. Thus the
+journal's buggy/scored fields are an infrastructure-induced parser
+misclassification, not a candidate failure. The node still correctly counts
+because the underlying candidate ran well beyond the 60-second threshold. The
+unmodified journal contained 98 non-root attempts, 45 budget-counted nodes, 53
+excluded quick failures, and 27 journal-scored effective nodes; the best
+remained 17.9433 with or without the recovered metric.
 
 The connection failure was traced to the A100 host rather than the model or
 scheduler: `node-1-3.sdsc.optiputer.net` became NotReady, Kubernetes marked its
