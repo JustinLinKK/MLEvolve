@@ -117,3 +117,36 @@ def test_monitor_restarts_a_stopped_sequence_controller(tmp_path: Path) -> None:
 
         time.sleep(0.01)
     assert marker.read_text() == "started"
+
+
+def test_monitor_discovers_the_latest_a100_deployment_pod(tmp_path: Path) -> None:
+    fake_bin = tmp_path / "bin"
+    kubectl_log = tmp_path / "kubectl.log"
+    fake_bin.mkdir()
+    fake_kubectl = fake_bin / "kubectl"
+    fake_kubectl.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$KUBECTL_LOG\"\n"
+        "if [[ $* == *'get pods'* ]]; then\n"
+        "  printf 'replacement-a100-pod'\n"
+        "fi\n"
+    )
+    fake_kubectl.chmod(0o755)
+
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "KUBECTL_LOG": str(kubectl_log),
+        "MAX_ITERATIONS": "1",
+    }
+    subprocess.run(
+        ["bash", str(MONITOR_SCRIPT)],
+        env=env,
+        check=True,
+        timeout=5,
+        stdout=subprocess.DEVNULL,
+    )
+
+    calls = kubectl_log.read_text()
+    assert "get pods -n ecepxie -l app=mlevolve-a100-1gpu" in calls
+    assert "exec -n ecepxie replacement-a100-pod -- nvidia-smi" in calls

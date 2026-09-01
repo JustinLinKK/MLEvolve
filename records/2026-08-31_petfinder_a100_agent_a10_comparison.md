@@ -496,3 +496,13 @@ experiment early. The combined local suite passed 135 tests plus 4 subtests,
 and the actual A10 custom checkout passed its 18 scheduler-round, accounting,
 and executor-bridge tests while the identity-marked filler continued to hold
 the otherwise-idle GPU.
+
+At 2026-09-01 10:52 UTC, the long-running comparison monitor was corrected to
+stop referring to the failed A100 Pod `mlevolve-a100-1gpu-77d4fc9848-vx6sv`.
+Unless an explicit `A100_POD` override is supplied, every monitoring iteration
+now discovers the newest Pod carrying the `app=mlevolve-a100-1gpu` Deployment
+label. This preserves monitoring across Kubernetes replacement Pods without
+recreating the queued workload or resetting its age. A behavior-level test
+executes the monitor against a controlled `kubectl` boundary and verifies that
+the discovered replacement Pod is queried; all three sequence recovery tests
+and the shell syntax check passed.

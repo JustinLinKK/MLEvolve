@@ -4,7 +4,7 @@ set -u
 
 namespace="${NAMESPACE:-ecepxie}"
 a10_pod="${A10_POD:-gpu-dev-a10-experiment-746c959459-2xwdd}"
-a100_pod="${A100_POD:-mlevolve-a100-1gpu-77d4fc9848-vx6sv}"
+a100_pod="${A100_POD:-}"
 l40s_pod="${L40S_POD:-gpu-dev-l40s-1gpu-8599df9fd4-nqp2g}"
 state_dir="${STATE_DIR:-/root/downeyflyfan/.cache/mlevolve_a100_a10_sequence_v5}"
 controller_script="${CONTROLLER_SCRIPT:-/root/downeyflyfan/.cache/mlevolve_a10_a100_comparison_20260831/deployments/run_petfinder_a10_a100_sequence.sh}"
@@ -47,7 +47,19 @@ while true; do
         echo "phase=$phase budget_nodes=$budget attempts=$attempts controller=$controller root=$root"
         nvidia-smi --query-gpu=memory.used,utilization.gpu,power.draw --format=csv,noheader
     '
-    kubectl exec -n "$namespace" "$a100_pod" -- nvidia-smi --query-gpu=memory.used,utilization.gpu,power.draw --format=csv,noheader
+    current_a100_pod="$a100_pod"
+    if [[ -z "$current_a100_pod" ]]; then
+        current_a100_pod="$(
+            kubectl get pods -n "$namespace" -l app=mlevolve-a100-1gpu \
+                --sort-by=.metadata.creationTimestamp \
+                -o jsonpath='{.items[-1:].metadata.name}' 2>/dev/null || true
+        )"
+    fi
+    if [[ -n "$current_a100_pod" ]]; then
+        kubectl exec -n "$namespace" "$current_a100_pod" -- nvidia-smi --query-gpu=memory.used,utilization.gpu,power.draw --format=csv,noheader
+    else
+        echo "A100 deployment pod not found"
+    fi
     kubectl exec -n "$namespace" "$l40s_pod" -- nvidia-smi --query-gpu=memory.used,utilization.gpu,power.draw --format=csv,noheader
     iteration=$((iteration + 1))
     if [[ "$max_iterations" -gt 0 ]] && [[ "$iteration" -ge "$max_iterations" ]]; then
