@@ -380,3 +380,14 @@ counts as a long failed attempt. The journal contained 95 non-root attempts,
 43 budget-counted nodes, 52 excluded quick failures, and 27 scored effective
 nodes; the best remained 17.9433. One GPU candidate continued at about 9.8 GiB
 while the A100 agent generated replacements for two free slots.
+
+At 2026-09-01 08:38 UTC, the baseline reached 44/50 effective nodes. Node
+`d2fdc185327e428da80fd81a7d153c7e` ran for 1,215.70 seconds before its
+fine-tuned ConvNeXt-Large model failed on the first training step: the backbone
+returned a 1,000-wide tensor, but the custom head applied
+`LayerNorm(1536)`. It produced neither a validation metric nor a submission and
+correctly counts as a long failed attempt. One intervening 43.65-second failure
+remained excluded. The journal contained 97 non-root attempts, 44
+budget-counted nodes, 53 excluded quick failures, and 27 scored effective
+nodes; the best remained 17.9433. Two surviving candidates continued with
+about 13.8 GiB resident A10 memory and 100 percent GPU utilization.
