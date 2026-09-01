@@ -26,7 +26,7 @@ def node_counts_toward_budget(node: object) -> bool:
     try:
         execution_seconds = float(_field(node, "exec_time"))
     except (TypeError, ValueError):
-        return True
+        return False
     return execution_seconds >= MIN_COUNTED_FAILED_EXECUTION_SECONDS
 
 
@@ -39,4 +39,3 @@ def count_budget_nodes_from_json(path: str | Path) -> int:
     """Count budget nodes in a serialized MLEvolve journal."""
     payload = json.loads(Path(path).read_text())
     return count_budget_nodes(payload.get("nodes", []))
-

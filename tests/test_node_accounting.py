@@ -36,6 +36,12 @@ def test_quick_failed_nodes_do_not_consume_the_search_budget() -> None:
     assert node_counts_toward_budget(nodes[5]) is True
 
 
+def test_failed_node_without_execution_time_does_not_consume_budget() -> None:
+    node = _node(is_buggy=True, exec_time=None)
+
+    assert node_counts_toward_budget(node) is False
+
+
 def test_serialized_journal_uses_the_same_budget_rule(tmp_path: Path) -> None:
     journal = tmp_path / "journal.json"
     journal.write_text(
@@ -52,4 +58,3 @@ def test_serialized_journal_uses_the_same_budget_rule(tmp_path: Path) -> None:
     )
 
     assert count_budget_nodes_from_json(journal) == 2
-

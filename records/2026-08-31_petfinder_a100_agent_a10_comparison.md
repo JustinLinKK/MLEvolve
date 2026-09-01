@@ -461,3 +461,19 @@ a completed runtime profile is reused only within the same hardware-aware
 workflow branch and model family; and a zero-valued exact profile falls back to
 the positive branch estimate. This directly covers the earlier failure mode in
 which scheduler estimation time was `None` while profile evidence existed.
+
+At 2026-09-01 10:40 UTC, the effective-node counter was audited for missing
+execution timing. A failed node with `exec_time=None` previously entered the
+conversion-error branch and was conservatively counted, even though there was
+no evidence that it had executed for the required 60 seconds. A test-first
+regression reproduced that behavior. The minimal correction excludes a buggy
+node when its execution time is missing or malformed; successful nodes still
+count regardless of runtime, and failed nodes still count at 60 seconds or
+longer. The focused local suite passed 24 tests plus 4 subtests. The broader
+local GPU integration test remained unsupported because the installed PyTorch
+CUDA 11.8 build lacks `sm_120` support for the workstation RTX 5070 Ti; this is
+an environment failure outside the accounting path. Both the original
+baseline checkout and the hardware-aware checkout on the actual A10 passed all
+three accounting tests. Recomputing the live journal remained 47/50 because it
+contains no failed node with missing execution time; the correction protects
+future baseline and custom-phase attempts without rewriting existing results.
