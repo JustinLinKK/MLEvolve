@@ -231,3 +231,13 @@ epoch 14, validation RMSE was 19.0494, and the generated submission contained
 992 rows with predictions from 26.11 to 83.60. This node ran concurrently with
 the still-active 19.2-GiB candidate, so the A10 remained saturated while the
 A100 agent began generating the replacement task.
+
+At 2026-09-01 03:50 UTC, the baseline reached 30/50 effective nodes. Node
+`6bbb77cb72314ebfa309f926b57b5a99` ran for 7,207.07 seconds and reached the
+two-hour execution timeout during epoch 17 of 35. Its best intermediate
+validation RMSE was approximately 18.34 at epoch 12, but the timeout occurred
+before final submission generation, so the node is recorded as a long failed
+attempt and correctly consumes one effective-node slot. Four neighboring
+18.75--44.79-second ViT failures remained excluded. After memory release, the
+next candidate began on the same A10 and the A100 agent continued planning a
+multi-branch fusion candidate.
