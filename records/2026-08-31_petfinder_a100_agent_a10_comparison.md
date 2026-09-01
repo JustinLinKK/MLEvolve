@@ -328,3 +328,13 @@ seconds with final TTA validation RMSE 18.3330, improving its non-TTA best of
 49.55, 8.56, and 20.47 seconds and remained excluded. The journal therefore
 contained 85 non-root attempts, 38 budget-counted nodes, 47 excluded quick
 failures, and 25 scored effective nodes; the best remained 17.9433.
+
+At 2026-09-01 06:57 UTC, the baseline reached 39/50 effective nodes. Node
+`9ee33b0a37e848abbb4e53d07beedc21` completed successfully after 1,280.44
+seconds. It extracted ConvNeXt-Large embeddings with three-view test-time
+augmentation, concatenated hand-crafted quality and metadata features into a
+1,558-dimensional representation, and fit LightGBM. Five-fold train-split CV
+RMSE was 18.1407 and held-out validation RMSE was 17.9833; a 992-row
+submission was produced. The journal contained 86 non-root attempts, 39
+budget-counted nodes, 47 excluded quick failures, and 26 scored effective
+nodes; the best remained 17.9433.
