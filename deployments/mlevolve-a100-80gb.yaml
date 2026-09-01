@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlevolve-a100-1gpu
+  namespace: ecepxie
+  labels:
+    app: mlevolve-a100-1gpu
+    purpose: qwen-agent-petfinder-comparison
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mlevolve-a100-1gpu
+  template:
+    metadata:
+      labels:
+        app: mlevolve-a100-1gpu
+        purpose: qwen-agent-petfinder-comparison
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.product
+                    operator: In
+                    values:
+                      - NVIDIA-A100-SXM4-80GB
+      containers:
+        - name: mlevolve-a100
+          image: nvcr.io/nvidia/pytorch:26.04-py3
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -lc
+            - /init/init.sh && tail -f /dev/null
+          resources:
+            requests:
+              cpu: "4"
+              memory: 16Gi
+              nvidia.com/a100: "1"
+            limits:
+              cpu: "16"
+              memory: 64Gi
+              nvidia.com/a100: "1"
+          volumeMounts:
+            - name: home
+              mountPath: /root
+            - name: init
+              mountPath: /init
+              readOnly: true
+            - name: dshm
+              mountPath: /dev/shm
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+      volumes:
+        - name: home
+          persistentVolumeClaim:
+            claimName: yuw-home
+        - name: init
+          configMap:
+            name: nautilus-init
+            defaultMode: 493
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi
