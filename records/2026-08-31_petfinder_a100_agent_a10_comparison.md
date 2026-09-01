@@ -440,3 +440,16 @@ replacement Pod, it terminates only the exact PID whose command line contains
 `a10_goal_filler`, verifies that marker is gone, and then proceeds with agent
 recovery. This prevents the filler from overlapping the next real Petfinder
 candidate.
+
+Before the custom phase, a second admission audit found that
+`parallel_job_cap=null` was not sufficient by itself: the MLEvolve interpreter
+still returned `False` from `check_current_status()` once its legacy runfile
+slot count was reached. Scheduler submissions already use unique runfiles and
+the local scheduler owns incremental admission, so this gate was a hidden
+fixed concurrency cap. The gate now bypasses the legacy slot count only when
+`scheduler.enabled=true`; the original baseline subprocess-slot behavior is
+unchanged. A regression test asserts both sides of that boundary. Local focused
+tests passed 16/16. On the actual A10, after stopping only the verified filler,
+the scheduler bridge, GPU scheduler, integration, and time-aware suites passed
+99 tests plus 4 subtests. The A100 was still Pending and no real A10 candidate
+had appeared, so the filler was restored after verification.

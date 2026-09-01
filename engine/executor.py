@@ -269,8 +269,8 @@ class Interpreter:
         self.status_map = [0] * self.max_parallel_run
         self.start_cpu_id = int(cfg.start_cpu_id) if cfg else 0
         self.cpu_number = int(cfg.cpu_number) if cfg else 1
-        scheduler_enabled = bool(getattr(getattr(cfg, "scheduler", None), "enabled", False)) if cfg else False
-        if not scheduler_enabled and self.cpu_number < self.max_parallel_run:
+        self.scheduler_enabled = bool(getattr(getattr(cfg, "scheduler", None), "enabled", False)) if cfg else False
+        if not self.scheduler_enabled and self.cpu_number < self.max_parallel_run:
             raise ValueError(
                 "The maximum level of parallelism exceeds the number of allocated CPU cores; "
                 "ensure that each process has at least one CPU core."
@@ -641,7 +641,7 @@ class Interpreter:
 
     def check_current_status(self):
         """Check current parallel run number."""
-        return self.current_parallel_run < self.max_parallel_run
+        return self.scheduler_enabled or self.current_parallel_run < self.max_parallel_run
 
     def isolate_submission_path(self, code: str, _id) -> str:
         """Per-process submission filename to avoid write conflicts."""
