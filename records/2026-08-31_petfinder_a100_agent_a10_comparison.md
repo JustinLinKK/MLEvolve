@@ -535,13 +535,17 @@ will enter the final comparison.
 The custom process and its parent comparison controller were stopped after
 positive command-line identity checks. No A10 candidate process was active, so
 an identity-marked `a10_goal_filler` was started and restored 100 percent A10
-utilization. A new Deployment manifest now uses hard node affinity for exactly
-`NVIDIA-A100-SXM4-80GB`; the previous preferred affinity had allowed the 40GB
-fallback. A test written before the manifest reproduced the missing deployment
-contract, then passed after the manifest was added. Kubernetes client-side
-validation also confirmed the exact hard constraint. The 40GB Pod was replaced,
-and the new exact-80GB Pod entered the queue. A condition-based recovery process
-will verify both the GPU product and at least 80,000 MiB of VRAM, terminate only
-an identified A100 filler if one exists, start and health-check the same Qwen
-server, stop only the identified A10 filler, and launch a fresh baseline-then-
-custom comparison in a new state directory.
+utilization. A new Deployment manifest now uses hard node affinity for a full
+80GB A100: either `NVIDIA-A100-SXM4-80GB` or `NVIDIA-A100-80GB-PCIe`; the
+previous preferred affinity had allowed the 40GB fallback, while the new list
+excludes 40GB products and Multi-Instance GPU slices. Both phases will use the
+same allocated Pod, so allowing both full-80GB products increases the eligible
+pool without mixing products within the comparison. Tests written before each
+manifest change reproduced the missing deployment contracts, then passed after
+the manifest was added and widened. Kubernetes client-side validation also
+confirmed the hard constraints. The 40GB Pod was replaced, and the new 80GB
+Pod entered the queue. A condition-based recovery process will verify both the
+GPU product and at least 80,000 MiB of VRAM, terminate only an identified A100
+filler if one exists, start and health-check the same Qwen server, stop only the
+identified A10 filler, and launch a fresh baseline-then-custom comparison in a
+new state directory.

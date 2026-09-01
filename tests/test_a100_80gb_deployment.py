@@ -7,7 +7,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = REPO_ROOT / "deployments" / "mlevolve-a100-80gb.yaml"
 
 
-def test_agent_cannot_fall_back_to_a_40gb_a100() -> None:
+def test_agent_can_use_full_80gb_a100s_but_cannot_fall_back_to_40gb_or_mig() -> None:
     deployment = yaml.safe_load(MANIFEST.read_text())
     pod_spec = deployment["spec"]["template"]["spec"]
 
@@ -24,7 +24,7 @@ def test_agent_cannot_fall_back_to_a_40gb_a100() -> None:
     assert product_constraint == {
         "key": "nvidia.com/gpu.product",
         "operator": "In",
-        "values": ["NVIDIA-A100-SXM4-80GB"],
+        "values": ["NVIDIA-A100-SXM4-80GB", "NVIDIA-A100-80GB-PCIe"],
     }
 
     resources = pod_spec["containers"][0]["resources"]

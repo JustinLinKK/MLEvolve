@@ -28,6 +28,7 @@ spec:
                     operator: In
                     values:
                       - NVIDIA-A100-SXM4-80GB
+                      - NVIDIA-A100-80GB-PCIe
       containers:
         - name: mlevolve-a100
           image: nvcr.io/nvidia/pytorch:26.04-py3

@@ -4,8 +4,9 @@
 
 Compare original MLEvolve with the scheduler plus Hardware Knowledge Database
 variant on the same single NVIDIA A10. Both phases use the same text-only
-Qwen3.8-27B INT8 agent served by vLLM on one NVIDIA A100-SXM4-80GB. A run is
-not comparable if any phase falls back to a 40GB A100 or another A100 SKU.
+Qwen3.8-27B INT8 agent served by vLLM on the same full 80GB NVIDIA A100
+allocation. A run is not comparable if any phase falls back to a 40GB A100,
+a Multi-Instance GPU (MIG) slice, or a different agent allocation.
 
 ## Controlled settings
 
@@ -15,8 +16,10 @@ not comparable if any phase falls back to a 40GB A100 or another A100 SKU.
 - Search time budget: 43,200 seconds (12 hours) per phase, preventing the
   slower local Agent from producing negative remaining-time guidance.
 - Agent: `qwen3.8-27b-int8-a100` at the cluster-local A100 service.
-- Agent hardware: exactly `NVIDIA-A100-SXM4-80GB`, enforced with required node
-  affinity and verified again with `nvidia-smi` before either phase starts.
+- Agent hardware: either `NVIDIA-A100-SXM4-80GB` or
+  `NVIDIA-A100-80GB-PCIe`, enforced with required node affinity and verified
+  again with `nvidia-smi` before either phase starts. Both phases must remain on
+  the same allocated Pod and therefore the same exact GPU product.
 - Execution device: exactly one NVIDIA A10.
 - Baseline: the previously validated original-MLEvolve source snapshot, with
   scheduler disabled and non-stepwise generation (`use_stepwise_generation=false`).
@@ -38,7 +41,7 @@ not comparable if any phase falls back to a 40GB A100 or another A100 SKU.
 3. Record post-warmup Time to First Token (TTFT) and generation tokens/second.
 4. Preserve superseded or mixed-hardware runs as diagnostics only, then run
    baseline followed by the modified method from zero on the same A10 and the
-   same A100-SXM4-80GB agent allocation.
+   same full-80GB A100 agent allocation.
 5. Persist journal, generated code, scheduler events, hardware evidence,
    process logs, and GPU telemetry for recovery.
 6. Produce one comparison PNG with Gantt charts above and metric-versus-node
