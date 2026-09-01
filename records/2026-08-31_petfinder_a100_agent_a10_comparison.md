@@ -360,3 +360,13 @@ attempt. One separate 7.97-second device-property failure remained excluded,
 leaving 93 non-root attempts, 41 budget-counted nodes, 52 excluded quick
 failures, and 26 scored effective nodes. Two candidates continued at about
 19.1 GiB resident A10 memory.
+
+At 2026-09-01 08:04 UTC, the baseline reached 42/50 effective nodes. Node
+`ec2a83faf6ca45e1bdc6d9dd110b7e3b` completed successfully after 2,858.20
+seconds with final TTA validation RMSE 18.4311. Its ConvNeXt-base plus metadata
+fusion model trained for 14 epochs before patience-10 early stopping; the
+non-TTA best was 18.3349, and it produced a 992-row submission. The journal
+contained 94 non-root attempts, 42 budget-counted nodes, 52 excluded quick
+failures, and 27 scored effective nodes; the best remained 17.9433. Two
+candidates continued at about 11.7 GiB resident A10 memory while the A100 agent
+generated the replacement.
