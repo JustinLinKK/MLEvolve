@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from omegaconf import OmegaConf
@@ -37,6 +38,94 @@ class _Agent:
 
     def close_cuda_docs(self):
         return None
+
+
+class _RoundInterpreter:
+    max_parallel_run = 2
+
+    def __init__(self) -> None:
+        self.packet_sizes: list[int] = []
+
+    def run(self, *args, **kwargs):
+        raise AssertionError("deferred scheduler generation must not execute directly")
+
+    def run_many(self, items):
+        self.packet_sizes.append(len(items))
+        return {str(item["id"]): object() for item in items}
+
+
+class _RoundAgent:
+    def __init__(self, journal, candidate_count: int, skipped_steps: int = 0) -> None:
+        self.journal = journal
+        self.remaining = candidate_count
+        self.skipped_steps = skipped_steps
+
+    def has_selectable_work(self) -> bool:
+        return self.remaining > 0
+
+    def step(self, *, exec_callback, node, execute_immediately):
+        assert execute_immediately is False
+        assert node is None
+        if self.skipped_steps:
+            self.skipped_steps -= 1
+            return None
+        self.remaining -= 1
+        return SimpleNamespace(
+            id=f"candidate-{self.remaining}",
+            stage="draft",
+            is_buggy=False,
+            exec_time=120.0,
+        )
+
+    def execute_deferred_nodes(self, nodes, exec_many_callback):
+        exec_many_callback([{"id": node.id, "code": "pass"} for node in nodes])
+        self.journal.nodes.extend(nodes)
+        return nodes
+
+
+def test_scheduler_round_is_not_limited_by_legacy_executor_slots() -> None:
+    runner = getattr(run_module, "_run_scheduler_rounds", None)
+    assert runner is not None
+
+    journal = SimpleNamespace(
+        nodes=[SimpleNamespace(stage="root", is_buggy=False, exec_time=None)]
+    )
+    agent = _RoundAgent(journal, candidate_count=5)
+    interpreter = _RoundInterpreter()
+    saves: list[int] = []
+
+    completed = runner(
+        agent=agent,
+        interpreter=interpreter,
+        cfg=SimpleNamespace(agent=SimpleNamespace(steps=5)),
+        journal=journal,
+        logger=logging.getLogger("test-scheduler-round"),
+        save_callback=lambda cfg, current_journal: saves.append(len(current_journal.nodes)),
+    )
+
+    assert completed == 5
+    assert interpreter.packet_sizes == [5]
+    assert saves == [6]
+
+
+def test_scheduler_round_retries_a_transient_generation_skip() -> None:
+    journal = SimpleNamespace(
+        nodes=[SimpleNamespace(stage="root", is_buggy=False, exec_time=None)]
+    )
+    agent = _RoundAgent(journal, candidate_count=1, skipped_steps=1)
+    interpreter = _RoundInterpreter()
+
+    completed = run_module._run_scheduler_rounds(
+        agent=agent,
+        interpreter=interpreter,
+        cfg=SimpleNamespace(agent=SimpleNamespace(steps=1)),
+        journal=journal,
+        logger=logging.getLogger("test-scheduler-round-retry"),
+        save_callback=lambda cfg, current_journal: None,
+    )
+
+    assert completed == 1
+    assert interpreter.packet_sizes == [1]
 
 
 def test_run_prepares_context_cache_once_before_interpreter(monkeypatch, tmp_path: Path) -> None:

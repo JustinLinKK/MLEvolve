@@ -477,3 +477,22 @@ baseline checkout and the hardware-aware checkout on the actual A10 passed all
 three accounting tests. Recomputing the live journal remained 47/50 because it
 contains no failed node with missing execution time; the correction protects
 future baseline and custom-phase attempts without rewriting existing results.
+
+At 2026-09-01 10:47 UTC, the custom-phase orchestration was checked for a
+second fixed-concurrency boundary. Although scheduler submissions already
+bypassed the legacy executor slot gate, `run.py` still sized its worker pool
+from the executor's default value of three. Consequently no more than three
+candidate executions could be visible to the scheduler at once. The custom
+path now uses the existing deferred-node and `run_many` interfaces: it
+generates every candidate currently selectable from the search tree, submits
+that wave as one scheduler packet, and lets incremental admission decide which
+jobs run concurrently. Packet width is therefore determined by available
+search-tree work and remaining experiment nodes, not by `max_parallel_run` or
+`parallel_job_cap`. The baseline path remains the original MLEvolve thread-pool
+path. A test-first regression proved that five selectable candidates form one
+packet even when the legacy executor slot value is two; a second regression
+proved that a transient generation skip is retried rather than ending the
+experiment early. The combined local suite passed 135 tests plus 4 subtests,
+and the actual A10 custom checkout passed its 18 scheduler-round, accounting,
+and executor-bridge tests while the identity-marked filler continued to hold
+the otherwise-idle GPU.

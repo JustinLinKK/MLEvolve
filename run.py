@@ -104,6 +104,58 @@ def _submit_startpoint_probe_jobs(
     return job_ids
 
 
+def _run_scheduler_rounds(
+    *,
+    agent,
+    interpreter,
+    cfg,
+    journal,
+    logger: logging.Logger,
+    exec_callback=None,
+    save_callback=save_run,
+) -> int:
+    """Submit each currently selectable search-tree wave as one scheduler packet."""
+    execute_one = exec_callback or interpreter.run
+    total_steps = int(cfg.agent.steps)
+    completed = count_budget_nodes(journal.nodes)
+
+    while completed < total_steps:
+        candidates = []
+        remaining = total_steps - completed
+        while len(candidates) < remaining and agent.has_selectable_work():
+            node = agent.step(
+                exec_callback=execute_one,
+                node=None,
+                execute_immediately=False,
+            )
+            if node is None:
+                continue
+            candidates.append(node)
+
+        if not candidates:
+            logger.warning(
+                "No scheduler-round candidates remain; stopping at %s/%s budget-counted nodes.",
+                completed,
+                total_steps,
+            )
+            break
+
+        logger.info(
+            "Submitting %s search-tree candidate(s) as one scheduler-controlled round.",
+            len(candidates),
+        )
+        agent.execute_deferred_nodes(candidates, interpreter.run_many)
+        save_callback(cfg, journal)
+        completed = count_budget_nodes(journal.nodes)
+        logger.info(
+            "Scheduler-controlled progress: %s/%s budget-counted nodes.",
+            completed,
+            total_steps,
+        )
+
+    return completed
+
+
 def run():
     run_started_at = time.time()
     cfg = load_cfg()
@@ -311,7 +363,16 @@ def run():
 
             logger.info(f"✅ Phase 1 complete: {len(pending_draft_nodes)} draft codes generated")
 
-        if pending_draft_nodes or completed < total_steps:
+        if scheduler_enabled:
+            completed = _run_scheduler_rounds(
+                agent=agent,
+                interpreter=interpreter,
+                cfg=cfg,
+                journal=journal,
+                logger=logger,
+                exec_callback=exec_callback,
+            )
+        elif pending_draft_nodes or completed < total_steps:
             logger.info(f"🚀 Phase 2: Pipelined parallel execution")
             logger.info(f"   - Pending draft executions: {len(pending_draft_nodes)}")
             logger.info(f"   - Remaining steps: {total_steps - completed}")
