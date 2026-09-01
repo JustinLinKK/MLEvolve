@@ -268,3 +268,13 @@ stopping, and produced a 992-row submission. The journal contained 76
 non-root attempts, of which 43 quick failures remained excluded; 21 effective
 nodes had valid scores and the best RMSE remained 17.9916. Two real candidates
 continued on the A10 while the A100 agent generated a replacement.
+
+At 2026-09-01 05:48 UTC, the baseline reached 34/50 effective nodes. Node
+`9ec5186f92dc4ef2af014c50c5b38882` ran for 7,207.44 seconds and hit the
+two-hour limit without producing a metric or submission. The generated script
+observed only 3.25 GiB free GPU memory while other baseline candidates were
+resident, chose a CPU fallback, and then attempted to train ViT-B/16 there;
+this explains the timeout and demonstrates a baseline admission weakness. A
+separate 17.93-second ConvNeXt channel-shape failure was excluded, leaving 78
+non-root attempts, 34 budget-counted nodes, and 44 excluded quick failures.
+Two GPU candidates continued at 18.85 GiB total resident A10 memory.
