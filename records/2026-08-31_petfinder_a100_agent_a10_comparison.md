@@ -278,3 +278,12 @@ this explains the timeout and demonstrates a baseline admission weakness. A
 separate 17.93-second ConvNeXt channel-shape failure was excluded, leaving 78
 non-root attempts, 34 budget-counted nodes, and 44 excluded quick failures.
 Two GPU candidates continued at 18.85 GiB total resident A10 memory.
+
+At 2026-09-01 06:22 UTC, the baseline reached 35/50 effective nodes. Node
+`9df3e28f3c744b5686ab0287c4d068f0` completed successfully after 2,987.28
+seconds with validation RMSE 18.1461. It stopped early at epoch 13 with
+patience 8, applied test-time augmentation, and produced a 992-row submission
+whose predictions ranged from 26.78 to 82.68. The journal contained 79
+non-root attempts, 35 budget-counted nodes, 44 excluded quick failures, and 22
+scored effective nodes; the best RMSE remained 17.9916. Two other real
+candidates continued on the A10 while the controller requested a replacement.
