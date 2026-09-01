@@ -204,3 +204,12 @@ it only when the experiment is incomplete and that controller has actually
 stopped. Two focused recovery tests passed, both shell scripts passed syntax
 validation, the updated controller was synchronized to the A10, and the live
 monitor verified that PID 55065 remained the original running controller.
+
+A local recovery snapshot was then pulled to
+`.cache/petfinder_a100_a10_live/baseline_27_nodes_20260901_0234`. It contains
+the complete 334 MiB run directory, the exact isolated baseline source, and
+the controller state. The copied journal parsed successfully with 58 raw
+attempts and 27 budget-counted nodes. The PetFinder input links were restored
+as symbolic links to the canonical server dataset paths, so transferring the
+snapshot back to a machine with the same dataset layout preserves the resume
+contract. The live remote run continued during this copy.
