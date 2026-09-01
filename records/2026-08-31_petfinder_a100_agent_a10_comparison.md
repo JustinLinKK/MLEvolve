@@ -213,3 +213,13 @@ attempts and 27 budget-counted nodes. The PetFinder input links were restored
 as symbolic links to the canonical server dataset paths, so transferring the
 snapshot back to a machine with the same dataset layout preserves the resume
 contract. The live remote run continued during this copy.
+
+At 2026-09-01 03:26 UTC, the baseline reached 28/50 effective nodes. Node
+`73176972ad114f43bba3edcb8210a2f0` trained EfficientNet-B0 with a gated
+metadata-fusion head for 2,869.74 seconds and completed successfully with
+validation RMSE 18.4674; early stopping fired at epoch 17 after the best epoch
+9. It produced a 992-row submission and increased the scored-node count to 18,
+while the overall best remained 17.9916. Five immediately preceding failures
+ran for 7.07--15.88 seconds and remained excluded. The two other long-running
+candidates continued on the A10, and the controller immediately used the A100
+agent to generate a replacement without inserting a filler or fixed job cap.
