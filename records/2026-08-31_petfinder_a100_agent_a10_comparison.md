@@ -506,3 +506,19 @@ recreating the queued workload or resetting its age. A behavior-level test
 executes the monitor against a controlled `kubectl` boundary and verifies that
 the discovered replacement Pod is queried; all three sequence recovery tests
 and the shell syntax check passed.
+
+At 2026-09-01 11:25 UTC, the otherwise-unused L40S filler was tuned after a
+monitor sample fell to 26 percent utilization. The vLLM server itself was
+healthy with zero failed requests; the root cause was a single sequential
+filler request (`running=1`, `waiting=0`). The filler gained validated worker
+concurrency without changing or restarting vLLM. Controlled 15-second decode
+measurements were: three requests, about 61.0 aggregate tokens/s and 88.6
+percent mean utilization; six requests, about 121.2 tokens/s and 87.6 percent;
+twelve requests, about 244.0 tokens/s and 93.9 percent; sixteen requests, about
+313.6 tokens/s and 97.3 percent, with repeated 100-percent samples. Sixteen
+requests had `waiting=0` and the cumulative vLLM error counter remained zero,
+so it was retained. Only the process group positively identified as the L40S
+filler and its localhost curl children was restarted during each trial; the
+Qwen EngineCore remained live. The script now defaults to sixteen workers so a
+future filler restart preserves the measured saturation setting. Its two
+behavior tests, shell syntax check, and local/remote SHA-256 equality passed.
