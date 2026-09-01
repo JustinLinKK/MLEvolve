@@ -188,3 +188,19 @@ The controller immediately continued with a new candidate using approximately
 15.8 GiB at 100 percent A10 utilization. At this milestone there were 44 raw
 attempts, 19 excluded quick failures, and 17 scored effective nodes; the best
 RMSE remained 17.9916.
+
+At 2026-09-01 02:33 UTC, the baseline had 27/50 effective nodes from 57 raw
+attempts; 30 quickly detected failures were excluded and 17 effective nodes
+had valid RMSE values. The best remained 17.9916. The active candidate used
+19,253 MiB at 100 percent A10 utilization, while the A100 Qwen agent used
+73,483 MiB and continued serving requests. Process identity inspection found
+no A100 filler to terminate: the only GPU process was the real vLLM engine.
+
+The long-run controller was hardened without interrupting the active candidate.
+On restart it now discovers the newest phase journal and passes it through
+`resume_journal`, preserving the existing workspace and node tree. The
+persistent monitor now verifies the controller command identity and restarts
+it only when the experiment is incomplete and that controller has actually
+stopped. Two focused recovery tests passed, both shell scripts passed syntax
+validation, the updated controller was synchronized to the A10, and the live
+monitor verified that PID 55065 remained the original running controller.

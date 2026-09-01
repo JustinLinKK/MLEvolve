@@ -93,10 +93,17 @@ run_phase() {
     )
   fi
 
+  local resume=()
+  local existing_journal
+  existing_journal="$(find "$phase_root" -type f -path '*/logs/journal.json' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2-)"
+  if [[ -n "$existing_journal" ]] && [[ -d "$(dirname "$(dirname "$existing_journal")")/workspace" ]]; then
+    resume=("resume_journal=$existing_journal")
+  fi
+
   cd "$phase_repo"
   set +e
   env CUDA_VISIBLE_DEVICES=0 MLEVOLVE_CONFIG="$config_path" \
-    "$python_bin" run.py "${common[@]}" "${variant[@]}" \
+    "$python_bin" run.py "${common[@]}" "${variant[@]}" "${resume[@]}" \
     > "$phase_log" 2>&1
   local status=$?
   set -e
