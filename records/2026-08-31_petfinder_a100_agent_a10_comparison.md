@@ -223,3 +223,11 @@ while the overall best remained 17.9916. Five immediately preceding failures
 ran for 7.07--15.88 seconds and remained excluded. The two other long-running
 candidates continued on the A10, and the controller immediately used the A100
 agent to generate a replacement without inserting a filler or fixed job cap.
+
+At 2026-09-01 03:32 UTC, the baseline reached 29/50 effective nodes. Node
+`a551cfd9bd3447479ded3ea740f50a4c` completed successfully after 1,851.67
+seconds with an EfficientNet-B0 plus metadata MLP. Early stopping fired at
+epoch 14, validation RMSE was 19.0494, and the generated submission contained
+992 rows with predictions from 26.11 to 83.60. This node ran concurrently with
+the still-active 19.2-GiB candidate, so the A10 remained saturated while the
+A100 agent began generating the replacement task.
