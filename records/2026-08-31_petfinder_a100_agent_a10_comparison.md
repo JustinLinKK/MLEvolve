@@ -180,3 +180,11 @@ twentieth node extracted image embeddings, fit five LightGBM folds, and
 completed successfully in 315.94 seconds with held-out RMSE 18.7644. The
 controller had already launched the next candidate, which restored A10 load
 without any fixed parallel-job cap or external filler.
+
+At 2026-09-01 01:53 UTC, the baseline reached its halfway point at 25/50
+effective nodes. The twenty-fifth node completed successfully after 5,490.93
+seconds with RMSE 18.3310; one intervening quick failure remained excluded.
+The controller immediately continued with a new candidate using approximately
+15.8 GiB at 100 percent A10 utilization. At this milestone there were 44 raw
+attempts, 19 excluded quick failures, and 17 scored effective nodes; the best
+RMSE remained 17.9916.
