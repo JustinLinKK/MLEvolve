@@ -170,6 +170,32 @@ def inspect_adapter(code: str) -> AdapterInspection:
     )
 
 
+def _pandas_row_values_tensor_lines(code: str) -> tuple[int, ...]:
+    """Find tensor construction from a pandas row's untyped ``.values`` view."""
+
+    try:
+        tree = ast.parse(code or "")
+    except SyntaxError:
+        return ()
+    lines: list[int] = []
+    for call in ast.walk(tree):
+        if not isinstance(call, ast.Call) or not call.args:
+            continue
+        if _call_name(call) not in {"torch.tensor", "torch.as_tensor"}:
+            continue
+        value = call.args[0]
+        if not (
+            isinstance(value, ast.Attribute)
+            and value.attr == "values"
+            and isinstance(value.value, ast.Subscript)
+            and isinstance(value.value.value, ast.Name)
+            and value.value.value.id == "row"
+        ):
+            continue
+        lines.append(int(getattr(call, "lineno", 0) or 0))
+    return tuple(sorted(set(line for line in lines if line > 0)))
+
+
 def _is_main_guard(test: ast.AST) -> bool:
     if (
         not isinstance(test, ast.Compare)
@@ -761,6 +787,28 @@ class ModelPreflightGate:
                     owner="integration",
                     evidence=evidence,
                     repair_instruction=repair_instruction,
+                )
+            )
+        pandas_row_lines = _pandas_row_values_tensor_lines(code)
+        if pandas_row_lines:
+            rendered_lines = ", ".join(str(line) for line in pandas_row_lines)
+            issues.append(
+                ReviewIssue(
+                    source="model_preflight",
+                    severity="critical",
+                    category="preflight_pandas_row_tensor",
+                    owner="model_design",
+                    evidence=(
+                        "Pandas row slice `.values` is passed directly to a torch tensor "
+                        f"at line(s) {rendered_lines}; it can retain object dtype when the "
+                        "source row also contains identifiers."
+                    ),
+                    repair_instruction=(
+                        "Convert the selected pandas row features to an explicit numeric array "
+                        "before tensor construction, for example "
+                        "row[METADATA_COLS].to_numpy(dtype=np.float32), and preserve the "
+                        "existing feature list and model input shape."
+                    ),
                 )
             )
         return issues

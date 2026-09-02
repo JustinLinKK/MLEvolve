@@ -260,6 +260,32 @@ if __name__ == "__main__":
     assert "existing main guard" in issues[0].repair_instruction
 
 
+def test_preflight_rejects_pandas_row_values_without_an_explicit_numeric_dtype(tmp_path):
+    code = """
+import torch
+
+class CandidateAdapter:
+    def build_model(self, context): pass
+    def build_optimizer(self, model, context): pass
+    def build_train_batch(self, scenario, device): pass
+    def build_validation_batch(self, scenario, device): pass
+    def training_step(self, model, batch, context): pass
+    def validation_step(self, model, batch, context): pass
+
+def encode_row(row, metadata_cols):
+    return torch.tensor(row[metadata_cols].values, dtype=torch.float32)
+
+if __name__ == "__main__":
+    pass
+"""
+    inspection = inspect_adapter(code)
+    issues = ModelPreflightGate(_cfg(tmp_path))._contract_issues(inspection, code)
+
+    issue = next(issue for issue in issues if issue.category == "preflight_pandas_row_tensor")
+    assert "to_numpy(dtype=np.float32)" in issue.repair_instruction
+    assert "object dtype" in issue.evidence
+
+
 def test_batch_scenarios_match_scheduler_offsets(tmp_path):
     cfg = _cfg(tmp_path)
     cfg.scheduler.settings = SimpleNamespace(

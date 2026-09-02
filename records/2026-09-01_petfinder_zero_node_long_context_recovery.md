@@ -238,6 +238,23 @@ the second generation until the first execution has checkpointed; the previous
 implementation fails that test, while the repaired one passes. The combined
 run-lifecycle, prompt-compilation, and lesson-profile tests passed 21 tests.
 
+### Pandas row-to-tensor admission repair
+
+The third candidate reached the A10 but stopped before its first epoch with
+`TypeError: can't convert np.ndarray of type numpy.object_`. It used
+`torch.tensor(row[METADATA_COLS].values, dtype=torch.float32)` inside a
+dataset. Although `METADATA_COLS` listed numeric feature names, pandas retained
+an object view when selecting from a mixed row that also contained the string
+`Id` column.
+
+The pre-flight contract now rejects direct `torch.tensor`/`torch.as_tensor`
+construction from `row[...].values` and assigns the targeted repair to model
+design: use an explicit numeric conversion such as
+`row[METADATA_COLS].to_numpy(dtype=np.float32)`. The check is AST-based, so it
+does not match already typed conversions. Its regression test failed before the
+guard and passes after it; this prevents an expensive A10 submission for the
+same deterministic data-loader fault.
+
 ### Live merge proof and obsolete-controller retirement
 
 The first candidate exercised the repaired path in the real run. Its three
