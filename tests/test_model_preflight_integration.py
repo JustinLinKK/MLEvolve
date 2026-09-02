@@ -259,6 +259,27 @@ def test_none_criterion_repair_guidance_does_not_assume_context_persistence():
     assert "real criterion" in issue.repair_instruction
 
 
+def test_read_only_shuffle_repair_guidance_copies_the_mutated_array():
+    issue = diagnostic_to_review_issue(
+        {
+            "classification": "confirmed_candidate_failure",
+            "code": "CON001",
+            "stage": "construction",
+            "exception_type": "ValueError",
+            "message": "construction raised ValueError: array is read-only",
+            "stack_trace": (
+                "File \"candidate.py\", line 285, in make_split\n"
+                "    rng.shuffle(ids)\n"
+                "ValueError: array is read-only"
+            ),
+        }
+    )
+    assert issue is not None
+    assert "rng.shuffle(ids)" in issue.repair_instruction
+    assert "to_numpy(copy=True)" in issue.repair_instruction
+    assert "DataFrame copy" in issue.repair_instruction
+
+
 def test_balanced_admission_policy():
     assert admission_for_status("PASS", "balanced", True)
     assert admission_for_status("INCONCLUSIVE", "balanced", True)

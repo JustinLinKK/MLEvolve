@@ -441,3 +441,29 @@ It uses the 80GB A100 vLLM endpoint with a native 262,144-token model context,
 50 experiment nodes, branch-profile prediction, preflight and staged review,
 and `parallel_job_cap=null`. At launch, scheduler PID 360089 and watchdog PID
 360092 were alive, and the vLLM health endpoint returned HTTP 200.
+
+## 2026-09-02 writable-array repair guidance
+
+The streaming-admission run reached preflight for its first candidate, but
+three consecutive reports reproduced the same construction failure before any
+scheduler job could be admitted. The complete stack ended at
+`rng.shuffle(ids)` with `ValueError: array is read-only`. The candidate had
+exported `ids` from pandas as a NumPy view, and pandas copy-on-write semantics
+left that view non-writable. Copying the enclosing DataFrame does not guarantee
+that the exported array is writable.
+
+The existing generic CON001 repair instruction did not include the failing
+operation or data source. Three automatic repairs consequently changed
+unrelated adapter state and feature extraction while leaving the exact shuffle
+failure intact. The diagnostic converter now recognizes a read-only-array
+`ValueError` whose stack contains `shuffle` and directs the repair stage to
+copy the exact mutated array, including the concrete
+`to_numpy(copy=True)` pattern. The regression test failed first against the
+generic instruction and passed after the targeted change. The complete
+preflight, run-lifecycle, stage-review, scheduler replay/submission, node
+accounting, and watchdog selection passed 115 tests in 62.29 seconds.
+
+The loaded streaming-admission process predates this repair and must be
+replaced after exact scheduler/watchdog identity verification. The A100 vLLM
+server remains healthy and is not part of the failure. Completion is not
+claimed.

@@ -423,6 +423,17 @@ def diagnostic_to_review_issue(diagnostic: Mapping[str, Any]) -> ReviewIssue | N
             "are unavailable; do not substitute a mock architecture."
         )
     elif (
+        exception_type == "ValueError"
+        and "array is read-only" in message.lower()
+        and "shuffle" in stack_trace.lower()
+    ):
+        targeted_guidance = (
+            " The failing rng.shuffle(ids) mutates ids in place, so copy the exact array being "
+            "shuffled into writable storage at its source, for example "
+            "ids = series.astype(str).to_numpy(copy=True). A DataFrame copy alone does not "
+            "guarantee that its exported NumPy view is writable."
+        )
+    elif (
         exception_type == "TypeError"
         and "'nonetype' object is not callable" in message.lower()
         and "criterion" in stack_trace.lower()
