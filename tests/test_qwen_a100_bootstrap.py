@@ -15,8 +15,8 @@ def _write_executable(path: Path, body: str) -> None:
     path.chmod(0o755)
 
 
-def test_default_context_accepts_large_stepwise_merge_prompt(tmp_path: Path) -> None:
-    """Catch a launch default too small for a 26.4k-token prompt plus output."""
+def test_default_context_uses_model_native_window(tmp_path: Path) -> None:
+    """Catch reintroducing an artificial context cap below the model limit."""
     deploy_root = tmp_path / "deploy"
     model_dir = deploy_root / "model"
     runtime_dir = tmp_path / "runtime"
@@ -57,7 +57,7 @@ sleep 30
     try:
         args = capture.read_text().splitlines()
         context_index = args.index("--max-model-len") + 1
-        assert int(args[context_index]) >= 131_072
+        assert int(args[context_index]) == 262_144
     finally:
         pid = int((state_dir / "vllm-a100.pid").read_text())
         os.kill(pid, signal.SIGTERM)

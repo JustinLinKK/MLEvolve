@@ -154,3 +154,47 @@ watchdog PID `325756`. The run root is
 It keeps `parallel_job_cap=null`, uses branch-profile admission, and retains a
 one-hour no-effective-node stop-and-diagnostics watchdog. The A100 server was
 already processing two requests with no waiters after launch.
+
+## 2026-09-02 merge truncation diagnosis and native-context restart
+
+The optimized run produced two reviewed drafts but still reached zero
+budget-counted nodes. The second draft entered the stepwise merge at 00:58:53
+UTC. All three merge attempts returned about 32 KiB and exhausted the default
+8,192 output-token allowance with an opening Python fence but no closing fence.
+Code extraction therefore could not succeed, and retrying the same bounded
+request consumed about 14 minutes without changing the failure condition. The
+one-hour watchdog preserved diagnostics and stopped only verified scheduler
+PID `325754` at 01:18 UTC.
+
+`MetaAgent.merge` now supplies Qwen models with a 16,384-token merge output
+budget, while non-Qwen providers retain their existing default. A regression
+test simulates the exact unclosed-fence failure below 16,384 tokens and proves
+that the increased budget yields extractable code. The A100 bootstrap's
+remaining 131,072-token artificial context cap was also removed: its default
+is now the model's advertised native 262,144-token window. The combined
+merge/context/bootstrap/watchdog regression set passed 13 tests in 13.59
+seconds.
+
+The same exact Qwen3.8-27B INT8 checkpoint was restarted on the existing
+`NVIDIA A100-SXM4-80GB` Pod. The live process arguments and `/v1/models`
+endpoint both report `max_model_len=262144`; logs confirm text-only mode,
+Marlin W8A16 kernels, one-token Multi-Token Prediction, prefix caching,
+`enforce_eager=False`, and full/piecewise CUDA Graphs. No Pod, model, or
+experiment evidence was deleted.
+
+A new 50-node scheduler run started at `2026-09-02T01:32:41Z`:
+
+- scheduler PID: `338074`;
+- watchdog PID: `338076`;
+- run root:
+  `/root/downeyflyfan/.cache/mlevolve_a10_a100_comparison_20260831/runs/a100_agent_a10_scheduler_native262k_merge16k_20260902_013233`;
+- branch-profile prediction, `parallel_job_cap=null`, Hardware Knowledge
+  Database, pre-flight, pipeline decisions, code review, and cached CUDA
+  documentation are enabled;
+- the A100 service processed initialization and candidate-generation calls
+  successfully with no waiting requests or API errors; two concurrent calls
+  delivered about 54--57 aggregate generated tokens/s during the first draft.
+
+At the last checkpoint the scheduler was alive and generating its first
+candidate. The canonical completed-node count was still 0/50, so completion is
+not claimed.

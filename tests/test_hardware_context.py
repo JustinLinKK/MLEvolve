@@ -25,7 +25,13 @@ from agents.hardware_context import (
     hardware_context_instructions,
     optimize_training_parameters_for_round,
 )
-from agents.coder.stepwise_coder import _hardware_reasoning_enabled, create_default_step_agents, stepwise_plan_and_code_query
+from agents.coder.stepwise_coder import (
+    MetaAgent,
+    StepwiseContext,
+    _hardware_reasoning_enabled,
+    create_default_step_agents,
+    stepwise_plan_and_code_query,
+)
 from agents.planner.base_planner import PLANNING_ALLOWED_MODULES
 from engine.agent_search import AgentSearch
 from engine.script_introspection import introspect_training_script, normalized_mlevolve_script_signature
@@ -594,6 +600,42 @@ def test_stepwise_generation_can_return_stage_metadata(monkeypatch) -> None:
     assert "Stage 1 model-design" in responses[1]
     removed_stage = "data_processing" + "_and_feature_engineering"
     assert all(removed_stage not in str(prompt) for prompt in responses)
+
+
+def test_qwen_meta_merge_has_budget_for_complete_training_script(monkeypatch) -> None:
+    """Catch repeating an 8k-truncated merge that can never close its code fence."""
+
+    def fake_generate(**kwargs):
+        if kwargs.get("max_tokens", 0) < 16_384:
+            return "Merged summary.\n```python\nVALUE = 1"
+        return "Merged summary.\n```python\nVALUE = 1\n```"
+
+    monkeypatch.setattr("agents.coder.stepwise_coder.generate", fake_generate)
+    agent = SimpleNamespace(
+        acfg=SimpleNamespace(
+            code=SimpleNamespace(temp=0.0, model="qwen3.8-27b-int8-a100"),
+        ),
+        cfg=SimpleNamespace(),
+    )
+
+    plan, code = MetaAgent().merge(
+        task_desc="classification",
+        data_preview_str="train.csv",
+        step_results=[
+            {"name": "model_design", "plan": "design", "code": "VALUE = 1"},
+            {
+                "name": "training_evaluation",
+                "plan": "train",
+                "code": "print('Final Validation Score: 1.0')",
+            },
+        ],
+        prompt_base={"Instructions": {}, "Memory": ""},
+        agent_instance=agent,
+        context=StepwiseContext(),
+    )
+
+    assert plan == "Merged summary."
+    assert code.strip() == "VALUE = 1"
 
 
 def test_stepwise_hardware_decisions_are_stored_as_ordered_pipeline() -> None:

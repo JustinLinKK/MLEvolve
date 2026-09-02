@@ -362,10 +362,13 @@ class MetaAgent:
         context.used_prompts.append({"name": "merge", "prompt": prompt})
 
         completion_text = None
+        model_name = str(getattr(agent_instance.acfg.code, "model", "") or "")
+        merge_max_tokens = 16_384 if model_name.lower().startswith("qwen") else None
         for _ in range(retries):
             completion_text = generate(
                 prompt=prompt,
                 temperature=agent_instance.acfg.code.temp,
+                max_tokens=merge_max_tokens,
                 cfg=agent_instance.cfg,
                 context_cache_stable_prefix=(
                     prompt.get("system") if isinstance(prompt, dict) else None
