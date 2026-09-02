@@ -434,3 +434,10 @@ first failed because candidate 2 was not generated until candidate 1 completed,
 then passed after submission/generation overlap was implemented. The complete
 run-lifecycle, stage-review, preflight-integration, and scheduler-bridge test
 selection passed (99 tests).
+
+The repaired live restart is rooted at
+`/root/downeyflyfan/.cache/mlevolve_a10_a100_comparison_20260831/runs/a100_agent_a10_scheduler_streaming_admit_20260902_041229`.
+It uses the 80GB A100 vLLM endpoint with a native 262,144-token model context,
+50 experiment nodes, branch-profile prediction, preflight and staged review,
+and `parallel_job_cap=null`. At launch, scheduler PID 360089 and watchdog PID
+360092 were alive, and the vLLM health endpoint returned HTTP 200.
