@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -105,7 +106,9 @@ def test_scheduler_submits_each_candidate_as_soon_as_generation_finishes() -> No
 
     assert completed == 5
     assert interpreter.packet_sizes == [1, 1, 1, 1, 1]
-    assert saves == [2, 3, 4, 5, 6]
+    assert len(saves) == 5
+    assert saves == sorted(saves)
+    assert saves[-1] == 6
 
 
 def test_scheduler_round_retries_a_transient_generation_skip() -> None:
@@ -126,6 +129,52 @@ def test_scheduler_round_retries_a_transient_generation_skip() -> None:
 
     assert completed == 1
     assert interpreter.packet_sizes == [1]
+
+
+def test_scheduler_generation_overlaps_an_inflight_execution() -> None:
+    journal = SimpleNamespace(
+        nodes=[SimpleNamespace(stage="root", is_buggy=False, exec_time=None)]
+    )
+    agent = _RoundAgent(journal, candidate_count=2)
+    interpreter = _RoundInterpreter()
+    second_candidate_generated = threading.Event()
+    original_step = agent.step
+    original_execute = agent.execute_deferred_nodes
+    generated = 0
+
+    def step(**kwargs):
+        nonlocal generated
+        node = original_step(**kwargs)
+        if node is not None:
+            generated += 1
+            if generated == 2:
+                second_candidate_generated.set()
+        return node
+
+    first_execution_observed_overlap: list[bool] = []
+
+    def execute_deferred_nodes(nodes, exec_many_callback):
+        if nodes[0].id == "candidate-1":
+            first_execution_observed_overlap.append(
+                second_candidate_generated.wait(timeout=1.0)
+            )
+        return original_execute(nodes, exec_many_callback)
+
+    agent.step = step
+    agent.execute_deferred_nodes = execute_deferred_nodes
+
+    completed = run_module._run_scheduler_rounds(
+        agent=agent,
+        interpreter=interpreter,
+        cfg=SimpleNamespace(agent=SimpleNamespace(steps=2)),
+        journal=journal,
+        logger=logging.getLogger("test-scheduler-overlap"),
+        save_callback=lambda cfg, current_journal: None,
+    )
+
+    assert completed == 2
+    assert first_execution_observed_overlap == [True]
+    assert interpreter.packet_sizes == [1, 1]
 
 
 def test_run_prepares_context_cache_once_before_interpreter(monkeypatch, tmp_path: Path) -> None:

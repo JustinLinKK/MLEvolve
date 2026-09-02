@@ -423,10 +423,14 @@ calling `execute_deferred_nodes`. This contradicted the runtime message and the
 intended incremental admission contract: a ready candidate could wait for 49
 more expensive generations before reaching the scheduler.
 
-The lifecycle now generates one candidate, submits that singleton immediately,
-persists the resulting journal, and only then generates the next candidate.
-This does not impose a parallel-job cap; concurrency remains owned by the
-scheduler using branch profiles and live telemetry. The regression test first
-failed with packet sizes `[5]`, then passed with `[1, 1, 1, 1, 1]`. The complete
+The lifecycle now generates one candidate, starts a singleton scheduler
+submission immediately, and continues generating while that scheduler job is
+in flight. Completion parsing and journal persistence are collected as jobs
+finish. Submission-wait workers exist for every remaining experiment node, so
+they do not impose a GPU admission cap; concurrency remains owned by the
+scheduler using branch profiles and live telemetry. One regression test first
+failed with packet sizes `[5]` and then passed with `[1, 1, 1, 1, 1]`; a second
+first failed because candidate 2 was not generated until candidate 1 completed,
+then passed after submission/generation overlap was implemented. The complete
 run-lifecycle, stage-review, preflight-integration, and scheduler-bridge test
-selection passed (98 tests).
+selection passed (99 tests).

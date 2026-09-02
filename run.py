@@ -114,40 +114,71 @@ def _run_scheduler_rounds(
     exec_callback=None,
     save_callback=save_run,
 ) -> int:
-    """Submit each candidate immediately after its generation finishes."""
+    """Submit ready candidates immediately while generation continues."""
     execute_one = exec_callback or interpreter.run
     total_steps = int(cfg.agent.steps)
     completed = count_budget_nodes(journal.nodes)
 
-    while completed < total_steps:
-        candidate = None
-        while candidate is None and agent.has_selectable_work():
-            candidate = agent.step(
-                exec_callback=execute_one,
-                node=None,
-                execute_immediately=False,
-            )
+    # These workers only submit jobs and wait for their terminal results. They
+    # do not limit GPU admission: every remaining experiment node has a waiter,
+    # while localml_scheduler alone decides how many jobs may run concurrently.
+    submission_workers = max(1, total_steps - completed)
+    inflight = {}
+    with ThreadPoolExecutor(
+        max_workers=submission_workers,
+        thread_name_prefix="scheduler-submission",
+    ) as executor:
+        while completed < total_steps or inflight:
+            finished = {future for future in inflight if future.done()}
+            for future in finished:
+                node_id = inflight.pop(future)
+                try:
+                    future.result()
+                except Exception:
+                    logger.exception("Scheduler execution failed for ready candidate %s", node_id)
+                save_callback(cfg, journal)
+                completed = count_budget_nodes(journal.nodes)
+                logger.info(
+                    "Scheduler-controlled progress: %s/%s budget-counted nodes.",
+                    completed,
+                    total_steps,
+                )
 
-        if candidate is None:
+            if completed >= total_steps and not inflight:
+                break
+
+            admitted = completed + len(inflight)
+            if admitted < total_steps and agent.has_selectable_work():
+                candidate = agent.step(
+                    exec_callback=execute_one,
+                    node=None,
+                    execute_immediately=False,
+                )
+                if candidate is None:
+                    continue
+                logger.info(
+                    "Submitting ready candidate %s to the scheduler immediately.",
+                    candidate.id,
+                )
+                inflight[
+                    executor.submit(
+                        agent.execute_deferred_nodes,
+                        [candidate],
+                        interpreter.run_many,
+                    )
+                ] = candidate.id
+                continue
+
+            if inflight:
+                wait(set(inflight), return_when=FIRST_COMPLETED)
+                continue
+
             logger.warning(
                 "No scheduler candidate remains; stopping at %s/%s budget-counted nodes.",
                 completed,
                 total_steps,
             )
             break
-
-        logger.info(
-            "Submitting ready candidate %s to the scheduler immediately.",
-            candidate.id,
-        )
-        agent.execute_deferred_nodes([candidate], interpreter.run_many)
-        save_callback(cfg, journal)
-        completed = count_budget_nodes(journal.nodes)
-        logger.info(
-            "Scheduler-controlled progress: %s/%s budget-counted nodes.",
-            completed,
-            total_steps,
-        )
 
     return completed
 
