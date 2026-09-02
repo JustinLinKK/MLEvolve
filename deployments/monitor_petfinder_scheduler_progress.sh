@@ -40,6 +40,20 @@ run_start_epoch() {
   date -u -d "$timestamp" +%s 2>/dev/null
 }
 
+latest_job_progress_epoch() {
+  local comparison_root="$1"
+  local phase="$2"
+  local latest
+  latest="$(
+    find "$comparison_root/$phase/scheduler_runtime/data/jobs" \
+      -type f -name heartbeat.json -printf '%T@\n' 2>/dev/null \
+      | sort -nr | head -n 1
+  )"
+  latest="${latest%%.*}"
+  [[ "$latest" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$latest"
+}
+
 process_is_running() {
   local pid="$1"
   local state
@@ -116,7 +130,7 @@ stop_stalled_scheduler() {
 
 check_once() {
   local comparison_root phase pid runner_log current_count current_time
-  local monitored_root last_count last_progress elapsed initial_progress
+  local monitored_root last_count last_progress elapsed initial_progress job_progress
 
   comparison_root="$(read_required_file "$STATE_DIR/comparison_root")" || return 0
   phase="$(read_required_file "$STATE_DIR/active_phase")" || return 0
@@ -146,9 +160,20 @@ check_once() {
     printf '%s\n' "$last_progress" > "$WATCHDOG_STATE_DIR/last_progress_epoch"
   fi
 
+  job_progress="$(latest_job_progress_epoch "$comparison_root" "$phase" 2>/dev/null || true)"
+  if [[ "$job_progress" =~ ^[0-9]+$ ]] \
+    && (( job_progress > last_progress )); then
+    if (( job_progress > current_time )); then
+      job_progress="$current_time"
+    fi
+    last_progress="$job_progress"
+    printf '%s\n' "$last_progress" > "$WATCHDOG_STATE_DIR/last_progress_epoch"
+  fi
+
   elapsed=$(( current_time - last_progress ))
-  printf 'checked_utc=%s pid=%s effective_nodes=%s seconds_without_progress=%s\n' \
-    "$(date -u +%FT%TZ)" "$pid" "$current_count" "$elapsed" > "$WATCHDOG_STATE_DIR/heartbeat"
+  printf 'checked_utc=%s pid=%s effective_nodes=%s latest_job_progress_epoch=%s seconds_without_progress=%s\n' \
+    "$(date -u +%FT%TZ)" "$pid" "$current_count" "${job_progress:-none}" "$elapsed" \
+    > "$WATCHDOG_STATE_DIR/heartbeat"
 
   if (( elapsed < STALL_SECONDS )); then
     return 0

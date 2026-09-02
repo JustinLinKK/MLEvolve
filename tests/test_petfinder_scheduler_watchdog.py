@@ -112,3 +112,35 @@ def test_new_watchdog_uses_run_start_as_initial_no_progress_time(tmp_path: Path)
         if process.poll() is None:
             process.terminate()
             process.wait(timeout=5)
+
+
+def test_live_scheduler_job_heartbeat_prevents_false_stall(tmp_path: Path) -> None:
+    marker = f"petfinder_scheduler_profile_hkwd_heartbeat_{os.getpid()}"
+    process = subprocess.Popen(["bash", "-c", f"exec -a '{marker} run.py' sleep 60"])
+    try:
+        run_root, state_dir, watchdog_state = _make_state(tmp_path, process.pid)
+        now = int(time.time())
+        (watchdog_state / "last_count").write_text("0\n")
+        (watchdog_state / "last_progress_epoch").write_text(f"{now - 61}\n")
+        job_dir = (
+            run_root
+            / "scheduler_profile_hkwd"
+            / "scheduler_runtime"
+            / "data"
+            / "jobs"
+            / "job-1"
+        )
+        job_dir.mkdir(parents=True)
+        heartbeat = job_dir / "heartbeat.json"
+        heartbeat.write_text('{"epoch": 2}\n')
+        os.utime(heartbeat, (now, now))
+
+        result = _run_once(state_dir, watchdog_state, now)
+
+        assert result.returncode == 0, result.stderr
+        assert process.poll() is None
+        assert not (watchdog_state / "STALL_DETECTED.json").exists()
+        assert (watchdog_state / "last_progress_epoch").read_text().strip() == str(now)
+    finally:
+        process.terminate()
+        process.wait(timeout=5)

@@ -561,3 +561,23 @@ and passed afterward. Together with the preflight issue-lifecycle tests, the
 full relevant selection passed 111 tests in 61.95 seconds. The loaded run still
 uses the old checker and is replaced after preserving its candidate and three
 preflight reports; the A100 vLLM process remains untouched.
+
+## 2026-09-02 heartbeat-aware stall detection
+
+The pure-configuration replacement admitted its first candidate and started
+scheduler job `716d7671-4593-42c5-bfe7-be1a1b690f20` while the second candidate
+was already generating. At epoch 2 the runner heartbeat reported a finite
+normalized MSE and an estimated total runtime of 5,518.71 seconds. The job was
+therefore making real training progress, but the experiment watchdog only
+observed the completed budget-node count. Its one-hour timer would have killed
+this healthy job before its estimated completion.
+
+The watchdog now treats per-job `heartbeat.json` modification time as verified
+progress in addition to a completed-node count increase. It still stops the
+identity-verified Scheduler after one hour when neither signal advances; the
+Scheduler service heartbeat is deliberately ignored because it does not prove
+candidate progress. A regression first demonstrated the false stop with a
+fresh epoch heartbeat, then passed after the change. All four watchdog tests
+pass, including process-identity protection and the true no-progress stop.
+Only the watchdog process is hot-replaced for the active run; the training job
+and A100 vLLM remain uninterrupted.
