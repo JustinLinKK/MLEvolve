@@ -549,3 +549,14 @@ GPU product and at least 80,000 MiB of VRAM, terminate only an identified A100
 filler if one exists, start and health-check the same Qwen server, stop only the
 identified A10 filler, and launch a fresh baseline-then-custom comparison in a
 new state directory.
+
+## Final baseline visualization
+
+The completed baseline journal was recovered to
+`.cache/petfinder_a100_a10_live/baseline_final_50_20260902/journal.json` and
+rendered as `records/2026-09-02_petfinder_baseline_gantt.png`. The upper panel
+shows generation/queue time and execution time for all 50 budget-counted nodes;
+the lower panel shows per-node PetFinder root mean squared error (RMSE) and the
+running best score. The recovered run contains 50 completed nodes, 30 scored
+nodes, a 17.70-hour wall-clock span, peak execution concurrency of 3, and a
+best RMSE of 17.9433.
