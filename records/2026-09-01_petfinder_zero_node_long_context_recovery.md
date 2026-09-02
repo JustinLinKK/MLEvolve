@@ -637,3 +637,26 @@ fresh epoch heartbeat, then passed after the change. All four watchdog tests
 pass, including process-identity protection and the true no-progress stop.
 Only the watchdog process is hot-replaced for the active run; the training job
 and A100 vLLM remain uninterrupted.
+
+## 2026-09-02 A10 replacement and durable resume
+
+The current 50-node Scheduler run persisted two budget-counted terminal nodes
+before its A10 pod failed. The A100 vLLM Agent pod remained healthy and retained
+its model allocation. The A10 failure was reported by Nautilus as
+`UnexpectedAdmissionError`: NVIDIA devices on its assigned node were unhealthy
+and could not be allocated. This is infrastructure failure rather than a
+generated-node or Scheduler result, so the terminal journal and both valid
+metrics remain the authoritative resume point.
+
+`deployments/resume_petfinder_scheduler_on_a10_boot.sh` now resumes that exact
+run from the persistent journal with the original fifty-node budget, native
+unbounded Agent context, branch-profile scheduler, A10 target profile, and
+`parallel_job_cap=null`. It also starts the heartbeat-aware watchdog and leaves
+the replacement development pod reachable after the Scheduler process exits.
+The script was syntax-checked and pushed in commit `f973a1d8`.
+
+The replacement Deployment could not yet create a new pod because the Nautilus
+Kueue and Gatekeeper admission webhooks returned connection refused. Its
+ReplicaSet has the desired count of one and will retry creation after the
+cluster control-plane fault recovers. No A100 Agent process, journal, or
+unrelated workload was terminated while establishing this recovery path.
