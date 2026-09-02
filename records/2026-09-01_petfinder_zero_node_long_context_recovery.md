@@ -291,3 +291,28 @@ at `2026-09-02T02:32:53Z`:
 
 At replacement startup the canonical completed-node count was 0/50.
 Completion is not claimed.
+
+### Targeted adapter-context repair guidance
+
+The first import-safe candidate passed the corrected import contract but still
+needed two model-preflight repairs. The first added a same-family
+`pretrained=False` fallback for offline isolated construction. The recheck then
+reproduced `KeyError: 'precision'`: the checker supplies a valid partial context,
+while the adapter indexed it as if every private default key were present. The
+second repair changed the default context but did not merge defaults into the
+caller-supplied mapping, so the same failure remained and the candidate was
+rejected.
+
+Preflight diagnostics now add exact repair guidance for these two recurring
+cases: preserve the real model family while making isolated construction
+network-free, and merge a checker-supplied partial context over adapter defaults
+before reading optional keys. The generation contract now states the same
+partial-context rule so new candidates should implement it initially. Focused
+tests first failed on both missing instructions; the complete prompt,
+preflight, and review set then passed 85 tests in 39.60 seconds. Both patched
+files were synchronized to the A10 container with matching SHA-256 checksums.
+
+The active process had already imported the preceding code, so these prompt and
+diagnostic improvements apply after its next restart. It remains alive while a
+second candidate is evaluated; the canonical count is still 0/50, and the
+one-hour watchdog remains authoritative for a no-progress stop.

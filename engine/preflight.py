@@ -404,6 +404,23 @@ def diagnostic_to_review_issue(diagnostic: Mapping[str, Any]) -> ReviewIssue | N
     message = str(
         diagnostic.get("message") or "Model preflight reproduced a candidate defect."
     )
+    exception_type = str(diagnostic.get("exception_type") or "")
+    targeted_guidance = ""
+    if stage == "construction" and exception_type == "KeyError":
+        targeted_guidance = (
+            " Treat checker-supplied context as a partial mapping: merge it over "
+            "CandidateAdapter defaults before reading optional keys, while preserving "
+            "caller-provided values."
+        )
+    elif exception_type == "LocalEntryNotFoundError" or (
+        "network is disabled" in message.lower()
+        or "offline mode" in message.lower()
+    ):
+        targeted_guidance = (
+            " Keep the same real model family and make isolated construction network-free, "
+            "for example by retrying the same model with pretrained=False when cached weights "
+            "are unavailable; do not substitute a mock architecture."
+        )
     location = ""
     if diagnostic.get("file"):
         location = f" ({diagnostic['file']}:{diagnostic.get('line') or '?'})"
@@ -416,6 +433,7 @@ def diagnostic_to_review_issue(diagnostic: Mapping[str, Any]) -> ReviewIssue | N
         repair_instruction=(
             f"Repair the confirmed {stage} defect [{code}] and preserve the CandidateAdapter contract; "
             "do not suppress the check or replace real training behavior with mocks."
+            f"{targeted_guidance}"
         ),
     )
 

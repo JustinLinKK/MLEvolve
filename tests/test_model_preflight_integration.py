@@ -18,6 +18,7 @@ from engine.preflight import (
     candidate_code_hash,
     derive_batch_scenarios,
     diagnostic_owner,
+    diagnostic_to_review_issue,
     inspect_adapter,
     is_fresh_preflight,
     normalize_preflight_precision,
@@ -210,6 +211,36 @@ def test_batch_scenarios_match_scheduler_offsets(tmp_path):
 )
 def test_diagnostic_ownership(code, stage, owner):
     assert diagnostic_owner(code, stage) == owner
+
+
+def test_construction_key_error_repair_guidance_merges_partial_context():
+    issue = diagnostic_to_review_issue(
+        {
+            "classification": "confirmed_candidate_failure",
+            "code": "CON001",
+            "stage": "construction",
+            "exception_type": "KeyError",
+            "message": "construction raised KeyError: 'precision'",
+        }
+    )
+    assert issue is not None
+    assert "partial mapping" in issue.repair_instruction
+    assert "merge" in issue.repair_instruction
+
+
+def test_offline_weight_error_repair_guidance_preserves_real_model():
+    issue = diagnostic_to_review_issue(
+        {
+            "classification": "confirmed_candidate_failure",
+            "code": "CON001",
+            "stage": "construction",
+            "exception_type": "LocalEntryNotFoundError",
+            "message": "pretrained checkpoint is absent while network is disabled",
+        }
+    )
+    assert issue is not None
+    assert "pretrained=False" in issue.repair_instruction
+    assert "same real model family" in issue.repair_instruction
 
 
 def test_balanced_admission_policy():
