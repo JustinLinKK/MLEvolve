@@ -217,3 +217,40 @@ identified by exact command line and stopped; sequence-v5 state is now marked
 terminal states. A test first reproduced the unwanted restart, then the full
 sequence-recovery suite passed 4/4 and shell syntax validation passed. Only the
 new native-context scheduler PID `338074` remains.
+
+## 2026-09-02 configured preflight repair rounds
+
+The native-context run remained at 0/50 after two candidates. The second
+candidate exposed a concrete admission failure: its first targeted repair
+moved device resolution into a function but left `DEVICE` referenced by an
+import-time default argument, so the recheck still raised `NameError`. Although
+`preflight.max_repair_rounds` is configurable, `_run_node_preflight` used a
+single `if` and therefore stopped after one repair for every value above one.
+
+A regression test reproduced the defect with a candidate that requires two
+repairs. It failed before the implementation change and now proves the gate is
+run at attempts 0, 1, and 2 and admits the candidate after the second repair.
+The implementation now loops only while the gate is failing and stops at the
+configured bound. The preflight and review workflow suites passed 78 tests in
+39.30 seconds.
+
+The previous run was terminated only after verifying scheduler PID `338074`
+and watchdog PID `338076`; its complete artifacts remain under its original
+root, marked with the replacement reason. The patched file was synchronized
+to the A10 experiment container with matching SHA-256 checksums. Two immediate
+restart attempts failed before experiment initialization because the unified
+configuration path was not explicit; both failure logs were retained and no
+node was submitted. Setting `MLEVOLVE_CONFIG` to the repository's actual
+`config/config.yaml` fixed startup. A fresh 50-node run started at
+`2026-09-02T02:14:42Z` with `preflight.max_repair_rounds=2`:
+
+- scheduler PID: `345390`;
+- watchdog PID: `345456`;
+- run root:
+  `/root/downeyflyfan/.cache/mlevolve_a10_a100_comparison_20260831/runs/a100_agent_a10_scheduler_native262k_merge16k_preflight2_20260902_021436`;
+- scheduler prediction remains branch-profile based and
+  `parallel_job_cap=null`;
+- the one-hour no-effective-node watchdog remains active.
+
+At restart the canonical completed-node count was 0/50. Completion is not
+claimed.

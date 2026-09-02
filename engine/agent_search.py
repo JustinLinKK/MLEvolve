@@ -597,7 +597,7 @@ class AgentSearch:
         generated: bool,
         allow_repair: bool = True,
     ) -> bool:
-        """Run the CPU gate and at most one targeted stage-owned repair round."""
+        """Run the CPU gate and up to the configured targeted repair rounds."""
         from agents.review_contracts import append_review_issue
         from engine.preflight import (
             ModelPreflightGate,
@@ -627,13 +627,12 @@ class AgentSearch:
         record_pipeline_node_action(self, node, "model_preflight_completed", payload=node_preflight_metadata(node))
 
         max_rounds = max(0, int(getattr(self.cfg.preflight, "max_repair_rounds", 1) or 0))
-        should_repair = (
+        while (
             allow_repair
             and outcome.status == "FAIL"
             and bool(outcome.issues)
             and repair_count < max_rounds
-        )
-        if should_repair:
+        ):
             from agents.stage_repair import repair_selected_stages
 
             repaired_code, results, stats = repair_selected_stages(

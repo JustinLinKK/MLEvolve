@@ -396,6 +396,66 @@ def test_successful_targeted_repair_is_rechecked(tmp_path, monkeypatch):
     assert is_fresh_preflight(node)
 
 
+def test_preflight_uses_all_configured_repair_rounds(tmp_path, monkeypatch):
+    """Catch stopping after one repair when the configured second repair can pass."""
+
+    issue = ReviewIssue(
+        source="model_preflight",
+        severity="critical",
+        category="preflight_import_error",
+        owner="integration",
+        evidence="import raised NameError",
+        repair_instruction="repair the remaining import error",
+    )
+    gate_attempts: list[tuple[str, int]] = []
+
+    def fake_run(_gate, node, *, generated, attempt=0):
+        gate_attempts.append((node.code, attempt))
+        if node.code != "fixed-2":
+            return PreflightOutcome(
+                "FAIL",
+                "full_cpu",
+                candidate_code_hash(node.code),
+                False,
+                False,
+                ["SRC002"],
+                issues=[issue],
+            )
+        return PreflightOutcome(
+            "PASS", "full_cpu", candidate_code_hash(node.code), True, False
+        )
+
+    def fake_repair(_agent, _node, code, _issues):
+        repair_number = int(code.rsplit("-", 1)[-1]) + 1
+        return (
+            f"fixed-{repair_number}",
+            [StageRepairResult(stage="integration", applied=True, patch_count=1)],
+            {"stage_repair_calls": 1},
+        )
+
+    monkeypatch.setattr(ModelPreflightGate, "run", fake_run)
+    monkeypatch.setattr(
+        "agents.stage_repair.repair_selected_stages",
+        fake_repair,
+    )
+    agent = AgentSearch.__new__(AgentSearch)
+    agent.cfg = _cfg(tmp_path, max_repair_rounds=2)
+    agent.acfg = SimpleNamespace(
+        review=SimpleNamespace(parallel_training_repairs=False, repair_retries=1)
+    )
+    agent.pipeline_logger = None
+    agent.task_desc = "test"
+    agent.refresh_hardware_context = lambda node: None
+    node = _node("broken-0")
+    node.review_status = "approved"
+
+    assert AgentSearch._run_node_preflight(agent, node, generated=True)
+    assert gate_attempts == [("broken-0", 0), ("fixed-1", 1), ("fixed-2", 2)]
+    assert node.code == "fixed-2"
+    assert node.preflight_repair_count == 2
+    assert node.preflight_status == "PASS"
+
+
 def test_failed_targeted_repair_is_rechecked_and_rejected(tmp_path, monkeypatch):
     issue = ReviewIssue(
         source="model_preflight",
