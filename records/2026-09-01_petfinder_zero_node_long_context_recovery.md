@@ -316,3 +316,26 @@ The active process had already imported the preceding code, so these prompt and
 diagnostic improvements apply after its next restart. It remains alive while a
 second candidate is evaluated; the canonical count is still 0/50, and the
 one-hour watchdog remains authoritative for a no-progress stop.
+
+The second candidate was rejected by code review after its configured two
+repair rounds with two critical issues still unresolved; it never reached
+preflight or scheduler submission. Since both evaluated candidates had consumed
+their bounded repair budgets and no effective node existed, the old process was
+stopped after exact scheduler/watchdog identity checks and its artifacts were
+preserved. The replacement loads the new partial-context prompt and targeted
+diagnostics, and allows up to four bounded code-review and preflight repair
+rounds so sequential independent defects can be repaired rather than silently
+discarding an otherwise viable candidate.
+
+The replacement started at `2026-09-02T03:02:33Z`:
+
+- scheduler PID: `351000`;
+- watchdog PID: `351003`;
+- run root:
+  `/root/downeyflyfan/.cache/mlevolve_a10_a100_comparison_20260831/runs/a100_agent_a10_scheduler_native262k_guided_repair4_20260902_030225`;
+- `agent.review.max_repair_rounds=4` and
+  `preflight.max_repair_rounds=4`;
+- native 262,144-token model context, branch-profile prediction, and
+  `parallel_job_cap=null` remain unchanged.
+
+At startup the canonical count remained 0/50; completion is not claimed.
