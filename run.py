@@ -1,4 +1,5 @@
 import atexit
+from contextlib import nullcontext
 import logging
 import os
 import signal
@@ -124,6 +125,16 @@ def _run_scheduler_rounds(
     # while localml_scheduler alone decides how many jobs may run concurrently.
     submission_workers = max(1, total_steps - completed)
     inflight = {}
+
+    def execute_and_checkpoint(candidate):
+        """Persist a finished scheduler candidate before generation can block again."""
+        try:
+            return agent.execute_deferred_nodes([candidate], interpreter.run_many)
+        finally:
+            journal_lock = getattr(agent, "journal_lock", None)
+            with journal_lock if journal_lock is not None else nullcontext():
+                save_callback(cfg, journal)
+
     with ThreadPoolExecutor(
         max_workers=submission_workers,
         thread_name_prefix="scheduler-submission",
@@ -136,7 +147,6 @@ def _run_scheduler_rounds(
                     future.result()
                 except Exception:
                     logger.exception("Scheduler execution failed for ready candidate %s", node_id)
-                save_callback(cfg, journal)
                 completed = count_budget_nodes(journal.nodes)
                 logger.info(
                     "Scheduler-controlled progress: %s/%s budget-counted nodes.",
@@ -162,9 +172,8 @@ def _run_scheduler_rounds(
                 )
                 inflight[
                     executor.submit(
-                        agent.execute_deferred_nodes,
-                        [candidate],
-                        interpreter.run_many,
+                        execute_and_checkpoint,
+                        candidate,
                     )
                 ] = candidate.id
                 continue

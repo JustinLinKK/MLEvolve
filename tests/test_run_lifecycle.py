@@ -177,6 +177,49 @@ def test_scheduler_generation_overlaps_an_inflight_execution() -> None:
     assert interpreter.packet_sizes == [1, 1]
 
 
+def test_scheduler_checkpoints_a_completed_node_while_next_generation_is_running() -> None:
+    journal = SimpleNamespace(
+        nodes=[SimpleNamespace(stage="root", is_buggy=False, exec_time=None)]
+    )
+    agent = _RoundAgent(journal, candidate_count=2)
+    interpreter = _RoundInterpreter()
+    second_generation_started = threading.Event()
+    checkpointed = threading.Event()
+    original_step = agent.step
+    generated = 0
+
+    def step(**kwargs):
+        nonlocal generated
+        if generated == 1:
+            second_generation_started.set()
+            assert checkpointed.wait(timeout=1.0)
+        node = original_step(**kwargs)
+        generated += node is not None
+        return node
+
+    original_execute = agent.execute_deferred_nodes
+
+    def execute_deferred_nodes(nodes, exec_many_callback):
+        if nodes[0].id == "candidate-1":
+            assert second_generation_started.wait(timeout=1.0)
+        return original_execute(nodes, exec_many_callback)
+
+    agent.step = step
+    agent.execute_deferred_nodes = execute_deferred_nodes
+
+    completed = run_module._run_scheduler_rounds(
+        agent=agent,
+        interpreter=interpreter,
+        cfg=SimpleNamespace(agent=SimpleNamespace(steps=2)),
+        journal=journal,
+        logger=logging.getLogger("test-scheduler-immediate-checkpoint"),
+        save_callback=lambda cfg, current_journal: checkpointed.set(),
+    )
+
+    assert completed == 2
+    assert checkpointed.is_set()
+
+
 def test_run_prepares_context_cache_once_before_interpreter(monkeypatch, tmp_path: Path) -> None:
     """A run must not duplicate context-cache preparation side effects."""
 

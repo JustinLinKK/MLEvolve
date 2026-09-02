@@ -222,6 +222,22 @@ suite passed 16 tests. The active second node was left running; the repaired
 code is synchronized before the next controlled scheduler restart so active
 training and its evidence are preserved.
 
+### Streaming checkpoint durability
+
+The pipelined scheduler originally wrote `journal.json` only when its main
+generation thread returned from creating the *next* candidate. This can delay
+the checkpoint for a completed training node by an entire long Qwen generation
+cycle. A restart during that window loses the resumable node even though its
+submission, scheduler result, and pipeline record already exist.
+
+The scheduler execution worker now persists the journal immediately after its
+candidate returns, under the agent journal lock. The main scheduler loop only
+updates its counted-progress view once that worker future is observed; it no
+longer performs a delayed duplicate save. A concurrent regression test blocks
+the second generation until the first execution has checkpointed; the previous
+implementation fails that test, while the repaired one passes. The combined
+run-lifecycle, prompt-compilation, and lesson-profile tests passed 21 tests.
+
 ### Live merge proof and obsolete-controller retirement
 
 The first candidate exercised the repaired path in the real run. Its three
