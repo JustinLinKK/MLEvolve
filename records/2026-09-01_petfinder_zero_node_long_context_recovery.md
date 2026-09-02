@@ -339,3 +339,29 @@ The replacement started at `2026-09-02T03:02:33Z`:
   `parallel_job_cap=null` remain unchanged.
 
 At startup the canonical count remained 0/50; completion is not claimed.
+
+## 2026-09-02 dormant-AMP introspection false positive
+
+The first candidate of the four-round run generated a valid TF32/FP32 path:
+`USE_AMP=False`, `USE_TF32=True`, with FP16 code present only as a dormant
+fallback. The static introspector nevertheless searched the entire source for
+`torch.float16`, reported `uses_amp=true` and `precision_mode=fp16`, and caused
+the deterministic precision guard to override five successive reviewer
+decisions that had explicitly approved the candidate. Four repair rounds then
+oscillated between comments and the TF32 flag before rejecting the candidate;
+no GPU job was submitted.
+
+The introspector now resolves explicit module-level AMP/TF32 boolean flags
+before scanning dormant helper and fallback code. `USE_AMP=False` therefore
+reports no active AMP and resolves to TF32 when `USE_TF32=True`; an explicit
+`USE_AMP=True` still resolves its declared AMP dtype. Regression tests cover
+both paths. The script-introspection, precision-policy, stage-review, and model
+preflight suites passed 124 tests in 39.13 seconds. Applying the corrected
+introspector to the real rejected candidate changes its metadata from
+`uses_amp=true, precision_mode=fp16` to
+`uses_amp=false, precision_mode=tf32`, matching the actual executable path.
+
+The active run loaded the old module before this repair and cannot be trusted
+to admit later candidates consistently. It will be replaced after exact
+process-identity verification; all artifacts remain preserved. Completion is
+not claimed.

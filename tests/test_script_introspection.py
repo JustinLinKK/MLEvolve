@@ -6,6 +6,7 @@ from engine.script_introspection import (
     analyze_training_batch_contract,
     detect_epoch_count,
     detect_precision_mode,
+    detect_uses_amp,
     introspect_training_script,
 )
 from localml_scheduler.adapters.mlevolve_runner import _materialize_instrumented_script
@@ -293,3 +294,35 @@ inference_model = torch.ao.quantization.quantize_dynamic(model, {nn.Linear}, dty
 """
 
     assert detect_precision_mode(code) is None
+
+
+def test_disabled_amp_does_not_promote_dormant_fp16_fallback() -> None:
+    code = """
+import torch
+
+USE_AMP = False
+USE_TF32 = True
+AMP_DTYPE = torch.float16
+FP16_FALLBACK_LADDER = [{"use_amp": True, "amp_dtype": torch.float16}]
+
+def autocast_context(use_amp=USE_AMP, amp_dtype=AMP_DTYPE):
+    if not use_amp:
+        return nullcontext()
+    return torch.autocast(device_type="cuda", dtype=amp_dtype)
+"""
+
+    assert detect_uses_amp(code) is False
+    assert detect_precision_mode(code) == "tf32"
+
+
+def test_enabled_amp_uses_declared_amp_dtype() -> None:
+    code = """
+import torch
+
+USE_AMP = True
+USE_TF32 = True
+AMP_DTYPE = torch.float16
+"""
+
+    assert detect_uses_amp(code) is True
+    assert detect_precision_mode(code) == "fp16"

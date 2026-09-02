@@ -760,7 +760,31 @@ def detect_framework(code: str) -> str:
     return "pytorch"
 
 
+def _top_level_bool_assignment(code: str, names: tuple[str, ...]) -> bool | None:
+    """Resolve explicit module-level feature flags without inspecting dormant branches."""
+    try:
+        module = ast.parse(code or "")
+    except SyntaxError:
+        return None
+    expected = {name.lower() for name in names}
+    resolved: bool | None = None
+    for statement in module.body:
+        name = _assignment_name(statement)
+        value = _assignment_value(statement)
+        if name is None or name.lower() not in expected:
+            continue
+        if isinstance(value, ast.Constant) and isinstance(value.value, bool):
+            resolved = value.value
+    return resolved
+
+
 def detect_uses_amp(code: str) -> bool:
+    configured = _top_level_bool_assignment(
+        code,
+        ("USE_AMP", "AMP_ENABLED", "ENABLE_AMP", "use_amp", "amp_enabled"),
+    )
+    if configured is not None:
+        return configured
     code_lower = (code or "").lower()
     return any(
         token in code_lower
@@ -793,6 +817,16 @@ def detect_precision_mode(code: str) -> str | None:
         or "format.hybrid" in code_lower
     ):
         return "fp8_te"
+    amp_enabled = _top_level_bool_assignment(
+        code_text,
+        ("USE_AMP", "AMP_ENABLED", "ENABLE_AMP", "use_amp", "amp_enabled"),
+    )
+    if amp_enabled is False:
+        tf32_enabled = _top_level_bool_assignment(
+            code_text,
+            ("USE_TF32", "TF32_ENABLED", "ENABLE_TF32", "use_tf32", "tf32_enabled"),
+        )
+        return "tf32" if tf32_enabled else "fp32"
     for pattern in (_PRECISION_STRING_PATTERN, _PRECISION_TORCH_DTYPE_PATTERN, _AUTOCAST_DTYPE_PATTERN):
         match = pattern.search(code_text)
         if match:
