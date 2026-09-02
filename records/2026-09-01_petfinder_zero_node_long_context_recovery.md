@@ -199,6 +199,29 @@ At the last checkpoint the scheduler was alive and generating its first
 candidate. The canonical completed-node count was still 0/50, so completion is
 not claimed.
 
+## 2026-09-02 lesson-profile builder scalar-evidence repair
+
+The live branch-profile Scheduler run completed its first valid PetFinder node
+(`f6638c74b1d641b3806f2fde97a14cfc`, root-mean-square error
+`19.649798039376417`) and then reported a fail-open lesson-profile worker
+error: `'float' object has no attribute 'items'`.
+
+The persisted observation contained numeric validation and scheduler fields,
+including the floating-point metric. The lesson builder puts this evidence into
+its structured prompt. `llm.gemini.compile_prompt_to_md` recursively handled
+only strings, lists, and dictionaries, so it attempted `.items()` after
+reaching the floating-point metric. Replaying the same observation with the
+builder confirmed that all non-LLM revision construction succeeds; the failure
+is at structured prompt rendering.
+
+The prompt compiler now renders any scalar as text rather than assuming it is a
+mapping. A regression test includes a nested float, boolean, and `None` from a
+lesson evidence packet. It failed with the production exception before the
+change and passes after it. The focused prompt-compilation and lesson-profile
+suite passed 16 tests. The active second node was left running; the repaired
+code is synchronized before the next controlled scheduler restart so active
+training and its evidence are preserved.
+
 ### Live merge proof and obsolete-controller retirement
 
 The first candidate exercised the repaired path in the real run. Its three
