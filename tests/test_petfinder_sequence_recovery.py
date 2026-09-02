@@ -119,6 +119,57 @@ def test_monitor_restarts_a_stopped_sequence_controller(tmp_path: Path) -> None:
     assert marker.read_text() == "started"
 
 
+def test_monitor_does_not_restart_a_superseded_sequence(tmp_path: Path) -> None:
+    """A newer run must be able to retire an obsolete recovery controller."""
+
+    state_dir = tmp_path / "state"
+    comparison_root = tmp_path / "comparison"
+    marker = tmp_path / "controller-started"
+    fake_bin = tmp_path / "bin"
+    controller = tmp_path / "controller.sh"
+    state_dir.mkdir()
+    comparison_root.mkdir()
+    fake_bin.mkdir()
+    (state_dir / "comparison_root").write_text(f"{comparison_root}\n")
+    (state_dir / "active_phase").write_text("scheduler_profile_hkwd\n")
+    (state_dir / "controller.pid").write_text("99999999\n")
+    (state_dir / "status").write_text("superseded\n")
+
+    controller.write_text("#!/usr/bin/env bash\nprintf started > \"$MARKER\"\n")
+    controller.chmod(0o755)
+    fake_kubectl = fake_bin / "kubectl"
+    fake_kubectl.write_text(
+        "#!/usr/bin/env bash\n"
+        "while [[ $# -gt 0 && $1 != -- ]]; do shift; done\n"
+        "[[ ${1:-} == -- ]] && shift\n"
+        "exec \"$@\"\n"
+    )
+    fake_kubectl.chmod(0o755)
+    (fake_bin / "nvidia-smi").write_text(
+        "#!/usr/bin/env bash\nprintf '0 MiB, 0 %%, 0 W\\n'\n"
+    )
+    (fake_bin / "nvidia-smi").chmod(0o755)
+
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "STATE_DIR": str(state_dir),
+        "CONTROLLER_SCRIPT": str(controller),
+        "MARKER": str(marker),
+        "INTERVAL_SECONDS": "0",
+        "MAX_ITERATIONS": "1",
+    }
+    subprocess.run(
+        ["bash", str(MONITOR_SCRIPT)],
+        env=env,
+        check=True,
+        timeout=5,
+        stdout=subprocess.DEVNULL,
+    )
+
+    assert not marker.exists()
+
+
 def test_monitor_discovers_the_latest_a100_deployment_pod(tmp_path: Path) -> None:
     fake_bin = tmp_path / "bin"
     kubectl_log = tmp_path / "kubectl.log"

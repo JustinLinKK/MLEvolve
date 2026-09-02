@@ -36,7 +36,7 @@ while true; do
             controller=running
         else
             controller=stopped
-            if test "$status" != complete && test -f "$CONTROLLER_SCRIPT"; then
+            if test "$status" != complete && test "$status" != superseded && test -f "$CONTROLLER_SCRIPT"; then
                 nohup env STATE_DIR="$STATE_DIR" bash "$CONTROLLER_SCRIPT" \
                     > "$STATE_DIR/controller.out" 2>&1 < /dev/null &
                 pid=$!

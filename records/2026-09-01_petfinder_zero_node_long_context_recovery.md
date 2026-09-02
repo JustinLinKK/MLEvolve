@@ -198,3 +198,22 @@ A new 50-node scheduler run started at `2026-09-02T01:32:41Z`:
 At the last checkpoint the scheduler was alive and generating its first
 candidate. The canonical completed-node count was still 0/50, so completion is
 not claimed.
+
+### Live merge proof and obsolete-controller retirement
+
+The first candidate exercised the repaired path in the real run. Its three
+specialist stages completed, merge began at 01:41:33 UTC, and the single merge
+request completed at 01:45:09 UTC without an extraction retry. Draft node
+`7d4fe5c7018243e884dcf80e28abb2cc` was created, reviewed, and automatically
+modified. The old 8,192-token behavior could not reach this point for the same
+class of response.
+
+An older comparison monitor was then found repeatedly restarting the
+superseded sequence-v5 scheduler against the same A10. The duplicate controller
+and child were identified by their exact script, old comparison root, and
+`resume_journal` command line before termination. The monitor itself was also
+identified by exact command line and stopped; sequence-v5 state is now marked
+`superseded`. The monitor now treats both `complete` and `superseded` as
+terminal states. A test first reproduced the unwanted restart, then the full
+sequence-recovery suite passed 4/4 and shell syntax validation passed. Only the
+new native-context scheduler PID `338074` remains.
