@@ -365,3 +365,17 @@ The active run loaded the old module before this repair and cannot be trusted
 to admit later candidates consistently. It will be replaced after exact
 process-identity verification; all artifacts remain preserved. Completion is
 not claimed.
+
+Scheduler PID `351000` and watchdog PID `351003` were verified by their exact
+command lines, stopped, and the superseded run was marked without deleting any
+artifact. The replacement started at `2026-09-02T03:24:35Z`:
+
+- scheduler PID: `353961`;
+- watchdog PID: `353962`;
+- run root:
+  `/root/downeyflyfan/.cache/mlevolve_a10_a100_comparison_20260831/runs/a100_agent_a10_scheduler_native262k_activeprecision_20260902_032428`;
+- 50-node target, 12-hour search budget, seed 42, four bounded review/preflight
+  repairs, branch-profile prediction, and `parallel_job_cap=null` are unchanged;
+- the A100 vLLM health endpoint returned HTTP 200 at launch.
+
+The canonical count at restart is 0/50. Completion is not claimed.
