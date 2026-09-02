@@ -405,3 +405,11 @@ The active process imported the old guidance and has submitted no scheduler
 job, so it will be replaced after exact identity verification. Its candidate,
 all three preflight reports, and repair history remain preserved. Completion
 is not claimed.
+
+Scheduler PID `353961` and watchdog PID `353962` were identity-verified and
+stopped. The criterion-guided replacement started at
+`2026-09-02T03:46:17Z` with scheduler PID `356874`, watchdog PID `356876`, and
+run root
+`/root/downeyflyfan/.cache/mlevolve_a10_a100_comparison_20260831/runs/a100_agent_a10_scheduler_native262k_criterionfix_20260902_034611`.
+All comparison controls remain unchanged and the A100 vLLM health check
+returned HTTP 200. The canonical count is 0/50; completion is not claimed.
