@@ -47,4 +47,6 @@ def test_impl_guideline_requires_partial_preflight_context_support(monkeypatch) 
 
     text = "\n".join(guideline["Implementation guideline"])
     assert "caller-supplied `context` as a partial mapping" in text
+    assert "context mutations do not persist" in text
+    assert "real criterion" in text
     assert "merge it over adapter defaults" in text

@@ -405,6 +405,7 @@ def diagnostic_to_review_issue(diagnostic: Mapping[str, Any]) -> ReviewIssue | N
         diagnostic.get("message") or "Model preflight reproduced a candidate defect."
     )
     exception_type = str(diagnostic.get("exception_type") or "")
+    stack_trace = str(diagnostic.get("stack_trace") or "")
     targeted_guidance = ""
     if stage == "construction" and exception_type == "KeyError":
         targeted_guidance = (
@@ -420,6 +421,17 @@ def diagnostic_to_review_issue(diagnostic: Mapping[str, Any]) -> ReviewIssue | N
             " Keep the same real model family and make isolated construction network-free, "
             "for example by retrying the same model with pretrained=False when cached weights "
             "are unavailable; do not substitute a mock architecture."
+        )
+    elif (
+        exception_type == "TypeError"
+        and "'nonetype' object is not callable" in message.lower()
+        and "criterion" in stack_trace.lower()
+    ):
+        targeted_guidance = (
+            " CandidateAdapter context mutations do not persist across checker method calls. "
+            "Make training_step and validation_step resolve a real criterion when the caller's "
+            "partial context omits it or supplies None, for example context.get('criterion') "
+            "or the script's real loss constructor; do not rely on build_model mutating a local context."
         )
     location = ""
     if diagnostic.get("file"):

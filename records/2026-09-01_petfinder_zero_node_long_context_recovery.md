@@ -379,3 +379,29 @@ artifact. The replacement started at `2026-09-02T03:24:35Z`:
 - the A100 vLLM health endpoint returned HTTP 200 at launch.
 
 The canonical count at restart is 0/50. Completion is not claimed.
+
+### Non-persistent CandidateAdapter criterion context
+
+The restarted run confirmed the active-precision fix: its first candidate
+needed one review repair and then reached `approved=true` with zero unresolved
+critical issues, rather than exhausting four rounds on dormant FP16. CPU
+preflight then exposed a separate recurring adapter defect. `build_model`
+created a real loss object only inside a temporary merged context, while
+`training_step` and `validation_step` later received independent partial
+contexts whose `criterion` value was `None`. Every real CPU forward therefore
+failed with `TypeError: 'NoneType' object is not callable`.
+
+The generic AUT002/VAL001 repair text did not mention the criterion or the
+checker call contract. Two repairs changed unrelated TF32 initialization and a
+third only added exception logging, leaving the reproduced failure intact. The
+diagnostic converter now recognizes this exact stack signature and tells the
+repair stage that context mutations do not persist and that both step methods
+must resolve the script's real criterion when it is absent or `None`. The same
+rule is now part of the initial generation contract. Focused tests failed
+before both changes; the complete introspection, precision, review, preflight,
+and implementation-guideline suites now pass 128 tests in 38.84 seconds.
+
+The active process imported the old guidance and has submitted no scheduler
+job, so it will be replaced after exact identity verification. Its candidate,
+all three preflight reports, and repair history remain preserved. Completion
+is not claimed.

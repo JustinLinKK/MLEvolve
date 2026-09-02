@@ -243,6 +243,22 @@ def test_offline_weight_error_repair_guidance_preserves_real_model():
     assert "same real model family" in issue.repair_instruction
 
 
+def test_none_criterion_repair_guidance_does_not_assume_context_persistence():
+    issue = diagnostic_to_review_issue(
+        {
+            "classification": "confirmed_candidate_failure",
+            "code": "AUT002",
+            "stage": "cpu_training",
+            "exception_type": "TypeError",
+            "message": "training raised TypeError: 'NoneType' object is not callable",
+            "stack_trace": 'loss = ctx["criterion"](preds, batch["targets"])',
+        }
+    )
+    assert issue is not None
+    assert "context mutations do not persist" in issue.repair_instruction
+    assert "real criterion" in issue.repair_instruction
+
+
 def test_balanced_admission_policy():
     assert admission_for_status("PASS", "balanced", True)
     assert admission_for_status("INCONCLUSIVE", "balanced", True)
