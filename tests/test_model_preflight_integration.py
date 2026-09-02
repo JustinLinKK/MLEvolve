@@ -550,6 +550,89 @@ def test_successful_targeted_repair_is_rechecked(tmp_path, monkeypatch):
     assert node.preflight_status == "PASS"
     assert node.preflight_repair_count == 1
     assert is_fresh_preflight(node)
+    assert not any(
+        item.get("source") == "model_preflight"
+        for item in node.review_issues
+    )
+
+
+def test_preflight_recheck_replaces_only_previous_preflight_issues(
+    tmp_path, monkeypatch
+):
+    stale_issue = ReviewIssue(
+        source="model_preflight",
+        severity="critical",
+        category="preflight_con001",
+        owner="model_design",
+        evidence="old construction failure",
+        repair_instruction="repair old construction failure",
+    )
+    current_issue = ReviewIssue(
+        source="model_preflight",
+        severity="critical",
+        category="preflight_aut001",
+        owner="training_evaluation",
+        evidence="current training failure",
+        repair_instruction="repair current training failure",
+    )
+    static_issue = ReviewIssue(
+        source="static_review",
+        severity="warning",
+        category="training_loop",
+        owner="training_evaluation",
+        evidence="keep this independent warning",
+        repair_instruction="optional cleanup",
+    )
+    outcomes = iter(
+        [
+            PreflightOutcome(
+                "FAIL",
+                "full_cpu",
+                candidate_code_hash("broken"),
+                False,
+                False,
+                ["CON001"],
+                issues=[stale_issue],
+            ),
+            PreflightOutcome(
+                "FAIL",
+                "full_cpu",
+                candidate_code_hash("fixed"),
+                False,
+                False,
+                ["AUT001"],
+                issues=[current_issue],
+            ),
+        ]
+    )
+
+    monkeypatch.setattr(
+        ModelPreflightGate,
+        "run",
+        lambda *_args, **_kwargs: next(outcomes),
+    )
+    monkeypatch.setattr(
+        "agents.stage_repair.repair_selected_stages",
+        lambda *_args, **_kwargs: (
+            "fixed",
+            [StageRepairResult(stage="model_design", applied=True, patch_count=1)],
+            {"stage_repair_calls": 1},
+        ),
+    )
+    agent = AgentSearch.__new__(AgentSearch)
+    agent.cfg = _cfg(tmp_path, max_repair_rounds=1)
+    agent.acfg = SimpleNamespace(
+        review=SimpleNamespace(parallel_training_repairs=False, repair_retries=1)
+    )
+    agent.pipeline_logger = None
+    agent.task_desc = "test"
+    agent.refresh_hardware_context = lambda node: None
+    node = _node("broken")
+    node.review_status = "approved"
+    node.review_issues = [static_issue.to_dict()]
+
+    assert not AgentSearch._run_node_preflight(agent, node, generated=True)
+    assert node.review_issues == [static_issue.to_dict(), current_issue.to_dict()]
 
 
 def test_preflight_uses_all_configured_repair_rounds(tmp_path, monkeypatch):

@@ -617,6 +617,11 @@ class AgentSearch:
         gate = ModelPreflightGate(self.cfg)
         repair_count = int(getattr(node, "preflight_repair_count", 0) or 0)
         outcome = gate.run(node, generated=generated, attempt=repair_count)
+        node.review_issues = [
+            issue
+            for issue in (getattr(node, "review_issues", None) or [])
+            if issue.get("source") != "model_preflight"
+        ]
         for issue in outcome.issues:
             append_review_issue(node, issue)
         apply_outcome_to_node(node, outcome, repair_count=repair_count)
@@ -654,6 +659,11 @@ class AgentSearch:
             record_pipeline_node_action(self, node, "model_preflight_repair", payload=repair_payload)
 
             outcome = gate.run(node, generated=generated, attempt=repair_count)
+            node.review_issues = [
+                issue
+                for issue in (getattr(node, "review_issues", None) or [])
+                if issue.get("source") != "model_preflight"
+            ]
             for issue in outcome.issues:
                 append_review_issue(node, issue)
             apply_outcome_to_node(node, outcome, repair_count=repair_count)

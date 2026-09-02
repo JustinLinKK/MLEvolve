@@ -515,3 +515,31 @@ The new regression test failed before implementation and passed afterward; the
 complete relevant local selection passed 117 tests in 62.55 seconds. The live
 run continues with its already-loaded prior guidance while bounded repair
 attempts remain; completion is not claimed.
+
+## 2026-09-02 stale preflight issue lifecycle repair
+
+The import-side-effect replacement run generated six candidates between
+`2026-09-02T05:54:53Z` and `2026-09-02T07:40:31Z`. Three reached A10 execution,
+three were rejected before execution, and one execution lasted long enough to
+count against the 50-node budget. The watchdog stopped the run at 1/50 after
+3,610 seconds without another budget-counted node, preserving the complete
+journal, preflight reports, scheduler database, and stall snapshot.
+
+Scheduler job `5f12872b-6e96-4304-9198-78aee6347eb8` was a real successful
+execution: seven completed epochs, a finite RMSE of 18.6750, a 992-row
+submission, no exception, and 322.83 seconds of runtime. MLEvolve nevertheless
+marked it buggy. The node still contained critical `model_preflight` issues
+from earlier repair attempts (`CON001` and import safety), although its final
+preflight outcome was admitted and those diagnostics were absent from the
+final diagnostic-code set. The result parser treated these stale historical
+issues as current runtime failures and discarded the valid metric.
+
+`AgentSearch._run_node_preflight` now replaces prior `model_preflight` issues
+on every checker outcome instead of accumulating them across repair attempts.
+Issues owned by static review or other independent validators remain intact,
+and per-attempt evidence remains available in the durable preflight reports and
+review history. Two regression assertions first failed on the stale issue and
+then passed after the lifecycle correction. The complete model-preflight,
+stage-review, node-accounting, and scheduler-timeline selection passed 110
+tests in 64.77 seconds. A new 50-node run is required because the stopped
+process loaded the old implementation; completion is not claimed.
