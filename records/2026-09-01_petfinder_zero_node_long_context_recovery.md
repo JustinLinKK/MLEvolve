@@ -413,3 +413,20 @@ run root
 `/root/downeyflyfan/.cache/mlevolve_a10_a100_comparison_20260831/runs/a100_agent_a10_scheduler_native262k_criterionfix_20260902_034611`.
 All comparison controls remain unchanged and the A100 vLLM health check
 returned HTTP 200. The canonical count is 0/50; completion is not claimed.
+## 2026-09-02 immediate scheduler admission repair
+
+The `native262k_criterionfix` restart generated and preflight-admitted its first
+candidate, but the scheduler database still contained zero jobs. Runtime logs
+and the lifecycle implementation showed the cause: `_run_scheduler_rounds`
+filled a candidate list up to the entire remaining 50-node budget before
+calling `execute_deferred_nodes`. This contradicted the runtime message and the
+intended incremental admission contract: a ready candidate could wait for 49
+more expensive generations before reaching the scheduler.
+
+The lifecycle now generates one candidate, submits that singleton immediately,
+persists the resulting journal, and only then generates the next candidate.
+This does not impose a parallel-job cap; concurrency remains owned by the
+scheduler using branch profiles and live telemetry. The regression test first
+failed with packet sizes `[5]`, then passed with `[1, 1, 1, 1, 1]`. The complete
+run-lifecycle, stage-review, preflight-integration, and scheduler-bridge test
+selection passed (98 tests).

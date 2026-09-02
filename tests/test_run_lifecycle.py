@@ -83,7 +83,7 @@ class _RoundAgent:
         return nodes
 
 
-def test_scheduler_round_is_not_limited_by_legacy_executor_slots() -> None:
+def test_scheduler_submits_each_candidate_as_soon_as_generation_finishes() -> None:
     runner = getattr(run_module, "_run_scheduler_rounds", None)
     assert runner is not None
 
@@ -104,8 +104,8 @@ def test_scheduler_round_is_not_limited_by_legacy_executor_slots() -> None:
     )
 
     assert completed == 5
-    assert interpreter.packet_sizes == [5]
-    assert saves == [6]
+    assert interpreter.packet_sizes == [1, 1, 1, 1, 1]
+    assert saves == [2, 3, 4, 5, 6]
 
 
 def test_scheduler_round_retries_a_transient_generation_skip() -> None:

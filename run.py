@@ -114,37 +114,33 @@ def _run_scheduler_rounds(
     exec_callback=None,
     save_callback=save_run,
 ) -> int:
-    """Submit each currently selectable search-tree wave as one scheduler packet."""
+    """Submit each candidate immediately after its generation finishes."""
     execute_one = exec_callback or interpreter.run
     total_steps = int(cfg.agent.steps)
     completed = count_budget_nodes(journal.nodes)
 
     while completed < total_steps:
-        candidates = []
-        remaining = total_steps - completed
-        while len(candidates) < remaining and agent.has_selectable_work():
-            node = agent.step(
+        candidate = None
+        while candidate is None and agent.has_selectable_work():
+            candidate = agent.step(
                 exec_callback=execute_one,
                 node=None,
                 execute_immediately=False,
             )
-            if node is None:
-                continue
-            candidates.append(node)
 
-        if not candidates:
+        if candidate is None:
             logger.warning(
-                "No scheduler-round candidates remain; stopping at %s/%s budget-counted nodes.",
+                "No scheduler candidate remains; stopping at %s/%s budget-counted nodes.",
                 completed,
                 total_steps,
             )
             break
 
         logger.info(
-            "Submitting %s search-tree candidate(s) as one scheduler-controlled round.",
-            len(candidates),
+            "Submitting ready candidate %s to the scheduler immediately.",
+            candidate.id,
         )
-        agent.execute_deferred_nodes(candidates, interpreter.run_many)
+        agent.execute_deferred_nodes([candidate], interpreter.run_many)
         save_callback(cfg, journal)
         completed = count_budget_nodes(journal.nodes)
         logger.info(
