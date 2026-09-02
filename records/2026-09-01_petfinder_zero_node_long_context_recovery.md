@@ -543,3 +543,21 @@ then passed after the lifecycle correction. The complete model-preflight,
 stage-review, node-accounting, and scheduler-timeline selection passed 110
 tests in 64.77 seconds. A new 50-node run is required because the stopped
 process loaded the old implementation; completion is not claimed.
+
+## 2026-09-02 pure configuration import-safety correction
+
+The first candidate of the stale-issue replacement run completed generation
+and static review, but model preflight spent three full checks on the same
+import-safety line. The line was a top-level adapter-default mapping containing
+`"n_features": len(FEATURE_COLS)`. Calling Python's pure `len` builtin over a
+constant list has no import-time side effect, but the checker did not include
+`len` in its lightweight-configuration allowlist. It therefore emitted
+`MLE_IMPORT001`, and the repair agent moved or rewrote valid adapter
+configuration without addressing a real execution risk.
+
+`len` is now explicitly accepted as a pure top-level configuration call. A
+focused regression reproduced the false positive at line 3 before the change
+and passed afterward. Together with the preflight issue-lifecycle tests, the
+full relevant selection passed 111 tests in 61.95 seconds. The loaded run still
+uses the old checker and is replaced after preserving its candidate and three
+preflight reports; the A100 vLLM process remains untouched.
