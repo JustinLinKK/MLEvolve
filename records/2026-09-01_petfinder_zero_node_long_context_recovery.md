@@ -493,3 +493,25 @@ strict; only the misleading repair instruction changed. Its regression test
 failed before implementation and passed afterward. The full relevant local
 selection passed 116 tests in 61.14 seconds. The active process loaded the old
 instruction and must be replaced; all its artifacts remain preserved.
+
+The replacement run started at `2026-09-02T05:03:03Z` under
+`a100_agent_a10_scheduler_streaming_importfix_20260902_050256`, with scheduler
+PID 367423 and watchdog PID 367424. Its second generated candidate passed full
+CPU preflight after three bounded repairs and produced scheduler job
+`21620624-a17a-4c3e-8041-18884e7a2220`. The job was submitted while the next
+candidate was already generating, directly verifying generation/execution
+overlap. It ran on the A10 but failed after 31.26 seconds because a real pandas
+row produced a `numpy.object_` feature array; the under-60-second failure is
+correctly excluded from the 50-node budget and retained as runtime feedback.
+
+The following candidate exposed a broader repair-guidance flaw. When an unsafe
+top-level precision call was reported, a repair merely wrapped the same call in
+a helper and invoked that helper at module scope. This does not change import
+safety and led to another avoidable repair round. Generic import-safety guidance
+now states that an existing main guard must be reused, that listed side-effecting
+calls must move inside it, and that wrapping then calling at module scope remains
+unsafe. It also prohibits adding, removing, or duplicating the existing guard.
+The new regression test failed before implementation and passed afterward; the
+complete relevant local selection passed 117 tests in 62.55 seconds. The live
+run continues with its already-loaded prior guidance while bounded repair
+attempts remain; completion is not claimed.

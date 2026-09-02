@@ -215,6 +215,31 @@ if __name__ == "__main__":
     assert "Do not add another main guard" in issues[0].repair_instruction
 
 
+def test_import_safety_guidance_does_not_wrap_a_top_level_side_effect(tmp_path):
+    code = """
+def configure_precision():
+    pass
+
+configure_precision()
+
+class CandidateAdapter:
+    def build_model(self, context): pass
+    def build_optimizer(self, model, context): pass
+    def build_train_batch(self, scenario, device): pass
+    def build_validation_batch(self, scenario, device): pass
+    def training_step(self, model, batch, context): pass
+    def validation_step(self, model, batch, context): pass
+
+if __name__ == "__main__":
+    main()
+"""
+    inspection = inspect_adapter(code)
+    issues = ModelPreflightGate(_cfg(tmp_path))._contract_issues(inspection, code)
+    assert len(issues) == 1
+    assert "Calling the wrapper at module scope remains unsafe" in issues[0].repair_instruction
+    assert "existing main guard" in issues[0].repair_instruction
+
+
 def test_batch_scenarios_match_scheduler_offsets(tmp_path):
     cfg = _cfg(tmp_path)
     cfg.scheduler.settings = SimpleNamespace(

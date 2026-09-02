@@ -729,6 +729,13 @@ class ModelPreflightGate:
                     "Executable import-time statements remain outside the main guard "
                     f"at line(s): {lines}."
                 )
+                repair_instruction = (
+                    "The main guard already exists. Move each listed side-effecting call "
+                    "into that existing main guard while keeping lightweight constants and "
+                    "definitions importable. Calling the wrapper at module scope remains unsafe, "
+                    "so merely wrapping the same operation in a helper does not repair it. Do not "
+                    "add, remove, or duplicate the existing main guard."
+                )
                 source_lines = (code or "").splitlines()
                 unsafe_source = [
                     source_lines[line - 1].strip()
