@@ -527,7 +527,7 @@ class ModelPreflightGate:
             yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8"
         )
 
-        contract_issues = self._contract_issues(inspection) if generated else []
+        contract_issues = self._contract_issues(inspection, code) if generated else []
         report_path = node_dir / "report.json"
         try:
             from model_preflight import check
@@ -688,7 +688,9 @@ class ModelPreflightGate:
             "policy": {"mode": str(getattr(self.settings, "policy_mode", "balanced"))},
         }
 
-    def _contract_issues(self, inspection: AdapterInspection) -> list[ReviewIssue]:
+    def _contract_issues(
+        self, inspection: AdapterInspection, code: str = ""
+    ) -> list[ReviewIssue]:
         if not bool(getattr(self.settings, "require_adapter_for_generated", True)):
             return []
         issues: list[ReviewIssue] = []
@@ -715,6 +717,10 @@ class ModelPreflightGate:
             evidence = (
                 "Training execution is not protected by if __name__ == '__main__'."
             )
+            repair_instruction = (
+                "Move all training and submission execution behind an "
+                "if __name__ == '__main__' guard."
+            )
             if inspection.main_guard_present:
                 lines = ", ".join(
                     str(line) for line in inspection.unsafe_top_level_lines
@@ -723,6 +729,22 @@ class ModelPreflightGate:
                     "Executable import-time statements remain outside the main guard "
                     f"at line(s): {lines}."
                 )
+                source_lines = (code or "").splitlines()
+                unsafe_source = [
+                    source_lines[line - 1].strip()
+                    for line in inspection.unsafe_top_level_lines
+                    if 0 < line <= len(source_lines)
+                ]
+                if any(
+                    line.replace(" ", "").startswith("DEVICE=_resolve_device")
+                    for line in unsafe_source
+                ):
+                    repair_instruction = (
+                        "The main guard already exists. Replace the top-level device helper call "
+                        "with the import-safe direct configuration "
+                        'DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu"). '
+                        "Do not add another main guard or move/remove the existing main() call."
+                    )
             issues.append(
                 ReviewIssue(
                     source="model_preflight",
@@ -730,7 +752,7 @@ class ModelPreflightGate:
                     category="preflight_import_safety",
                     owner="integration",
                     evidence=evidence,
-                    repair_instruction="Move all training and submission execution behind an if __name__ == '__main__' guard.",
+                    repair_instruction=repair_instruction,
                 )
             )
         return issues

@@ -188,6 +188,33 @@ if __name__ == "__main__":
     assert inspection.unsafe_top_level_lines == (2,)
 
 
+def test_import_safety_guidance_inlines_a_top_level_device_helper(tmp_path):
+    code = """
+import torch
+
+def _resolve_device():
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+DEVICE = _resolve_device()
+
+class CandidateAdapter:
+    def build_model(self, context): pass
+    def build_optimizer(self, model, context): pass
+    def build_train_batch(self, scenario, device): pass
+    def build_validation_batch(self, scenario, device): pass
+    def training_step(self, model, batch, context): pass
+    def validation_step(self, model, batch, context): pass
+
+if __name__ == "__main__":
+    main()
+"""
+    inspection = inspect_adapter(code)
+    issues = ModelPreflightGate(_cfg(tmp_path))._contract_issues(inspection, code)
+    assert len(issues) == 1
+    assert 'DEVICE = torch.device("cuda"' in issues[0].repair_instruction
+    assert "Do not add another main guard" in issues[0].repair_instruction
+
+
 def test_batch_scenarios_match_scheduler_offsets(tmp_path):
     cfg = _cfg(tmp_path)
     cfg.scheduler.settings = SimpleNamespace(

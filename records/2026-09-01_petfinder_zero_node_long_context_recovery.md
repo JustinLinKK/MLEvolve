@@ -467,3 +467,29 @@ The loaded streaming-admission process predates this repair and must be
 replaced after exact scheduler/watchdog identity verification. The A100 vLLM
 server remains healthy and is not part of the failure. Completion is not
 claimed.
+
+## 2026-09-02 import-safe device configuration guidance
+
+The writable-array replacement candidate passed its stage review. Preflight
+attempt 0 correctly repaired an offline pretrained-weight construction path,
+and attempt 1 correctly replaced the invalid `torch.contextlib` reference.
+Attempt 2 then passed construction, data-contract, abstract-forward, CPU
+training, validation, and memory checks. Its only remaining issue was static
+import safety at `DEVICE = _resolve_device_safe()`.
+
+The import-safety checker intentionally rejects arbitrary user helper calls at
+module import, while direct `torch.device` and `torch.cuda.is_available` calls
+are allowlisted as lightweight configuration. The existing generic repair
+instruction incorrectly said to move training behind a main guard even though
+the candidate already had one. Two automatic repairs consequently removed main
+guards instead of rewriting the unsafe configuration line.
+
+The contract issue builder now inspects the exact unsafe source line. For a
+top-level `_resolve_device*` assignment, it explicitly instructs the repair
+stage to inline
+`DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")` and
+not add, remove, or duplicate the existing main guard. The check itself remains
+strict; only the misleading repair instruction changed. Its regression test
+failed before implementation and passed afterward. The full relevant local
+selection passed 116 tests in 61.14 seconds. The active process loaded the old
+instruction and must be replaced; all its artifacts remain preserved.
