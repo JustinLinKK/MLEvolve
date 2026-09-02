@@ -151,6 +151,42 @@ def test_import_safety_detects_execution_outside_main_guard():
     assert inspection.unsafe_top_level_lines == (3,)
 
 
+def test_import_safety_allows_lightweight_configuration_assignments():
+    code = """
+import os
+import torch
+from pathlib import Path
+
+INPUT_DIR = os.environ.get("MLEVOLVE_INPUT_DIR", "./input")
+OUTPUT_DIR = Path(os.path.join(".", "submission"))
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+class CandidateAdapter:
+    def build_model(self, context): pass
+    def build_optimizer(self, model, context): pass
+    def build_train_batch(self, scenario, device): pass
+    def build_validation_batch(self, scenario, device): pass
+    def training_step(self, model, batch, context): pass
+    def validation_step(self, model, batch, context): pass
+
+if __name__ == "__main__":
+    main()
+"""
+    inspection = inspect_adapter(code)
+    assert inspection.main_guard_present
+    assert inspection.unsafe_top_level_lines == ()
+
+
+def test_import_safety_still_rejects_side_effecting_assignment_calls():
+    code = """
+RESULT = train_model()
+if __name__ == "__main__":
+    main()
+"""
+    inspection = inspect_adapter(code)
+    assert inspection.unsafe_top_level_lines == (2,)
+
+
 def test_batch_scenarios_match_scheduler_offsets(tmp_path):
     cfg = _cfg(tmp_path)
     cfg.scheduler.settings = SimpleNamespace(

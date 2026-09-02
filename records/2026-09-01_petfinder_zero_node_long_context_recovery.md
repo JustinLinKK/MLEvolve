@@ -254,3 +254,40 @@ node was submitted. Setting `MLEVOLVE_CONFIG` to the repository's actual
 
 At restart the canonical completed-node count was 0/50. Completion is not
 claimed.
+
+## 2026-09-02 preflight lightweight-configuration false positive
+
+The two-round run exercised the repaired loop exactly as intended, but its
+first candidate still failed after both rounds. The admission report identified
+top-level lines containing `os.environ.get(...)` and `torch.device(...)` as
+unsafe execution. Those are lightweight configuration assignments explicitly
+allowed by the candidate contract; the checker had classified every function
+call inside an assignment as unsafe, including pure environment reads and
+device-value construction. This false positive caused the repair model to
+rewrite unrelated adapter and directory code instead of admitting the module.
+
+Regression tests now prove that `os.environ.get`, `os.getenv`, `os.path.join`,
+`pathlib.Path`/`Path`, `torch.device`, and `torch.cuda.is_available` are allowed
+only as top-level configuration expressions, while a side-effecting assignment
+such as `RESULT = train_model()` remains rejected. The full preflight and
+review workflow suite passed 80 tests in 39.60 seconds. Running the corrected
+inspection against the real rejected candidate produced a complete adapter,
+an existing main guard, and zero unsafe top-level lines.
+
+The 0/50 predecessor was stopped only after exact scheduler/watchdog identity
+verification and remains preserved. The corrected checker was synchronized to
+the A10 container with matching SHA-256 checksums. The replacement run started
+at `2026-09-02T02:32:53Z`:
+
+- scheduler PID: `347703`;
+- watchdog PID: `347706`;
+- run root:
+  `/root/downeyflyfan/.cache/mlevolve_a10_a100_comparison_20260831/runs/a100_agent_a10_scheduler_native262k_merge16k_importsafe_20260902_023245`;
+- model context remains the native 262,144 tokens;
+- scheduler prediction remains branch-profile based with
+  `parallel_job_cap=null`;
+- preflight permits two bounded repair rounds and the one-hour effective-node
+  watchdog remains active.
+
+At replacement startup the canonical completed-node count was 0/50.
+Completion is not claimed.

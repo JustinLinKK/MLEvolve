@@ -189,6 +189,45 @@ def _is_main_guard(test: ast.AST) -> bool:
     )
 
 
+_SAFE_TOP_LEVEL_CONFIGURATION_CALLS = {
+    "Path",
+    "os.environ.get",
+    "os.getenv",
+    "os.path.join",
+    "pathlib.Path",
+    "torch.cuda.is_available",
+    "torch.device",
+}
+
+
+def _call_name(node: ast.Call) -> str | None:
+    """Return the dotted name for a direct call without executing it."""
+
+    parts: list[str] = []
+    value: ast.AST = node.func
+    while isinstance(value, ast.Attribute):
+        parts.append(value.attr)
+        value = value.value
+    if not isinstance(value, ast.Name):
+        return None
+    parts.append(value.id)
+    return ".".join(reversed(parts))
+
+
+def _is_lightweight_configuration_value(value: ast.AST) -> bool:
+    """Allow pure configuration reads/constructors in top-level assignments."""
+
+    if any(
+        isinstance(child, (ast.Await, ast.Yield, ast.YieldFrom))
+        for child in ast.walk(value)
+    ):
+        return False
+    calls = [child for child in ast.walk(value) if isinstance(child, ast.Call)]
+    return all(
+        _call_name(call) in _SAFE_TOP_LEVEL_CONFIGURATION_CALLS for call in calls
+    )
+
+
 def _is_unsafe_top_level(node: ast.stmt) -> bool:
     """Identify import-time work while allowing definitions and constants."""
 
@@ -208,10 +247,7 @@ def _is_unsafe_top_level(node: ast.stmt) -> bool:
         return not isinstance(node.value, ast.Constant)
     if isinstance(node, (ast.Assign, ast.AnnAssign)):
         value = node.value
-        return value is not None and any(
-            isinstance(child, (ast.Call, ast.Await, ast.Yield, ast.YieldFrom))
-            for child in ast.walk(value)
-        )
+        return value is not None and not _is_lightweight_configuration_value(value)
     return isinstance(
         node,
         (
