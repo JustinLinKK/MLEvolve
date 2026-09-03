@@ -48,6 +48,10 @@ The job completed successfully at 18:44 UTC with return code zero, validation RM
 
 At one valid scored node, the historical A10 baseline journal's first valid node (`3ca4b1d03bd042f381b8f5941032ecee`) has RMSE `18.1561`; the current A100 scheduler run's first valid node has RMSE `18.8938`. Thus the scheduler is worse by `0.7377` RMSE at this one-node checkpoint. This is intentionally reported without an elapsed-time or throughput claim: the baseline was executed on A10 while the current scheduler job ran on A100, so wall-clock comparison would not be a controlled hardware comparison. The checkpoint is provisional and will be recomputed at every common count after more scheduler nodes complete.
 
+## Shared-host resource observation
+
+At 2026-09-03 18:52 UTC, physical GPU 1 (A100 80GB PCIe, `Exclusive_Process`) was occupied by an unrelated active process owned under `/data1/kylehu/...` using 414 MiB. The process is not part of this experiment and was left untouched. This does not affect vLLM on GPU 0, but it can defer a later scheduler worker launch until the external process exits. It is recorded as shared-host contention, not an MLEvolve failure.
+
 ## Watch condition
 
 Treat an extended period with no newly generated candidate/node as a generation-stall bug. A single preflight rejection is recorded but is not itself a reason to restart the experiment.
