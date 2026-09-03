@@ -68,7 +68,7 @@ class EmbeddingModel:
 
         if model_type == "local":
             from sentence_transformers import SentenceTransformer
-            self.model = SentenceTransformer(model_name)
+            self.model = SentenceTransformer(model_name, device=self.device)
             if hasattr(self.model, 'to'):
                 self.model = self.model.to(self.device)
             self.dimension = self.model.get_sentence_embedding_dimension()
