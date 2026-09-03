@@ -275,6 +275,28 @@ def test_malformed_unchanged_and_invalid_syntax_patches_roll_back(patch: str) ->
     assert results[0].failure_reason
 
 
+def test_stage_repair_retries_after_patch_introduces_invalid_python() -> None:
+    agent = _agent()
+    agent.acfg.review.repair_retries = 2
+    attempts = iter(
+        [
+            "<<<<<<< SEARCH\nmodel = 0\n=======\nmodel = (\n>>>>>>> REPLACE",
+            "<<<<<<< SEARCH\nmodel = 0\n=======\nmodel = 1\n>>>>>>> REPLACE",
+        ]
+    )
+
+    code, results, _ = repair_selected_stages(
+        agent,
+        _node("model = 0\n"),
+        "model = 0\n",
+        [_issue("model_design")],
+        generator=lambda _agent, _prompt: next(attempts),
+    )
+
+    assert code == "model = 1\n"
+    assert results[0].applied is True
+
+
 def test_non_overlapping_patch_preserves_unaffected_bytes() -> None:
     original = "model = 0\nkeep = '  spaces  '  # unchanged\ntrain = 0\n"
     code, _, _ = repair_selected_stages(

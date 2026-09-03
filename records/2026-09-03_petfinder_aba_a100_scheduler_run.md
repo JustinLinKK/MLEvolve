@@ -22,6 +22,18 @@ At 2026-09-03 17:07 UTC, the third candidate was rejected before execution. Its 
 
 At 2026-09-03 17:17 UTC, the first admitted candidate was launched but failed at `model.to(cuda)` with `torch.AcceleratorError: CUDA-capable device(s) is/are busy or unavailable`. This was reproducible with an independent one-tensor CUDA allocation under `CUDA_VISIBLE_DEVICES=1`. Root cause: the search process constructed SentenceTransformer without forwarding its configured CPU device; SentenceTransformer therefore created a CUDA context on GPU 1 before being moved to CPU. GPU 1 was in `Exclusive_Process` compute mode, so the scheduler worker could not create its own CUDA context. The targeted fix passes `device=self.device` to SentenceTransformer at construction, preventing the transient CUDA context. The local regression test and related configuration tests passed (20 tests).
 
+## Restart after worker-GPU repair
+
+The repaired run began at 2026-09-03 17:21 UTC under the same task, model, branch-profile scheduler, 31 GiB budget, no fixed parallel-job cap, and uncapped native model context. After retrieval-model initialization, GPU 1 had only 4 MiB used and no process, proving it had not retained the prior search-process CUDA context. The first admitted worker then ran on GPU 1 and produced the first valid terminal node at 17:35 UTC: node `18810afc794540b8b9b4515e4af8771d`, validation RMSE `19.5385`. Its job completed successfully and the result was added to the journal and top-1 submission.
+
+The optional lesson-profile endpoint at `127.0.0.1:5005` was unavailable after this terminal node and failed open; the primary node parser validated the submission and metric successfully, so the run continued. This warning is recorded for follow-up but did not invalidate the terminal node.
+
+At 2026-09-03 17:48 UTC, a second valid terminal node was recorded: `0fc98d77ed5d457ab0d5404fc4bc3537`, RMSE `19.412435`, improving the current best. The third candidate, `ba15d31ccf374d0f80e6a59c071fcaba`, was rejected by static code review before execution at 17:53 UTC and correctly excluded from the budget. Its retained artifact is the draft prompt only; no preflight report directory was created. The scheduler immediately continued the search, so this is recorded as an exclusion event rather than a generation stall.
+
+The fourth candidate, `b6b55caf826141328a9152cd4f714879`, was rejected by CPU preflight at 18:04 UTC (`CHK001`, `GPU003`, `MLE_IMPORT001`). Its one permitted integration-stage repair attempt produced an invalid-syntax patch, so preflight remained `FAIL` and no GPU execution was attempted. This is a candidate-local repair failure; the active run continued to the next candidate without a generation stall.
+
+This exposed a repair-engine defect: retry logic retried malformed patch envelopes, but an otherwise well-formed patch that failed only after application and Python syntax validation was not retried. A regression test now supplies an invalid-syntax patch followed by a valid patch and verifies that the second one is applied. The repair engine validates a candidate patch against the current source before accepting it; application/syntax failures consume a configured repair retry instead of causing immediate candidate exclusion. Targeted stage-repair and preflight integration tests passed before the next restart.
+
 ## Watch condition
 
 Treat an extended period with no newly generated candidate/node as a generation-stall bug. A single preflight rejection is recorded but is not itself a reason to restart the experiment.

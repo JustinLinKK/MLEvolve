@@ -204,13 +204,18 @@ def generate_stage_patch(
             if any(not match.group(1).strip() for match in blocks):
                 last_error = "empty SEARCH block"
                 continue
-            return StageRepairResult(
+            candidate = StageRepairResult(
                 stage=stage,
                 patch=patch,
                 patch_count=len(blocks),
                 latency_seconds=time.monotonic() - started,
                 sequential_retry=sequential_retry,
             )
+            _, checked = _apply_result(code, candidate)
+            if checked.failure_reason:
+                last_error = checked.failure_reason
+                continue
+            return candidate
         except Exception as exc:
             last_error = str(exc)
     return StageRepairResult(
