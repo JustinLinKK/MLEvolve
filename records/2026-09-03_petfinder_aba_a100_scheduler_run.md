@@ -44,6 +44,10 @@ The second draft, `1279c4d6252b46f0a8b12f6bd476b7da`, was admitted after one pre
 
 The job completed successfully at 18:44 UTC with return code zero, validation RMSE `18.8938`, and actual execution time `207.1114` seconds. Early stopping ended training after seven epochs (best epoch two); this is normal candidate behavior, not a crash. The scheduler updated the same profile with the observed runtime and confidence `0.95`. The result was parsed as valid, added to the journal, and saved as the current top-1 submission. The optional lesson-profile service at port 5005 was unavailable but failed open after three retries; primary parsing and scheduler accounting were unaffected.
 
+### Equal-node baseline checkpoint
+
+At one valid scored node, the historical A10 baseline journal's first valid node (`3ca4b1d03bd042f381b8f5941032ecee`) has RMSE `18.1561`; the current A100 scheduler run's first valid node has RMSE `18.8938`. Thus the scheduler is worse by `0.7377` RMSE at this one-node checkpoint. This is intentionally reported without an elapsed-time or throughput claim: the baseline was executed on A10 while the current scheduler job ran on A100, so wall-clock comparison would not be a controlled hardware comparison. The checkpoint is provisional and will be recomputed at every common count after more scheduler nodes complete.
+
 ## Watch condition
 
 Treat an extended period with no newly generated candidate/node as a generation-stall bug. A single preflight rejection is recorded but is not itself a reason to restart the experiment.
