@@ -84,6 +84,13 @@ def _event(agent: Any, node: SearchNode, event_type: str, payload: dict[str, Any
 def _build_review_prompt(agent: Any, node: SearchNode, code: str) -> tuple[dict[str, Any], Any]:
     prompt = get_code_review_prompt(task_desc=agent.task_desc, code=code)
     instructions = prompt.pop("Instructions")
+    data_preview = str(getattr(agent, "data_preview", "") or "").strip()
+    if data_preview:
+        prompt["Observed Dataset Manifest"] = data_preview
+        instructions["Observed dataset grounding"] = [
+            "Treat the observed dataset manifest as authoritative for paths, files, and layouts; "
+            "a review finding must not contradict it without concrete code evidence."
+        ]
     hardware_ctx = get_hardware_context_for_stage(
         agent, "code_review", parent_node=getattr(node, "parent", None), code=code
     )

@@ -52,6 +52,34 @@ def _node(code: str = "model = 0\ndtype = 0\ntrain = 0\n") -> SearchNode:
     return SearchNode(code=code, plan="test", stage="draft")
 
 
+def test_review_prompt_grounds_data_layout_in_observed_preview(monkeypatch) -> None:
+    agent = _agent()
+    agent.data_preview = "Observed directories: input/train/ and input/test/ both contain JPEG files."
+    node = _node()
+    node.pipeline_decision = {}
+    empty_context = SimpleNamespace(prompt_section="")
+    monkeypatch.setattr(
+        code_review_agent,
+        "get_code_review_prompt",
+        lambda **_kwargs: {"Introduction": "review", "Instructions": {}},
+    )
+    monkeypatch.setattr(
+        code_review_agent, "get_hardware_context_for_stage", lambda *_args, **_kwargs: empty_context
+    )
+    monkeypatch.setattr(
+        code_review_agent, "get_cuda_docs_context", lambda *_args, **_kwargs: empty_context
+    )
+    monkeypatch.setattr(code_review_agent, "format_cuda_docs_prompt_section", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(
+        code_review_agent, "get_lesson_context_for_stage", lambda *_args, **_kwargs: empty_context
+    )
+
+    prompt, _ = code_review_agent._build_review_prompt(agent, node, node.code)
+
+    assert prompt["Observed Dataset Manifest"] == agent.data_preview
+    assert "must not contradict" in prompt["Instructions"]["Observed dataset grounding"][0]
+
+
 def _issue(owner: str, category: str | None = None) -> ReviewIssue:
     return ReviewIssue(
         source="static_review",
