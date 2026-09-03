@@ -14,6 +14,14 @@ from localml_scheduler.hardware_knowledge.store import HardwareKnowledgeGraphSto
 from run import _scheduler_settings_from_cfg
 
 
+def test_default_config_keeps_global_memory_off_the_scheduler_gpu() -> None:
+    default_config = yaml.safe_load(
+        (Path(__file__).parents[1] / "config.example.yaml").read_text()
+    )
+
+    assert default_config["agent"]["memory_embedding_device"] == "cpu"
+
+
 def _write_config(path: Path, *, marker: str, scheduler_runtime: str = "./runtime") -> None:
     payload = {
         "data_dir": "/tmp/data",

@@ -345,7 +345,7 @@ agent:
   max_fusion_drafts: 2
   use_global_memory: true
   memory_similarity_threshold: 0.7
-  memory_embedding_device: cuda
+  memory_embedding_device: cpu
   memory_embedding_model_path: BAAI/bge-base-en-v1.5
   search:
     parallel_search_num: null
