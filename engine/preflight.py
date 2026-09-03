@@ -421,10 +421,54 @@ def diagnostic_owner(code: str, stage: str) -> str:
     return "integration"
 
 
+def _is_uncached_pretrained_dependency(diagnostic: Mapping[str, Any]) -> bool:
+    """Return whether an offline preflight reproduced an unavailable weight dependency.
+
+    A balanced policy may admit ordinary inconclusive hardware checks, but it must
+    not admit code which the isolated run already proved needs a Hugging Face
+    checkpoint absent from the worker cache.  Such a candidate would otherwise
+    reach the GPU worker and attempt a network download during the real run.
+    """
+
+    exception_type = str(diagnostic.get("exception_type") or "")
+    text = " ".join(
+        str(diagnostic.get(field) or "")
+        for field in ("message", "stack_trace")
+    ).lower()
+    if exception_type == "LocalEntryNotFoundError":
+        return True
+    return (
+        "huggingface" in text
+        and "cached files" in text
+        and any(
+            marker in text
+            for marker in (
+                "network is disabled",
+                "outgoing traffic has been disabled",
+                "offline mode",
+                "couldn't connect",
+                "cannot find the requested files in the disk cache",
+            )
+        )
+    )
+
+
+def preflight_diagnostics_require_rejection(
+    diagnostics: Iterable[Mapping[str, Any]],
+) -> bool:
+    """Whether inconclusive diagnostics prove the candidate cannot run offline."""
+
+    return any(_is_uncached_pretrained_dependency(item) for item in diagnostics)
+
+
 def diagnostic_to_review_issue(diagnostic: Mapping[str, Any]) -> ReviewIssue | None:
     """Convert confirmed candidate failures into targeted repair input."""
 
-    if diagnostic.get("classification") != "confirmed_candidate_failure":
+    unavailable_pretrained_dependency = _is_uncached_pretrained_dependency(diagnostic)
+    if (
+        diagnostic.get("classification") != "confirmed_candidate_failure"
+        and not unavailable_pretrained_dependency
+    ):
         return None
     code = str(diagnostic.get("code") or "CHK001")
     stage = str(diagnostic.get("stage") or "unknown")
@@ -440,10 +484,7 @@ def diagnostic_to_review_issue(diagnostic: Mapping[str, Any]) -> ReviewIssue | N
             "CandidateAdapter defaults before reading optional keys, while preserving "
             "caller-provided values."
         )
-    elif exception_type == "LocalEntryNotFoundError" or (
-        "network is disabled" in message.lower()
-        or "offline mode" in message.lower()
-    ):
+    elif unavailable_pretrained_dependency:
         targeted_guidance = (
             " Keep the same real model family and make isolated construction network-free, "
             "for example by retrying the same model with pretrained=False when cached weights "
@@ -585,7 +626,7 @@ class ModelPreflightGate:
             diagnostic_codes.extend(self._contract_codes(contract_issues))
             status = str(report_dict["overall_status"])
             gpu_check_required = bool(report_dict.get("gpu_check_required", False))
-            if contract_issues:
+            if contract_issues or preflight_diagnostics_require_rejection(diagnostics):
                 status = "FAIL"
             elif profile.warning and status == "PASS":
                 status = "INCONCLUSIVE"

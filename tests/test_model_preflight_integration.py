@@ -22,6 +22,7 @@ from engine.preflight import (
     inspect_adapter,
     is_fresh_preflight,
     normalize_preflight_precision,
+    preflight_diagnostics_require_rejection,
     select_target_profile,
 )
 from engine.search_node import SearchNode
@@ -338,6 +339,25 @@ def test_offline_weight_error_repair_guidance_preserves_real_model():
     )
     assert issue is not None
     assert "pretrained=False" in issue.repair_instruction
+    assert "same real model family" in issue.repair_instruction
+
+
+def test_uncached_pretrained_dependency_rejects_inconclusive_preflight():
+    diagnostics = [
+        {
+            "classification": "inconclusive",
+            "code": "FIX001",
+            "stage": "data_contract",
+            "exception_type": "OSError",
+            "message": (
+                "fixture raised OSError: We couldn't connect to 'https://huggingface.co' "
+                "to load the files, and couldn't find them in the cached files."
+            ),
+        }
+    ]
+    assert preflight_diagnostics_require_rejection(diagnostics)
+    issue = diagnostic_to_review_issue(diagnostics[0])
+    assert issue is not None
     assert "same real model family" in issue.repair_instruction
 
 
