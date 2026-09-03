@@ -34,6 +34,10 @@ The fourth candidate, `b6b55caf826141328a9152cd4f714879`, was rejected by CPU pr
 
 This exposed a repair-engine defect: retry logic retried malformed patch envelopes, but an otherwise well-formed patch that failed only after application and Python syntax validation was not retried. A regression test now supplies an invalid-syntax patch followed by a valid patch and verifies that the second one is applied. The repair engine validates a candidate patch against the current source before accepting it; application/syntax failures consume a configured repair retry instead of causing immediate candidate exclusion. Targeted stage-repair and preflight integration tests passed before the next restart.
 
+## Active repair-retry run
+
+At 2026-09-03 18:15 UTC, the experiment was restarted from an empty search tree after committing the repair retry fix (`941bd034`). The vLLM server on physical A100 GPU 0 was preserved; the scheduler process has exclusive access to physical GPU 1 via `CUDA_VISIBLE_DEVICES=1`. The command retains `agent.steps=50`, `parallel_job_cap=null`, branch-profile prediction, the 31 GiB scheduler budget, and no agent-context limit. A persistent five-minute monitor records budget-counted nodes and both GPU utilization; before the first journal entry it reports zero nodes, which is the expected state during initial agent generation.
+
 ## Watch condition
 
 Treat an extended period with no newly generated candidate/node as a generation-stall bug. A single preflight rejection is recorded but is not itself a reason to restart the experiment.
