@@ -42,6 +42,8 @@ The first draft of this run, `821612d19d1b42cb9399d079c8761bf1`, completed stepw
 
 The second draft, `1279c4d6252b46f0a8b12f6bd476b7da`, was admitted after one preflight repair; only the non-blocking static `GPU003` warning remained. Scheduler job `d628b2f4-133a-4f24-9c69-e51cd51f2694` started on GPU 1 at 18:41 UTC. At 18:42 UTC it wrote a `runtime_probe_profiled` event with branch-profile estimate `estimated_total_runtime_seconds=1229.3785`, confidence `0.75`, and resolved batch size `32`. This is direct live evidence that scheduler estimation is populated rather than `None`. The initial placement is exclusive only because this is the first observed runtime signature; no fixed parallel-job cap is configured.
 
+The job completed successfully at 18:44 UTC with return code zero, validation RMSE `18.8938`, and actual execution time `207.1114` seconds. Early stopping ended training after seven epochs (best epoch two); this is normal candidate behavior, not a crash. The scheduler updated the same profile with the observed runtime and confidence `0.95`. The result was parsed as valid, added to the journal, and saved as the current top-1 submission. The optional lesson-profile service at port 5005 was unavailable but failed open after three retries; primary parsing and scheduler accounting were unaffected.
+
 ## Watch condition
 
 Treat an extended period with no newly generated candidate/node as a generation-stall bug. A single preflight rejection is recorded but is not itself a reason to restart the experiment.
