@@ -13,13 +13,12 @@ def test_resume_script_falls_back_to_a_persistent_python_environment():
     assert 'python_bin="$python_fallback"' in script
 
 
-def test_resume_script_resets_only_stale_watchdog_observations():
+def test_resume_script_keeps_disposable_watchdog_state_off_the_persistent_volume():
     script = (
         Path(__file__).parents[1]
         / "deployments"
         / "resume_petfinder_scheduler_on_a10_boot.sh"
     ).read_text()
 
-    assert 'rm -f "$watch_dir/last_count"' in script
-    assert '"$watch_dir/last_progress_epoch"' in script
-    assert '"$watch_dir/STALL_DETECTED.json"' in script
+    assert "watch_dir=/dev/shm/mlevolve_scheduler_watchdog_a10_v7" in script
+    assert 'rm -f "$watch_dir/last_count"' not in script
