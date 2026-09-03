@@ -1,9 +1,5 @@
 import logging
-from . import gemini as _gemini
-from . import openai as _openai
-from . import vllm as _vllm
-from . import claude_cli as _claude_cli
-from .gemini import FunctionSpec, OutputType, PromptType, compile_prompt_to_md
+from .common import FunctionSpec, OutputType, PromptType, compile_prompt_to_md
 from config import Config
 logger = logging.getLogger("MLEvolve")
 
@@ -114,6 +110,7 @@ def query(
         raise ValueError("stage_name must be 'code', 'feedback', or None")
     provider = _provider(model, cfg, stage_name)
     if provider == "openai":
+        from . import openai as _openai
         output, req_time, in_tok_count, out_tok_count, info = _openai.query(
             system_message=system_message,
             user_message=user_message,
@@ -126,6 +123,7 @@ def query(
             **model_kwargs,
         )
     elif provider == "vllm":
+        from . import vllm as _vllm
         output, req_time, in_tok_count, out_tok_count, info = _vllm.query(
             system_message=system_message,
             user_message=user_message,
@@ -138,6 +136,7 @@ def query(
             **model_kwargs,
         )
     elif provider == "claude_cli":
+        from . import claude_cli as _claude_cli
         output, req_time, in_tok_count, out_tok_count, info = _claude_cli.query(
             system_message=system_message,
             user_message=user_message,
@@ -146,6 +145,7 @@ def query(
             **model_kwargs,
         )
     else:
+        from . import gemini as _gemini
         output, req_time, in_tok_count, out_tok_count, info = _gemini.query(
             system_message=system_message,
             user_message=user_message,
@@ -174,6 +174,7 @@ def generate(
     model = getattr(cfg.agent.code, "model", "") or ""
     provider = _provider(model, cfg, "code")
     if provider == "openai":
+        from . import openai as _openai
         return _openai.generate(
             prompt=prompt,
             cfg=cfg,
@@ -187,6 +188,7 @@ def generate(
             context_cache_stable_prefix=context_cache_stable_prefix,
         )
     if provider == "vllm":
+        from . import vllm as _vllm
         return _vllm.generate(
             prompt=prompt,
             cfg=cfg,
@@ -200,6 +202,7 @@ def generate(
             context_cache_stable_prefix=context_cache_stable_prefix,
         )
     if provider == "claude_cli":
+        from . import claude_cli as _claude_cli
         return _claude_cli.generate(
             prompt=prompt,
             cfg=cfg,
@@ -212,6 +215,7 @@ def generate(
             context_cache_role=context_cache_role,
             context_cache_stable_prefix=context_cache_stable_prefix,
         )
+    from . import gemini as _gemini
     return _gemini.generate(
         prompt=prompt,
         cfg=cfg,

@@ -5,25 +5,16 @@ import json
 import logging
 import time
 import traceback
-from dataclasses import dataclass
 from typing import Callable
 
 import backoff
-import jsonschema
-from dataclasses_json import DataClassJsonMixin
 from funcy import notnone, once, select_values
 from google import genai
 from google.genai import types
 from config import Config
+from .common import FunctionSpec, OutputType, PromptType, compile_prompt_to_md
 
 logger = logging.getLogger("MLEvolve")
-
-# ---------------------------------------------------------------------------
-#  Type aliases
-# ---------------------------------------------------------------------------
-PromptType = str | dict | list
-FunctionCallType = dict
-OutputType = str | FunctionCallType
 
 # ---------------------------------------------------------------------------
 #  Prompt & message helpers
@@ -44,51 +35,6 @@ def backoff_create(
         logger.warning(f"Retryable error: {e}\n{traceback.format_exc()}")
         return False
 
-
-def compile_prompt_to_md(prompt: PromptType, _header_depth: int = 1) -> str:
-    if isinstance(prompt, str):
-        return prompt.strip() + "\n"
-    elif isinstance(prompt, list):
-        return "\n".join([f"- {s.strip()}" for s in prompt] + ["\n"])
-    elif not isinstance(prompt, dict):
-        return str(prompt).strip() + "\n"
-
-    out = []
-    header_prefix = "#" * _header_depth
-    for k, v in prompt.items():
-        out.append(f"{header_prefix} {k}\n")
-        out.append(compile_prompt_to_md(v, _header_depth=_header_depth + 1))
-    return "\n".join(out)
-
-
-@dataclass
-class FunctionSpec(DataClassJsonMixin):
-    name: str
-    json_schema: dict  # JSON schema
-    description: str
-
-    def __post_init__(self):
-        # validate the schema
-        jsonschema.Draft7Validator.check_schema(self.json_schema)
-
-    @property
-    def as_openai_tool_dict(self):
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.json_schema,
-            },
-            "strict": True,
-        }
-
-    @property
-    def openai_tool_choice_dict(self):
-        return {
-            "type": "function",
-            "function": {"name": self.name},
-        }
 
 # ---------------------------------------------------------------------------
 #  Gemini client

@@ -10,7 +10,7 @@ from typing import Any
 from openai import OpenAI
 
 from config import Config
-from .gemini import FunctionSpec, compile_prompt_to_md
+from .common import FunctionSpec, compile_prompt_to_md
 from .model_profiles import get_profile, supports_json_schema, thinking_json_incompatible
 
 logger = logging.getLogger("MLEvolve")

@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 
 from config import Config
-from .gemini import FunctionSpec
+from .common import FunctionSpec
 from . import openai as _openai
 
 # The official OpenAI SDK imports its complete Responses API schema on startup.
