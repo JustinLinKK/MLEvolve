@@ -50,3 +50,12 @@ def test_impl_guideline_requires_partial_preflight_context_support(monkeypatch) 
     assert "context mutations do not persist" in text
     assert "real criterion" in text
     assert "merge it over adapter defaults" in text
+
+
+def test_impl_guideline_requires_adapter_build_model_to_return_module(monkeypatch) -> None:
+    monkeypatch.setattr(impl_guideline.time, "time", lambda: 110.0)
+
+    guideline = impl_guideline.get_impl_guideline_from_agent(_agent(exec_timeout=5))
+
+    text = "\n".join(guideline["Implementation guideline"])
+    assert "build_model(context) MUST return the real torch.nn.Module" in text
