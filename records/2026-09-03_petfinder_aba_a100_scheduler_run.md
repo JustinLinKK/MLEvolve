@@ -73,3 +73,9 @@ The review prompt now includes the same observed data manifest used by generatio
 The data-grounded restart began at 2026-09-03 20:12 UTC in `/dev/shm/mlevolve_a100_agent/runs/petfinder_scheduler_aba_a100_data_grounded_20260903T201244Z` (scheduler PID `283432`). The immediately prior scheduler was verified and stopped cleanly; vLLM remained live. The new run preserves the 50-node target, native context, branch-profile scheduler, `parallel_job_cap=null`, and 31 GiB admission budget.
 
 The old monitor deliberately exited when its watched scheduler PID was replaced during that restart. At 20:23 UTC, a new read-only five-minute monitor was attached to the current scheduler PID and run-root pointer (monitor PID `291953`). It records budget-counted nodes and both GPU states without creating, modifying, or terminating experiment work.
+
+## First data-grounded scheduler execution
+
+Candidate `794d810c359e4f45b8ca847074809b79` passed code review and was admitted despite an `INCONCLUSIVE` preflight status: all diagnostics were warnings, including a fixture-only `None.reset_index` path. It was submitted as local scheduler job `def27f27-0b85-4658-ae71-693644d294b3` at 20:31 UTC and executed exclusively on GPU 1, demonstrating the complete scheduler submission, worker, result-parser, and journal path after the external GPU process exited.
+
+The candidate failed after 26.09 seconds with a candidate-local `AttributeError`: it called `torchvision.transforms.functional.RandomResizedCrop`, whereas `RandomResizedCrop` is a transform class rather than a functional-module member. The scheduler job itself returned normally, and the instrumented result captured the stack trace; the parser marked the node buggy and recorded it in the journal. This is not a vLLM, GPU, or scheduler failure. The active search continued immediately, so the failure is retained as a debug-repair signal rather than being counted as a valid terminal node.
