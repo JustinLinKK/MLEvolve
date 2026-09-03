@@ -598,6 +598,7 @@ def test_stepwise_generation_can_return_stage_metadata(monkeypatch) -> None:
     assert any("Datatype/Precision" in str(prompt) for prompt in responses)
     assert any("Cross-Stage Note Board" in str(prompt) for prompt in responses)
     assert "Stage 1 model-design" in responses[1]
+    assert all("No module-level side effects" in str(prompt) for prompt in responses)
     removed_stage = "data_processing" + "_and_feature_engineering"
     assert all(removed_stage not in str(prompt) for prompt in responses)
 

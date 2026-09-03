@@ -223,7 +223,10 @@ class StepAgent:
             "2. A `Note board:` block with 1-3 bullets. Each bullet must use this exact shape: "
             "`- baseline_change: <what changed from the baseline or prior step> | purpose: <why this supports the candidate target> | hardware_keys: <comma-separated local feature keys or none>`\n"
             "3. A single markdown code block (wrapped in ```) containing ONLY the code for this step\n"
-            "IMPORTANT: Do NOT write code for other steps. Only write code for the current step."
+            "IMPORTANT: Do NOT write code for other steps. Only write code for the current step.\n"
+            "No module-level side effects: this step may define imports, constants, classes, and helper functions only. "
+            "Do not access data, read environment settings, configure CUDA/TF32, configure logging, instantiate models/losses, "
+            "construct DataLoaders, train, evaluate, or write submissions at import time; expose helpers for the final main guard instead."
         )
 
         prompt_instructions[f"{self.name} guidelines"] = [guidelines_text]
@@ -432,6 +435,7 @@ class MetaAgent:
             "- Remove duplicate imports and definitions",
             conflict_rule,
             f"- Ensure the execution flow is logical: {execution_flow}",
+            "- No module-level side effects: keep only imports, constants, classes, and helper definitions at import time. Put data access, environment reads, CUDA/TF32 and logging configuration, model/loss instantiation, DataLoader construction, training, evaluation, and submission writing in one `if __name__ == '__main__':` execution path; keep CandidateAdapter CPU-safe.",
             "- Make sure the final code prints validation metric (must match task's Evaluation section) and saves submission.csv",
             "- The code should be a single-file Python program that can be executed as-is",
             "- Assume previous steps have NOT been executed; do not skip execution steps and only read files or outputs.",
