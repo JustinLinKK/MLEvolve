@@ -3,17 +3,88 @@
 from __future__ import annotations
 
 import atexit
+import json
 import os
 import threading
+from types import SimpleNamespace
 from typing import Any
 
-from openai import OpenAI
+import httpx
 
 from config import Config
 from .gemini import FunctionSpec
 from . import openai as _openai
 
-_CLIENTS: dict[str, tuple[str, OpenAI]] = {}
+# The official OpenAI SDK imports its complete Responses API schema on startup.
+# That is unnecessarily expensive for a local vLLM Chat Completions endpoint,
+# especially when Python packages reside on a network volume.  Keep the symbol
+# injectable for compatibility tests, but use the small HTTP transport by
+# default.
+OpenAI = None
+
+
+class _ResponseObject(SimpleNamespace):
+    """Attribute-shaped view of an OpenAI-compatible JSON response."""
+
+    def __init__(self, raw: dict[str, Any]) -> None:
+        super().__init__(**{key: self._convert(value) for key, value in raw.items()})
+        self.model_extra = raw
+
+    @classmethod
+    def _convert(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            return cls(value)
+        if isinstance(value, list):
+            return [cls._convert(item) for item in value]
+        return value
+
+
+class _VLLMHttpClient:
+    """Minimal persistent client for vLLM's OpenAI-compatible endpoint."""
+
+    def __init__(self, *, api_key: str, base_url: str, timeout: float) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._headers = {"Authorization": f"Bearer {api_key}"}
+        self._client = httpx.Client(timeout=timeout)
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+    def _request_parts(self, params: dict[str, Any]) -> tuple[dict[str, str], dict[str, Any]]:
+        payload = dict(params)
+        headers = dict(self._headers)
+        headers.update(payload.pop("extra_headers", {}) or {})
+        payload.update(payload.pop("extra_body", {}) or {})
+        return headers, payload
+
+    def create(self, **params: Any) -> Any:
+        headers, payload = self._request_parts(params)
+        if not payload.get("stream"):
+            response = self._client.post(
+                f"{self._base_url}/chat/completions", json=payload, headers=headers
+            )
+            response.raise_for_status()
+            return _ResponseObject(response.json())
+
+        def stream_response():
+            with self._client.stream(
+                "POST", f"{self._base_url}/chat/completions", json=payload, headers=headers
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data = line.removeprefix("data:").strip()
+                    if data == "[DONE]":
+                        return
+                    if data:
+                        yield _ResponseObject(json.loads(data))
+
+        return stream_response()
+
+    def close(self) -> None:
+        self._client.close()
+
+
+_CLIENTS: dict[str, tuple[str, Any]] = {}
 _CLIENTS_LOCK = threading.RLock()
 
 
@@ -40,7 +111,7 @@ def _cache_salt(cfg: Config) -> str | None:
     return salt or None
 
 
-def _client_for(stage: Any) -> OpenAI:
+def _client_for(stage: Any) -> Any:
     endpoint = str(getattr(stage, "base_url", "") or "").rstrip("/")
     if not endpoint:
         raise ValueError("A vLLM stage requires a base_url ending in /v1")
@@ -55,7 +126,11 @@ def _client_for(stage: Any) -> OpenAI:
                 pooled[1].close()
             except Exception:
                 pass
-        client = OpenAI(api_key=api_key, base_url=endpoint, timeout=1200.0)
+        client = (
+            OpenAI(api_key=api_key, base_url=endpoint, timeout=1200.0)
+            if OpenAI is not None
+            else _VLLMHttpClient(api_key=api_key, base_url=endpoint, timeout=1200.0)
+        )
         _CLIENTS[endpoint] = (api_key, client)
         return client
 

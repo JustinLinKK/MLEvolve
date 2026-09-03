@@ -192,6 +192,18 @@ def test_endpoint_pool_reuses_connections_and_separates_endpoints(monkeypatch):
     assert all(client.closed for client in created)
 
 
+def test_vllm_uses_lightweight_http_transport_without_sdk(monkeypatch):
+    monkeypatch.setattr(vllm, "OpenAI", None)
+    vllm.close_clients()
+
+    client = vllm._client_for(
+        SimpleNamespace(base_url="http://vllm:8000/v1", api_key="EMPTY")
+    )
+
+    assert type(client).__name__ == "_VLLMHttpClient"
+    vllm.close_clients()
+
+
 def test_cache_family_changes_with_reasoning_system_tools_and_api_family():
     base = _family()
     variants = [

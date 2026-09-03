@@ -685,3 +685,21 @@ fresh watchdog. During import it entered `ceph_mdsc_wait_request`, a Ceph
 metadata wait on the Nautilus persistent volume; no GPU work began while it was
 in that state. This is recorded as a separate storage-layer observation, not
 attributed to A100 vLLM generation or the Scheduler.
+
+## 2026-09-03 lightweight vLLM transport
+
+Import tracing of the replacement process identified the startup bottleneck
+more precisely: the official OpenAI Python SDK recursively loaded a very large
+Responses API schema from the Ceph-backed environment. Individual modules took
+about 0.15 seconds and the process had not even opened a socket to the A100
+Agent after ten minutes. A direct health request from A10 to the A100 service
+completed in 0.42 seconds, ruling out the model service and inter-pod network
+as the source of the wait.
+
+`llm.vllm` now uses a persistent lightweight HTTP client for the local vLLM
+Chat Completions API. It preserves authorization, cache-salt and session
+headers, non-streaming tool calls, streaming Server-Sent Events, usage fields,
+and the existing injectable SDK client used by tests. The vLLM path no longer
+imports the OpenAI SDK by default. A new regression first failed because the
+old client attempted to call a missing SDK constructor, then passed; the vLLM
+context-cache and resume-launcher selections passed 11 tests.
