@@ -1042,7 +1042,6 @@ def test_scheduler_stop_terminates_raw_script_child_tree(tmp_path: Path) -> None
                 "result_path": str(
                     workspace / "working" / "scheduler_results" / "result_raw.json"
                 ),
-                "timeout": 60,
             },
             resource_requirements=ResourceRequirements(requires_gpu=False),
             batch_probe=BatchProbeSpec(enabled=False),
