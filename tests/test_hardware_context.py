@@ -602,12 +602,13 @@ def test_stepwise_generation_can_return_stage_metadata(monkeypatch) -> None:
     assert all(removed_stage not in str(prompt) for prompt in responses)
 
 
-def test_qwen_meta_merge_has_budget_for_complete_training_script(monkeypatch) -> None:
-    """Catch repeating an 8k-truncated merge that can never close its code fence."""
+def test_qwen_meta_merge_does_not_impose_an_output_budget(monkeypatch) -> None:
+    """The local agent must be allowed to finish its merge without a token cap."""
+
+    requests = []
 
     def fake_generate(**kwargs):
-        if kwargs.get("max_tokens", 0) < 16_384:
-            return "Merged summary.\n```python\nVALUE = 1"
+        requests.append(kwargs)
         return "Merged summary.\n```python\nVALUE = 1\n```"
 
     monkeypatch.setattr("agents.coder.stepwise_coder.generate", fake_generate)
@@ -636,6 +637,7 @@ def test_qwen_meta_merge_has_budget_for_complete_training_script(monkeypatch) ->
 
     assert plan == "Merged summary."
     assert code.strip() == "VALUE = 1"
+    assert all("max_tokens" not in request for request in requests)
 
 
 def test_stepwise_hardware_decisions_are_stored_as_ordered_pipeline() -> None:

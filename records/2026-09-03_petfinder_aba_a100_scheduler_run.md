@@ -55,3 +55,9 @@ At 2026-09-03 18:52 UTC, physical GPU 1 (A100 80GB PCIe, `Exclusive_Process`) wa
 ## Watch condition
 
 Treat an extended period with no newly generated candidate/node as a generation-stall bug. A single preflight rejection is recorded but is not itself a reason to restart the experiment.
+
+## Removal of client-side generation caps
+
+At 2026-09-03 19:29 UTC, the sixth candidate's `training_evaluation` step took 8 minutes 40 seconds. It remained an active vLLM request throughout, then completed at 19:28 UTC; therefore it was not a deadlock. Its completion nevertheless exposed a configuration defect: the local Qwen/vLLM client injected `max_tokens=8192` whenever the caller did not supply a limit, and the MetaAgent merge injected `max_tokens=16384`. These are client-side generation caps, contrary to this experiment's uncapped-agent requirement. The 8,192-token step ended without an extractable code block, which is consistent with truncation.
+
+The fix removes both implicit caps for local Qwen requests through the vLLM provider. Explicit caller limits and the legacy non-local defaults are unchanged. A regression test verifies that MetaAgent merge passes no `max_tokens`; a second verifies recognition of the uncapped local-vLLM Qwen route. Both targeted tests passed. The active scheduler will be restarted from a fresh search tree after the amended client code is synchronized, while preserving the vLLM service and all prior run artifacts for audit.

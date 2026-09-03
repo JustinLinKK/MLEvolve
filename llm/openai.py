@@ -17,8 +17,15 @@ logger = logging.getLogger("MLEvolve")
 
 
 def _default_max_tokens(model: str) -> int:
-    """Use the verified local-Qwen output budget without changing other APIs."""
+    """Retain legacy output defaults for non-local-vLLM requests."""
     return 8192 if (model or "").lower().startswith("qwen") else 16384
+
+
+def _uses_unbounded_local_vllm_generation(model: str, stage: Any) -> bool:
+    """Leave the local Qwen agent's output length to vLLM's native context limit."""
+    return (model or "").lower().startswith("qwen") and (
+        str(getattr(stage, "provider", "") or "").strip().lower() == "vllm"
+    )
 
 
 def _context_safe_max_tokens(error: Exception | str, requested_tokens: int) -> int | None:
@@ -289,8 +296,12 @@ def query(
         "model": model,
         "messages": messages,
         "temperature": profile.get("temperature", filtered.get("temperature", 1.0)),
-        "max_tokens": filtered.get("max_tokens", _default_max_tokens(model)),
     }
+    requested_max_tokens = filtered.get("max_tokens")
+    if requested_max_tokens is not None:
+        params["max_tokens"] = requested_max_tokens
+    elif not _uses_unbounded_local_vllm_generation(model, stage):
+        params["max_tokens"] = _default_max_tokens(model)
     if "top_p" in profile:
         params["top_p"] = profile["top_p"]
     if "presence_penalty" in profile:
@@ -467,9 +478,12 @@ def generate(
         "model": model,
         "messages": messages,
         "temperature": profile.get("temperature", temperature if temperature is not None else 1.0),
-        "max_tokens": max_tokens if max_tokens is not None else _default_max_tokens(model),
         "stream": True,
     }
+    if max_tokens is not None:
+        params["max_tokens"] = max_tokens
+    elif not _uses_unbounded_local_vllm_generation(model, stage):
+        params["max_tokens"] = _default_max_tokens(model)
     if "top_p" in profile:
         params["top_p"] = profile["top_p"]
     if "presence_penalty" in profile:
@@ -559,7 +573,12 @@ def generate(
             )
             return full_text
         except Exception as e:
-            safe_max_tokens = _context_safe_max_tokens(e, int(params["max_tokens"]))
+            requested_max_tokens = params.get("max_tokens")
+            safe_max_tokens = (
+                _context_safe_max_tokens(e, int(requested_max_tokens))
+                if requested_max_tokens is not None
+                else None
+            )
             if safe_max_tokens is not None:
                 params["max_tokens"] = safe_max_tokens
                 logger.warning(

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from llm.openai import (
     _context_safe_max_tokens,
     _default_max_tokens,
+    _uses_unbounded_local_vllm_generation,
     _use_thinking_for_request,
 )
 
@@ -20,6 +21,11 @@ def test_non_qwen_default_generation_budget_is_unchanged():
 def test_local_qwen_requests_disable_thinking_to_protect_agent_latency():
     stage = SimpleNamespace(provider="vllm", base_url="http://local-qwen:8000/v1")
     assert _use_thinking_for_request("qwen3.8-27b-int8-l40s", None, stage) is False
+
+
+def test_local_vllm_qwen_generation_has_no_client_side_output_cap():
+    stage = SimpleNamespace(provider="vllm", base_url="http://127.0.0.1:8010/v1")
+    assert _uses_unbounded_local_vllm_generation("qwen3.8-27b-int8-a100", stage) is True
 
 
 def test_context_error_uses_available_context_instead_of_fixed_2k_fallback():
