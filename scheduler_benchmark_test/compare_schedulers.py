@@ -45,7 +45,6 @@ from scheduler_benchmark_test.run_cassava_scheduler_test import (
     MEMORY_BUDGET_MB,
     NOOP_SECONDS,
     PAIR_SLOWDOWN,
-    PARALLEL_CAP,
     TRACE,
     load_rows,
     slowdown_at,
@@ -87,7 +86,7 @@ def main() -> None:
 
     print(f"trace           : {TRACE.name}")
     print(f"jobs            : {len(jobs)}   total solo work {total_work/60:.1f} min")
-    print(f"pair slowdown   : {PAIR_SLOWDOWN:.3f}   budget {MEMORY_BUDGET_MB:.0f} MB   cap {PARALLEL_CAP}")
+    print(f"pair slowdown   : {PAIR_SLOWDOWN:.3f}   budget {MEMORY_BUDGET_MB:.0f} MB   cap unset")
     print(f"predictor       : profile-based (ML predictor never constructed)")
     print()
 
@@ -124,7 +123,7 @@ def main() -> None:
             list(jobs),
             pair_slowdown=PAIR_SLOWDOWN,
             memory_budget_mb=MEMORY_BUDGET_MB,
-            parallel_cap=PARALLEL_CAP,
+            parallel_cap=None,
             scorer=scorer,
             policy_name=label,
         )

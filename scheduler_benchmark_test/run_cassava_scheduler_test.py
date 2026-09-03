@@ -50,9 +50,9 @@ REPO = Path(__file__).resolve().parent.parent
 TRACE = REPO / "traces" / "mlevolve_cassava_v100_deepseek.jsonl"
 RECORDS = REPO / "records"
 
-# Per CLAUDE.md the scheduler's memory ceiling is 31 GB.
+# Per CLAUDE.md the scheduler's memory ceiling is 31 GB. Admission is
+# profile- and memory-driven; there is no fixed parallel-job cap.
 MEMORY_BUDGET_MB = 31000.0
-PARALLEL_CAP = 5
 
 # Aggregate throughput relative to one job, measured from device power during
 # the recorded run (see module docstring).
@@ -138,7 +138,7 @@ def to_problem(rows: list[dict]) -> ts.TraceProblem:
     return ts.TraceProblem(
         jobs=tuple(jobs),
         memory_budget_mb=MEMORY_BUDGET_MB,
-        parallel_cap=PARALLEL_CAP,
+        parallel_cap=None,
         default_slowdown=PAIR_SLOWDOWN,
         colocation_trial_epochs=2,
         colocation_min_gain=1.0,
@@ -171,7 +171,7 @@ def main() -> None:
     print(f"rows           : {len(rows)}   jobs after dropping no-ops: {len(problem.jobs)}")
     print(f"pair slowdown  : {PAIR_SLOWDOWN:.3f} (from measured N=2 power)")
     print(f"total solo work: {total_solo/60:.1f} min")
-    print(f"memory budget  : {MEMORY_BUDGET_MB:.0f} MB   parallel cap: {PARALLEL_CAP}")
+    print(f"memory budget  : {MEMORY_BUDGET_MB:.0f} MB   parallel cap: unset")
     print(f"predictor      : profile-based (ML predictor not constructed)")
     print()
 

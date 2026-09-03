@@ -61,7 +61,7 @@ def simulate_dag(
     *,
     pair_slowdown: float,
     memory_budget_mb: float,
-    parallel_cap: int,
+    parallel_cap: int | None,
     scorer: Callable[[DagJob], tuple],
     starvation_timeout: float = 1800.0,
     policy_name: str = "dag",
@@ -122,7 +122,7 @@ def simulate_dag(
         ]
 
     def admit() -> None:
-        while len(running) < parallel_cap:
+        while parallel_cap is None or len(running) < parallel_cap:
             free = memory_budget_mb - used_memory()
             fits = [j for j in ready_jobs() if j.memory_mb <= free + 1e-9]
             if not fits:

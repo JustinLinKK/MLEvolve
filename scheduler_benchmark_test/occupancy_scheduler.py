@@ -113,7 +113,7 @@ def simulate(
     *,
     pair_slowdown: float,
     memory_budget_mb: float,
-    parallel_cap: int,
+    parallel_cap: int | None = None,
     scorer: Callable[[Job], tuple] = score_lpt,
     starvation_timeout: float = 1800.0,
     policy_name: str = "occupancy",
@@ -161,7 +161,7 @@ def simulate(
         recomputed from the current list each pass rather than tracked by
         index.
         """
-        while len(running) < parallel_cap:
+        while parallel_cap is None or len(running) < parallel_cap:
             free = memory_budget_mb - used_memory()
             fits = [
                 j for j in pending
