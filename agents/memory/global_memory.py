@@ -28,7 +28,7 @@ class GlobalMemoryLayer:
         self,
         memory_dir: str,
         embedding_model_path: str = "",
-        embedding_device: str = "cuda",
+        embedding_device: str = "cpu",
         similarity_threshold: float = 0.7,
     ):
         self.memory_dir = Path(memory_dir)
