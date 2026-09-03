@@ -11,10 +11,24 @@ run_root="$phase_root/20260902_191623_petfinder_scheduler_profile_hkwd_a100_agen
 state_dir=/root/downeyflyfan/.cache/mlevolve_scheduler_current_a10_v7
 watch_dir=/root/downeyflyfan/.cache/mlevolve_scheduler_watchdog_a10_v7
 python_bin=/tmp/mlevolve-a10-run-venv/bin/python
+python_fallback=/root/downeyflyfan/mlevolve_a10_baseline_20260829/.venv/bin/python
 
+if [[ ! -x "$python_bin" ]]; then
+    python_bin="$python_fallback"
+fi
 test -x "$python_bin"
 test -f "$run_root/logs/journal.json"
 mkdir -p "$state_dir" "$watch_dir"
+
+# A replacement pod must not inherit the previous pod's elapsed-time baseline.
+# These are watchdog observations only; the durable experiment journal remains
+# untouched and is supplied below through resume_journal.
+rm -f "$watch_dir/last_count" \
+    "$watch_dir/last_progress_epoch" \
+    "$watch_dir/monitored_root" \
+    "$watch_dir/heartbeat" \
+    "$watch_dir/last_stall_dir" \
+    "$watch_dir/STALL_DETECTED.json"
 
 if "$python_bin" - "$run_root/logs/journal.json" <<'PY'
 import json

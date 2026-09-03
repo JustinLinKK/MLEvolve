@@ -660,3 +660,28 @@ Kueue and Gatekeeper admission webhooks returned connection refused. Its
 ReplicaSet has the desired count of one and will retry creation after the
 cluster control-plane fault recovers. No A100 Agent process, journal, or
 unrelated workload was terminated while establishing this recovery path.
+
+## 2026-09-03 replacement-pod resume corrections
+
+When Nautilus recovered, the replacement A10 pod exposed two boot-path defects
+before any Scheduler work could resume. The first used a Python executable
+under `/tmp`; that directory is per-pod and vanished with the failed A10 pod.
+The second waited for `/init/init.sh` to exit even though Nautilus keeps that
+initialization process alive after `sshd` is available. Thus the development
+pod could be Ready for hours while `run.py` had never started.
+
+The resume launcher now selects the persistent A10 virtual-environment fallback
+when the ephemeral executable is absent. The Deployment begins resume as soon
+as `sshd` is available rather than waiting for the long-lived initializer.
+On replacement it removes only its own watchdog observation files
+(`last_count`, progress epoch, monitored root, heartbeat, stall marker), never
+the durable journal. This prevents the prior pod's elapsed time from killing a
+fresh resumed process immediately. A focused regression test failed before
+these conditions existed and passed afterward (two tests plus shell syntax
+validation).
+
+The resumed process was then observed with the original `resume_journal` and a
+fresh watchdog. During import it entered `ceph_mdsc_wait_request`, a Ceph
+metadata wait on the Nautilus persistent volume; no GPU work began while it was
+in that state. This is recorded as a separate storage-layer observation, not
+attributed to A100 vLLM generation or the Scheduler.
