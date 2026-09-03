@@ -38,6 +38,10 @@ class _ResponseObject(SimpleNamespace):
             return [cls._convert(item) for item in value]
         return value
 
+    def __getattr__(self, _name: str) -> None:
+        """Match SDK optional response fields that are omitted by vLLM chunks."""
+        return None
+
 
 class _VLLMHttpClient:
     """Minimal persistent client for vLLM's OpenAI-compatible endpoint."""

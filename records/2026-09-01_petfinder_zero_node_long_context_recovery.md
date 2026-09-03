@@ -703,3 +703,28 @@ and the existing injectable SDK client used by tests. The vLLM path no longer
 imports the OpenAI SDK by default. A new regression first failed because the
 old client attempted to call a missing SDK constructor, then passed; the vLLM
 context-cache and resume-launcher selections passed 11 tests.
+
+## 2026-09-03 resumed-run generation and preflight corrections
+
+The apparent NGC image-pull fault was a cold pull of
+`nvcr.io/nvidia/pytorch:26.04-py3` on the newly assigned A10 node. It completed
+after approximately ten minutes; the pod then became Ready, so it was not a
+stuck container-runtime failure.
+
+The subsequent resumed Scheduler did expose two real blockers. First, the
+lightweight vLLM transport represented omitted fields in the first streaming
+Server-Sent Event as missing Python attributes. vLLM emits that event with an
+assistant role but no `content`, whereas the official client exposes optional
+fields as `None`; direct `delta.content` access therefore retried generation.
+Second, the checked-out `nn-model-preflight-checker` submodule was present on
+the A10 persistent volume but not installed into the persistent virtual
+environment, so `ModelPreflightGate` raised `ModuleNotFoundError` for
+`model_preflight`.
+
+`_ResponseObject` now returns `None` for omitted optional response fields, and
+the durable resume launcher exports the submodule's `src` directory through
+`PYTHONPATH`. Both regressions were first reproduced by focused tests, then
+fixed; shell validation and the 13-test vLLM/resume selection passed. The
+updated client was copied to the persistent A10 checkout and the launcher
+ConfigMap was rolled out. The journal remains the same two valid budget nodes;
+the next Pod resumes from that point.

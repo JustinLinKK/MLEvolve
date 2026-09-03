@@ -204,6 +204,15 @@ def test_vllm_uses_lightweight_http_transport_without_sdk(monkeypatch):
     vllm.close_clients()
 
 
+def test_lightweight_stream_delta_preserves_optional_content_field():
+    """vLLM's first Server-Sent Event has only role, not text content."""
+    chunk = vllm._ResponseObject(
+        {"choices": [{"delta": {"role": "assistant"}, "finish_reason": None}]}
+    )
+
+    assert chunk.choices[0].delta.content is None
+
+
 def test_cache_family_changes_with_reasoning_system_tools_and_api_family():
     base = _family()
     variants = [

@@ -36,6 +36,7 @@ fi
 
 cd "$repo"
 nohup env CUDA_VISIBLE_DEVICES=0 MLEVOLVE_CONFIG="$repo/config/config.yaml" \
+    PYTHONPATH="$repo/nn-model-preflight-checker/src${PYTHONPATH:+:$PYTHONPATH}" \
     "$python_bin" run.py \
     exp_name=petfinder_scheduler_profile_hkwd_a100_agent_a10_preflightpureconfigfix \
     log_dir="$phase_root" workspace_dir="$phase_root" \
