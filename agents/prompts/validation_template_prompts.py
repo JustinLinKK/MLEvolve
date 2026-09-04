@@ -99,6 +99,7 @@ def get_code_review_guidelines() -> list:
         "**Common API Issues to Fix:**",
         "  • Pandas 2.x dtype safety: never assign floating-point scaler/normalizer output back into existing integer columns with `.loc[:, columns] = ...`; this raises a TypeError. Keep transformed tabular features in a separate `float32` NumPy array, or create a new float DataFrame with `frame = frame.astype({...})` before assigning.",
         "  • Import ordering: every name used in a module-level function default, decorator, annotation, or function body that executes at definition time (for example `torch.Tensor`) must be imported before that definition. Do not move `import torch` below helpers such as `def apply_mixup(...):` that reference it.",
+        "  • scikit-learn RMSE compatibility: use `np.sqrt(mean_squared_error(y_true, y_pred))`; do not pass `squared=False` to `mean_squared_error`, because this worker's installed scikit-learn rejects that keyword.",
         "  • LightGBM: Use `callbacks=[lgb.early_stopping(...)]` not `early_stopping_rounds=...` in fit()",
         "  • XGBoost: Use `XGBClassifier(early_stopping_rounds=...)` (correct) not `fit(early_stopping_rounds=...)`",
         "  • AdamW: Use `from torch.optim import AdamW` (not from transformers)",

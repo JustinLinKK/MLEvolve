@@ -25,3 +25,10 @@ def test_review_requires_imports_before_definition_time_torch_references() -> No
 
     assert "import ordering" in text
     assert "torch.tensor" in text
+
+
+def test_review_requires_worker_compatible_sklearn_rmse() -> None:
+    text = "\n".join(get_code_review_guidelines()).lower()
+
+    assert "np.sqrt(mean_squared_error" in text
+    assert "squared=false" in text
