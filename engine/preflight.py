@@ -45,6 +45,25 @@ ADAPTER_METHODS = {
 }
 
 
+def preflight_task_contract(task_name: str) -> dict[str, dict[str, Any]]:
+    """Return the concrete CPU fixture contract for supported multimodal tasks."""
+
+    normalized = task_name.strip().lower().replace("_", "-")
+    if normalized != "petfinder-pawpularity-score":
+        return {"task": {}, "scenarios": {}}
+    return {
+        "task": {"input_rank": 3, "target_dtype": "float32"},
+        "scenarios": {
+            "input_shapes": {"image": [3, 256, 256]},
+            "fixture": {
+                "image": [3, 256, 256],
+                "tabular": [12],
+                "target": [],
+            },
+        },
+    }
+
+
 @dataclass(frozen=True)
 class ProfileSelection:
     """Resolved checker profile and whether GPU-dependent CPU checks are valid."""
@@ -804,6 +823,7 @@ class ModelPreflightGate:
             getattr(self.cfg, "exp_id", None)
             or getattr(self.cfg, "exp_name", "mlevolve")
         )
+        contract = preflight_task_contract(task_name)
         return {
             "schema_version": 1,
             "candidate": {
@@ -811,13 +831,14 @@ class ModelPreflightGate:
                 "root": str(candidate_dir.resolve()),
                 "adapter": "candidate:CandidateAdapter",
             },
-            "task": {"name": task_name},
+            "task": {"name": task_name, **contract["task"]},
             "scenarios": {
                 "train_batch_sizes": derive_batch_scenarios(code, self.cfg),
                 "test_last_batch": True,
                 "last_batch_size": 1,
                 "run_validation": True,
                 "precision": [normalize_preflight_precision(metadata)],
+                **contract["scenarios"],
             },
             "target": {"profile": profile},
             "execution": {

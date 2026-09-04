@@ -59,3 +59,15 @@ def test_impl_guideline_requires_adapter_build_model_to_return_module(monkeypatc
 
     text = "\n".join(guideline["Implementation guideline"])
     assert "build_model(context) MUST return the real torch.nn.Module" in text
+
+
+def test_petfinder_guideline_names_its_multimodal_preflight_batch(monkeypatch) -> None:
+    monkeypatch.setattr(impl_guideline.time, "time", lambda: 110.0)
+    agent = _agent(exec_timeout=5)
+    agent.cfg.exp_id = "petfinder-pawpularity-score"
+
+    guideline = impl_guideline.get_impl_guideline_from_agent(agent)
+
+    text = "\n".join(guideline["Implementation guideline"])
+    assert "image [B, 3, 256, 256]" in text
+    assert "tabular [B, 12]" in text

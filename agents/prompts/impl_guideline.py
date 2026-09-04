@@ -22,6 +22,7 @@ def get_impl_guideline_from_agent(agent):
         expose_prediction=getattr(agent.acfg, "expose_prediction", False),
         k_fold_validation=getattr(agent.acfg, "k_fold_validation", 0),
         pretrain_model_dir=getattr(agent.cfg, "pretrain_model_dir", ""),
+        task_name=getattr(agent.cfg, "exp_id", ""),
     )
 
 
@@ -37,6 +38,7 @@ def get_impl_guideline(
     expose_prediction: bool = False,
     k_fold_validation: int = 0,
     pretrain_model_dir: str = "",
+    task_name: str = "",
 ) -> dict:
     """Build implementation guideline from time and config."""
     runtime_packages = ", ".join(advertised_package_names())
@@ -76,6 +78,7 @@ def get_impl_guideline(
         "• Treat every caller-supplied `context` as a partial mapping: merge it over adapter defaults before reading optional keys, and preserve caller-provided values.",
         "• CandidateAdapter context mutations do not persist between checker method calls; `training_step` and `validation_step` MUST resolve the script's real criterion when the partial context omits it or supplies `None`, rather than relying on `build_model` to mutate a local context.",
         "• Batch builders MUST honor `scenario['batch_size']` and `device`; use `os.environ.get('MLEVOLVE_INPUT_DIR', './input')` to locate input fixtures during the isolated CPU check.",
+        "• When `scenario['fixture']` is non-empty, it is the authoritative named input contract: build every listed tensor with the declared non-batch shape, preserve those names in the returned mapping, and pass all model inputs to the real forward path. Do not collapse a multimodal fixture into one feature vector.",
         "• Adapter construction and a one-batch CPU step must be lightweight and must not download weights or require CUDA.",
         "",
         "📁 **Directories**: Input data in `./input/`, submission in `./submission/`, temp files in `./working/`",
@@ -108,6 +111,12 @@ def get_impl_guideline(
     if k_fold_validation > 1:
         impl_guideline.append(
             f"The evaluation should be based on {k_fold_validation}-fold cross-validation but only if that's an appropriate evaluation for the task at hand."
+        )
+
+    if task_name.strip().lower().replace("_", "-") == "petfinder-pawpularity-score":
+        impl_guideline.append(
+            "• PetFinder preflight fixture: return a mapping containing image [B, 3, 256, 256], "
+            "tabular [B, 12], and float32 target [B]; call the real model with both image and tabular."
         )
 
     return {"Implementation guideline": impl_guideline}

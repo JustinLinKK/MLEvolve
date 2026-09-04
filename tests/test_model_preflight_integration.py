@@ -298,6 +298,34 @@ def test_batch_scenarios_match_scheduler_offsets(tmp_path):
     assert derive_batch_scenarios("BATCH_SIZE = 48", cfg) == [16, 32, 64]
 
 
+def test_petfinder_manifest_exposes_the_real_multimodal_preflight_fixture(tmp_path):
+    """Prevent image-plus-tabular candidates from receiving a vector-only fixture."""
+
+    cfg = _cfg(tmp_path)
+    cfg.exp_id = "petfinder-pawpularity-score"
+    candidate_dir = tmp_path / "candidate"
+    candidate_dir.mkdir()
+
+    manifest = ModelPreflightGate(cfg)._manifest(
+        _node("BATCH_SIZE = 8"),
+        candidate_dir,
+        "nvidia/a10_24gb",
+        "BATCH_SIZE = 8",
+    )
+
+    assert manifest["task"] == {
+        "name": "petfinder-pawpularity-score",
+        "input_rank": 3,
+        "target_dtype": "float32",
+    }
+    assert manifest["scenarios"]["input_shapes"] == {"image": [3, 256, 256]}
+    assert manifest["scenarios"]["fixture"] == {
+        "image": [3, 256, 256],
+        "tabular": [12],
+        "target": [],
+    }
+
+
 @pytest.mark.parametrize(
     ("code", "stage", "owner"),
     [
