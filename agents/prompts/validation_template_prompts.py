@@ -98,6 +98,7 @@ def get_code_review_guidelines() -> list:
         "### P1.4 API Compatibility",
         "**Common API Issues to Fix:**",
         "  • Pandas 2.x dtype safety: never assign floating-point scaler/normalizer output back into existing integer columns with `.loc[:, columns] = ...`; this raises a TypeError. Keep transformed tabular features in a separate `float32` NumPy array, or create a new float DataFrame with `frame = frame.astype({...})` before assigning.",
+        "  • Pandas column-selection safety: when a constant such as `TABULAR_COLUMNS` is a tuple, pass `list(TABULAR_COLUMNS)` to `DataFrame.drop`, `DataFrame.loc`, and similar column-index APIs. Passing the tuple directly to `drop(columns=...)` asks pandas to remove one tuple-valued label and raises `KeyError`.",
         "  • Import ordering: every name used in a module-level function default, decorator, annotation, or function body that executes at definition time (for example `torch.Tensor`) must be imported before that definition. Do not move `import torch` below helpers such as `def apply_mixup(...):` that reference it.",
         "  • scikit-learn RMSE compatibility: use `np.sqrt(mean_squared_error(y_true, y_pred))`; do not pass `squared=False` to `mean_squared_error`, because this worker's installed scikit-learn rejects that keyword.",
         "  • LightGBM: Use `callbacks=[lgb.early_stopping(...)]` not `early_stopping_rounds=...` in fit()",

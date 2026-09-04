@@ -32,3 +32,10 @@ def test_review_requires_worker_compatible_sklearn_rmse() -> None:
 
     assert "np.sqrt(mean_squared_error" in text
     assert "squared=false" in text
+
+
+def test_review_requires_tuple_column_constants_to_be_listed_for_pandas() -> None:
+    text = "\n".join(get_code_review_guidelines()).lower()
+
+    assert "list(tabular_columns)" in text
+    assert "drop(columns=...)" in text
