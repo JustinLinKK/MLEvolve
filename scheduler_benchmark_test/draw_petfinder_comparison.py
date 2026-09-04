@@ -2,8 +2,9 @@
 
 Each run occupies one column. The top row is a Gantt view of completed node
 windows and the bottom row is validation RMSE versus search step. The script
-accepts any number of runs. The current comparison uses an A100-hosted Qwen
-agent and runs both baseline and profile-based scheduler workloads on one A10.
+accepts any number of runs. The current comparison uses Codex GPT-5.6 Terra
+Medium as the agent and runs both baseline and profile-based scheduler
+workloads on the same A100.
 """
 
 from __future__ import annotations
@@ -262,8 +263,8 @@ def render_comparison(runs: Sequence[LoadedRun], output: Path) -> None:
             axis.set_ylim(lower - padding, upper + padding)
 
     figure.suptitle(
-        "PetFinder Pawpularity | A100 Qwen agent | A10 execution | "
-        "profile-based scheduling | no fixed job cap",
+        "PetFinder Pawpularity | Codex GPT-5.6 Terra Medium agent | "
+        "same A100 execution | profile-based scheduling | no fixed job cap",
         fontsize=12,
     )
     figure.legend(
