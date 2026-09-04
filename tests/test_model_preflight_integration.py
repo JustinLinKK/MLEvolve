@@ -591,6 +591,25 @@ def test_read_only_shuffle_repair_guidance_copies_the_mutated_array():
     assert "DataFrame copy" in issue.repair_instruction
 
 
+def test_pandas_float_assignment_repair_uses_separate_float_features():
+    issue = diagnostic_to_review_issue(
+        {
+            "classification": "confirmed_candidate_failure",
+            "code": "CPU002",
+            "stage": "cpu_training",
+            "exception_type": "TypeError",
+            "message": "Invalid value '[0.1]' for dtype 'int64'",
+            "stack_trace": (
+                "pandas.errors.LossySetitemError\n"
+                "TypeError: Invalid value '[0.1]' for dtype 'int64'"
+            ),
+        }
+    )
+    assert issue is not None
+    assert "separate float32 feature matrix" in issue.repair_instruction
+    assert "scaler.fit_transform" in issue.repair_instruction
+
+
 def test_balanced_admission_policy():
     assert admission_for_status("PASS", "balanced", True)
     assert admission_for_status("INCONCLUSIVE", "balanced", True)

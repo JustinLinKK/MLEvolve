@@ -97,6 +97,7 @@ def get_code_review_guidelines() -> list:
         "",
         "### P1.4 API Compatibility",
         "**Common API Issues to Fix:**",
+        "  • Pandas 2.x dtype safety: never assign floating-point scaler/normalizer output back into existing integer columns with `.loc[:, columns] = ...`; this raises a TypeError. Keep transformed tabular features in a separate `float32` NumPy array, or create a new float DataFrame with `frame = frame.astype({...})` before assigning.",
         "  • LightGBM: Use `callbacks=[lgb.early_stopping(...)]` not `early_stopping_rounds=...` in fit()",
         "  • XGBoost: Use `XGBClassifier(early_stopping_rounds=...)` (correct) not `fit(early_stopping_rounds=...)`",
         "  • AdamW: Use `from torch.optim import AdamW` (not from transformers)",

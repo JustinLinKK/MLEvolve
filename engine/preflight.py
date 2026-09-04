@@ -742,6 +742,19 @@ def diagnostic_to_review_issue(diagnostic: Mapping[str, Any]) -> ReviewIssue | N
         )
     elif (
         exception_type == "TypeError"
+        and ("invalid value" in message.lower() or "lossysetitemerror" in stack_trace.lower())
+        and "pandas" in stack_trace.lower()
+    ):
+        targeted_guidance = (
+            " Pandas 2.x rejects float scaler output assigned into original int64 columns. "
+            "Do not use `.loc[:, TABULAR_COLUMNS] = scaler.fit_transform(...)` on that frame. "
+            "Create a separate float32 feature matrix with "
+            "`frame.loc[:, TABULAR_COLUMNS].to_numpy(dtype=np.float32)` and scale it, or replace "
+            "the frame with `frame = frame.astype({column: 'float32' for column in TABULAR_COLUMNS})` "
+            "before any float assignment. Preserve train-only fitting and the validation split."
+        )
+    elif (
+        exception_type == "TypeError"
         and "'nonetype' object is not callable" in message.lower()
         and "criterion" in stack_trace.lower()
     ):
