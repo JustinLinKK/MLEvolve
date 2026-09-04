@@ -17,6 +17,7 @@
 5. The SentenceTransformer/Hugging Face cache is placed under `/dev/shm` to avoid the same Ceph metadata path. The BAAI `bge-base-en-v1.5` retrieval model loaded successfully from that cache.
 6. The first all-`/dev/shm` retry still stalled directly after FAISS initialization. The remaining path was SentenceTransformer's separate default cache under `$HOME` on Ceph. Setting `SENTENCE_TRANSFORMERS_HOME`, `HUGGINGFACE_HUB_CACHE`, and `HF_DATASETS_CACHE` under the existing `/dev/shm` cache completed the isolated BGE load and allowed the active controller to pass retrieval and begin A100 generation.
 7. The first generated candidate reached the Scheduler but failed before training because its validation split compared string `Id` values with positional values from `np.arange`, producing an empty validation partition. This was not a Scheduler or GPU failure. A deterministic pre-submission training-contract check now rejects that exact identifier/position-domain mismatch and requires an `iloc`-based split plus nonempty-partition checks. The failed candidate is excluded from all reported comparisons.
+8. The experiment budget now counts a failed runtime attempt only when it lasted at least 30 seconds. CPU preflight/container rejections returned in under 30 seconds are excluded, so the final target is 30 meaningful Scheduler-execution nodes rather than 30 generated snippets. A running node is investigated only after two hours without completion.
 
 ## Live evidence
 
