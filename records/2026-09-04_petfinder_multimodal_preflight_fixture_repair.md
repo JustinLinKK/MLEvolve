@@ -139,3 +139,27 @@ contract, and relevant preflight tests then passed:
 ```text
 52 passed
 ```
+
+## Repair-round configuration recovery
+
+The next zero-node ABA run demonstrated that the current launcher had omitted
+the established four-round repair settings and therefore silently used the
+two-round defaults for both review and preflight. Its first candidate exposed
+three independent, sequentially visible defects: stale PetFinder metadata
+column names, an offline pretrained-weight request, and finally an
+FP32/32-image-batch out-of-memory risk under the Scheduler's 26,982 MiB safe
+budget. The first two repairs completed; the third was correctly detected but
+the candidate was excluded because the two-round limit had already been
+exhausted.
+
+This was a launch-configuration regression, not evidence that the Scheduler
+or the candidate worker ran. The zero-count controller was stopped after its
+exact command line was verified, its artifacts were retained at
+`/dev/shm/mlevolve_a100_agent/runs/petfinder_scheduler_aba_a100_offlinecontract_20260904T064613Z`,
+and vLLM was left running. The replacement run began at
+`2026-09-04T06:59:42Z` with both
+`agent.review.max_repair_rounds=4` and `preflight.max_repair_rounds=4`, while
+retaining branch-profile scheduling, `parallel_job_cap=null`, the 31 GiB
+Scheduler memory bound, and the unbounded agent context. This restores the
+previously documented targeted-repair behavior without changing a model or
+Scheduler algorithm.
