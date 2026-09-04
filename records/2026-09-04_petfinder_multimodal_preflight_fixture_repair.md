@@ -179,3 +179,20 @@ focused contract and stage-review suites passed after the change:
 ```text
 50 passed
 ```
+
+## ABA restart configuration preservation
+
+During synchronization for the reviewer correction, the transient ABA source
+copy lost a machine-local `config.yaml`. The first replacement controller
+therefore stopped before generation because its required private vLLM cache salt
+was absent; a second launch also revealed that the sanitized default enabled
+global memory, unlike the prior Scheduler run. No candidate had executed in
+either attempt, and no vLLM process or unrelated GPU process was terminated.
+
+The final controller generates a fresh private cache salt in its inherited
+process environment without logging it, explicitly sets
+`agent.use_global_memory=false`, and starts from the synchronized repository
+working directory. At `2026-09-04T07:22:42Z`, the controller log verified
+global memory disabled, branch-profile Scheduler service started,
+`parallel_job_cap=null`, and the 31 GiB Scheduler profile. This restores the
+prior experimental configuration before the next candidate is generated.
