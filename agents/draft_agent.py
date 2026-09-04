@@ -41,6 +41,26 @@ from agents.planner import build_chat_prompt_for_model
 logger = logging.getLogger("MLEvolve")
 
 
+def model_preflight_generation_instructions() -> list[str]:
+    """Return the non-negotiable CPU-admission interface for generated code."""
+    return [
+        "- **CPU PREFLIGHT CONTRACT (MANDATORY)**: Define a no-argument "
+        "`class CandidateAdapter` in the generated file. It must implement "
+        "`build_model(context)`, `build_optimizer(model, context)`, "
+        "`build_train_batch(scenario, device)`, "
+        "`build_validation_batch(scenario, device)`, "
+        "`training_step(model, batch, context)`, and "
+        "`validation_step(model, batch, context)`.",
+        "- The adapter must exercise the same real model, loss, inputs, and optimizer "
+        "as the training pipeline; do not use mock tensors or a different toy model. "
+        "Its batch builders must honor `scenario['batch_size']` and return all inputs "
+        "required by the model plus a target.",
+        "- Keep imports, constants, class/function definitions, and read-only device "
+        "configuration import-safe. Put all training, validation, prediction, and "
+        "submission side effects under `if __name__ == '__main__':`.",
+    ]
+
+
 def _format_used_prompt_sections(sections: list[dict[str, str]]) -> str:
     parts: list[str] = []
     for idx, section in enumerate(sections, 1):
@@ -196,7 +216,8 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
             "- State operator and normalization considerations, the model dimensions that remain configurable, and the fallback behavior.",
             "- List scheduler-owned backend controls that the generated subprocess must not implement.",
             "- Do not assume code-level integration, shared framework state, or synchronized start time with another job.",
-        ]
+        ],
+        "CPU preflight adapter contract": model_preflight_generation_instructions(),
     }
     prompt["Instructions"] |= get_impl_guideline_from_agent(agent)
     prompt["Instructions"] |= prompt_leakage_prevention()
