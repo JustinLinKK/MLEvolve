@@ -67,6 +67,9 @@ class VLLMClientConfig:
     cache_salt_env: str = "MLEVOLVE_VLLM_CACHE_SALT"
     require_cache_salt: bool = True
     session_affinity: bool = True
+    # Completion length is separate from the server-side context window.
+    # Set null only when an intentionally uncapped completion is required.
+    default_completion_tokens: int | None = 16384
 
 @dataclass
 class DecayConfig:

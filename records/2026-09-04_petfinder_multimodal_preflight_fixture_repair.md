@@ -256,3 +256,23 @@ the job remains READY and retains its position in the normal profile-based
 queue. No model, memory limit, backend choice, or parallel-job cap is changed.
 A focused regression test verified that the job remains READY, launch is
 attempted once, and the retry time is in the future.
+
+## Local Qwen completion termination guard
+
+The ABA PetFinder controller subsequently spent more than nine minutes in a
+single `training_evaluation` streamed generation while the vLLM token counter
+continued increasing.  This was not a transport deadlock, but the previous
+local-Qwen route had coupled an unlimited Agent context with an unlimited
+single completion.  A response that never chooses its closing code fence can
+therefore delay node creation indefinitely.
+
+The correction keeps the server-side context window unrestricted and adds a
+separate `vllm_client.default_completion_tokens` setting.  Its default is
+16,384 tokens, deliberately above the prior 8,192-token truncation point; an
+explicit `null` retains an intentionally uncapped completion.  Both streaming
+generation and non-streaming query paths use the same setting.  Targeted Qwen,
+stepwise-code, and vLLM context-cache tests passed:
+
+```text
+23 passed
+```

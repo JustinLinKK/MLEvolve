@@ -2,10 +2,11 @@
 
 from types import SimpleNamespace
 
+from context_cache.config import ContextCacheSettings
 from llm.openai import (
     _context_safe_max_tokens,
     _default_max_tokens,
-    _uses_unbounded_local_vllm_generation,
+    _local_vllm_completion_budget,
     _use_thinking_for_request,
 )
 
@@ -23,9 +24,48 @@ def test_local_qwen_requests_disable_thinking_to_protect_agent_latency():
     assert _use_thinking_for_request("qwen3.8-27b-int8-l40s", None, stage) is False
 
 
-def test_local_vllm_qwen_generation_has_no_client_side_output_cap():
+def test_local_vllm_qwen_keeps_context_independent_from_completion_budget():
     stage = SimpleNamespace(provider="vllm", base_url="http://127.0.0.1:8010/v1")
-    assert _uses_unbounded_local_vllm_generation("qwen3.8-27b-int8-a100", stage) is True
+    cfg = SimpleNamespace(vllm_client=SimpleNamespace(default_completion_tokens=16384))
+    assert _local_vllm_completion_budget("qwen3.8-27b-int8-a100", stage, cfg) == 16384
+
+
+def test_local_vllm_qwen_can_explicitly_leave_completion_uncapped():
+    stage = SimpleNamespace(provider="vllm", base_url="http://127.0.0.1:8010/v1")
+    cfg = SimpleNamespace(vllm_client=SimpleNamespace(default_completion_tokens=None))
+    assert _local_vllm_completion_budget("qwen3.8-27b-int8-a100", stage, cfg) is None
+
+
+def test_local_vllm_qwen_request_uses_completion_budget_without_capping_context():
+    captured: dict[str, object] = {}
+
+    class Completions:
+        def create(self, **params):
+            captured.update(params)
+            choice = SimpleNamespace(
+                message=SimpleNamespace(content="ok", tool_calls=[]), finish_reason="stop"
+            )
+            return SimpleNamespace(
+                choices=[choice], usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1)
+            )
+
+    stage = SimpleNamespace(
+        model="qwen3.8-27b-int8-a100", provider="vllm", base_url="http://local/v1", api_key=""
+    )
+    cfg = SimpleNamespace(
+        agent=SimpleNamespace(code=stage, feedback=stage),
+        context_cache=ContextCacheSettings(enabled=False),
+        vllm_client=SimpleNamespace(default_completion_tokens=16384),
+        exp_name="qwen-budget-test",
+    )
+    client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+
+    from llm.openai import query
+
+    output, *_ = query("system", "user", cfg=cfg, model=stage.model, _client=client)
+
+    assert output == "ok"
+    assert captured["max_tokens"] == 16384
 
 
 def test_context_error_uses_available_context_instead_of_fixed_2k_fallback():

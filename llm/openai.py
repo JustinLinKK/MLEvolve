@@ -21,11 +21,29 @@ def _default_max_tokens(model: str) -> int:
     return 8192 if (model or "").lower().startswith("qwen") else 16384
 
 
-def _uses_unbounded_local_vllm_generation(model: str, stage: Any) -> bool:
-    """Leave the local Qwen agent's output length to vLLM's native context limit."""
+def _is_local_vllm_qwen(model: str, stage: Any) -> bool:
     return (model or "").lower().startswith("qwen") and (
         str(getattr(stage, "provider", "") or "").strip().lower() == "vllm"
     )
+
+
+def _local_vllm_completion_budget(model: str, stage: Any, cfg: Config) -> int | None:
+    """Return the independent completion budget for a local Qwen vLLM request.
+
+    The Agent's context window is deliberately left to the server.  That must
+    not make a single streamed completion unbounded: a model that never emits
+    its closing fence otherwise prevents the scheduler from receiving a node.
+    A null setting preserves an explicitly requested uncapped completion.
+    """
+    if not _is_local_vllm_qwen(model, stage):
+        return None
+    configured = getattr(getattr(cfg, "vllm_client", None), "default_completion_tokens", 16384)
+    if configured is None:
+        return None
+    budget = int(configured)
+    if budget <= 0:
+        raise ValueError("vllm_client.default_completion_tokens must be positive or null")
+    return budget
 
 
 def _context_safe_max_tokens(error: Exception | str, requested_tokens: int) -> int | None:
@@ -300,8 +318,12 @@ def query(
     requested_max_tokens = filtered.get("max_tokens")
     if requested_max_tokens is not None:
         params["max_tokens"] = requested_max_tokens
-    elif not _uses_unbounded_local_vllm_generation(model, stage):
-        params["max_tokens"] = _default_max_tokens(model)
+    else:
+        local_budget = _local_vllm_completion_budget(model, stage, cfg)
+        if local_budget is not None:
+            params["max_tokens"] = local_budget
+        elif not _is_local_vllm_qwen(model, stage):
+            params["max_tokens"] = _default_max_tokens(model)
     if "top_p" in profile:
         params["top_p"] = profile["top_p"]
     if "presence_penalty" in profile:
@@ -482,8 +504,12 @@ def generate(
     }
     if max_tokens is not None:
         params["max_tokens"] = max_tokens
-    elif not _uses_unbounded_local_vllm_generation(model, stage):
-        params["max_tokens"] = _default_max_tokens(model)
+    else:
+        local_budget = _local_vllm_completion_budget(model, stage, cfg)
+        if local_budget is not None:
+            params["max_tokens"] = local_budget
+        elif not _is_local_vllm_qwen(model, stage):
+            params["max_tokens"] = _default_max_tokens(model)
     if "top_p" in profile:
         params["top_p"] = profile["top_p"]
     if "presence_penalty" in profile:
