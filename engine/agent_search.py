@@ -94,7 +94,7 @@ class AgentSearch:
         self.metric_maximize_reasoning: str | None = None
         if resuming:
             self.restore_search_state(journal)
-            self.metric_maximize_reasoning = "Recovered from the persisted journal metric contract."
+            self._ensure_metric_direction()
         else:
             result_parse_agent.determine_metric_direction(self)
         from utils.pipeline_logging import log_pipeline_event
@@ -230,6 +230,16 @@ class AgentSearch:
             self.current_step,
             len(self.branch_all_nodes),
         )
+
+    def _ensure_metric_direction(self) -> None:
+        """Restore a persisted metric contract or derive one for an empty-valid resume."""
+        if self.metric_maximize is None:
+            logger.info(
+                "Resume journal has no finite metric contract; determining metric direction from the task."
+            )
+            result_parse_agent.determine_metric_direction(self)
+            return
+        self.metric_maximize_reasoning = "Recovered from the persisted journal metric contract."
 
     def _attach_cuda_docs(self, scheduler_client) -> dict:
         """Construct agent-owned enrichment only in hardware-aware enabled runs."""

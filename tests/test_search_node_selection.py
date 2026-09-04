@@ -64,3 +64,30 @@ def test_restore_search_state_releases_stale_locks_and_rebuilds_branch_indexes()
     assert child.expected_child_count == 0
     assert search.branch_all_nodes == {3: [child]}
     assert search.next_branch_id == 4
+
+
+def test_resumed_search_without_a_persisted_metric_contract_redetermines_direction(
+    monkeypatch,
+) -> None:
+    """A journal containing only failed nodes must not fall back to maximize=True."""
+    search = AgentSearch.__new__(AgentSearch)
+    search.metric_maximize = None
+    search.metric_maximize_reasoning = None
+
+    calls: list[object] = []
+
+    def determine_direction(agent) -> None:
+        calls.append(agent)
+        agent.metric_maximize = False
+        agent.metric_maximize_reasoning = "RMSE is minimized"
+
+    monkeypatch.setattr(
+        "engine.agent_search.result_parse_agent.determine_metric_direction",
+        determine_direction,
+    )
+
+    AgentSearch._ensure_metric_direction(search)
+
+    assert calls == [search]
+    assert search.metric_maximize is False
+    assert search.metric_maximize_reasoning == "RMSE is minimized"
