@@ -189,6 +189,44 @@ if __name__ == "__main__":
     assert inspection.unsafe_top_level_lines == ()
 
 
+def test_import_safety_allows_provably_read_only_precision_helpers():
+    code = """
+import torch
+
+SUPPORTED_CC_MAJOR = 8
+
+def _resolve_device():
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def _bf16_supported(device):
+    if device.type != "cuda":
+        return False
+    try:
+        cc = torch.cuda.get_device_capability(device)
+        return cc[0] >= SUPPORTED_CC_MAJOR and torch.cuda.is_autocast_supported()
+    except Exception:
+        return False
+
+DEVICE = _resolve_device()
+USE_AMP = _bf16_supported(DEVICE)
+
+class CandidateAdapter:
+    def build_model(self, context): pass
+    def build_optimizer(self, model, context): pass
+    def build_train_batch(self, scenario, device): pass
+    def build_validation_batch(self, scenario, device): pass
+    def training_step(self, model, batch, context): pass
+    def validation_step(self, model, batch, context): pass
+
+if __name__ == "__main__":
+    pass
+"""
+
+    inspection = inspect_adapter(code)
+
+    assert inspection.unsafe_top_level_lines == ()
+
+
 def test_import_safety_detects_execution_outside_main_guard():
     inspection = inspect_adapter(
         "def main():\n    pass\nmain()\nif __name__ == '__main__':\n    main()\n"
@@ -233,7 +271,7 @@ if __name__ == "__main__":
     assert inspection.unsafe_top_level_lines == (2,)
 
 
-def test_import_safety_guidance_inlines_a_top_level_device_helper(tmp_path):
+def test_import_safety_allows_a_provably_read_only_top_level_device_helper(tmp_path):
     code = """
 import torch
 
@@ -255,9 +293,8 @@ if __name__ == "__main__":
 """
     inspection = inspect_adapter(code)
     issues = ModelPreflightGate(_cfg(tmp_path))._contract_issues(inspection, code)
-    assert len(issues) == 1
-    assert 'DEVICE = torch.device("cuda"' in issues[0].repair_instruction
-    assert "Do not add another main guard" in issues[0].repair_instruction
+    assert inspection.unsafe_top_level_lines == ()
+    assert issues == []
 
 
 def test_import_safety_guidance_does_not_wrap_a_top_level_side_effect(tmp_path):

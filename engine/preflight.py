@@ -148,6 +148,7 @@ def inspect_adapter(code: str) -> AdapterInspection:
         )
 
     candidate: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef | None = None
+    safe_configuration_helpers = _safe_configuration_helpers(tree)
     main_guard = False
     unsafe_lines: list[int] = []
     for node in tree.body:
@@ -159,7 +160,7 @@ def inspect_adapter(code: str) -> AdapterInspection:
         if isinstance(node, ast.If) and _is_main_guard(node.test):
             main_guard = True
             continue
-        if _is_unsafe_top_level(node):
+        if _is_unsafe_top_level(node, safe_configuration_helpers):
             unsafe_lines.append(int(getattr(node, "lineno", 0) or 0))
 
     if candidate is None:
@@ -245,6 +246,8 @@ _SAFE_TOP_LEVEL_CONFIGURATION_CALLS = {
     "os.path.join",
     "pathlib.Path",
     "torch.cuda.is_available",
+    "torch.cuda.get_device_capability",
+    "torch.cuda.is_autocast_supported",
     "torch.device",
 }
 
@@ -263,7 +266,9 @@ def _call_name(node: ast.Call) -> str | None:
     return ".".join(reversed(parts))
 
 
-def _is_lightweight_configuration_value(value: ast.AST) -> bool:
+def _is_lightweight_configuration_value(
+    value: ast.AST, safe_configuration_helpers: set[str] | None = None
+) -> bool:
     """Allow pure configuration reads/constructors in top-level assignments."""
 
     if any(
@@ -272,12 +277,13 @@ def _is_lightweight_configuration_value(value: ast.AST) -> bool:
     ):
         return False
     calls = [child for child in ast.walk(value) if isinstance(child, ast.Call)]
-    return all(
-        _call_name(call) in _SAFE_TOP_LEVEL_CONFIGURATION_CALLS for call in calls
-    )
+    safe_calls = _SAFE_TOP_LEVEL_CONFIGURATION_CALLS | (safe_configuration_helpers or set())
+    return all(_call_name(call) in safe_calls for call in calls)
 
 
-def _is_unsafe_top_level(node: ast.stmt) -> bool:
+def _is_unsafe_top_level(
+    node: ast.stmt, safe_configuration_helpers: set[str] | None = None
+) -> bool:
     """Identify import-time work while allowing definitions and constants."""
 
     if isinstance(
@@ -296,7 +302,9 @@ def _is_unsafe_top_level(node: ast.stmt) -> bool:
         return not isinstance(node.value, ast.Constant)
     if isinstance(node, (ast.Assign, ast.AnnAssign)):
         value = node.value
-        return value is not None and not _is_lightweight_configuration_value(value)
+        return value is not None and not _is_lightweight_configuration_value(
+            value, safe_configuration_helpers
+        )
     return isinstance(
         node,
         (
@@ -308,6 +316,60 @@ def _is_unsafe_top_level(node: ast.stmt) -> bool:
             ast.Match,
         ),
     ) or (isinstance(node, ast.If) and not _is_main_guard(node.test))
+
+
+def _safe_configuration_helpers(tree: ast.Module) -> set[str]:
+    """Return private helper names proven to contain configuration-only code.
+
+    Generated candidates often factor capability queries into helpers such as
+    ``_resolve_device`` and ``_bf16_supported``.  Those queries do not train,
+    download, write files, or construct a model, so a top-level assignment that
+    invokes them is import-safe when every call in the helper is itself an
+    approved read-only configuration call.
+    """
+
+    helpers = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("_")
+    }
+    safe: set[str] = set()
+    while True:
+        newly_safe = {
+            name
+            for name, node in helpers.items()
+            if name not in safe and _is_read_only_configuration_helper(node, safe)
+        }
+        if not newly_safe:
+            return safe
+        safe.update(newly_safe)
+
+
+def _is_read_only_configuration_helper(
+    node: ast.FunctionDef, safe_helpers: set[str]
+) -> bool:
+    disallowed = (
+        ast.AsyncFunctionDef,
+        ast.Await,
+        ast.Yield,
+        ast.YieldFrom,
+        ast.Global,
+        ast.Nonlocal,
+        ast.With,
+        ast.AsyncWith,
+        ast.For,
+        ast.AsyncFor,
+        ast.While,
+        ast.Raise,
+    )
+    if any(isinstance(child, disallowed) for child in ast.walk(node)):
+        return False
+    allowed_calls = _SAFE_TOP_LEVEL_CONFIGURATION_CALLS | safe_helpers
+    return all(
+        _call_name(call) in allowed_calls
+        for call in ast.walk(node)
+        if isinstance(call, ast.Call)
+    )
 
 
 def normalize_preflight_precision(metadata: Mapping[str, Any] | str | None) -> str:
