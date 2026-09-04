@@ -92,3 +92,26 @@ prompt and then passed. Focused prompt, cold-start, and preflight tests passed:
 ```text
 13 passed
 ```
+
+The controller that had loaded the contradictory prompt was stopped only after
+its verified command line was inspected; it had zero budget-counted nodes and
+its artifacts remain in place. The replacement runs the synchronized source
+from `/dev/shm/mlevolve_a100_agent/repo/run.py` (rather than ABA's stale
+`/home/yufan/MLEvolve/run.py`), preserves vLLM on GPU0, and has run root
+`/dev/shm/mlevolve_a100_agent/runs/petfinder_scheduler_aba_a100_offlinecontract_20260904T062522Z`.
+An initial replacement invocation exposed the stale-source import mismatch
+(`ModuleNotFoundError: agents.lesson_context`) before candidate generation;
+the command was corrected and a direct import of `engine.agent_search` from
+the synchronized source succeeded before the final launch.
+
+### Liveness monitor
+
+The historical watchdog was bound to a retired experiment name and path, so a
+current-run-specific monitor was attached under
+`/dev/shm/mlevolve_a100_agent/scheduler_watchdog`. Every five minutes it
+records the budget-node count, active vLLM request count, and GPU0 utilization.
+It captures diagnostics and terminates only the verified current Scheduler
+controller after all three show no progress for one hour. It neither imposes a
+generation limit nor touches vLLM or an unrelated GPU process. At attachment,
+the controller had zero budget nodes, one active vLLM request, and 99% GPU0
+utilization, so its no-progress timer was correctly reset.
