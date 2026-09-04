@@ -18,3 +18,10 @@ def test_shape_findings_require_an_executable_dimension_contradiction() -> None:
 
     assert "proves that the tensor constructed at the model call" in text
     assert "deliberate, consistently applied feature subset is not a shape failure" in text
+
+
+def test_review_requires_imports_before_definition_time_torch_references() -> None:
+    text = "\n".join(get_code_review_guidelines()).lower()
+
+    assert "import ordering" in text
+    assert "torch.tensor" in text
