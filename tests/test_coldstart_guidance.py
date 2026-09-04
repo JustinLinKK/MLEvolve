@@ -6,6 +6,18 @@ from types import SimpleNamespace
 from engine.coldstart.knowledge import build_guidance_description, collect_startpoint_model_specs
 
 
+def test_bundled_general_image_guidance_uses_the_offline_cached_timm_backbone() -> None:
+    model_path = (
+        __import__("pathlib").Path(__file__).resolve().parents[1]
+        / "engine/coldstart/models_guidance_classified.json"
+    )
+    model_info = json.loads(model_path.read_text(encoding="utf-8"))["General Image"]["Siglip2"]
+
+    template = model_info["Code_template"]
+    assert 'timm.create_model("tf_efficientnet_b0.ns_jft_in1k", pretrained=True)' in template
+    assert "AutoModel.from_pretrained" not in template
+
+
 def test_coldstart_guidance_skips_torch_hub_templates_without_configured_path(tmp_path) -> None:
     task_path = tmp_path / "tasks.json"
     model_path = tmp_path / "models.json"

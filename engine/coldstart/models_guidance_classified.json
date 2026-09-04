@@ -5,8 +5,8 @@
 			"Description": "DINOv3 is an extended family of versatile vision foundation models producing high-quality dense features and  is an outstanding backbone for various vision tasks like classification, segmentation and detection.etc. support rgb images."
 		},
 		"Siglip2": {
-			"Code_template": "from transformers import AutoProcessor, AutoModel\nmodel = AutoModel.from_pretrained(\"google/siglip2-so400m-patch16-256\")\npooled_feat = model.get_image_features(pixel_values=inputs) # [b,1152]\n \n #for normalize normalize = transforms.Normalize(\n        mean=(0.5, 0.5, 0.5),\n        std=(0.5, 0.5, 0.5),\n    )\n #",
-			"Description": "Siglip2 is an extended family of vision as well as multimodel foundation model, has superior image classification, image-text retrieval, and downstream vison transfer performance across all model scales."
+			"Code_template": "import timm\n# This worker has this complete pretrained checkpoint in its local Hugging Face cache.\n# Do NOT replace it with another remote checkpoint: generated jobs run offline.\nmodel = timm.create_model(\"tf_efficientnet_b0.ns_jft_in1k\", pretrained=True)\npooled_feat = model.forward_features(inputs)\nif pooled_feat.ndim == 4:\n    pooled_feat = pooled_feat.mean(dim=(2, 3))\n\n# Normalize RGB inputs with ImageNet statistics for this EfficientNet backbone.\nnormalize = transforms.Normalize(\n    mean=(0.485, 0.456, 0.406),\n    std=(0.229, 0.224, 0.225),\n)\n#",
+			"Description": "Use the locally cached EfficientNet-B0 image backbone for this offline worker. It supplies pretrained visual features without an external Hugging Face download."
 		}
 	},
 	"Detection": {
