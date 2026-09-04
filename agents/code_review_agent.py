@@ -71,6 +71,22 @@ def _review_config(agent: Any) -> Any:
     return getattr(getattr(agent, "acfg", None), "review", None)
 
 
+def _normalize_reviewer_decision_payload(response: dict[str, Any]) -> dict[str, Any]:
+    """Make a warning-only rejection non-blocking before contract validation."""
+
+    normalized = dict(response)
+    raw_issues = normalized.get("issues")
+    if normalized.get("approved") is False and isinstance(raw_issues, list):
+        has_critical = any(
+            isinstance(issue, dict)
+            and str(issue.get("severity") or "").strip().lower() == "critical"
+            for issue in raw_issues
+        )
+        if not has_critical:
+            normalized["approved"] = True
+    return normalized
+
+
 def _event(agent: Any, node: SearchNode, event_type: str, payload: dict[str, Any]) -> None:
     try:
         from utils.pipeline_logging import log_pipeline_event, record_pipeline_node_action
@@ -204,7 +220,10 @@ def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecisi
                     context_cache_dynamic_system_message=dynamic_prompt,
                 ),
             )
-            decision = ReviewDecision.from_mapping(response, hardware_aware=is_hardware_aware(agent))
+            decision = ReviewDecision.from_mapping(
+                _normalize_reviewer_decision_payload(response),
+                hardware_aware=is_hardware_aware(agent),
+            )
             decision = merge_precision_review_issues(decision, policy_issues)
             decision = merge_training_contract_review_issues(
                 decision, training_contract_issues

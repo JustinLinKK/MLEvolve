@@ -420,6 +420,29 @@ def test_warning_is_recorded_without_triggering_repair(monkeypatch: pytest.Monke
     assert node.review_issues == [warning.to_dict()]
 
 
+def test_reviewer_rejection_without_critical_issue_is_normalized_to_warning_approval() -> None:
+    raw = {
+        "approved": False,
+        "reasoning": "The script has a non-blocking maintainability warning.",
+        "issues": [
+            {
+                "source": "static_review",
+                "severity": "warning",
+                "category": "maintainability",
+                "owner": "model_design",
+                "evidence": "A helper name could be clearer.",
+                "repair_instruction": "Rename it in a later improvement.",
+            }
+        ],
+    }
+
+    normalized = code_review_agent._normalize_reviewer_decision_payload(raw)
+    decision = ReviewDecision.from_mapping(normalized)
+
+    assert decision.approved is True
+    assert decision.issues[0].severity == "warning"
+
+
 def test_review_repairs_and_rereviews_complete_script(monkeypatch: pytest.MonkeyPatch) -> None:
     decisions = iter([_decision(_issue("datatype_precision")), _decision()])
     seen_codes: list[str] = []

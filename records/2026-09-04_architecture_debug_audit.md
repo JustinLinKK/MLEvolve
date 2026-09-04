@@ -30,3 +30,9 @@ The live command explicitly sets `agent.search.parallel_search_num=null` and `sc
 - Focused preflight static/policy/CLI tests for the CUDA-API guard: 8 passed.
 - A broader read-only architecture test group was launched; it completed after emitting progress dots, but its final summary was not captured by the interactive terminal timeout and is therefore not treated as passing evidence.
 - `git diff --check` produced no whitespace error. Existing unrelated user worktree changes were left untouched.
+
+## Runtime repair — reviewer contract normalization
+
+At 03:13 UTC, the live A100 run had generated no budget-counted node after more than one hour. The causal evidence was candidate rejection before GPU dispatch: the local Qwen reviewer returned `approved: false` while listing only warning-severity issues. `ReviewDecision.from_mapping()` correctly rejected that internally contradictory payload with `A rejected decision must contain a critical issue`; the caller retried and could discard the candidate. This was a reviewer-response normalization defect, not a GPU, scheduler, or model-execution failure.
+
+`agents/code_review_agent.py` now normalizes only this contradictory case to `approved: true` before contract validation, preserving every warning. It does not admit candidates with a critical issue and does not weaken CPU preflight, deterministic precision/dependency validation, or scheduler admission. Regression evidence: `tests/test_stage_review_workflow.py` (48 passed) and `tests/test_config_loading.py` (19 passed). The source is synchronized to ABA; the running controller must be restarted only after its current generation request reaches a safe boundary, because imported Python modules are cached in that process.
