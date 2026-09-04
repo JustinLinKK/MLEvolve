@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import math
+import ast
 import os
 import re
 import shutil
@@ -475,13 +476,42 @@ def source_pretrained_dependency_issues(
     root = cache_root or Path(
         os.environ.get("HF_HUB_CACHE", Path.home() / ".cache/huggingface/hub")
     )
-    pattern = re.compile(
-        r"(?P<loader>[A-Za-z_][A-Za-z0-9_]*)\.from_pretrained\(\s*['\"](?P<repo>[^'\"]+)['\"]"
-    )
+    try:
+        tree = ast.parse(code or "")
+    except SyntaxError:
+        return []
+
+    constants: dict[str, str] = {}
+    for statement in tree.body:
+        if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            continue
+        value = statement.value
+        if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+            continue
+        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+        for target in targets:
+            if isinstance(target, ast.Name):
+                constants[target.id] = value.value
+
     issues: list[ReviewIssue] = []
-    for match in pattern.finditer(code or ""):
-        loader = match.group("loader")
-        repo = match.group("repo")
+    for call in ast.walk(tree):
+        if not isinstance(call, ast.Call) or not call.args:
+            continue
+        function = call.func
+        if not isinstance(function, ast.Attribute) or function.attr != "from_pretrained":
+            continue
+        if not isinstance(function.value, ast.Name):
+            continue
+        loader = function.value.id
+        argument = call.args[0]
+        if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+            repo = argument.value
+        elif isinstance(argument, ast.Name):
+            repo = constants.get(argument.id)
+        else:
+            repo = None
+        if repo is None:
+            continue
         if "model" not in loader.lower() or repo.startswith((".", "/")):
             continue
         repo_cache = root / f"models--{repo.replace('/', '--')}" / "snapshots"
@@ -496,7 +526,7 @@ def source_pretrained_dependency_issues(
         )
         if has_weights:
             continue
-        line = (code or "").count("\n", 0, match.start()) + 1
+        line = int(getattr(call, "lineno", 1))
         issues.append(
             ReviewIssue(
                 source="model_preflight",

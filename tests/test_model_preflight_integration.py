@@ -383,6 +383,26 @@ class CandidateAdapter:
     assert "google/siglip2-so400m-patch16-256" in issues[0].evidence
 
 
+def test_source_pretrained_dependency_issues_resolves_module_string_constant(tmp_path):
+    """A named model identifier must not bypass offline-weight admission."""
+
+    import engine.preflight as preflight
+
+    code = '''
+from transformers import AutoModel
+
+SIGLIP_MODEL_ID = "google/siglip2-so400m-patch16-256"
+
+def run_training():
+    return AutoModel.from_pretrained(SIGLIP_MODEL_ID)
+'''
+    issues = preflight.source_pretrained_dependency_issues(
+        code, cache_root=tmp_path / "hub"
+    )
+    assert len(issues) == 1
+    assert "google/siglip2-so400m-patch16-256" in issues[0].evidence
+
+
 def test_none_criterion_repair_guidance_does_not_assume_context_persistence():
     issue = diagnostic_to_review_issue(
         {
