@@ -1,0 +1,13 @@
+from __future__ import annotations
+
+from agents.prompts.validation_template_prompts import get_code_review_guidelines
+
+
+def test_code_review_allows_trained_fresh_initialization_in_offline_runs() -> None:
+    """Offline review must not confuse fresh initialization with dummy inference."""
+
+    text = "\n".join(get_code_review_guidelines())
+
+    assert "freshly initialized trainable model is valid" in text.lower()
+    assert "do not flag weights=none or pretrained=false" in text.lower()
+    assert "all models (including those released after your training data cutoff) are available" not in text.lower()

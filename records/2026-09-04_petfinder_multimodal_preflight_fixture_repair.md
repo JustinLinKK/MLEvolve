@@ -115,3 +115,27 @@ controller after all three show no progress for one hour. It neither imposes a
 generation limit nor touches vLLM or an unrelated GPU process. At attachment,
 the controller had zero budget nodes, one active vLLM request, and 99% GPU0
 utilization, so its no-progress timer was correctly reset.
+
+## Offline-review consistency correction
+
+The first candidate after the offline-contract restart was rejected by stage
+review before preflight. Its initial review correctly flagged an uncached
+`torchvision` EfficientNet download. A repair changed this to
+`pretrained=False`, which is a legitimate offline, train-from-scratch path;
+however, the next review incorrectly called the trained model an ``untrained
+network'' solely because it had `weights=None`. This made the review contract
+internally inconsistent: a remote pretrained weight was forbidden, while a
+fresh model trained by the candidate was also forbidden.
+
+The review environment facts now say that only an explicit local checkpoint or
+verified cache may be treated as pretrained, and explicitly state that a fresh
+trainable model is valid when the script trains it before validation and test
+inference. The inference-integrity rubric now prohibits treating
+`weights=None`/`pretrained=False` as dummy inference merely due to initialization.
+The repair does not select or replace any model architecture. A regression test
+failed against the old reviewer prompt; the prompt, review workflow, offline
+contract, and relevant preflight tests then passed:
+
+```text
+52 passed
+```
