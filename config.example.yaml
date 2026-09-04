@@ -62,7 +62,7 @@ vllm_client:
   require_cache_salt: true
   session_affinity: true
   # Context capacity stays server-controlled; this bounds one generated response.
-  default_completion_tokens: 8192
+  default_completion_tokens: 16384
 hardware_knowledge:
   enabled: true
   include_profile_evidence: true

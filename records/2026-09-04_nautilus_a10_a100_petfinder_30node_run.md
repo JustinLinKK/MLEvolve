@@ -20,19 +20,19 @@
 
 At 2026-09-04 17:44 UTC, the repaired controller had initialized the Scheduler and started Step 1/3 (`model_design`) of the first candidate. The A100 vLLM metric had one active request and a monotonically increasing generation-token count. No Scheduler job exists until generation and review complete; the A10 has therefore remained reserved and idle rather than running an unreviewed candidate.
 
-At 17:48 UTC the first candidate entered `training_evaluation`.  It was still
-streaming after seven minutes, with no returned candidate or Scheduler job.
-The request had the configured 16,384-token completion budget.  This is a
-generation-latency defect, not a context-limit failure: the vLLM server still
-reports a 262,144-token context window and the request continued to make
-forward progress.  The unfinished controller was terminated before it
-generated a node and restarted at 17:52 UTC with
-`vllm_client.default_completion_tokens=8192`.  That constrains only each
-completion; it does not constrain the Agent context.  A first restart exposed
-the already-known relative-coldstart-path failure because it invoked `run.py`
-by absolute path outside the source directory; it exited before selecting a
-node.  The active retry is launched from the source root and reached Step 1/3
-at 17:53 UTC.
+At 17:48 UTC the first candidate entered `training_evaluation` and reached
+the merge stage at 17:51 UTC.  It was stopped before merge completed, so it
+did not prove a generation hang.  A diagnostic restart with an 8,192-token
+completion budget was therefore incorrect: after reaching
+`training_evaluation` it remained active longer than the original and never
+entered merge.  The code-extraction retry path explains that behavior: a
+truncated completion can be regenerated up to three times.  The default
+16,384-token completion budget is restored; it is independent of the
+262,144-token vLLM context window and does not impose an Agent context cap.
+A first restart also exposed the already-known relative-coldstart-path failure
+because it invoked `run.py` by absolute path outside the source directory; it
+exited before selecting a node.  The next retry is launched from the source
+root.
 
 ## Results
 

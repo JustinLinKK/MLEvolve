@@ -69,7 +69,7 @@ class VLLMClientConfig:
     session_affinity: bool = True
     # Completion length is separate from the server-side context window.
     # Set null only when an intentionally uncapped completion is required.
-    default_completion_tokens: int | None = 8192
+    default_completion_tokens: int | None = 16384
 
 @dataclass
 class DecayConfig:

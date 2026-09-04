@@ -22,12 +22,12 @@ def test_default_config_keeps_global_memory_off_the_scheduler_gpu() -> None:
     assert default_config["agent"]["memory_embedding_device"] == "cpu"
 
 
-def test_example_config_bounds_local_vllm_completion_without_capping_context() -> None:
+def test_example_config_keeps_a_full_local_vllm_completion_without_capping_context() -> None:
     default_config = yaml.safe_load(
         (Path(__file__).parents[1] / "config.example.yaml").read_text()
     )
 
-    assert default_config["vllm_client"]["default_completion_tokens"] == 8192
+    assert default_config["vllm_client"]["default_completion_tokens"] == 16384
 
 
 def _write_config(path: Path, *, marker: str, scheduler_runtime: str = "./runtime") -> None:
