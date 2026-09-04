@@ -297,6 +297,33 @@ if __name__ == "__main__":
     assert issues == []
 
 
+def test_preflight_rejects_main_that_reads_undefined_device_global(tmp_path):
+    code = """
+import torch
+
+class CandidateAdapter:
+    def build_model(self, context): return torch.nn.Linear(1, 1)
+    def build_optimizer(self, model, context): return torch.optim.SGD(model.parameters(), lr=0.1)
+    def build_train_batch(self, scenario, device): return torch.ones(1, 1), torch.ones(1, 1)
+    def build_validation_batch(self, scenario, device): return self.build_train_batch(scenario, device)
+    def training_step(self, model, batch, context): return model(batch[0]).sum()
+    def validation_step(self, model, batch, context): return model(batch[0]).sum()
+
+def main():
+    print(DEVICE)
+
+if __name__ == "__main__":
+    main()
+"""
+    inspection = inspect_adapter(code)
+    issues = ModelPreflightGate(_cfg(tmp_path))._contract_issues(inspection, code)
+    device_issue = next(
+        issue for issue in issues if issue.category == "preflight_undefined_device_global"
+    )
+    assert "DEVICE" in device_issue.evidence
+    assert "torch.device" in device_issue.repair_instruction
+
+
 def test_import_safety_guidance_does_not_wrap_a_top_level_side_effect(tmp_path):
     code = """
 def configure_precision():
@@ -434,6 +461,21 @@ def test_construction_none_dimension_guidance_requires_concrete_adapter_default(
     assert "concrete integer" in issue.repair_instruction
     assert "None" in issue.repair_instruction
     assert "build_model" in issue.repair_instruction
+
+
+def test_name_error_guidance_requires_a_real_definition_before_use():
+    issue = diagnostic_to_review_issue(
+        {
+            "classification": "confirmed_candidate_failure",
+            "code": "SRC002",
+            "stage": "construction",
+            "exception_type": "NameError",
+            "message": "import raised NameError: name 'DEVICE' is not defined",
+        }
+    )
+    assert issue is not None
+    assert "DEVICE" in issue.repair_instruction
+    assert "module scope" in issue.repair_instruction
 
 
 def test_offline_weight_error_repair_guidance_preserves_real_model():

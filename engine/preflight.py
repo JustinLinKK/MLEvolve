@@ -217,6 +217,63 @@ def _pandas_row_values_tensor_lines(code: str) -> tuple[int, ...]:
     return tuple(sorted(set(line for line in lines if line > 0)))
 
 
+def _undefined_device_global_lines(code: str) -> tuple[int, ...]:
+    """Find functions that read ``DEVICE`` without a module or local binding.
+
+    Generated PetFinder programs commonly keep device placement in a module
+    global.  CandidateAdapter preflight exercises its adapter methods, not the
+    script's ``main`` entry point, so a missing global otherwise survives CPU
+    preflight and fails only after a scheduler submission.  This deliberately
+    targets only the conventional uppercase ``DEVICE`` name and respects an
+    explicit function-local binding.
+    """
+
+    try:
+        tree = ast.parse(code or "")
+    except SyntaxError:
+        return ()
+
+    module_bindings: set[str] = set()
+    for statement in tree.body:
+        if isinstance(statement, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            targets = statement.targets if isinstance(statement, ast.Assign) else (statement.target,)
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    module_bindings.add(target.id)
+        elif isinstance(statement, (ast.Import, ast.ImportFrom)):
+            for alias in statement.names:
+                module_bindings.add(alias.asname or alias.name.split(".")[0])
+    if "DEVICE" in module_bindings:
+        return ()
+
+    lines: list[int] = []
+    for statement in tree.body:
+        if not isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        local_bindings = {
+            argument.arg
+            for argument in (
+                [*statement.args.posonlyargs, *statement.args.args, *statement.args.kwonlyargs]
+                + ([statement.args.vararg] if statement.args.vararg else [])
+                + ([statement.args.kwarg] if statement.args.kwarg else [])
+            )
+            if argument is not None
+        }
+        for descendant in ast.walk(statement):
+            if descendant is not statement and isinstance(
+                descendant, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+            ):
+                continue
+            if isinstance(descendant, ast.Name) and isinstance(descendant.ctx, ast.Store):
+                local_bindings.add(descendant.id)
+        if "DEVICE" in local_bindings:
+            continue
+        for descendant in ast.walk(statement):
+            if isinstance(descendant, ast.Name) and isinstance(descendant.ctx, ast.Load) and descendant.id == "DEVICE":
+                lines.append(int(getattr(descendant, "lineno", 0) or 0))
+    return tuple(sorted(set(line for line in lines if line > 0)))
+
+
 def _is_main_guard(test: ast.AST) -> bool:
     if (
         not isinstance(test, ast.Compare)
@@ -694,6 +751,15 @@ def diagnostic_to_review_issue(diagnostic: Mapping[str, Any]) -> ReviewIssue | N
             "partial context omits it or supplies None, for example context.get('criterion') "
             "or the script's real loss constructor; do not rely on build_model mutating a local context."
         )
+    elif exception_type == "NameError":
+        missing = re.search(r"name ['\"]([^'\"]+)['\"] is not defined", message)
+        symbol = missing.group(1) if missing else "the referenced symbol"
+        targeted_guidance = (
+            f" Define or import {symbol!r} before every reachable use. If this is the "
+            "script-wide DEVICE variable, bind it once at module scope with the import-safe "
+            'expression DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu") '
+            "and keep all training side effects inside the existing main guard."
+        )
     location = ""
     if diagnostic.get("file"):
         location = f" ({diagnostic['file']}:{diagnostic.get('line') or '?'})"
@@ -1037,6 +1103,28 @@ class ModelPreflightGate:
                         "before tensor construction, for example "
                         "row[METADATA_COLS].to_numpy(dtype=np.float32), and preserve the "
                         "existing feature list and model input shape."
+                    ),
+                )
+            )
+        undefined_device_lines = _undefined_device_global_lines(code)
+        if undefined_device_lines:
+            rendered_lines = ", ".join(str(line) for line in undefined_device_lines)
+            issues.append(
+                ReviewIssue(
+                    source="model_preflight",
+                    severity="critical",
+                    category="preflight_undefined_device_global",
+                    owner="integration",
+                    evidence=(
+                        "The script reads global DEVICE without defining it at module scope "
+                        f"(line(s): {rendered_lines}). CandidateAdapter-only checks cannot "
+                        "exercise the script main entry point that will fail at runtime."
+                    ),
+                    repair_instruction=(
+                        "Define the import-safe module global exactly once before functions "
+                        'that use it: DEVICE = torch.device("cuda" if torch.cuda.is_available() '
+                        'else "cpu"). Keep training execution under the existing main guard; '
+                        "do not replace DEVICE reads with mocks."
                     ),
                 )
             )
