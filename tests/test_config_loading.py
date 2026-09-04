@@ -149,6 +149,7 @@ def test_example_config_enables_hardware_aware_preflight_explicitly(monkeypatch)
     assert list(cfg.preflight.enabled_modes) == ["hardware_aware"]
     assert cfg.preflight.policy_mode == "balanced"
     assert cfg.preflight.target_profile == "auto"
+    assert cfg.preflight.max_repair_rounds >= 2
 
 
 def test_config_resolution_precedence(monkeypatch, tmp_path: Path, caplog) -> None:

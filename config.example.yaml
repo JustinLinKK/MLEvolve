@@ -91,7 +91,7 @@ preflight:
   # A bundled profile name or a custom YAML path may be supplied instead.
   target_profile: auto
   require_adapter_for_generated: true
-  max_repair_rounds: 1
+  max_repair_rounds: 2
   fail_open_on_internal_error: true
   abstract_timeout_seconds: 30
   cpu_timeout_seconds: 90
