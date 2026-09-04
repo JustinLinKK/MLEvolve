@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 
 from agents.review_contracts import ReviewDecision, ReviewIssue
@@ -83,7 +84,85 @@ def validate_training_contract(code: str) -> tuple[ReviewIssue, ...]:
                     ),
                 )
             )
+    if _uses_identifier_column_as_positional_index(code or ""):
+        issues.append(
+            _issue(
+                category="identifier_index_split",
+                evidence=(
+                    "The validation split compares an identifier column such as `Id` with "
+                    "values derived from `np.arange`, so string identifiers do not match "
+                    "positional indices and one partition can be empty."
+                ),
+                instruction=(
+                    "Split the DataFrame by row position (for example, `val_part = df.iloc[idx[:n_val]]` "
+                    "and `train_part = df.iloc[idx[n_val:]]`) or compare identifiers only with "
+                    "identifier values. Assert that both train and validation partitions are nonempty "
+                    "before constructing loaders."
+                ),
+            )
+        )
     return tuple(issues)
+
+
+def _uses_identifier_column_as_positional_index(code: str) -> bool:
+    """Detect the common `Id.isin(set(np.arange(...)))` validation-split defect.
+
+    Positional indices and dataset identifiers live in different domains.  This only
+    rejects the explicit data-flow pattern, not ordinary uses of `isin`.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return False
+
+    positional_names: set[str] = set()
+    split_names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        targets = {target.id for target in node.targets if isinstance(target, ast.Name)}
+        if _contains_numpy_arange(node.value):
+            positional_names.update(targets)
+        elif _contains_name(node.value, positional_names) and _is_set_call(node.value):
+            split_names.update(targets)
+
+    if not split_names:
+        return False
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "isin"
+            and _is_identifier_column(node.func.value)
+        ):
+            continue
+        if any(_contains_name(argument, split_names) for argument in node.args):
+            return True
+    return False
+
+
+def _contains_numpy_arange(node: ast.AST) -> bool:
+    return any(
+        isinstance(child, ast.Call)
+        and isinstance(child.func, ast.Attribute)
+        and child.func.attr == "arange"
+        for child in ast.walk(node)
+    )
+
+
+def _is_set_call(node: ast.AST) -> bool:
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "set"
+
+
+def _contains_name(node: ast.AST, names: set[str]) -> bool:
+    return any(isinstance(child, ast.Name) and child.id in names for child in ast.walk(node))
+
+
+def _is_identifier_column(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Subscript):
+        return False
+    slice_node = node.slice
+    return isinstance(slice_node, ast.Constant) and isinstance(slice_node.value, str) and slice_node.value.lower() in {"id", "identifier"}
 
 
 def merge_training_contract_review_issues(

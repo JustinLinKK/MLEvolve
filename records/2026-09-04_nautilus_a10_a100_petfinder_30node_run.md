@@ -15,6 +15,8 @@
 3. Starting `run.py` outside its source directory made cold-start guidance resolve `engine/coldstart/competition_tag_classified.json` relative to the wrong directory. The controller is now launched from the source root.
 4. Scheduler SQLite write-ahead-log files on the Ceph persistent volume caused the controller to enter `ceph_mdsc_wait_request` before candidate generation. Scheduler and hardware-knowledge runtime roots now use `/dev/shm`; controller logs and final artifacts remain under the persistent run root and will be copied back after completion.
 5. The SentenceTransformer/Hugging Face cache is placed under `/dev/shm` to avoid the same Ceph metadata path. The BAAI `bge-base-en-v1.5` retrieval model loaded successfully from that cache.
+6. The first all-`/dev/shm` retry still stalled directly after FAISS initialization. The remaining path was SentenceTransformer's separate default cache under `$HOME` on Ceph. Setting `SENTENCE_TRANSFORMERS_HOME`, `HUGGINGFACE_HUB_CACHE`, and `HF_DATASETS_CACHE` under the existing `/dev/shm` cache completed the isolated BGE load and allowed the active controller to pass retrieval and begin A100 generation.
+7. The first generated candidate reached the Scheduler but failed before training because its validation split compared string `Id` values with positional values from `np.arange`, producing an empty validation partition. This was not a Scheduler or GPU failure. A deterministic pre-submission training-contract check now rejects that exact identifier/position-domain mismatch and requires an `iloc`-based split plus nonempty-partition checks. The failed candidate is excluded from all reported comparisons.
 
 ## Live evidence
 

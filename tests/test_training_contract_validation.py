@@ -40,3 +40,20 @@ for epoch in range(EPOCHS):
 """
 
     assert validate_training_contract(code) == ()
+
+
+def test_identifier_column_must_not_be_compared_with_positional_split_indices() -> None:
+    code = """
+import numpy as np
+import pandas as pd
+
+def make_val_split(frame):
+    idx = np.arange(len(frame))
+    val_idx = set(idx[:2].tolist())
+    train_mask = ~frame['Id'].isin(list(val_idx))
+    return frame[train_mask], frame[~train_mask]
+"""
+
+    issues = validate_training_contract(code)
+
+    assert {issue.category for issue in issues} == {"identifier_index_split"}
