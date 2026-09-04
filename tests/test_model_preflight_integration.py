@@ -375,6 +375,32 @@ if __name__ == "__main__":
     assert "object dtype" in issue.evidence
 
 
+def test_preflight_rejects_unsupported_sklearn_squared_rmse_keyword(tmp_path):
+    code = """
+from sklearn.metrics import mean_squared_error
+
+class CandidateAdapter:
+    def build_model(self, context): pass
+    def build_optimizer(self, model, context): pass
+    def build_train_batch(self, scenario, device): pass
+    def build_validation_batch(self, scenario, device): pass
+    def training_step(self, model, batch, context): pass
+    def validation_step(self, model, batch, context): pass
+
+def validation_rmse(y_true, y_pred):
+    return mean_squared_error(y_true, y_pred, squared=False)
+
+if __name__ == "__main__":
+    pass
+"""
+    inspection = inspect_adapter(code)
+    issues = ModelPreflightGate(_cfg(tmp_path))._contract_issues(inspection, code)
+
+    issue = next(issue for issue in issues if issue.category == "preflight_sklearn_rmse_api")
+    assert "np.sqrt(mean_squared_error" in issue.repair_instruction
+    assert "squared=False" in issue.evidence
+
+
 def test_batch_scenarios_match_scheduler_offsets(tmp_path):
     cfg = _cfg(tmp_path)
     cfg.scheduler.settings = SimpleNamespace(

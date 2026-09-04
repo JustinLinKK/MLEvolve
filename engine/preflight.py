@@ -217,6 +217,27 @@ def _pandas_row_values_tensor_lines(code: str) -> tuple[int, ...]:
     return tuple(sorted(set(line for line in lines if line > 0)))
 
 
+def _sklearn_rmse_squared_keyword_lines(code: str) -> tuple[int, ...]:
+    """Find the unsupported ``mean_squared_error(..., squared=False)`` API."""
+
+    try:
+        tree = ast.parse(code or "")
+    except SyntaxError:
+        return ()
+    lines: list[int] = []
+    for call in ast.walk(tree):
+        if not isinstance(call, ast.Call):
+            continue
+        if _call_name(call) not in {"mean_squared_error", "sklearn.metrics.mean_squared_error"}:
+            continue
+        for keyword in call.keywords:
+            if keyword.arg != "squared":
+                continue
+            if isinstance(keyword.value, ast.Constant) and keyword.value.value is False:
+                lines.append(int(getattr(call, "lineno", 0) or 0))
+    return tuple(sorted(set(line for line in lines if line > 0)))
+
+
 def _undefined_device_global_lines(code: str) -> tuple[int, ...]:
     """Find functions that read ``DEVICE`` without a module or local binding.
 
@@ -1116,6 +1137,26 @@ class ModelPreflightGate:
                         "before tensor construction, for example "
                         "row[METADATA_COLS].to_numpy(dtype=np.float32), and preserve the "
                         "existing feature list and model input shape."
+                    ),
+                )
+            )
+        sklearn_rmse_lines = _sklearn_rmse_squared_keyword_lines(code)
+        if sklearn_rmse_lines:
+            rendered_lines = ", ".join(str(line) for line in sklearn_rmse_lines)
+            issues.append(
+                ReviewIssue(
+                    source="model_preflight",
+                    severity="critical",
+                    category="preflight_sklearn_rmse_api",
+                    owner="training_evaluation",
+                    evidence=(
+                        "This worker's scikit-learn rejects the `squared=False` keyword on "
+                        "mean_squared_error at line(s) " + rendered_lines + "."
+                    ),
+                    repair_instruction=(
+                        "Compute RMSE with `np.sqrt(mean_squared_error(y_true, y_pred))` "
+                        "instead of passing `squared=False`, while preserving the existing "
+                        "validation split and lower-is-better metric direction."
                     ),
                 )
             )
