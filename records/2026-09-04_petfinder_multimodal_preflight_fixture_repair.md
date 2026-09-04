@@ -239,3 +239,20 @@ repair-workflow tests passed after the correction:
 ```text
 101 passed
 ```
+
+## Exclusive-GPU deferral backoff
+
+The GPU-ownership guard correctly prevented the first reviewed PetFinder
+candidate from creating a CUDA worker while A100-1 was owned by an unrelated
+`Exclusive_Process` workload. The Scheduler service then revealed a separate
+control-loop defect: it selected the same READY job on every 250 ms tick,
+re-ran the launch guard, and emitted an unbounded stream of identical warnings.
+The candidate remained READY, but this was needless scheduler CPU/log churn.
+
+Transient `occupied under exclusive_process` launch failures now set a short
+retry timestamp derived from the existing scheduler poll interval (twenty
+ticks, with a one-second floor). Until that deadline, dispatch is skipped;
+the job remains READY and retains its position in the normal profile-based
+queue. No model, memory limit, backend choice, or parallel-job cap is changed.
+A focused regression test verified that the job remains READY, launch is
+attempted once, and the retry time is in the future.
