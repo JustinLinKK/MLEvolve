@@ -58,7 +58,6 @@ def preflight_task_contract(task_name: str) -> dict[str, dict[str, Any]]:
             "fixture": {
                 "image": [3, 256, 256],
                 "tabular": [12],
-                "target": [],
             },
         },
     }

@@ -322,7 +322,6 @@ def test_petfinder_manifest_exposes_the_real_multimodal_preflight_fixture(tmp_pa
     assert manifest["scenarios"]["fixture"] == {
         "image": [3, 256, 256],
         "tabular": [12],
-        "target": [],
     }
 
 
