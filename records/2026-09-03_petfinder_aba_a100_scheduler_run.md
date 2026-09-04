@@ -181,3 +181,7 @@ At 01:36 UTC, candidate `b435c07ac78a459fb70110e3414bdf3e` passed CPU preflight 
 ## Candidate-local transformer call defect
 
 At 01:47 UTC, candidate `386ff8fdced54a73aee3368c9943e229` completed its automatic preflight-repair attempt but remained correctly rejected before GPU submission. Both abstract and full CPU checks reproduced `TypeError: TransformerEncoder.forward() got multiple values for argument 'src'`: the candidate called the encoder with a positional source argument and a second `src=` keyword argument. This is a generated-candidate training/validation defect, not an admission, scheduling, inference, or CUDA fault. It produced no worker job and no valid node; the uncapped search moved directly to the next candidate.
+
+## Current-run monitor repair
+
+At 01:53 UTC, the previous scheduler monitor was found to be alive only as a stale historical process: it followed an old `scheduler.pid`, emitted `scheduler_exited`, and did not observe the active PID `809425`. A replacement passive monitor now follows the current run root and PID, recording the valid-node count, latest scheduler-log timestamp, and vLLM generation-token counter every three minutes in `/dev/shm/mlevolve_a100_agent/scheduler_monitor_current.log`. It has no signal, restart, admission, timeout, or concurrency action; it only preserves evidence for a future verified no-progress diagnosis.
