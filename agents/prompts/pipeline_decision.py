@@ -11,7 +11,10 @@ from __future__ import annotations
 import json
 import logging
 import re
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 from llm import generate
 from utils.precision_policy import (
@@ -509,7 +512,39 @@ def _resolve_pipeline_precision_policy(
         datatypes = list((compact.get("stage_hardware_features") or {}).get("feature_ids") or [])
         if merged or stored:
             return resolve_precision_policy(merged, mode=mode, datatypes=datatypes)
+    target_profile = _explicit_preflight_target_profile(agent_instance)
+    if target_profile:
+        return resolve_precision_policy(
+            target_profile,
+            mode=mode,
+            datatypes=target_profile.get("native_training_dtypes"),
+        )
     return resolve_precision_policy(mode=mode)
+
+
+def _explicit_preflight_target_profile(agent_instance: Any) -> dict[str, Any]:
+    """Read an explicit local preflight profile when graph evidence is absent.
+
+    An experiment that names a project-owned GPU profile has verified target
+    hardware even if the optional graph service is unavailable.  This is a
+    precision allowlist fallback only; it does not invent performance evidence
+    or alter Scheduler admission.
+    """
+    cfg = getattr(agent_instance, "cfg", None)
+    preflight = getattr(cfg, "preflight", None)
+    requested = str(getattr(preflight, "target_profile", "") or "").strip()
+    if not requested or requested.lower() == "auto":
+        return {}
+    path = Path(requested).expanduser()
+    if path.suffix.lower() not in {".yaml", ".yml"}:
+        return {}
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parents[2] / path
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
 
 
 def _has_meaningful_hardware_evidence(compact: dict[str, Any]) -> bool:

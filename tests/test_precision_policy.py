@@ -74,6 +74,13 @@ def test_invalid_precision_mode_is_rejected() -> None:
         resolve_precision_policy({"architecture": "blackwell"}, mode="turbo")
 
 
+@pytest.mark.parametrize("value", ["fp16_amp", "bf16_amp"])
+def test_canonical_amp_policy_names_are_normalized(value: str) -> None:
+    from utils.precision_policy import normalize_precision_policy_name
+
+    assert normalize_precision_policy_name(value) == value
+
+
 @pytest.mark.parametrize(
     ("gpu", "mode", "present", "absent"),
     [

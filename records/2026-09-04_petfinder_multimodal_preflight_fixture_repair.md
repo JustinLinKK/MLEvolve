@@ -196,3 +196,20 @@ working directory. At `2026-09-04T07:22:42Z`, the controller log verified
 global memory disabled, branch-profile Scheduler service started,
 `parallel_job_cap=null`, and the 31 GiB Scheduler profile. This restores the
 prior experimental configuration before the next candidate is generated.
+
+## A100 preflight precision contract correction
+
+The first candidate after configuration recovery exposed a precision-contract
+bug: an explicit local A100-80GB preflight profile was not used by the
+pipeline-decision precision allowlist when optional graph evidence was absent.
+In addition, the policy normalizer rejected its own canonical `bf16_amp` and
+`fp16_amp` names. Together these faults incorrectly recorded `disabled` and
+made the reviewer reject valid A100 BF16 AMP code. The correction reads an
+explicit local preflight YAML only as an architecture/dtype allowlist fallback;
+it does not fabricate runtime evidence or alter Scheduler admission. Canonical
+AMP policy names now normalize to themselves. The focused precision, pipeline,
+offline-review, and repair-workflow suites passed:
+
+```text
+96 passed
+```

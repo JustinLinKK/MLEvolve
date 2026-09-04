@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +22,7 @@ def _agent(
     *,
     enabled: bool = True,
     precision_mode: str = "normal",
+    target_profile: str = "",
 ) -> SimpleNamespace:
     return SimpleNamespace(
         task_desc=task_desc,
@@ -29,7 +31,7 @@ def _agent(
             pipeline_decision_enabled=enabled,
             precision_optimization_mode=precision_mode,
         ),
-        cfg=SimpleNamespace(),
+        cfg=SimpleNamespace(preflight=SimpleNamespace(target_profile=target_profile)),
     )
 
 
@@ -242,6 +244,24 @@ def test_te_precision_policy_and_adapter_are_preserved_with_evidence(monkeypatch
 
     assert decision["datatype_precision"]["precision_policy"] == "nvfp4_te"
     assert "TE modules" in decision["datatype_precision"]["precision_model_adaptation"]
+
+
+def test_explicit_preflight_profile_supplies_precision_allowlist_without_graph(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "agents.prompts.pipeline_decision.generate",
+        lambda **_: json.dumps(_decision_payload()),
+    )
+    profile = str(Path(__file__).parents[1] / "config" / "preflight_profiles" / "a100_80gb.yaml")
+
+    decision = build_pipeline_decision(
+        _agent(precision_mode="normal", target_profile=profile),
+        stage="draft",
+        data_preview="train_images/*.png with label column",
+        hardware_contexts=[],
+    )
+
+    assert decision["datatype_precision"]["precision_policy"] == "bf16_amp"
+    assert decision["evidence"]["hardware_context_used"] is False
 
 
 @pytest.mark.parametrize("selected", ["fp8_te", "mxfp8_te", "nvfp4_te", "fp4", "fp6"])
