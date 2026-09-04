@@ -70,3 +70,25 @@ The verified controller was restarted only after synchronizing parent commit
 `/dev/shm/mlevolve_a100_agent/runs/petfinder_scheduler_aba_a100_multimodalfixturefix_20260904T060630Z`.
 vLLM on GPU0 was preserved; the new controller reached stepwise model design
 at 06:07 UTC with GPU1 still idle.
+
+## Offline generation-contract contradiction
+
+The first candidate from that restarted controller completed generation and
+review, but its isolated construction selected a pretrained EfficientNet and
+then a pretrained ResNet fallback. Both required a network download and were
+correctly rejected as `CON001` because model preflight disables network access.
+This was not a Scheduler rejection: the generated-code prompt had contradicted
+the worker contract by stating that `torch.hub`, Hugging Face, and arbitrary
+pretrained models were available during development, while the implementation
+guideline made the same claim.
+
+Both prompt surfaces now state that generated candidates run offline in both
+preflight and experiment execution, must not download weights or data, and may
+use only an explicitly supplied local checkpoint or verified cache. This
+changes neither the model-search space nor Scheduler policy; it removes a
+false environment guarantee. A regression test first failed against the old
+prompt and then passed. Focused prompt, cold-start, and preflight tests passed:
+
+```text
+13 passed
+```

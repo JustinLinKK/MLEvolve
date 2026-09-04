@@ -83,8 +83,8 @@ def get_impl_guideline(
         "",
         "📁 **Directories**: Input data in `./input/`, submission in `./submission/`, temp files in `./working/`",
         "",
-        f"📦 **Packages & Internet**: Guaranteed installed packages: {runtime_packages}. Do not assume unlisted third-party packages are installed; avoid them or provide an ImportError-guarded fallback. Never run pip from generated code. torch.hub.load(), HuggingFace, etc. are available during development."
-        + (f" Offline models at `{pretrain_model_dir}`" if pretrain_model_dir else ""),
+        f"📦 **Packages & Internet**: Guaranteed installed packages: {runtime_packages}. Do not assume unlisted third-party packages are installed; avoid them or provide an ImportError-guarded fallback. Never run pip from generated code. Generated code runs offline: do not download weights or data through torch.hub.load(), Hugging Face, timm, or another remote loader."
+        + (f" Use only explicitly supplied offline models at `{pretrain_model_dir}`." if pretrain_model_dir else " Use only verified local or cached weights."),
         "",
         "⚠️ **API Compatibility**: LightGBM/XGBoost: ❌ `fit(..., early_stopping_rounds=...)` → ✅ LightGBM: `fit(..., callbacks=[lgb.early_stopping(...)])` ✅ XGBoost: `XGBClassifier(early_stopping_rounds=...)`",
         "• AdamW: ❌ `from transformers import AdamW` (deprecated) → ✅ `from torch.optim import AdamW`",

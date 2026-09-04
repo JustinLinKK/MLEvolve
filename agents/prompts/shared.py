@@ -51,14 +51,14 @@ def get_internet_clarification(pretrain_model_dir: str = ""):
     """Internet access clarification for improve/debug stages."""
     lines = [
         "**⚠️ IMPORTANT: Internet Access During Code Development**",
-        "- The \"no internet access\" restriction mentioned in the task description applies **ONLY to submission evaluation after code generation** (for mle-bench test set).",
-        "- **During code development, you CAN and SHOULD use online resources** such as torch.hub.load(), HuggingFace transformers, timm, etc.",
+        "- You may reason from documentation, but the generated candidate runs offline in both model preflight and experiment execution.",
+        "- Generated code must not download weights or datasets; do not use torch.hub.load(), remote Hugging Face resolution, or other network-backed model loaders.",
     ]
     if pretrain_model_dir:
         lines.append(
             f"- **Model paths under `{pretrain_model_dir}/` are GUARANTEED to exist and be available** (e.g., DINOv3, Siglip2 etc.). You can directly use them without `Path question`."
         )
     lines.append(
-        "- **Do NOT question internet access concerns - all standard ML libraries and pretrained models are available during development."
+        "- Installed libraries do not imply that arbitrary pretrained weights are available. Use only an explicitly supplied local checkpoint or a verified cached model."
     )
     return lines
