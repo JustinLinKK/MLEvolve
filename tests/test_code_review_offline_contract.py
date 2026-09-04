@@ -11,3 +11,10 @@ def test_code_review_allows_trained_fresh_initialization_in_offline_runs() -> No
     assert "freshly initialized trainable model is valid" in text.lower()
     assert "do not flag weights=none or pretrained=false" in text.lower()
     assert "all models (including those released after your training data cutoff) are available" not in text.lower()
+
+
+def test_shape_findings_require_an_executable_dimension_contradiction() -> None:
+    text = "\n".join(get_code_review_guidelines()).lower()
+
+    assert "proves that the tensor constructed at the model call" in text
+    assert "deliberate, consistently applied feature subset is not a shape failure" in text

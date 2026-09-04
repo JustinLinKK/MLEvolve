@@ -163,3 +163,19 @@ retaining branch-profile scheduling, `parallel_job_cap=null`, the 31 GiB
 Scheduler memory bound, and the unbounded agent context. This restores the
 previously documented targeted-repair behavior without changing a model or
 Scheduler algorithm.
+
+## Reviewer tensor-shape evidence correction
+
+The four-round candidate repair sequence exposed a reviewer failure mode: its
+last review called a deliberately sliced tabular feature subset a runtime shape
+crash, even though the generated model dimension and the emitted tensor length
+were both set to the sliced size. Omitting an available feature can affect model
+quality, but it is not by itself a tensor-interface failure. The review prompt
+now requires a critical shape finding to identify the produced and consumed
+dimensions on the same model-call path and prove that they differ. It explicitly
+preserves review of genuine mismatches and OOM recovery defects. The local
+focused contract and stage-review suites passed after the change:
+
+```text
+50 passed
+```
