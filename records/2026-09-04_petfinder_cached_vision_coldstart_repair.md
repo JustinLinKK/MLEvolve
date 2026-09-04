@@ -9,13 +9,11 @@
 
 ## Observed failure
 
-The first two generated PetFinder candidates were rejected before GPU execution. The model-preflight reports identified a concrete construction failure: generated code called a Hugging Face `from_pretrained` checkpoint that was not fully cached on ABA while outgoing network traffic was disabled. No rejected candidate was budget-counted and GPU 1 was not used.
-
-The second candidate (`d7c97db177d5416ebb651bedf81fa415`) demonstrated that the configured two targeted preflight repair rounds alone did not remove the root cause: `report_attempt_0.json`, `report_attempt_1.json`, and `report_attempt_2.json` all retained a `CON001` construction failure for an unavailable pretrained checkpoint.
+Before this repair, candidates generated from the bundled SigLIP2 template were rejected before GPU execution. Their model-preflight reports identified a concrete construction failure: `from_pretrained` requested a checkpoint that was unavailable to the network-disabled worker. The candidate `d7c97db177d5416ebb651bedf81fa415` retained that `CON001` failure across its two targeted repair rounds.
 
 ## Diagnosis
 
-`engine/coldstart/models_guidance_classified.json` advertised a SigLIP2 `AutoModel.from_pretrained` template even though the local SigLIP2 cache contains only an incomplete snapshot. ABA does have complete local timm checkpoints, including `tf_efficientnet_b0.ns_jft_in1k`, and direct ABA verification succeeded with:
+`engine/coldstart/models_guidance_classified.json` advertised a SigLIP2 `AutoModel.from_pretrained` template even though the local SigLIP2 cache contains only an incomplete snapshot. A direct ABA probe succeeded for `tf_efficientnet_b0.ns_jft_in1k`, but that probe alone was not sufficient evidence that the preflight worker would find every required artifact with network disabled.
 
 ```python
 timm.create_model("tf_efficientnet_b0.ns_jft_in1k", pretrained=True)
@@ -40,4 +38,6 @@ The existing controller was then terminated with `SIGTERM` only after the source
 
 ## Status
 
-The replacement run is active. This record establishes only the repaired offline-model admission condition; it does not claim a valid PetFinder metric or Scheduler advantage yet.
+The replacement run is active. Its first generated candidate initially received the same offline `CON001`, but preflight repair round 1 changed it to a data-contract warning; the scheduler then ran it on GPU 1 and correctly rejected its generated `KeyError: 'Paws'`. Its second generated candidate was rejected before execution after all two repair rounds retained `CON001` for assigning a 12-element feature list to a 8,920-row DataFrame column. These are candidate-code failures, not a scheduler deadlock: neither invalid candidate is budget-counted and GPU 1 remains free for an admissible candidate.
+
+This record establishes only the repaired offline-model admission path; it does not claim a valid PetFinder metric or Scheduler advantage yet.
