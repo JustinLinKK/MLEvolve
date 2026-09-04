@@ -653,6 +653,19 @@ def diagnostic_to_review_issue(diagnostic: Mapping[str, Any]) -> ReviewIssue | N
             "CandidateAdapter defaults before reading optional keys, while preserving "
             "caller-provided values."
         )
+    elif (
+        stage == "construction"
+        and exception_type == "TypeError"
+        and "got nonetype" in message.lower()
+        and "empty()" in message.lower()
+    ):
+        targeted_guidance = (
+            " CandidateAdapter.build_model received an unset shape/dimension. Resolve the "
+            "value to a concrete integer before constructing the real model: use a real "
+            "feature-count fallback when context omits it, and never pass None into a "
+            "torch module dimension. Reuse that same resolved dimension in the adapter's "
+            "fixture and real-data batches."
+        )
     elif unavailable_pretrained_dependency:
         targeted_guidance = (
             " Keep the same real model family and make isolated construction network-free, "

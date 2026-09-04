@@ -415,6 +415,27 @@ def test_construction_key_error_repair_guidance_merges_partial_context():
     assert "merge" in issue.repair_instruction
 
 
+def test_construction_none_dimension_guidance_requires_concrete_adapter_default():
+    issue = diagnostic_to_review_issue(
+        {
+            "classification": "confirmed_candidate_failure",
+            "code": "CON001",
+            "stage": "construction",
+            "exception_type": "TypeError",
+            "message": (
+                "construction raised TypeError: empty(): argument 'size' failed "
+                "to unpack the object at pos 2 with error \"type must be tuple "
+                "of ints,but got NoneType\""
+            ),
+        }
+    )
+
+    assert issue is not None
+    assert "concrete integer" in issue.repair_instruction
+    assert "None" in issue.repair_instruction
+    assert "build_model" in issue.repair_instruction
+
+
 def test_offline_weight_error_repair_guidance_preserves_real_model():
     issue = diagnostic_to_review_issue(
         {
