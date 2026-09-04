@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -461,6 +462,62 @@ def preflight_diagnostics_require_rejection(
     return any(_is_uncached_pretrained_dependency(item) for item in diagnostics)
 
 
+def source_pretrained_dependency_issues(
+    code: str, *, cache_root: Path | None = None
+) -> list[ReviewIssue]:
+    """Reject literal Hugging Face model loads whose weights are absent locally.
+
+    CandidateAdapter is a preflight contract, not the full experiment entrypoint.
+    A generated adapter can otherwise construct a lightweight stand-in while the
+    guarded training entrypoint later downloads an uncached model on the worker.
+    """
+
+    root = cache_root or Path(
+        os.environ.get("HF_HUB_CACHE", Path.home() / ".cache/huggingface/hub")
+    )
+    pattern = re.compile(
+        r"(?P<loader>[A-Za-z_][A-Za-z0-9_]*)\.from_pretrained\(\s*['\"](?P<repo>[^'\"]+)['\"]"
+    )
+    issues: list[ReviewIssue] = []
+    for match in pattern.finditer(code or ""):
+        loader = match.group("loader")
+        repo = match.group("repo")
+        if "model" not in loader.lower() or repo.startswith((".", "/")):
+            continue
+        repo_cache = root / f"models--{repo.replace('/', '--')}" / "snapshots"
+        has_weights = repo_cache.exists() and any(
+            path.is_file()
+            and (
+                path.name.endswith(".safetensors")
+                or path.name.startswith("pytorch_model")
+                or path.name.startswith("tf_model")
+            )
+            for path in repo_cache.rglob("*")
+        )
+        if has_weights:
+            continue
+        line = (code or "").count("\n", 0, match.start()) + 1
+        issues.append(
+            ReviewIssue(
+                source="model_preflight",
+                severity="critical",
+                category="preflight_uncached_pretrained_dependency",
+                owner="integration",
+                evidence=(
+                    f"[SRC_PRETRAINED_CACHE_MISSING] {loader}.from_pretrained({repo!r}) "
+                    f"at candidate.py:{line} has no cached model weights under {root}."
+                ),
+                repair_instruction=(
+                    "Use a model whose required weights are already available on the worker, "
+                    "or preserve this exact model only when its complete local checkpoint is "
+                    "provided. The CandidateAdapter must not use a mock to hide a real runtime "
+                    "download."
+                ),
+            )
+        )
+    return issues
+
+
 def diagnostic_to_review_issue(diagnostic: Mapping[str, Any]) -> ReviewIssue | None:
     """Convert confirmed candidate failures into targeted repair input."""
 
@@ -596,6 +653,8 @@ class ModelPreflightGate:
         )
 
         contract_issues = self._contract_issues(inspection, code) if generated else []
+        source_dependency_issues = source_pretrained_dependency_issues(code)
+        contract_issues.extend(source_dependency_issues)
         report_path = node_dir / "report.json"
         try:
             from model_preflight import check
@@ -624,6 +683,8 @@ class ModelPreflightGate:
             issues.extend(contract_issues)
             diagnostic_codes = [str(item.get("code")) for item in diagnostics]
             diagnostic_codes.extend(self._contract_codes(contract_issues))
+            if source_dependency_issues:
+                diagnostic_codes.append("SRC_PRETRAINED_CACHE_MISSING")
             status = str(report_dict["overall_status"])
             gpu_check_required = bool(report_dict.get("gpu_check_required", False))
             if contract_issues or preflight_diagnostics_require_rejection(diagnostics):

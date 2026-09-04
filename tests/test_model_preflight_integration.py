@@ -361,6 +361,28 @@ def test_uncached_pretrained_dependency_rejects_inconclusive_preflight():
     assert "same real model family" in issue.repair_instruction
 
 
+def test_source_pretrained_dependency_issues_rejects_adapter_mock_bypass(tmp_path):
+    """A mock-only CandidateAdapter cannot hide a real uncached model download."""
+
+    import engine.preflight as preflight
+
+    code = '''
+from transformers import AutoModel
+
+def run_training():
+    return AutoModel.from_pretrained("google/siglip2-so400m-patch16-256")
+
+class CandidateAdapter:
+    def build_model(self, context=None):
+        return object()  # A preflight-only mock, unlike run_training().
+'''
+    issues = preflight.source_pretrained_dependency_issues(
+        code, cache_root=tmp_path / "hub"
+    )
+    assert len(issues) == 1
+    assert "google/siglip2-so400m-patch16-256" in issues[0].evidence
+
+
 def test_none_criterion_repair_guidance_does_not_assume_context_persistence():
     issue = diagnostic_to_review_issue(
         {
