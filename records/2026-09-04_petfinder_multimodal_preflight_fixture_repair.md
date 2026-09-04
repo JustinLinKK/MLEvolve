@@ -52,3 +52,21 @@ It retains 50 target nodes, branch-profile scheduling, `parallel_job_cap=null`,
 a 31 GiB admission budget, CPU embeddings, and Qwen3.8-27B-INT8 vLLM on GPU0
 with GPU1 reserved for the experiment. At 05:52 UTC its first candidate entered
 stepwise model-design generation; GPU0 was 99% utilized and GPU1 used 4 MiB.
+
+## Scalar-target schema correction
+
+The first post-repair candidate completed stepwise generation and review but
+preflight correctly surfaced a manifest integration error before it could
+reach GPU1: JSON Schema required every `fixture` shape to have at least one
+dimension, while the regression target was encoded as scalar shape `[]`.
+The candidate was excluded and no scheduler worker was created. The fix omits
+the target from the named input fixture; `task.target_dtype=float32` remains
+the checker-owned target contract and generated adapters still construct the
+real float32 batch target. The regression test first failed with the obsolete
+`target: []` entry and then passed with the focused suite (`10 passed`).
+
+The verified controller was restarted only after synchronizing parent commit
+`1538fca7`. The active run root is now
+`/dev/shm/mlevolve_a100_agent/runs/petfinder_scheduler_aba_a100_multimodalfixturefix_20260904T060630Z`.
+vLLM on GPU0 was preserved; the new controller reached stepwise model design
+at 06:07 UTC with GPU1 still idle.
