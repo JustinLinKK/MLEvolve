@@ -28,6 +28,8 @@ def _provider(
         return "vllm"
     if provider in {"claude_cli", "claude-code-cli"}:
         return "claude_cli"
+    if provider in {"codex_cli", "codex-cli"}:
+        return "codex_cli"
     if provider in {"openrouter", "openai", "openai-compatible", "deepseek"}:
         return "openai"
     if provider in {"gemini", "google"}:
@@ -138,6 +140,15 @@ def query(
     elif provider == "claude_cli":
         from . import claude_cli as _claude_cli
         output, req_time, in_tok_count, out_tok_count, info = _claude_cli.query(
+            system_message=system_message,
+            user_message=user_message,
+            func_spec=func_spec,
+            cfg=cfg,
+            **model_kwargs,
+        )
+    elif provider == "codex_cli":
+        from . import codex_cli as _codex_cli
+        output, req_time, in_tok_count, out_tok_count, info = _codex_cli.query(
             system_message=system_message,
             user_message=user_message,
             func_spec=func_spec,
