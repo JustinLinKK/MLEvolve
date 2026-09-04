@@ -165,6 +165,30 @@ if __name__ == "__main__":
     assert inspection.unsafe_top_level_lines == ()
 
 
+def test_import_safety_allows_pure_min_max_configuration_expressions():
+    code = """
+EFFECTIVE_BATCH_SIZE = 128
+PHYSICAL_BATCH_SIZE = 32
+GRAD_ACCUM_STEPS = max(1, EFFECTIVE_BATCH_SIZE // PHYSICAL_BATCH_SIZE)
+SAFE_BATCH_SIZE = min(PHYSICAL_BATCH_SIZE, 64)
+
+class CandidateAdapter:
+    def build_model(self, context): pass
+    def build_optimizer(self, model, context): pass
+    def build_train_batch(self, scenario, device): pass
+    def build_validation_batch(self, scenario, device): pass
+    def training_step(self, model, batch, context): pass
+    def validation_step(self, model, batch, context): pass
+
+if __name__ == "__main__":
+    pass
+"""
+
+    inspection = inspect_adapter(code)
+
+    assert inspection.unsafe_top_level_lines == ()
+
+
 def test_import_safety_detects_execution_outside_main_guard():
     inspection = inspect_adapter(
         "def main():\n    pass\nmain()\nif __name__ == '__main__':\n    main()\n"

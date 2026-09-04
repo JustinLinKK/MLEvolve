@@ -237,6 +237,8 @@ def _is_main_guard(test: ast.AST) -> bool:
 
 _SAFE_TOP_LEVEL_CONFIGURATION_CALLS = {
     "Path",
+    "max",
+    "min",
     "len",
     "os.environ.get",
     "os.getenv",
