@@ -213,3 +213,29 @@ offline-review, and repair-workflow suites passed:
 ```text
 96 passed
 ```
+
+## GPU ownership is not a candidate-code failure
+
+The first fully reviewed candidate of the `07:22Z` ABA controller passed its
+four review/preflight repair rounds and was admitted by the Scheduler. Worker
+startup then failed before candidate training with
+`torch.AcceleratorError: CUDA-capable device(s) is/are busy or unavailable`.
+A direct one-element CUDA allocation under the controller's
+`CUDA_VISIBLE_DEVICES=1` failed identically, while device enumeration still
+reported one A100. `nvidia-smi` showed that physical A100-1 was in
+`Exclusive_Process` mode and owned by an unrelated `kylehu` Chemprop process.
+
+This is a scheduler launch-readiness defect: `torch.cuda.is_available()` tests
+enumeration, not whether a new CUDA context may be created under exclusive
+compute mode. The execution backends now inspect NVIDIA compute mode and active
+compute processes before dispatch. If an external exclusive owner exists, they
+defer the job before a worker is created, leaving it queued instead of marking
+the generated candidate buggy. The guard fails open if `nvidia-smi` is absent
+or cannot answer, so non-NVIDIA/test environments retain their old behavior.
+
+Focused device-mapping, precision, pipeline-decision, offline-review, and
+repair-workflow tests passed after the correction:
+
+```text
+101 passed
+```
