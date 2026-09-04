@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 
 
-MIN_COUNTED_FAILED_EXECUTION_SECONDS = 60.0
+# A candidate rejected by the CPU preflight/container in under thirty seconds did
+# not perform a meaningful experiment, so it must not consume one of the user
+# requested nodes.  At ten seconds or longer, retain the failed attempt as a
+# real runtime observation for the search budget and post-run accounting.
+MIN_COUNTED_FAILED_EXECUTION_SECONDS = 30.0
 
 
 def _field(node: object, name: str, default: Any = None) -> Any:
