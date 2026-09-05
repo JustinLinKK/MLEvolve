@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+import subprocess
+import sys
 
 from scheduler_benchmark_test.draw_petfinder_comparison import (
     RunSpec,
@@ -82,6 +85,16 @@ def test_load_run_excludes_quick_failures_from_completed_nodes(tmp_path) -> None
     assert run.completed_nodes == 3
 
 
+def test_load_run_truncates_each_run_to_the_matched_node_budget(tmp_path) -> None:
+    journal = tmp_path / "journal.json"
+    _write_journal(journal)
+
+    run = load_run(RunSpec("A100 baseline", "A100", journal, target_nodes=2))
+
+    assert [node.node_id for node in run.nodes] == ["first", "second"]
+    assert run.completed_nodes == 2
+
+
 def test_render_three_runs_to_one_png(tmp_path) -> None:
     journal = tmp_path / "journal.json"
     output = tmp_path / "comparison.png"
@@ -90,4 +103,31 @@ def test_render_three_runs_to_one_png(tmp_path) -> None:
 
     render_comparison([run, run, run], output)
 
+    assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_plotter_runs_as_a_direct_script_from_the_repository_root(tmp_path) -> None:
+    journal = tmp_path / "journal.json"
+    output = tmp_path / "comparison.png"
+    _write_journal(journal)
+    repository = Path(__file__).resolve().parents[1]
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scheduler_benchmark_test/draw_petfinder_comparison.py",
+            "--run",
+            f"run|A100|{journal}",
+            "--target-nodes",
+            "2",
+            "--out",
+            str(output),
+        ],
+        cwd=repository,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
     assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")

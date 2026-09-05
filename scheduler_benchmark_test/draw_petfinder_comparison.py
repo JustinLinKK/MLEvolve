@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import statistics
+import sys
 from typing import Sequence
 
 import matplotlib
@@ -23,9 +24,12 @@ matplotlib.use("Agg")
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 
+REPO = Path(__file__).resolve().parent.parent
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+
 from engine.node_accounting import node_counts_toward_budget
 
-REPO = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = REPO / "records/petfinder_a100_a10_scheduler_comparison.png"
 EXECUTION_COLOR = "#2b7bba"
 FAILED_COLOR = "#c44e52"
@@ -113,9 +117,8 @@ def load_run(spec: RunSpec) -> LoadedRun:
                 metric=metric,
             )
         )
-    return LoadedRun(
-        spec=spec, nodes=tuple(sorted(nodes, key=lambda item: item.created_at))
-    )
+    ordered_nodes = sorted(nodes, key=lambda item: item.created_at)
+    return LoadedRun(spec=spec, nodes=tuple(ordered_nodes[: spec.target_nodes]))
 
 
 def peak_execution_concurrency(nodes: Sequence[NodeWindow]) -> int:
