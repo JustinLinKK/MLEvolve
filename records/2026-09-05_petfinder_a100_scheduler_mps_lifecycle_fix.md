@@ -357,3 +357,52 @@ Scheduler total execution time is 17,813.8 seconds (median 628.1 seconds),
 or a 1.121 aggregate-time ratio. The visible run spans are 1.90 and 4.98
 hours respectively. This remains an interim observation because Scheduler is
 still producing nodes and the search mixtures remain different.
+
+## Argparse epoch-budget correction
+
+A subsequent active candidate declared its training budget only through
+`parser.add_argument("--epochs", type=int, default=40)`. Both submission-time
+and worker-time epoch extractors missed this form, leaving canonical
+`max_epochs` unset and causing a zero remaining-runtime estimate after the
+first observed epochs. The introspector now recognizes literal argparse
+defaults for `--epochs`, `--num-epochs`, and `--max-epochs`; the runner reuses
+that parser as its source fallback. Regression tests cover both boundaries and
+the relevant introspection, runner, and scheduler suite passes 115 tests.
+
+The active job's source was read without execution, the literal default was
+verified as 40, and only its persisted scheduler record was backfilled to
+`max_epochs = config.max_epochs = metadata.planned_epochs = 40`. Subsequent
+heartbeats retained the values and report a nonzero remaining time. No worker,
+controller, or queued job was restarted.
+
+## Run provenance limitation
+
+The completed baseline and current Scheduler journals preserve their resolved
+configuration but not a Git commit for the mutable runtime source directory.
+They both use `codex_cli` with `gpt-5.6-terra` and origin-mode task semantics,
+but baseline used `initial_drafts: 0` while Scheduler used
+`initial_drafts: 1`. The source directory was also patched between the two
+runs. Therefore their current traces demonstrate observed behavior but are not
+a provenance-pinned causal Scheduler-only A/B comparison. The full-baseline
+versus-current-Scheduler visualization is stored as
+`records/2026-09-05_petfinder_a100_original_full_vs_scheduler_current.png` and
+is explicitly not an equal-node timing claim.
+
+## Guarded batch-size introspection correction
+
+The next active Scheduler candidate used a configuration-derived loader batch:
+`physical_batch_size = max(1, int(cfg["physical_batch_size"]))`. The
+introspector could resolve the dictionary lookup and `int(...)`, but not the
+outer `max(...)`, and therefore marked the script as batch-probe unsupported.
+The job retained physical batch size 16 on an 80 GiB A100 while using only
+about 1.5 GiB, so this was a FLOP-saturation gap rather than a fixed
+parallel-job limit. The current active job was not stopped or modified.
+
+`_resolve_static_int` now resolves constant-argument `min(...)` and `max(...)`.
+A red test reproducing this guarded configuration expression failed before the
+patch; after the patch, the complete relevant suite passed 116 tests. The
+verified source was synchronized to the exact runtime
+`engine/script_introspection.py` location for future submissions. Because the
+controller has already imported its executor, the fix cannot retroactively
+change the active job; it applies to a later controller or a newly started
+experiment without requiring a fixed job cap.
