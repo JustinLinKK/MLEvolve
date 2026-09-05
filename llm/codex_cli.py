@@ -68,6 +68,35 @@ def _strict_response_schema(schema: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _supports_strict_schema(schema: dict[str, Any]) -> bool:
+    """Return whether a schema can be represented by Codex strict JSON output.
+
+    Codex strict mode rejects dynamic object maps, while MLEvolve's planner uses
+    one for module-name-to-plan entries.  Sending such a schema causes a server
+    error before the model can answer, so the caller must use prompt-guided JSON
+    for that one case.
+    """
+    def visit(value: Any) -> bool:
+        if isinstance(value, dict):
+            if isinstance(value.get("additionalProperties"), dict):
+                return False
+            return all(visit(child) for child in value.values())
+        if isinstance(value, list):
+            return all(visit(child) for child in value)
+        return True
+
+    return visit(schema)
+
+
+def _dynamic_schema_guidance(schema: dict[str, Any]) -> str:
+    required = schema.get("required") if isinstance(schema.get("required"), list) else []
+    return (
+        "Return a single top-level JSON object matching the requested schema. "
+        f"Its top-level required fields: {json.dumps(required)}. "
+        "Do not return only the contents of a nested field."
+    )
+
+
 def _run(prompt: str, *, model: str, json_schema: dict[str, Any] | None,
          timeout_seconds: float) -> tuple[str, float, int, int, dict[str, Any]]:
     with tempfile.TemporaryDirectory(prefix="mlevolve-codex-") as temp_dir:
@@ -101,9 +130,15 @@ def query(system_message: str | None, user_message: str | None,
     prompt = _prompt(system_message, user_message)
     if func_spec is not None:
         prompt += f"\n\nReturn JSON arguments for function {func_spec.name!r}."
+        if not _supports_strict_schema(func_spec.json_schema):
+            prompt += "\n" + _dynamic_schema_guidance(func_spec.json_schema)
     response, elapsed, input_tokens, output_tokens, info = _run(
         prompt, model=model,
-        json_schema=_strict_response_schema(func_spec.json_schema) if func_spec else None,
+        json_schema=(
+            _strict_response_schema(func_spec.json_schema)
+            if func_spec and _supports_strict_schema(func_spec.json_schema)
+            else None
+        ),
         timeout_seconds=timeout_seconds,
     )
     output: OutputType = response
@@ -120,10 +155,16 @@ def generate(prompt, cfg, temperature=None, max_tokens=None, stop_tokens=None,
              json_schema=None, max_retries=20, retry_delay=3, **_unused) -> str:
     del temperature, max_tokens, stop_tokens, max_retries, retry_delay
     text = compile_prompt_to_md(prompt) if not isinstance(prompt, str) else prompt.strip()
+    if json_schema is not None and not _supports_strict_schema(json_schema):
+        text += "\n\n" + _dynamic_schema_guidance(json_schema)
     response, *_ = _run(
         _prompt(None, text),
         model=str(getattr(cfg.agent.code, "model", "gpt-5.6-terra") or "gpt-5.6-terra"),
-        json_schema=_strict_response_schema(json_schema) if json_schema is not None else None,
+        json_schema=(
+            _strict_response_schema(json_schema)
+            if json_schema is not None and _supports_strict_schema(json_schema)
+            else None
+        ),
         timeout_seconds=1200.0,
     )
     return response
