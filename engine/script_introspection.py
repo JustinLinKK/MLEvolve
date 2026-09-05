@@ -176,7 +176,14 @@ _BATCH_PARAM_PATTERN = re.compile(
     rf"\b(?:{'|'.join(re.escape(name) for name in BATCH_PARAM_NAMES)})\b\s*=\s*(\d+)"
 )
 _EPOCH_PARAM_PATTERN = re.compile(
-    rf"\b(?:{'|'.join(re.escape(name) for name in EPOCH_PARAM_NAMES)})\b\s*=\s*(\d+)"
+    rf"\b(?:{'|'.join(re.escape(name) for name in EPOCH_PARAM_NAMES)})\b"
+    r"(?:\s*:\s*[^=\n]+)?\s*=\s*(\d+)"
+)
+_EPOCH_DICT_LITERAL_PATTERN = re.compile(
+    rf"['\"](?:{'|'.join(re.escape(name) for name in EPOCH_PARAM_NAMES)})['\"]\s*:\s*(\d+)"
+)
+_ARGPARSE_EPOCH_DEFAULT_PATTERN = re.compile(
+    r"\.add_argument\(\s*['\"]--(?:epochs|num[-_]epochs|max[-_]epochs)['\"][^\n]*?\bdefault\s*=\s*(\d+)"
 )
 _RESOLUTION_TUPLE_PATTERN = re.compile(
     rf"\b(?:{'|'.join(re.escape(name) for name in RESOLUTION_PARAM_NAMES)})\b\s*=\s*\(?\s*(\d+)\s*,\s*(\d+)"
@@ -419,6 +426,26 @@ def _resolve_static_int(expr: ast.expr | None, assignments: dict[str, ast.expr],
         if isinstance(container_expr, (ast.List, ast.Tuple)) and isinstance(lookup_key, int):
             if 0 <= lookup_key < len(container_expr.elts):
                 return _resolve_static_int(container_expr.elts[lookup_key], assignments, seen)
+    if (
+        isinstance(expr, ast.Call)
+        and isinstance(expr.func, ast.Name)
+        and expr.func.id == "int"
+        and len(expr.args) == 1
+        and not expr.keywords
+    ):
+        return _resolve_static_int(expr.args[0], assignments, seen)
+    if (
+        isinstance(expr, ast.Call)
+        and isinstance(expr.func, ast.Name)
+        and expr.func.id in {"min", "max"}
+        and expr.args
+        and not expr.keywords
+    ):
+        values = [_resolve_static_int(argument, assignments, seen) for argument in expr.args]
+        if any(value is None for value in values):
+            return None
+        resolved = [int(value) for value in values if value is not None]
+        return min(resolved) if expr.func.id == "min" else max(resolved)
     if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, (ast.UAdd, ast.USub)):
         value = _resolve_static_int(expr.operand, assignments, seen)
         if value is not None:
@@ -590,6 +617,15 @@ def analyze_training_batch_contract(code: str) -> TrainingBatchContract:
                         caller_value = _resolve_static_int(expr, parameter_assignments)
                         if caller_value is not None and caller_expr is not None:
                             parameter_values.append((caller_value, caller_expr))
+                    if not parameter_values:
+                        default_offset = len(parameters) - len(enclosing.args.defaults)
+                        if parameter_index >= default_offset:
+                            default_expr = enclosing.args.defaults[
+                                parameter_index - default_offset
+                            ]
+                            default_value = _resolve_static_int(default_expr, assignments)
+                            if default_value is not None:
+                                parameter_values.append((default_value, default_expr))
                     if parameter_values:
                         value = max(item[0] for item in parameter_values)
                         symbols.add(parameter_name)
@@ -669,9 +705,13 @@ def detect_initial_batch_size(code: str) -> int | None:
 
 def detect_epoch_count(code: str) -> int | None:
     match = _EPOCH_PARAM_PATTERN.search(code or "")
-    if not match:
-        return None
-    return _safe_int(match.group(1))
+    if match:
+        return _safe_int(match.group(1))
+    literal = _EPOCH_DICT_LITERAL_PATTERN.search(code or "")
+    if literal:
+        return _safe_int(literal.group(1))
+    argparse_default = _ARGPARSE_EPOCH_DEFAULT_PATTERN.search(code or "")
+    return _safe_int(argparse_default.group(1)) if argparse_default else None
 
 
 def detect_input_resolution(code: str) -> int | str | None:

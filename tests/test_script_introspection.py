@@ -5,6 +5,7 @@ import pytest
 from engine.script_introspection import (
     analyze_training_batch_contract,
     detect_epoch_count,
+    detect_initial_batch_size,
     detect_precision_mode,
     detect_uses_amp,
     introspect_training_script,
@@ -14,6 +15,100 @@ from localml_scheduler.adapters.mlevolve_runner import _materialize_instrumented
 
 def test_detect_epoch_count_accepts_uppercase_max_epochs() -> None:
     assert detect_epoch_count("MAX_EPOCHS = 25\n") == 25
+
+
+def test_detect_epoch_count_accepts_literal_epochs_in_configuration_dict() -> None:
+    code = '''
+config = {
+    "epochs": 60,
+    "batch_size": 8,
+}
+for epoch in range(1, int(config["epochs"]) + 1):
+    pass
+'''
+
+    assert detect_epoch_count(code) == 60
+
+
+def test_detect_epoch_count_accepts_typed_dataclass_epoch_field() -> None:
+    code = '''
+from dataclasses import dataclass
+
+@dataclass
+class TrainConfig:
+    epochs: int = 45
+'''
+
+    assert detect_epoch_count(code) == 45
+
+
+def test_detect_epoch_count_accepts_argparse_epochs_default() -> None:
+    code = '''
+parser = argparse.ArgumentParser()
+parser.add_argument("--epochs", type=int, default=40)
+args = parser.parse_args()
+for epoch in range(1, args.epochs + 1):
+    pass
+'''
+
+    assert detect_epoch_count(code) == 40
+
+
+def test_training_batch_contract_resolves_int_wrapped_configuration_batch() -> None:
+    code = '''
+from torch.utils.data import DataLoader
+config = {"batch_size": 32}
+physical_batch_size = int(config["batch_size"])
+train_loader = DataLoader(train_dataset, batch_size=physical_batch_size, shuffle=True)
+validation_loader = DataLoader(validation_dataset, batch_size=physical_batch_size, shuffle=False)
+'''
+
+    contract = analyze_training_batch_contract(code)
+
+    assert contract.supported
+    assert contract.initial_batch_size == 32
+    assert detect_initial_batch_size(code) == 32
+
+
+def test_training_batch_contract_resolves_guarded_configuration_batch() -> None:
+    code = '''
+from torch.utils.data import DataLoader
+
+def train() -> None:
+    cfg = {"physical_batch_size": 16}
+    physical_batch_size = max(1, int(cfg["physical_batch_size"]))
+    train_loader = DataLoader(
+        train_dataset, batch_size=physical_batch_size, shuffle=True
+    )
+'''
+
+    contract = analyze_training_batch_contract(code)
+
+    assert contract.supported
+    assert contract.initial_batch_size == 16
+    assert contract.batch_symbols == ("physical_batch_size",)
+
+
+def test_training_batch_contract_resolves_entrypoint_batch_default_with_loader_kwargs() -> None:
+    code = '''
+from torch.utils.data import DataLoader
+
+def run_training(physical_batch_size: int = 32, num_workers: int = 2):
+    loader_kwargs = {"num_workers": num_workers, "persistent_workers": True}
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=physical_batch_size,
+        shuffle=True,
+        **loader_kwargs,
+    )
+    return train_loader
+'''
+
+    contract = analyze_training_batch_contract(code)
+
+    assert contract.supported
+    assert contract.initial_batch_size == 32
+    assert contract.batch_symbols == ("physical_batch_size",)
 
 
 def test_introspection_extracts_quality_safe_training_contract() -> None:
