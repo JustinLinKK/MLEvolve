@@ -77,7 +77,7 @@ def test_load_run_excludes_quick_failures_from_completed_nodes(tmp_path) -> None
     journal = tmp_path / "journal.json"
     _write_journal(journal)
 
-    run = load_run(RunSpec("A100 baseline", "A100", journal, target_nodes=50))
+    run = load_run(RunSpec("A100 baseline", "A100", (journal,), target_nodes=50))
 
     assert [node.step for node in run.nodes] == [1, 2, 3]
     assert run.metric_points == [(1, 18.5), (2, 18.2)]
@@ -89,7 +89,7 @@ def test_load_run_truncates_each_run_to_the_matched_node_budget(tmp_path) -> Non
     journal = tmp_path / "journal.json"
     _write_journal(journal)
 
-    run = load_run(RunSpec("A100 baseline", "A100", journal, target_nodes=2))
+    run = load_run(RunSpec("A100 baseline", "A100", (journal,), target_nodes=2))
 
     assert [node.node_id for node in run.nodes] == ["first", "second"]
     assert run.completed_nodes == 2
@@ -99,11 +99,38 @@ def test_render_three_runs_to_one_png(tmp_path) -> None:
     journal = tmp_path / "journal.json"
     output = tmp_path / "comparison.png"
     _write_journal(journal)
-    run = load_run(RunSpec("run", "GPU", journal, target_nodes=50))
+    run = load_run(RunSpec("run", "GPU", (journal,), target_nodes=50))
 
     render_comparison([run, run, run], output)
 
     assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_load_run_can_draw_a_full_trace_with_short_failures(tmp_path) -> None:
+    journal = tmp_path / "journal.json"
+    _write_journal(journal)
+
+    run = load_run(
+        RunSpec("original", "A100", (journal,), target_nodes=50, include_all_executions=True)
+    )
+
+    assert [node.node_id for node in run.nodes] == [
+        "first", "second", "rejected", "long_failure"
+    ]
+    assert run.source_journal_nodes == 5
+
+
+def test_load_run_deduplicates_continuation_roots_in_full_trace_count(tmp_path) -> None:
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+    _write_journal(first)
+    _write_journal(second)
+
+    run = load_run(
+        RunSpec("original", "A100", (first, second), include_all_executions=True)
+    )
+
+    assert run.source_journal_nodes == 9
 
 
 def test_plotter_runs_as_a_direct_script_from_the_repository_root(tmp_path) -> None:

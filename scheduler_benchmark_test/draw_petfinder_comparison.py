@@ -40,8 +40,9 @@ BEST_COLOR = "#d1622b"
 class RunSpec:
     label: str
     hardware: str
-    journal_path: Path
+    journal_paths: tuple[Path, ...]
     target_nodes: int = 50
+    include_all_executions: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +64,7 @@ class NodeWindow:
 class LoadedRun:
     spec: RunSpec
     nodes: tuple[NodeWindow, ...]
+    source_journal_nodes: int
 
     @property
     def completed_nodes(self) -> int:
@@ -85,39 +87,65 @@ def _timestamp(value: str) -> float:
 
 
 def load_run(spec: RunSpec) -> LoadedRun:
-    payload = json.loads(spec.journal_path.read_text())
-    raw_nodes = payload.get("nodes")
-    if not isinstance(raw_nodes, list):
-        raise ValueError(f"journal has no node list: {spec.journal_path}")
-
     nodes: list[NodeWindow] = []
-    for raw in raw_nodes:
-        if not node_counts_toward_budget(raw):
-            continue
-        created_time = raw.get("created_time")
-        finish_time = raw.get("finish_time")
-        if not created_time or not finish_time:
-            continue
-        raw_metric = raw.get("metric") or {}
-        metric_value = raw_metric.get("value")
-        metric = float(metric_value) if metric_value is not None else None
-        created_at = _timestamp(str(created_time))
-        finished_at = _timestamp(str(finish_time))
-        if finished_at < created_at:
-            raise ValueError(f"node {raw.get('id')} finishes before it starts")
-        nodes.append(
-            NodeWindow(
-                node_id=str(raw.get("id") or "unknown"),
-                step=len(nodes) + 1,
-                created_at=created_at,
-                finished_at=finished_at,
-                execution_seconds=max(0.0, float(raw.get("exec_time") or 0.0)),
-                is_buggy=bool(raw.get("is_buggy")),
-                metric=metric,
+    source_non_root_nodes = 0
+    has_root = False
+    for journal_path in spec.journal_paths:
+        payload = json.loads(journal_path.read_text())
+        raw_nodes = payload.get("nodes")
+        if not isinstance(raw_nodes, list):
+            raise ValueError(f"journal has no node list: {journal_path}")
+        for raw in raw_nodes:
+            if raw.get("stage") == "root":
+                has_root = True
+                continue
+            source_non_root_nodes += 1
+            if not spec.include_all_executions and not node_counts_toward_budget(raw):
+                continue
+            created_time = raw.get("created_time")
+            finish_time = raw.get("finish_time")
+            if not created_time or not finish_time:
+                continue
+            raw_metric = raw.get("metric") or {}
+            metric_value = raw_metric.get("value")
+            metric = float(metric_value) if metric_value is not None else None
+            created_at = _timestamp(str(created_time))
+            finished_at = _timestamp(str(finish_time))
+            if finished_at < created_at:
+                raise ValueError(f"node {raw.get('id')} finishes before it starts")
+            nodes.append(
+                NodeWindow(
+                    node_id=str(raw.get("id") or "unknown"),
+                    step=0,
+                    created_at=created_at,
+                    finished_at=finished_at,
+                    execution_seconds=max(0.0, float(raw.get("exec_time") or 0.0)),
+                    is_buggy=bool(raw.get("is_buggy")),
+                    metric=metric,
+                )
             )
-        )
     ordered_nodes = sorted(nodes, key=lambda item: item.created_at)
-    return LoadedRun(spec=spec, nodes=tuple(ordered_nodes[: spec.target_nodes]))
+    if not spec.include_all_executions:
+        ordered_nodes = ordered_nodes[: spec.target_nodes]
+    numbered_nodes = tuple(
+        NodeWindow(
+            node_id=node.node_id,
+            step=index,
+            created_at=node.created_at,
+            finished_at=node.finished_at,
+            execution_seconds=node.execution_seconds,
+            is_buggy=node.is_buggy,
+            metric=node.metric,
+        )
+        for index, node in enumerate(ordered_nodes, start=1)
+    )
+    return LoadedRun(
+        spec=spec,
+        nodes=numbered_nodes,
+        # Continuation journals each serialize a root, but they belong to one
+        # logical search trace. Count that root once in a merged full trace.
+        source_journal_nodes=source_non_root_nodes + int(has_root),
+    )
 
 
 def peak_execution_concurrency(nodes: Sequence[NodeWindow]) -> int:
@@ -192,9 +220,14 @@ def _draw_gantt(ax, run: LoadedRun) -> None:
 
     ax.set_xlabel("hours since first node started")
     ax.set_ylabel("node by start order")
+    count_summary = (
+        f"{summary['completed']} executions from {run.source_journal_nodes} journal nodes, "
+        if run.spec.include_all_executions
+        else f"{summary['completed']}/{run.spec.target_nodes} budget-counted, "
+    )
     ax.set_title(
         f"{run.spec.label} — {run.spec.hardware}\n"
-        f"{summary['completed']}/{run.spec.target_nodes} completed, "
+        f"{count_summary}"
         f"{summary['valid']} scored, span {summary['span_hours']:.2f} h, "
         f"peak execution concurrency {summary['peak_concurrency']}",
         fontsize=9,
@@ -227,11 +260,16 @@ def _draw_metrics(ax, run: LoadedRun) -> None:
             f"best RMSE {min(ys):.4f} from {len(points)} scored nodes", fontsize=9
         )
         ax.legend(fontsize=8)
-    ax.set_xlabel("budget-counted node")
+    ax.set_xlabel(
+        "execution order" if run.spec.include_all_executions else "budget-counted node"
+    )
     ax.set_ylabel("validation RMSE (lower is better)")
     ax.set_xlim(
         0,
-        max(run.spec.target_nodes, max((node.step for node in run.nodes), default=0))
+        max(
+            run.completed_nodes if run.spec.include_all_executions else run.spec.target_nodes,
+            max((node.step for node in run.nodes), default=0),
+        )
         + 1,
     )
     ax.grid(alpha=0.25)
@@ -279,7 +317,8 @@ def _parse_run_argument(value: str, target_nodes: int) -> RunSpec:
     parts = value.split("|", 2)
     if len(parts) != 3 or not all(parts):
         raise argparse.ArgumentTypeError("--run must be LABEL|HARDWARE|JOURNAL_PATH")
-    return RunSpec(parts[0], parts[1], Path(parts[2]), target_nodes=target_nodes)
+    paths = tuple(Path(path) for path in parts[2].split(",") if path)
+    return RunSpec(parts[0], parts[1], paths, target_nodes=target_nodes)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -291,9 +330,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="repeat as LABEL|HARDWARE|JOURNAL_PATH",
     )
     parser.add_argument("--target-nodes", type=int, default=50)
+    parser.add_argument(
+        "--all-executions",
+        action="store_true",
+        help="draw every completed non-root execution; use for a full trace, not equal-budget timing",
+    )
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args(argv)
-    specs = [_parse_run_argument(value, args.target_nodes) for value in args.run]
+    specs = [
+        RunSpec(
+            label=spec.label,
+            hardware=spec.hardware,
+            journal_paths=spec.journal_paths,
+            target_nodes=spec.target_nodes,
+            include_all_executions=args.all_executions,
+        )
+        for spec in (_parse_run_argument(value, args.target_nodes) for value in args.run)
+    ]
     runs = [load_run(spec) for spec in specs]
     render_comparison(runs, args.out)
     print(f"wrote {args.out}")

@@ -387,8 +387,13 @@ but baseline used `initial_drafts: 0` while Scheduler used
 runs. Therefore their current traces demonstrate observed behavior but are not
 a provenance-pinned causal Scheduler-only A/B comparison. The full-baseline
 versus-current-Scheduler visualization is stored as
-`records/2026-09-05_petfinder_a100_original_full_vs_scheduler_current.png` and
-is explicitly not an equal-node timing claim.
+`records/2026-09-05_petfinder_a100_original_46_vs_scheduler_current.png` and
+is explicitly not an equal-node timing claim. The baseline portion merges the
+two consecutive original traces: nine candidate executions from the archived
+`mpsfixed` run and 36 from the following `cleanfix` run. They represent one
+logical search trace, so their duplicated restart root is counted once: 45
+candidate executions plus one root, or 46 journal nodes. The Gantt therefore
+shows 45 executable rows while its title truthfully reports 46 journal nodes.
 
 ## Guarded batch-size introspection correction
 
