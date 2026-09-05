@@ -7,7 +7,9 @@
 - Hardware: the available A100 on `ABA`, physical GPU 1.
 - Scheduler policy: branch-profile based; no fixed `parallel_job_cap`.
 - Execution transport: CUDA Multi-Process Service (MPS).
-- Valid-node rule: only non-buggy nodes with execution time of at least 30 seconds count.
+- Effective budget-counted node rule: every non-root node with execution time of
+  at least 30 seconds counts, whether it ultimately succeeds or fails. Buggy
+  status is reported independently.
 
 ## Observed defect
 

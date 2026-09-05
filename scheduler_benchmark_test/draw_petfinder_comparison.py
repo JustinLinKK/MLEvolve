@@ -141,8 +141,6 @@ def _run_summary(run: LoadedRun) -> dict[str, float | int]:
         node.execution_seconds
         for node in run.nodes
         if node.execution_seconds > 0.0
-        and not node.is_buggy
-        and node.metric is not None
     ]
     if run.nodes:
         span_seconds = max(node.finished_at for node in run.nodes) - min(
