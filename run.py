@@ -105,6 +105,37 @@ def _submit_startpoint_probe_jobs(
     return job_ids
 
 
+def _ensure_scheduler_generation_capacity(*, agent, cfg, total_steps: int, logger: logging.Logger) -> bool:
+    """Reopen root drafting when a finite search-tree limit ends before the budget.
+
+    ``agent.steps`` is an experiment budget, whereas ``num_drafts`` is only an
+    initial search-tree branching preference.  The latter must not terminate a
+    scheduler experiment before the requested number of timed executions.
+    """
+    if agent.has_selectable_work():
+        return True
+
+    search_cfg = getattr(getattr(cfg, "agent", None), "search", None)
+    current_drafts = getattr(search_cfg, "num_drafts", None)
+    try:
+        current_drafts = int(current_drafts)
+    except (TypeError, ValueError):
+        return False
+    if current_drafts >= total_steps:
+        return False
+
+    search_cfg.num_drafts = total_steps
+    agent_search_cfg = getattr(agent, "scfg", None)
+    if agent_search_cfg is not None:
+        agent_search_cfg.num_drafts = total_steps
+    logger.info(
+        "Expanded root draft budget from %s to %s to satisfy the experiment budget.",
+        current_drafts,
+        total_steps,
+    )
+    return agent.has_selectable_work()
+
+
 def _run_scheduler_rounds(
     *,
     agent,
@@ -158,7 +189,12 @@ def _run_scheduler_rounds(
                 break
 
             admitted = completed + len(inflight)
-            if admitted < total_steps and agent.has_selectable_work():
+            if admitted < total_steps and _ensure_scheduler_generation_capacity(
+                agent=agent,
+                cfg=cfg,
+                total_steps=total_steps,
+                logger=logger,
+            ):
                 candidate = agent.step(
                     exec_callback=execute_one,
                     node=None,

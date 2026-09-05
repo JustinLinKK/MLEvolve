@@ -84,6 +84,28 @@ class _RoundAgent:
         return nodes
 
 
+def test_scheduler_expands_draft_budget_when_search_tree_is_exhausted() -> None:
+    class ExhaustedAgent:
+        def __init__(self) -> None:
+            self.scfg = SimpleNamespace(num_drafts=5)
+
+        def has_selectable_work(self) -> bool:
+            return self.scfg.num_drafts >= 50
+
+    agent = ExhaustedAgent()
+    cfg = SimpleNamespace(agent=SimpleNamespace(search=SimpleNamespace(num_drafts=5)))
+
+    expanded = run_module._ensure_scheduler_generation_capacity(
+        agent=agent,
+        cfg=cfg,
+        total_steps=50,
+        logger=logging.getLogger("test-scheduler-capacity"),
+    )
+
+    assert expanded is True
+    assert cfg.agent.search.num_drafts == 50
+
+
 def test_scheduler_submits_each_candidate_as_soon_as_generation_finishes() -> None:
     runner = getattr(run_module, "_run_scheduler_rounds", None)
     assert runner is not None
