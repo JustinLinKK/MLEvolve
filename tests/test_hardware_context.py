@@ -544,6 +544,7 @@ def test_hardware_aware_step_agents_split_stage_order_and_boundaries() -> None:
     assert "preserve the Stage 1 model family" in dtype_guidelines
     assert "Do NOT redefine or reload data/features" in training_guidelines
     assert "Own training hyperparameters" in training_guidelines
+    assert "weights_only=False" in training_guidelines
 
 
 def test_stepwise_generation_can_return_stage_metadata(monkeypatch) -> None:
