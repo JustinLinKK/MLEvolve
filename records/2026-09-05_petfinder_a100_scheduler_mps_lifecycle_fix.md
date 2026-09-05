@@ -406,3 +406,13 @@ verified source was synchronized to the exact runtime
 controller has already imported its executor, the fix cannot retroactively
 change the active job; it applies to a later controller or a newly started
 experiment without requiring a fixed job cap.
+
+## Counting definitions
+
+Two quantities are intentionally independent. A **buggy node** is any node
+whose completed run has `is_buggy = true`, regardless of how long it ran. An
+**effective budget-counted node** is any non-root node with execution time at
+least 30 seconds, regardless of whether its run was buggy. Thus a short failed
+attempt remains a buggy node but does not consume an experiment node; a long
+failed attempt is both buggy and budget-counted. All later reports and plots
+must show these counts separately.
