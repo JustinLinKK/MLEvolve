@@ -1,0 +1,138 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: perfseer-a10-nlp-2gpu-labels
+  namespace: ecepxie
+  labels:
+    app: perfseer-a10-nlp-2gpu-labels
+    stage: label-generation
+spec:
+  backoffLimit: 12
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels:
+        app: perfseer-a10-nlp-2gpu-labels
+        stage: label-generation
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: nvidia.com/gpu.product
+                operator: In
+                values:
+                - NVIDIA-A10
+      containers:
+      - name: label
+        image: pytorch/pytorch:2.3.0-cuda11.8-cudnn8-devel
+        imagePullPolicy: IfNotPresent
+        workingDir: /tmp/repo
+        command:
+        - /bin/bash
+        - -lc
+        args:
+        - |
+          set -euo pipefail
+          nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+
+          cd /
+          rm -rf /tmp/repo
+          mkdir -p /tmp/repo
+          cp -a "$SRC/repo/." /tmp/repo/
+          cp -f "$OUT/patch/workload.py" /tmp/repo/nrp_calibration_pack/workload.py
+          grep -q train_avg_vram_mib /tmp/repo/nrp_calibration_pack/workload.py
+          cd /tmp/repo
+
+          export PYTHONPATH="/tmp/repo/src:/tmp/repo:${PYTHONPATH:-}"
+          python -m pip install --no-cache-dir ogb "torch_geometric==2.5.3" networkx scikit-learn tqdm nvidia-ml-py pyyaml pandas
+
+          rm -rf /tmp/pack_ready /tmp/specs_ready
+          mkdir -p /tmp/pack_ready /tmp/specs_ready
+          tar -xzf "$SRC/pack_ready.tar.gz" -C /tmp/pack_ready
+          tar -xzf "$SRC/workload_specs_real_ready.tar.gz" -C /tmp/specs_ready
+
+          python - <<'PY'
+          import json
+
+          source = "/tmp/specs_ready/workloads.jsonl"
+          target = "/tmp/specs_ready/workloads_nlp.jsonl"
+          count = 0
+          with open(source) as input_file, open(target, "w") as output_file:
+              for line in input_file:
+                  if not line.strip():
+                      continue
+                  spec = json.loads(line)
+                  if spec.get("dataset", {}).get("modality") != "text":
+                      continue
+                  output_file.write(json.dumps(spec) + "\n")
+                  count += 1
+          print(f"nlp workload specs: {count}")
+          PY
+
+          run_worker() {
+            local gpu=$1
+            local shard_start=$2
+            local shard_end=$3
+            for shard in $(seq "$shard_start" "$shard_end"); do
+              echo "gpu=${gpu} shard=${shard}/${NUM_SHARDS}"
+              CUDA_VISIBLE_DEVICES="$gpu" python nrp_calibration_pack/profile/run_profile.py \
+                --workload-specs /tmp/specs_ready/workloads_nlp.jsonl \
+                --models-dir /tmp/pack_ready/models \
+                --output-dir "$OUT/results/a10_nlp" \
+                --hardware-id a10 \
+                --device cuda \
+                --precision-sweep auto \
+                --resume \
+                --num-shards "$NUM_SHARDS" \
+                --shard-index "$shard" \
+                --warmup 20 \
+                --infer-repeats 50 \
+                --train-repeats 50 \
+                --label-time-mode measured_epochs \
+                --time-label-warmup-epochs 1 \
+                --time-label-measured-epochs 2 \
+                --sample-interval 0.01 \
+                --min-phase-seconds 20 \
+                --min-sampler-samples 100 \
+                --optimizer adam \
+                --sm-occupancy-source nvml_proxy \
+                --resource-profile-mode sustained
+            done
+          }
+
+          NUM_SHARDS=16
+          run_worker 0 0 7 &
+          worker_zero=$!
+          run_worker 1 8 15 &
+          worker_one=$!
+          wait "$worker_zero"
+          wait "$worker_one"
+          echo "all NLP shards complete"
+        env:
+        - name: SRC
+          value: /mnt/output/real-a10-0629060430
+        - name: OUT
+          value: /mnt/output/perfseer-a10-vram-time
+        resources:
+          requests:
+            cpu: "8"
+            memory: 48Gi
+            ephemeral-storage: 24Gi
+            nvidia.com/gpu: "2"
+          limits:
+            cpu: "8"
+            memory: 48Gi
+            ephemeral-storage: 24Gi
+            nvidia.com/gpu: "2"
+        volumeMounts:
+        - mountPath: /mnt/output
+          name: output
+      volumes:
+      - name: output
+        persistentVolumeClaim:
+          claimName: perfseer-real-dataset-pvc
