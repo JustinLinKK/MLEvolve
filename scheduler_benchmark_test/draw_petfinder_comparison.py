@@ -33,7 +33,6 @@ from engine.node_accounting import node_counts_toward_budget
 DEFAULT_OUTPUT = REPO / "records/petfinder_a100_a10_scheduler_comparison.png"
 EXECUTION_COLOR = "#2b7bba"
 FAILED_COLOR = "#c44e52"
-PRE_EXECUTION_COLOR = "#f0c05a"
 BEST_COLOR = "#d1622b"
 
 
@@ -179,14 +178,7 @@ def _draw_gantt(ax, run: LoadedRun) -> None:
         start_h = (node.created_at - origin) / 3600.0
         execution_start_h = (node.execution_started_at - origin) / 3600.0
         finish_h = (node.finished_at - origin) / 3600.0
-        pre_execution_h = max(0.0, execution_start_h - start_h)
         execution_h = max(0.0, finish_h - execution_start_h)
-        if pre_execution_h > 0.0:
-            ax.broken_barh(
-                [(start_h, pre_execution_h)],
-                (lane - 0.38, 0.76),
-                facecolors=PRE_EXECUTION_COLOR,
-            )
         if execution_h > 0.0:
             ax.broken_barh(
                 [(execution_start_h, execution_h)],
@@ -266,20 +258,16 @@ def render_comparison(runs: Sequence[LoadedRun], output: Path) -> None:
             axis.set_ylim(lower - padding, upper + padding)
 
     figure.suptitle(
-        "PetFinder Pawpularity | Codex GPT-5.6 Terra Medium agent | "
-        "same A100 execution | profile-based scheduling | no fixed job cap",
+        "PetFinder Pawpularity | execution-only trace | profile-based scheduling",
         fontsize=12,
     )
     figure.legend(
         handles=[
-            mpatches.Patch(
-                color=PRE_EXECUTION_COLOR, label="generation / review / queue"
-            ),
             mpatches.Patch(color=EXECUTION_COLOR, label="successful execution"),
             mpatches.Patch(color=FAILED_COLOR, label="failed or rejected node"),
         ],
         loc="lower center",
-        ncol=3,
+        ncol=2,
         frameon=False,
         fontsize=9,
     )
