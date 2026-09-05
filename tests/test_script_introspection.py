@@ -216,6 +216,27 @@ for labels in train_loader:
     assert "observed_batch_size = labels.size(0)" in materialized
 
 
+def test_batch_instrumentation_preserves_future_import_preamble(tmp_path: Path) -> None:
+    script = tmp_path / "candidate.py"
+    script.write_text(
+        """
+from __future__ import annotations
+
+from torch.utils.data import DataLoader
+
+train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
+""",
+        encoding="utf-8",
+    )
+
+    result = _materialize_instrumented_script(script, tmp_path)
+    materialized = result.path.read_text(encoding="utf-8")
+
+    assert result.had_batch_rewrite
+    compile(materialized, str(result.path), "exec")
+    assert materialized.index("from __future__ import annotations") < materialized.index("import os")
+
+
 def test_ambiguous_batch_variable_is_not_probeable() -> None:
     contract = analyze_training_batch_contract("batch_size = 32\nprint(batch_size)\n")
 
