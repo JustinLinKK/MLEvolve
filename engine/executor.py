@@ -1122,6 +1122,10 @@ class Interpreter:
 
         job_metadata.update(node_preflight_metadata(node_context))
         job_metadata.update(batch_probe_metadata)
+        from engine.script_introspection import supports_cooperative_trial
+        job_metadata["cooperative_trial"] = supports_cooperative_trial(code)
+        if not job_metadata["cooperative_trial"]:
+            job_metadata["cold_start_unavailable_reason"] = "unsupported_runner_control_contract"
         initial_physical_batch = runner_kwargs.get("batch_size")
         quality_contract = _build_training_quality_contract(
             script_metadata,
@@ -1513,6 +1517,10 @@ class Interpreter:
 
             job_metadata.update(node_preflight_metadata(node_context))
             job_metadata.update(batch_probe_metadata)
+            from engine.script_introspection import supports_cooperative_trial
+            job_metadata["cooperative_trial"] = supports_cooperative_trial(code)
+            if not job_metadata["cooperative_trial"]:
+                job_metadata["cold_start_unavailable_reason"] = "unsupported_runner_control_contract"
             initial_physical_batch = runner_kwargs.get("batch_size")
             quality_contract = _build_training_quality_contract(
                 script_metadata,

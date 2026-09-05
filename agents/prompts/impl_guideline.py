@@ -100,6 +100,7 @@ def get_impl_guideline(
         "□ Did I print validation metric as the last line?",
         "□ Did I use the COMPLETE training dataset (not a tiny subset)?",
         "□ Is execution behind the main guard and is CandidateAdapter complete and CPU-safe?",
+        "□ Does scheduled PyTorch training use script_scheduler_context, load_resume_checkpoint, and STEP/EPOCH safe_point calls with steps_per_epoch and a complete state_factory? Preserve these hooks during merges and repairs; keep setup inside the training entrypoint and hooks inactive when the context is None.",
     ]
     if expose_prediction:
         impl_guideline.append(

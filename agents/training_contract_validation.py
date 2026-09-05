@@ -6,10 +6,10 @@ import ast
 import re
 
 from agents.review_contracts import ReviewDecision, ReviewIssue
-from engine.script_introspection import introspect_training_script
+from engine.script_introspection import introspect_training_script, supports_cooperative_trial
 
 
-def validate_training_contract(code: str) -> tuple[ReviewIssue, ...]:
+def validate_training_contract(code: str, *, require_scheduler_hooks: bool = False) -> tuple[ReviewIssue, ...]:
     metadata = introspect_training_script(code or "")
     lowered = (code or "").lower()
     has_neural_training = (
@@ -19,6 +19,18 @@ def validate_training_contract(code: str) -> tuple[ReviewIssue, ...]:
     epochs = int(metadata.get("proposed_epochs") or 0)
     physical_batch = metadata.get("proposed_batch_size")
     issues: list[ReviewIssue] = []
+    if require_scheduler_hooks and has_neural_training and "torch" in lowered and not supports_cooperative_trial(code):
+        issues.append(_issue(
+            category="scheduler_step_control",
+            evidence="Scheduled PyTorch training lacks cooperative step/checkpoint control.",
+            instruction=(
+                "Call script_scheduler_context() inside the training entrypoint before CUDA allocation. "
+                "Restore context.load_resume_checkpoint(), then call context.control_hook.safe_point "
+                "with SafePointType.STEP after each completed optimizer update, steps_per_epoch, "
+                "global_step, epoch, and a state_factory preserving model, optimizer, scaler, LR scheduler, "
+                "RNG, and data position. Emit EPOCH safe points and keep hooks inactive when context is None."
+            ),
+        ))
     if has_neural_training and physical_batch is not None and not metadata.get(
         "quality_safe_physical_batch_sizes"
     ):

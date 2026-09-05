@@ -195,7 +195,9 @@ def classify_code(agent: Any, node: SearchNode, code: str) -> tuple[ReviewDecisi
     stable_prompt, dynamic_prompt = _partition_review_cache_prompt(prompt)
     hardware_context_used = bool(hardware_ctx.prompt_section)
     policy_issues = validate_training_precision(agent, code, context=hardware_ctx)
-    training_contract_issues = validate_training_contract(code)
+    training_contract_issues = validate_training_contract(
+        code, require_scheduler_hooks=getattr(agent, "scheduler_client", None) is not None
+    )
     dependency_issues = validate_runtime_dependencies(
         code,
         python_executable=execution_python_executable(agent),
@@ -280,7 +282,9 @@ def review_and_repair(agent: Any, node: SearchNode) -> ReviewOutcome:
             agent, "code_review", parent_node=getattr(node, "parent", None), code=node.code
         )
         policy_issues = validate_training_precision(agent, node.code, context=hardware_ctx)
-        training_contract_issues = validate_training_contract(node.code)
+        training_contract_issues = validate_training_contract(
+            node.code, require_scheduler_hooks=getattr(agent, "scheduler_client", None) is not None
+        )
         dependency_issues = validate_runtime_dependencies(
             node.code,
             python_executable=execution_python_executable(agent),

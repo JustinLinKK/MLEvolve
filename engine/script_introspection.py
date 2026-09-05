@@ -683,6 +683,39 @@ def analyze_training_batch_contract(code: str) -> TrainingBatchContract:
     )
 
 
+def supports_cooperative_trial(code: str) -> bool:
+    """Recognize the explicit script-side safe-step/checkpoint integration."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return False
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
+    attributes = [call.func.attr for call in calls if isinstance(call.func, ast.Attribute)]
+    state_writers = {ast.dump(call.func.value) for call in calls if isinstance(call.func, ast.Attribute) and call.func.attr == "state_dict"}
+    state_loaders = {ast.dump(call.func.value) for call in calls if isinstance(call.func, ast.Attribute) and call.func.attr == "load_state_dict"}
+    safe_points = [call for call in calls if isinstance(call.func, ast.Attribute) and call.func.attr == "safe_point"]
+    checkpoint_keys = {key.value for node in ast.walk(tree) if isinstance(node, ast.Dict) for key in node.keys if isinstance(key, ast.Constant) and isinstance(key.value, str)}
+    return (
+        any(isinstance(call.func, ast.Name) and call.func.id == "script_scheduler_context" for call in calls)
+        and any(isinstance(call.func, ast.Attribute) and call.func.attr == "load_resume_checkpoint" for call in calls)
+        and any(
+            isinstance(call.func, ast.Attribute) and call.func.attr == "safe_point"
+            and any(keyword.arg == "state_factory" for keyword in call.keywords)
+            and any(keyword.arg == "steps_per_epoch" for keyword in call.keywords)
+            and any(keyword.arg == "global_step" for keyword in call.keywords)
+            and any(keyword.arg == "epoch" for keyword in call.keywords)
+            and any(isinstance(arg, ast.Attribute) and arg.attr == "STEP" for arg in call.args)
+            for call in calls
+        )
+        and all(any(any(isinstance(arg, ast.Attribute) and arg.attr == point for arg in call.args) for call in safe_points) for point in ("BEFORE_TRAIN", "EPOCH"))
+        and len(state_writers) >= 2 and state_writers <= state_loaders
+        and "get_rng_state" in attributes and "set_rng_state" in attributes
+        and "global_step" in checkpoint_keys
+        and bool(checkpoint_keys & {"step_in_epoch", "sampler_state", "data_state"})
+        and any(isinstance(node, ast.Attribute) and node.attr == "max_epochs" for node in ast.walk(tree))
+    )
+
+
 def normalized_mlevolve_script_signature(code: str) -> str:
     """Return a stable signature for generated code while ignoring batch-size edits."""
     normalized = code or ""

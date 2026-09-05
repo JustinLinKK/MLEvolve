@@ -730,7 +730,9 @@ class AgentSearch:
                 node.code,
                 context=precision_context,
             )
-            training_contract_issues = validate_training_contract(node.code)
+            training_contract_issues = validate_training_contract(
+                node.code, require_scheduler_hooks=getattr(self, "scheduler_client", None) is not None
+            )
             policy_issues = tuple([*precision_issues, *training_contract_issues])
             if not policy_issues:
                 return True
