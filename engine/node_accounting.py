@@ -8,11 +8,10 @@ from pathlib import Path
 from typing import Any
 
 
-# A candidate rejected by the CPU preflight/container in under thirty seconds did
-# not perform a meaningful experiment, so it must not consume one of the user
-# requested nodes.  At ten seconds or longer, retain the failed attempt as a
-# real runtime observation for the search budget and post-run accounting.
-MIN_COUNTED_FAILED_EXECUTION_SECONDS = 30.0
+# Any candidate that returns in under thirty seconds did not perform a
+# meaningful experiment, so it must not consume one of the user-requested
+# nodes, regardless of whether it reported success or failure.
+MIN_COUNTED_EXECUTION_SECONDS = 30.0
 
 
 def _field(node: object, name: str, default: Any = None) -> Any:
@@ -22,20 +21,18 @@ def _field(node: object, name: str, default: Any = None) -> Any:
 
 
 def node_counts_toward_budget(node: object) -> bool:
-    """Return whether a retained journal node consumes one search step."""
+    """Return whether a non-root journal node consumes one search step."""
     if _field(node, "stage") == "root":
         return False
-    if _field(node, "is_buggy") is not True:
-        return True
     try:
         execution_seconds = float(_field(node, "exec_time"))
     except (TypeError, ValueError):
         return False
-    return execution_seconds >= MIN_COUNTED_FAILED_EXECUTION_SECONDS
+    return execution_seconds >= MIN_COUNTED_EXECUTION_SECONDS
 
 
 def count_budget_nodes(nodes: Iterable[object]) -> int:
-    """Count nodes after excluding static or quickly detected failures."""
+    """Count nodes after excluding root and sub-thirty-second attempts."""
     return sum(node_counts_toward_budget(node) for node in nodes)
 
 

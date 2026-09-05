@@ -21,7 +21,7 @@ def _node(**values: object) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
-def test_failures_returned_within_thirty_seconds_do_not_consume_the_search_budget() -> None:
+def test_nodes_returned_within_thirty_seconds_do_not_consume_the_search_budget() -> None:
     nodes = [
         _node(stage="root", is_buggy=False, exec_time=None),
         _node(is_buggy=True, exec_time=0.0),
@@ -30,9 +30,9 @@ def test_failures_returned_within_thirty_seconds_do_not_consume_the_search_budge
         _node(is_buggy=False, exec_time=2.0),
     ]
 
-    assert count_budget_nodes(nodes) == 2
+    assert count_budget_nodes(nodes) == 1
     assert node_counts_toward_budget(nodes[3]) is True
-    assert node_counts_toward_budget(nodes[4]) is True
+    assert node_counts_toward_budget(nodes[4]) is False
 
 
 def test_failed_node_without_execution_time_does_not_consume_budget() -> None:
@@ -56,4 +56,4 @@ def test_serialized_journal_uses_the_same_budget_rule(tmp_path: Path) -> None:
         )
     )
 
-    assert count_budget_nodes_from_json(journal) == 2
+    assert count_budget_nodes_from_json(journal) == 1
