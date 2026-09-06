@@ -115,3 +115,4 @@ benchmark-results/context-cache/
 # ===== Generated Scheduler Benchmark Outputs =====
 scheduler_benchmark_test/fixtures/*_scheduler_stress*/
 scheduler_benchmark_test/artifacts/
+.worktrees/
