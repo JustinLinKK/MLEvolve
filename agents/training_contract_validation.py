@@ -7,6 +7,7 @@ import re
 
 from agents.review_contracts import ReviewDecision, ReviewIssue
 from engine.script_introspection import introspect_training_script, supports_cooperative_trial
+from utils.training_diagnostics import TRAINING_DIAGNOSTICS_INSTRUCTION
 
 
 def validate_training_contract(code: str, *, require_scheduler_hooks: bool = False) -> tuple[ReviewIssue, ...]:
@@ -19,6 +20,22 @@ def validate_training_contract(code: str, *, require_scheduler_hooks: bool = Fal
     epochs = int(metadata.get("proposed_epochs") or 0)
     physical_batch = metadata.get("proposed_batch_size")
     issues: list[ReviewIssue] = []
+    if has_neural_training and "torch" in lowered:
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            tree = ast.Module(body=[], type_ignores=[])
+        calls = {
+            item.func.attr if isinstance(item.func, ast.Attribute) else item.func.id
+            for item in ast.walk(tree)
+            if isinstance(item, ast.Call) and isinstance(item.func, (ast.Attribute, ast.Name))
+        }
+        if not {"TrainingDiagnostics", "after_update", "report"} <= calls:
+            issues.append(_issue(
+                category="training_runtime_diagnostics",
+                evidence="PyTorch training lacks observed precision and optimizer-update diagnostics.",
+                instruction=TRAINING_DIAGNOSTICS_INSTRUCTION,
+            ))
     if require_scheduler_hooks and has_neural_training and "torch" in lowered and not supports_cooperative_trial(code):
         issues.append(_issue(
             category="scheduler_step_control",

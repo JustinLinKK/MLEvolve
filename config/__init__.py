@@ -540,6 +540,9 @@ def save_run(cfg: Config, journal):
     # save journal
     serialize.dump_json(journal, cfg.log_dir / "journal.json")
     serialize.dump_json(filtered_journal, cfg.log_dir / "filtered_journal.json")
+    from utils.node_diagnostics import write_node_diagnostics
+
+    write_node_diagnostics(cfg, journal)
     # save config
     OmegaConf.save(config=cfg, f=cfg.log_dir / "config.yaml")
 

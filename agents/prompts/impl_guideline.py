@@ -5,6 +5,7 @@ import time
 import humanize
 
 from agents.runtime_dependencies import advertised_package_names
+from utils.training_diagnostics import TRAINING_DIAGNOSTICS_INSTRUCTION
 
 
 def get_impl_guideline_from_agent(agent):
@@ -92,6 +93,8 @@ def get_impl_guideline(
         "🚫 **Execution Guidelines**:",
         "• NO tqdm (not installed), NO verbose=1",
         "• Print only 1 line per epoch (minimize logging)",
+        "• Runtime diagnostics are an exception: one diagnostics line per epoch plus context entry/exit; no per-batch printing.",
+        TRAINING_DIAGNOSTICS_INSTRUCTION,
         "• Use DataLoader with num_workers>=2 for speed",
         "",
         "⚠️  **Self-Check Before Finalizing**:",

@@ -18,6 +18,7 @@ for epoch in range(EPOCHS):
         "batch_optimizer_coupling",
         "validation_early_stopping",
         "epoch_progress_reporting",
+        "training_runtime_diagnostics",
     }
 
 
@@ -25,14 +26,18 @@ def test_complete_neural_training_contract_passes() -> None:
     code = """
 import torch
 import json
+from utils.training_diagnostics import TrainingDiagnostics
 BATCH_SIZE = 16
 EPOCHS = 5
 QUALITY_SAFE_PHYSICAL_BATCH_SIZES = [8, 16, 32]
 BATCH_LR_SCALING_POLICY = "fixed"
 patience = 2
+diagnostics = TrainingDiagnostics(model, optimizer)
 for epoch in range(EPOCHS):
     loss.backward()
     optimizer.step()
+    diagnostics.after_update()
+    diagnostics.report(epoch=epoch + 1)
     validation_score = validate()
     print('MLEVOLVE_EPOCH_METRIC ' + json.dumps({'epoch': epoch + 1, 'metric': validation_score, 'metric_name': 'validation_score'}))
     if no_improve >= patience:

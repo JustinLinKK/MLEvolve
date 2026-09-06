@@ -1810,7 +1810,13 @@ class Interpreter:
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
-                env={**os.environ, "PYTHONUNBUFFERED": "1"},
+                env={
+                    **os.environ,
+                    "PYTHONUNBUFFERED": "1",
+                    "PYTHONPATH": os.pathsep.join(filter(None, [
+                        str(Path(__file__).resolve().parents[1]), os.environ.get("PYTHONPATH"),
+                    ])),
+                },
             )
             with self._procs_lock:
                 self._active_procs[process_id] = proc

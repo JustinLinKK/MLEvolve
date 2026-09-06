@@ -124,15 +124,22 @@ def _ensure_scheduler_generation_capacity(*, agent, cfg, total_steps: int, logge
     if current_drafts >= total_steps:
         return False
 
-    search_cfg.num_drafts = total_steps
+    search_cfg.num_drafts = current_drafts + 1
     agent_search_cfg = getattr(agent, "scfg", None)
     if agent_search_cfg is not None:
-        agent_search_cfg.num_drafts = total_steps
+        agent_search_cfg.num_drafts = current_drafts + 1
     logger.info(
         "Expanded root draft budget from %s to %s to satisfy the experiment budget.",
         current_drafts,
-        total_steps,
+        current_drafts + 1,
     )
+    from utils.pipeline_logging import log_pipeline_event
+
+    log_pipeline_event(agent, "search_draft_budget_expanded", payload={
+        "reason": "search_exhausted_without_pending_results",
+        "previous_num_drafts": current_drafts,
+        "num_drafts": current_drafts + 1,
+    })
     return agent.has_selectable_work()
 
 
@@ -189,6 +196,16 @@ def _run_scheduler_rounds(
                 break
 
             admitted = completed + len(inflight)
+            if admitted < total_steps and inflight and not agent.has_selectable_work():
+                from utils.pipeline_logging import log_pipeline_event
+
+                log_pipeline_event(agent, "search_waiting_for_feedback", payload={
+                    "reason": "branches_have_pending_results",
+                    "pending_node_ids": list(inflight.values()),
+                    "completed": completed,
+                })
+                wait(set(inflight), return_when=FIRST_COMPLETED)
+                continue
             if admitted < total_steps and _ensure_scheduler_generation_capacity(
                 agent=agent,
                 cfg=cfg,
@@ -246,6 +263,9 @@ def run():
         run_id=cfg.exp_name,
         mode=cfg.experiment.mode,
     )
+    from utils.node_diagnostics import source_provenance
+
+    provenance = source_provenance()
     pipeline_logger.emit(
         "run_started",
         payload={
@@ -253,6 +273,13 @@ def run():
             "exp_id": cfg.exp_id,
             "mode": cfg.experiment.mode,
             "scheduler_enabled": bool(getattr(cfg.scheduler, "enabled", False)),
+            "source": provenance,
+            "agent_seed": cfg.agent.seed,
+            "precision_optimization_mode": getattr(cfg.agent, "precision_optimization_mode", "normal"),
+            "hardware_context_configured": bool(getattr(cfg.agent, "hardware_context_enabled", True)),
+            "initial_num_drafts": getattr(getattr(cfg.agent, "search", None), "num_drafts", None),
+            "initial_drafts": getattr(cfg.agent, "initial_drafts", None),
+            "node_budget": getattr(cfg.agent, "steps", None),
         },
     )
     previous_sigterm_handler = signal.getsignal(signal.SIGTERM)

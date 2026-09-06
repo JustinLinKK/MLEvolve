@@ -499,6 +499,24 @@ class AgentSearch:
                     logger.warning(f"[_run_single_step] node {parent_node.id} is_buggy is None.")
 
                 if result_node:
+                    result_node.diagnostics["selection"] = {
+                        "action": result_node.stage,
+                        "parent_id": parent_node.id,
+                        "parent_metric": getattr(parent_node.metric, "value", None),
+                        "reason": {
+                            "draft": "root_has_draft_slot",
+                            "debug": "parent_failed_validation_or_execution",
+                            "improve": "refine_successful_parent",
+                            "evolution": "branch_stagnation",
+                            "fusion": "branch_stagnation_cross_branch_fusion",
+                            "fusion_draft": "root_branch_aggregation",
+                        }.get(result_node.stage, result_node.stage),
+                        "from_topk": bool(getattr(parent_node, "_topk_triggered", False)),
+                    }
+                    from utils.pipeline_logging import record_pipeline_node_action
+
+                    record_pipeline_node_action(self, result_node, "candidate_action_selected",
+                                                payload=result_node.diagnostics["selection"])
                     self.refresh_hardware_context(result_node)
                     if init_solution_path:
                         logger.info(f"Node {result_node.id} from init_solution, skipping code review")

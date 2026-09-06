@@ -90,7 +90,7 @@ def test_scheduler_expands_draft_budget_when_search_tree_is_exhausted() -> None:
             self.scfg = SimpleNamespace(num_drafts=5)
 
         def has_selectable_work(self) -> bool:
-            return self.scfg.num_drafts >= 50
+            return self.scfg.num_drafts >= 6
 
     agent = ExhaustedAgent()
     cfg = SimpleNamespace(agent=SimpleNamespace(search=SimpleNamespace(num_drafts=5)))
@@ -103,7 +103,48 @@ def test_scheduler_expands_draft_budget_when_search_tree_is_exhausted() -> None:
     )
 
     assert expanded is True
-    assert cfg.agent.search.num_drafts == 50
+    assert cfg.agent.search.num_drafts == 6
+
+
+def test_scheduler_waits_for_feedback_before_opening_more_drafts(tmp_path) -> None:
+    from utils.pipeline_logging import PipelineActionLogger
+
+    journal = SimpleNamespace(nodes=[])
+    cfg = SimpleNamespace(agent=SimpleNamespace(steps=2, search=SimpleNamespace(num_drafts=1)))
+
+    class FeedbackAgent(_RoundAgent):
+        def __init__(self):
+            super().__init__(journal, candidate_count=2)
+            self.scfg = cfg.agent.search
+            self.pipeline_logger = PipelineActionLogger(tmp_path / "pipeline.sqlite3", run_id="test", mode="origin")
+            self.wait_observed = threading.Event()
+            self.generated_stages = []
+
+        def has_selectable_work(self):
+            if self.remaining == 1 and not journal.nodes:
+                self.wait_observed.set()
+                return False
+            return self.remaining > 0
+
+        def step(self, **kwargs):
+            candidate = super().step(**kwargs)
+            candidate.stage = "improve" if journal.nodes else "draft"
+            self.generated_stages.append(candidate.stage)
+            return candidate
+
+        def execute_deferred_nodes(self, nodes, callback):
+            if not journal.nodes:
+                assert self.wait_observed.wait(2.0)
+            return super().execute_deferred_nodes(nodes, callback)
+
+    agent = FeedbackAgent()
+    count = run_module._run_scheduler_rounds(
+        agent=agent, interpreter=_RoundInterpreter(), cfg=cfg, journal=journal,
+        logger=logging.getLogger("feedback"), save_callback=lambda cfg, journal: None,
+    )
+    assert count == 2
+    assert agent.generated_stages == ["draft", "improve"]
+    assert cfg.agent.search.num_drafts == 1
 
 
 def test_scheduler_submits_each_candidate_as_soon_as_generation_finishes() -> None:

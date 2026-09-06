@@ -23,6 +23,18 @@ GRAPH_PATH = ROOT / "schema" / "hardware_knowledge_graph.json"
 BASE = {"fp32", "disabled"}
 
 
+def test_a100_recommends_bf16_without_banning_fp16() -> None:
+    from agents.hardware_context import format_hardware_datatype_prompt_section
+
+    policy = resolve_precision_policy({"architecture": "ampere", "compute_capability": "8.0"}, mode="normal")
+    assert policy.preferred_policy == "bf16_amp"
+    assert policy.allows("fp16_amp")
+    prompt = format_hardware_datatype_prompt_section({"precision_policy": policy.to_dict()})
+    assert "Starting precision recommendation: BF16 AMP" in prompt
+    assert "Preserve explicit precision choices" in prompt
+    assert resolve_precision_policy({"architecture": "volta"}).preferred_policy is None
+
+
 @pytest.mark.parametrize(
     ("architecture", "normal", "aggressive"),
     [

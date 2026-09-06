@@ -102,6 +102,7 @@ class SearchNode(DataClassJsonMixin):
     stage_note_board: List[Dict[str, Any]] = field(default_factory=list, kw_only=True)
     bug_report: Optional[str] = field(default=None, kw_only=True)
     fix_report: Optional[str] = field(default=None, kw_only=True)
+    diagnostics: Dict[str, Any] = field(default_factory=dict, kw_only=True)
 
     # ---- stage-aware review ----
     review_status: Optional[str] = field(default=None, kw_only=True)

@@ -631,6 +631,11 @@ def apply_stepwise_hardware_decisions_to_node(
     step_decisions = list(metadata.get("decisions") or [])
     if not step_decisions:
         return
+    node.diagnostics = dict(getattr(node, "diagnostics", None) or {})
+    node.diagnostics["hardware_prompt_stages"] = [
+        {"stage": item.get("stage"), "context_present": bool(item.get("hardware_context_used"))}
+        for item in step_decisions
+    ]
 
     generated_candidate = introspect_training_script(getattr(node, "code", "") or "")
     design_compact = design_context.compact_context if design_context is not None else {}
@@ -1688,6 +1693,13 @@ def _append_precision_policy(lines: list[str], policy: dict[str, Any]) -> None:
     allowed = list(policy.get("allowed_policies") or [])
     if allowed:
         lines.append(f"- Allowed native training precision policies: {', '.join(allowed)}")
+    if policy.get("preferred_policy") == "bf16_amp":
+        lines.append(
+            "- Starting precision recommendation: BF16 AMP on Ampere/A100 with FP32 model parameters, "
+            "optimizer state, loss and metric reductions. Keep FP32 fallback. FP16 AMP remains allowed "
+            "when measured speed and numerical stability justify it; use GradScaler and unscale before "
+            "gradient clipping. Preserve explicit precision choices in controlled comparisons."
+        )
     permitted = list(policy.get("permitted_features") or [])
     recommended = list(policy.get("recommended_features") or [])
     if permitted and permitted != recommended:

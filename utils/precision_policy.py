@@ -87,6 +87,7 @@ class PrecisionPolicy:
     hidden_features: tuple[str, ...]
     requires_transformer_engine: tuple[str, ...]
     fallback_policy: str = "fp32"
+    preferred_policy: str | None = None
 
     def allows(self, value: Any) -> bool:
         normalized = normalize_precision_policy_name(value)
@@ -173,6 +174,7 @@ def resolve_precision_policy(
         requires_transformer_engine=tuple(
             policy for policy in allowed if policy in {"fp8_te", "mxfp8_te", "nvfp4_te"}
         ),
+        preferred_policy="bf16_amp" if normalized_architecture == "ampere" else None,
     )
 
 
