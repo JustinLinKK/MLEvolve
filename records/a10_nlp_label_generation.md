@@ -27,3 +27,27 @@
 - Output: `/mnt/output/perfseer-a10-vram-time/results/a10_nlp`.
 
 - Manifest: `deployments/perfseer_a10_nlp_2gpu_labels.yaml`.
+
+## Result
+
+- Job completed after 16 hours on two NVIDIA A10 GPUs.
+
+- Generated 5,336 of 5,336 labels with status `ok`.
+
+- Generated 5,336 unique profile point identifiers.
+
+- All labels use scheduler label schema version 4.
+
+- All labels report A10 hardware identity.
+
+- All labels include training epoch time and average/peak VRAM.
+
+## Local Archive
+
+- Archive: `.cache/a10_cv_other_nlp_labels_models.zip`.
+
+- Labels: 16,008 CV, 18,676 other, 5,336 NLP.
+
+- Sources: 10,005 `calib_*.py` model files.
+
+- SHA256: `50313ce9f9b2cfe74e4452dd9c1522fcabba3186448b77ab8b596a357072bfe1`.
