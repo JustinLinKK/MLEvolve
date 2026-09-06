@@ -43,6 +43,7 @@ class RunSpec:
     journal_paths: tuple[Path, ...]
     target_nodes: int = 50
     include_all_executions: bool = False
+    limit_executions: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,7 +126,7 @@ def load_run(spec: RunSpec) -> LoadedRun:
                 )
             )
     ordered_nodes = sorted(nodes, key=lambda item: item.created_at)
-    if not spec.include_all_executions:
+    if not spec.include_all_executions or spec.limit_executions:
         ordered_nodes = ordered_nodes[: spec.target_nodes]
     numbered_nodes = tuple(
         NodeWindow(
@@ -335,8 +336,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="draw every completed non-root execution; use for a full trace, not equal-budget timing",
     )
+    parser.add_argument(
+        "--limit-executions",
+        action="store_true",
+        help="with --all-executions, draw only the first --target-nodes trace nodes",
+    )
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args(argv)
+    if args.limit_executions and not args.all_executions:
+        parser.error("--limit-executions requires --all-executions")
     specs = [
         RunSpec(
             label=spec.label,
@@ -344,6 +352,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             journal_paths=spec.journal_paths,
             target_nodes=spec.target_nodes,
             include_all_executions=args.all_executions,
+            limit_executions=args.limit_executions,
         )
         for spec in (_parse_run_argument(value, args.target_nodes) for value in args.run)
     ]

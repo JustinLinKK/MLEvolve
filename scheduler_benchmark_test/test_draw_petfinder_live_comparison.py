@@ -120,6 +120,25 @@ def test_load_run_can_draw_a_full_trace_with_short_failures(tmp_path) -> None:
     assert run.source_journal_nodes == 5
 
 
+def test_load_run_can_limit_all_execution_traces_to_equal_node_count(tmp_path) -> None:
+    journal = tmp_path / "journal.json"
+    _write_journal(journal)
+
+    run = load_run(
+        RunSpec(
+            "original",
+            "A100",
+            (journal,),
+            target_nodes=3,
+            include_all_executions=True,
+            limit_executions=True,
+        )
+    )
+
+    assert [node.node_id for node in run.nodes] == ["first", "second", "rejected"]
+    assert run.completed_nodes == 3
+
+
 def test_load_run_deduplicates_continuation_roots_in_full_trace_count(tmp_path) -> None:
     first = tmp_path / "first.json"
     second = tmp_path / "second.json"
