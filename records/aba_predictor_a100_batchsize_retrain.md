@@ -150,3 +150,18 @@
 - `infer_avg_sm_util_percent`: 5%=48.61%, 10%=82.20%.
 - `infer_avg_vram_mib`: 5%=97.14%, 10%=97.51%.
 - `infer_peak_vram_mib`: 5%=97.16%, 10%=97.54%.
+- Training stopped after epoch 6: exact input-information ceiling measured.
+- Rows: 44,820; unique input hashes: 1,088; singleton inputs: 0.
+- Oracle uses the best constant for each identical input group.
+- `train_step_wall_ms`: 5%=58.99%, 10%=78.83%.
+- `train_step_gpu_ms`: 5%=58.98%, 10%=78.82%.
+- `train_epoch_ms`: 5%=58.99%, 10%=78.83%.
+- `train_avg_sm_util_percent`: 5%=56.29%, 10%=77.12%.
+- `train_avg_vram_mib`: 5%=98.15%, 10%=99.89%.
+- `train_peak_vram_mib`: 5%=98.15%, 10%=99.89%.
+- `train_peak_torch_allocated_mib`: 5%=98.56%, 10%=98.72%.
+- `infer_step_wall_ms`: 5%=83.49%, 10%=96.80%.
+- `infer_step_gpu_ms`: 5%=83.49%, 10%=96.79%.
+- `infer_avg_sm_util_percent`: 5%=80.95%, 10%=95.47%.
+- `infer_avg_vram_mib`: 5%=99.04%, 10%=100.00%.
+- `infer_peak_vram_mib`: 5%=99.05%, 10%=100.00%.
