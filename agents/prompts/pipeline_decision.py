@@ -9,6 +9,7 @@ recorded as a fallback instead of invented claims.
 from __future__ import annotations
 
 import json
+import copy
 import logging
 import re
 from pathlib import Path
@@ -18,6 +19,7 @@ import yaml
 
 from llm import generate
 from utils.precision_policy import (
+    CONSERVATIVE_PRECISION_INSTRUCTION,
     PrecisionPolicy,
     normalize_precision_policy_name,
     resolve_precision_policy,
@@ -186,6 +188,11 @@ def build_pipeline_decision(
         stage_context=stage_context,
         precision_policy=precision_policy,
     )
+    schema = PIPELINE_DECISION_JSON_SCHEMA
+    if precision_policy.mode == "conservative":
+        schema = copy.deepcopy(schema)
+        schema["properties"]["datatype_precision"]["properties"]["precision_policy"]["enum"] = list(precision_policy.allowed_policies)
+        prompt["system"] += " " + CONSERVATIVE_PRECISION_INSTRUCTION
 
     for attempt in range(max(1, max_retries)):
         try:
@@ -195,7 +202,7 @@ def build_pipeline_decision(
                 prompt=prompt,
                 temperature=getattr(code_cfg, "temp", 0.0),
                 cfg=getattr(agent_instance, "cfg", None),
-                json_schema=PIPELINE_DECISION_JSON_SCHEMA,
+                json_schema=schema,
                 max_retries=1,
                 retry_delay=0,
                 context_cache_role="supervisor",
@@ -463,7 +470,13 @@ def _collect_evidence_state(hardware_contexts: list[Any]) -> dict[str, Any]:
         )
         if not isinstance(compact, dict) or not compact:
             continue
-        compact_contexts.append(compact)
+        if compact.get("hardware_context_mode") == "compact":
+            from agents.hardware_context import format_compact_hardware_prompt_section
+
+            section = getattr(context, "prompt_section", "") or format_compact_hardware_prompt_section(compact, stage="pipeline_decision")
+            compact_contexts[:] = [{"prompt_section": section}]
+        else:
+            compact_contexts.append(compact)
         evidence_refs.extend(_string_list(compact.get("evidence_refs")))
         confidence = _safe_float(compact.get("confidence"))
         if confidence is not None:

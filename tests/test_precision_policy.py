@@ -23,6 +23,71 @@ GRAPH_PATH = ROOT / "schema" / "hardware_knowledge_graph.json"
 BASE = {"fp32", "disabled"}
 
 
+@pytest.mark.parametrize("architecture", ["unknown", "volta", "turing", "ampere", "ada_lovelace", "hopper", "blackwell"])
+def test_conservative_precision_architecture_allowlist(architecture: str) -> None:
+    policy = resolve_precision_policy({"architecture": architecture}, mode="conservative")
+    expected = BASE if architecture in {"unknown", "volta", "turing"} else BASE | {"tf32"}
+    assert set(policy.allowed_policies) == expected
+    assert policy.preferred_policy == "fp32"
+    for feature in ("amp", "fp16", "bf16", "fp8", "int8", "fp64"):
+        assert precision_feature_visibility(feature, policy) == "hidden"
+
+
+@pytest.mark.parametrize("code", [
+    'USE_AMP = False\nmodel = model.half()\n',
+    'PRECISION = "fp32"\nx = x.to(torch.bfloat16)\n',
+    'from torch import float16 as small\nx = x.to(small)\n',
+    'from torch.amp import autocast as amp\nwith amp("cuda"):\n    loss = model(x)\n',
+    'model = model.double()\n',
+    'x = x.astype("float16")\n',
+    'trainer = Trainer(precision="16-mixed")\n',
+    'scaler = torch.amp.GradScaler("cuda")\n',
+    'model = torch.quantization.quantize_dynamic(model)\n',
+    'model = Model.from_pretrained(path, load_in_8bit=True)\n',
+    'PRECISION = "fp8_te"\n',
+    'torch.set_default_tensor_type("torch.cuda.HalfTensor")\n',
+    'enabled = True\nwith torch.autocast("cuda", enabled=enabled):\n    loss = model(x)\nenabled = False\n',
+])
+@pytest.mark.parametrize("architecture", ["unknown", "ampere"])
+def test_conservative_guard_rejects_non_float32_even_without_hardware(code: str, architecture: str) -> None:
+    context = None if architecture == "unknown" else _context(architecture)
+    issues = validate_training_precision(_agent("conservative"), code, context=context)
+    assert issues and issues[0].severity == "critical"
+
+
+@pytest.mark.parametrize("code", [
+    '# Never use fp16 or bf16\nmodel = torch.nn.Linear(4, 2).float()\n',
+    'USE_AMP = False\nwith torch.autocast("cpu", enabled=USE_AMP):\n    loss = model(x.float())\n',
+    'torch.set_float32_matmul_precision("highest")\n',
+    'torch.backends.cuda.matmul.allow_tf32 = False\n',
+    'print("fp16")\nhalf = len(values) // 2\n',
+])
+def test_conservative_guard_accepts_float32_and_disabled_features(code: str) -> None:
+    assert validate_training_precision(_agent("conservative"), code) == ()
+
+
+def test_conservative_tf32_requires_hardware_and_uses_explicit_profile() -> None:
+    code = 'torch.backends.cuda.matmul.allow_tf32 = True\n'
+    assert validate_training_precision(_agent("conservative"), code)
+    assert validate_training_precision(_agent("conservative"), code, context=_context("volta"))
+    assert not validate_training_precision(_agent("conservative"), code, context=_context("ampere"))
+    agent = _agent("conservative")
+    agent.cfg = SimpleNamespace(preflight=SimpleNamespace(target_profile="config/preflight_profiles/a100_80gb.yaml"))
+    assert not validate_training_precision(agent, code)
+    modern_code = 'torch.backends.cuda.matmul.fp32_precision = "tf32"\n'
+    assert validate_training_precision(_agent("conservative"), modern_code)
+    assert not validate_training_precision(agent, modern_code)
+
+
+def test_conservative_static_hardware_guidance_hides_low_precision() -> None:
+    result = query_hardware_features("NVIDIA A100 SXM4 80GB", "datatype_precision", precision_mode="conservative")
+    features = {item["feature_id"] for item in result["features"]}
+    assert "tf32" in features
+    assert not features & {"amp", "fp16", "bf16", "fp8", "int8", "fp64"}
+    node = query_hardware_node("NVIDIA A100 SXM4 80GB", "datatype_precision", precision_mode="conservative")
+    assert not any("bf16" in item.lower() or "fp16" in item.lower() for item in node["recommended_patterns"])
+
+
 def test_a100_recommends_bf16_without_banning_fp16() -> None:
     from agents.hardware_context import format_hardware_datatype_prompt_section
 

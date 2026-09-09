@@ -298,6 +298,22 @@ def test_normal_mode_normalizes_low_or_unverified_precision_to_disabled(
     assert "FP32" in decision["datatype_precision"]["fallback_policy"]
 
 
+def test_conservative_decision_restricts_schema_and_normalizes_inherited_bf16(monkeypatch) -> None:
+    from agents.prompts.pipeline_decision import PIPELINE_DECISION_JSON_SCHEMA
+
+    captured = {}
+    def generate(**kwargs):
+        captured.update(kwargs)
+        return json.dumps(_decision_payload())
+    monkeypatch.setattr("agents.prompts.pipeline_decision.generate", generate)
+    decision = build_pipeline_decision(_agent(precision_mode="conservative"), stage="draft", data_preview="images", hardware_contexts=[])
+    assert decision["datatype_precision"]["precision_policy"] == "disabled"
+    assert "conservative" in decision["datatype_precision"]["reason"]
+    enum = captured["json_schema"]["properties"]["datatype_precision"]["properties"]["precision_policy"]["enum"]
+    assert set(enum) == {"fp32", "disabled"}
+    assert "bf16_amp" in PIPELINE_DECISION_JSON_SCHEMA["properties"]["datatype_precision"]["properties"]["precision_policy"]["enum"]
+
+
 @pytest.mark.parametrize(
     ("architecture", "selected", "expected"),
     [

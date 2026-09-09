@@ -1,0 +1,227 @@
+{
+  "source_database": "runs/20260828_154842_petfinder_sonnet5090_50nodes/logs/pipeline.sqlite3",
+  "source_node": "73940669b6a84cae94cb7a45b92f771c",
+  "source_prompt_sha256": "0b408ded90b4ccf6c5bac0be4095c8eb6b86b7223153820b9421bfbf1c620644",
+  "evidence_tier": "CPU prompt construction only; no model calls or training; identical archived code in every cell",
+  "measurement_note": "Both versions include shared hardware_context_instructions; task, previous plans/code, and all other prompt settings are fixed.",
+  "lookup_note": "Existing A100 name query returns A10, compute capability 8.6, despite declared target 8.0. New compact mode rejects these mismatched patterns.",
+  "trace_dirs": [
+    "runs/critical-patterns-20260908-final-before",
+    "runs/critical-patterns-20260908-verified-after"
+  ],
+  "full_prompt_bytes_unchanged": true,
+  "comparisons": [
+    {
+      "precision": "normal",
+      "before_total_chars": 134322,
+      "after_total_chars": 127300,
+      "saved_chars": 7022,
+      "saved_percent": 5.227736335075416
+    },
+    {
+      "precision": "conservative",
+      "before_total_chars": 138386,
+      "after_total_chars": 131164,
+      "saved_chars": 7222,
+      "saved_percent": 5.218735999306288
+    }
+  ],
+  "rows": [
+    {
+      "precision": "normal",
+      "context_mode": "full",
+      "prompt_chars": {
+        "decision": 22156,
+        "model_design": 22050,
+        "datatype_precision": 31653,
+        "training_evaluation": 41734,
+        "merge": 52670
+      },
+      "hardware_lookup": {
+        "gpu_name": "NVIDIA A10",
+        "architecture": "ampere",
+        "vram_MB": 24576,
+        "compute_capability": "8.6"
+      },
+      "hardware_section_chars": {
+        "model_design": 3496,
+        "datatype_precision": 3495,
+        "training_evaluation": 3489
+      },
+      "construction_seconds": 0.027853411986143328,
+      "version": "previous"
+    },
+    {
+      "precision": "normal",
+      "context_mode": "compact",
+      "prompt_chars": {
+        "decision": 4867,
+        "model_design": 19130,
+        "datatype_precision": 28740,
+        "training_evaluation": 38828,
+        "merge": 42757
+      },
+      "hardware_lookup": {
+        "gpu_name": "NVIDIA A10",
+        "architecture": "ampere",
+        "vram_MB": 24576,
+        "compute_capability": "8.6"
+      },
+      "hardware_section_chars": {
+        "model_design": 576,
+        "datatype_precision": 582,
+        "training_evaluation": 583,
+        "merge": 569
+      },
+      "construction_seconds": 0.021200522998697124,
+      "version": "previous"
+    },
+    {
+      "precision": "conservative",
+      "context_mode": "full",
+      "prompt_chars": {
+        "decision": 14789,
+        "model_design": 23057,
+        "datatype_precision": 31877,
+        "training_evaluation": 42898,
+        "merge": 53254
+      },
+      "hardware_lookup": {
+        "gpu_name": "NVIDIA A10",
+        "architecture": "ampere",
+        "vram_MB": 24576,
+        "compute_capability": "8.6"
+      },
+      "hardware_section_chars": {
+        "model_design": 3492,
+        "datatype_precision": 3493,
+        "training_evaluation": 3476
+      },
+      "construction_seconds": 0.0205349329917226,
+      "version": "previous"
+    },
+    {
+      "precision": "conservative",
+      "context_mode": "compact",
+      "prompt_chars": {
+        "decision": 5426,
+        "model_design": 20263,
+        "datatype_precision": 29088,
+        "training_evaluation": 40127,
+        "merge": 43482
+      },
+      "hardware_lookup": {
+        "gpu_name": "NVIDIA A10",
+        "architecture": "ampere",
+        "vram_MB": 24576,
+        "compute_capability": "8.6"
+      },
+      "hardware_section_chars": {
+        "model_design": 698,
+        "datatype_precision": 704,
+        "training_evaluation": 705,
+        "merge": 691
+      },
+      "construction_seconds": 0.0193700509989867,
+      "version": "previous"
+    },
+    {
+      "precision": "normal",
+      "context_mode": "full",
+      "prompt_chars": {
+        "decision": 22156,
+        "model_design": 22050,
+        "datatype_precision": 31653,
+        "training_evaluation": 41734,
+        "merge": 52670
+      },
+      "hardware_lookup": {
+        "gpu_name": "NVIDIA A10",
+        "architecture": "ampere",
+        "vram_MB": 24576,
+        "compute_capability": "8.6"
+      },
+      "hardware_section_chars": {
+        "model_design": 3496,
+        "datatype_precision": 3495,
+        "training_evaluation": 3489
+      },
+      "construction_seconds": 0.03031689098861534,
+      "version": "critical_patterns"
+    },
+    {
+      "precision": "normal",
+      "context_mode": "compact",
+      "prompt_chars": {
+        "decision": 4697,
+        "model_design": 17417,
+        "datatype_precision": 27027,
+        "training_evaluation": 37115,
+        "merge": 41044
+      },
+      "hardware_lookup": {
+        "gpu_name": "NVIDIA A10",
+        "architecture": "ampere",
+        "vram_MB": 24576,
+        "compute_capability": "8.6"
+      },
+      "hardware_section_chars": {
+        "model_design": 407,
+        "datatype_precision": 413,
+        "training_evaluation": 414,
+        "merge": 400
+      },
+      "construction_seconds": 0.02073151599324774,
+      "version": "critical_patterns"
+    },
+    {
+      "precision": "conservative",
+      "context_mode": "full",
+      "prompt_chars": {
+        "decision": 14789,
+        "model_design": 23057,
+        "datatype_precision": 31877,
+        "training_evaluation": 42898,
+        "merge": 53254
+      },
+      "hardware_lookup": {
+        "gpu_name": "NVIDIA A10",
+        "architecture": "ampere",
+        "vram_MB": 24576,
+        "compute_capability": "8.6"
+      },
+      "hardware_section_chars": {
+        "model_design": 3492,
+        "datatype_precision": 3493,
+        "training_evaluation": 3476
+      },
+      "construction_seconds": 0.02005805900262203,
+      "version": "critical_patterns"
+    },
+    {
+      "precision": "conservative",
+      "context_mode": "compact",
+      "prompt_chars": {
+        "decision": 5216,
+        "model_design": 18510,
+        "datatype_precision": 27335,
+        "training_evaluation": 38374,
+        "merge": 41729
+      },
+      "hardware_lookup": {
+        "gpu_name": "NVIDIA A10",
+        "architecture": "ampere",
+        "vram_MB": 24576,
+        "compute_capability": "8.6"
+      },
+      "hardware_section_chars": {
+        "model_design": 489,
+        "datatype_precision": 495,
+        "training_evaluation": 496,
+        "merge": 482
+      },
+      "construction_seconds": 0.020938866000506096,
+      "version": "critical_patterns"
+    }
+  ]
+}

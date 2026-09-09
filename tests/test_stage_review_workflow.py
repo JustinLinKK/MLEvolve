@@ -560,6 +560,21 @@ def test_pre_execution_guard_rejects_precision_violation_after_review_bypass() -
     assert node.review_history[-1]["event"] == "pre_execution_precision_policy_rejected"
 
 
+@pytest.mark.parametrize("mode", ["origin", "baseline", "hardware_aware"])
+def test_conservative_precision_cannot_be_bypassed_without_review_or_hardware(mode) -> None:
+    search = AgentSearch.__new__(AgentSearch)
+    base = _agent(mode=mode)
+    base.acfg.precision_optimization_mode = "conservative"
+    base.acfg.review.enabled = False
+    search.acfg, search.cfg = base.acfg, base.cfg
+    search.scheduler_client = None
+    search.task_desc = base.task_desc
+    node = _node('USE_AMP = False\nmodel = model.half()\n')
+    node.review_status = "unavailable_fail_open"
+    assert not search._validate_node_precision_before_execution(node)
+    assert node.review_status == "rejected"
+
+
 def test_pre_execution_guard_rejects_missing_dependency_before_dispatch() -> None:
     search = AgentSearch.__new__(AgentSearch)
     base = _agent()

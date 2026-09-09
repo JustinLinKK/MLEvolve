@@ -40,6 +40,120 @@ from utils.serialize import dumps_json, loads_json
 from utils.precision_policy import resolve_precision_policy
 
 
+def test_compact_context_bounds_every_stage_and_merge_without_losing_precision() -> None:
+    from agents.hardware_context import HardwarePromptContext, format_compact_hardware_prompt_section
+    from agents.prompts.pipeline_decision import _collect_evidence_state
+
+    compact = {
+        "hardware_context_mode": "compact",
+        "hardware_context": {"summary": "A100", "scheduler_limits": {"safe_vram_budget_mb": 31000}},
+        "precision_policy": resolve_precision_policy({"architecture": "ampere"}, mode="conservative").to_dict(),
+        "recommendations": ["Use BF16 AMP for throughput", "Increase batch size after measured OOM-free trials"],
+        "vector_evidence": {"recipes": [{"summary_text": "UNRELATED_CATALOG " * 2000}]},
+    }
+    context = HardwarePromptContext(compact_context=compact, filtered_context=compact)
+    context.prompt_section = format_compact_hardware_prompt_section(compact, stage="draft")
+    sections = build_stepwise_hardware_stage_sections(design_context=None, execution_context=context)
+    assert set(sections) == {"model_design", "datatype_precision", "training_evaluation", "merge"}
+    for section in sections.values():
+        assert len(section) <= 1000
+        assert "conservative; allowed: fp32, disabled, tf32" in section
+        assert "31000" in section
+        assert "scheduler owns" in section
+        assert "UNRELATED_CATALOG" not in section
+        assert "Use BF16" not in section
+    assert StepwiseContext(hardware_stage_sections=sections).hardware_section_for_merge() == sections["merge"]
+    decision_evidence = _collect_evidence_state([context])
+    assert "UNRELATED_CATALOG" not in str(decision_evidence)
+    assert compact["vector_evidence"]["recipes"]  # Full diagnostic evidence is retained.
+
+
+@pytest.mark.parametrize("mode", ["normal", "conservative"])
+def test_compact_context_keeps_only_critical_stage_patterns(mode: str) -> None:
+    import copy
+    from agents.hardware_context import HardwarePromptContext, format_compact_hardware_prompt_section
+
+    compact = {
+        "hardware_context_mode": "compact",
+        "precision_policy": resolve_precision_policy({"architecture": "ampere"}, mode=mode).to_dict(),
+        "effective_backend": "cuda_process",
+        "backend_guidance": {"hard_rules": [{"text": "Do not initialize CUDA before fork."}]},
+        "stage_hardware_features": {"stages": [
+            {"stage": "model_design", "node": {"avoid_patterns": ["No dense full-resolution large-image loading."]}},
+            {"stage": "training_evaluation", "node": {
+                "recommended_patterns": [
+                    "Use num_workers=4 for faster loading.",
+                    "Muon optimizer must be used.",
+                    "Required: fused_adam for training.",
+                    "Gradient accumulation only when the physical batch cannot fit.",
+                    "Gradient accumulation only when the physical batch cannot fit.",
+                    "Required: " + "verbose advice " * 30 + "only for large language models.",
+                ],
+                "avoid_patterns": ["No activation checkpointing as a speed default."],
+            }, "features": [
+                {"category": "optimizer", "verified": True, "recommended_patterns": ["Required: change the update rule."]},
+                {"feature_id": "soap_optimizer", "verified": True, "avoid_patterns": ["No first-order methods."]},
+                {"verified": False, "recommended_patterns": ["Required: unverified fused kernel."]},
+                {"verified": True, "recommended_patterns": ["Required: finite loss checks."]},
+                {"verified": True, "recommended": False,
+                 "recommended_patterns": ["Required: deprecated kernel."],
+                 "avoid_patterns": ["No unsupported CUDA kernels."]},
+            ]},
+            {"stage": "datatype_precision", "node": {"recommended_patterns": [
+                "Use BF16 only when numerically stable.", "Use TF32 only when metrics remain acceptable.",
+            ]}},
+        ]},
+        "graph_evidence": {"exact_profiles": [{"summary_text": "PROFILE_DUMP"}]},
+        "derived_diagnosis": {"profile_symptoms": ["VERBOSE_SYMPTOMS"]},
+        "recommendations": ["Required: AdamW optimizer."],
+        "risk_flags": ["VERBOSE_RISKS"],
+        "evidence_refs": ["RAW_REFERENCE"],
+    }
+    original = copy.deepcopy(compact)
+    prompt = format_compact_hardware_prompt_section(compact, stage="training_evaluation")
+    assert len(prompt) <= 1000
+    assert "cuda_process" in prompt
+    assert "Do not initialize CUDA before fork." in prompt
+    assert "No activation checkpointing as a speed default." in prompt
+    assert "No unsupported CUDA kernels." in prompt
+    assert prompt.count("Gradient accumulation only when the physical batch cannot fit.") == 1
+    assert "Required: finite loss checks." in prompt
+    for omitted in ("num_workers", "Muon", "update rule", "first-order", "unverified", "deprecated",
+                    "fused_adam", "verbose advice", "large-image", "BF16", "PROFILE_DUMP", "VERBOSE_", "AdamW", "RAW_REFERENCE"):
+        assert omitted not in prompt
+    dtype = format_compact_hardware_prompt_section(compact, stage="datatype_precision")
+    assert ("Use BF16" in dtype) == (mode == "normal")
+    assert "checkpointing" not in dtype
+    assert len(format_compact_hardware_prompt_section(compact, stage="merge", max_chars=650)) <= 650
+    assert compact == original
+    context = HardwarePromptContext(compact_context=compact, prompt_section=prompt)
+    instructions = str(hardware_context_instructions(context))
+    assert "Do not fetch additional hardware catalogs" in instructions
+    assert len(instructions) < 250
+    assert "AMP" not in instructions
+    compact["precision_policy"] = resolve_precision_policy({"architecture": "volta"}, mode=mode).to_dict()
+    dtype = format_compact_hardware_prompt_section(compact, stage="datatype_precision")
+    assert "Use BF16" not in dtype
+    assert "Use TF32" not in dtype
+
+
+def test_compact_context_omits_patterns_from_mismatched_hardware() -> None:
+    from agents.hardware_context import format_compact_hardware_prompt_section
+
+    compact = {
+        "precision_policy": resolve_precision_policy({"compute_capability": "8.0"}, mode="conservative").to_dict(),
+        "stage_hardware_features": {"hardware": {"compute_capability": "8.6"}, "stages": [
+            {"stage": "model_design", "node": {"avoid_patterns": ["No CUDA extension without sm_86 target."]}},
+        ]},
+    }
+    prompt = format_compact_hardware_prompt_section(compact, stage="model_design")
+    assert "conservative; allowed: fp32, disabled, tf32" in prompt
+    assert "sm_86" not in prompt
+    compact["stage_hardware_features"]["hardware"]["compute_capability"] = "8.0"
+    compact["stage_hardware_features"]["stages"][0]["node"]["avoid_patterns"] = ["No CUDA extension without sm_80 target."]
+    assert "sm_80" in format_compact_hardware_prompt_section(compact, stage="model_design")
+
+
 def test_script_introspection_extracts_training_hints() -> None:
     code = """
 import torch
@@ -950,7 +1064,8 @@ def test_normal_mode_hides_aggressive_formats_but_keeps_integer_indicator() -> N
     assert features["int8"]["recommended"] is False
 
 
-def test_hardware_design_brief_fetches_only_selected_feature_details(monkeypatch) -> None:
+@pytest.mark.parametrize("context_mode", ["full", "compact"])
+def test_hardware_design_brief_fetches_only_selected_feature_details(monkeypatch, context_mode) -> None:
     class FakeScheduler:
         def __init__(self) -> None:
             self.detail_calls = []
@@ -1034,16 +1149,26 @@ def test_hardware_design_brief_fetches_only_selected_feature_details(monkeypatch
             hardware_context_enabled=True,
             hardware_context_limit=4,
             hardware_context_max_prompt_chars=4000,
+            hardware_context_mode=context_mode,
             code=SimpleNamespace(temp=0.7),
         ),
         cfg=SimpleNamespace(exp_id="task-a"),
         task_desc="image classification",
         data_preview="train images and labels",
     )
-    monkeypatch.setattr("agents.hardware_context.generate", lambda **_: '{"feature_ids": ["bf16", "made_up"]}')
+    def select_features(**_):
+        assert context_mode == "full"
+        return '{"feature_ids": ["bf16", "made_up"]}'
+    monkeypatch.setattr("agents.hardware_context.generate", select_features)
 
     context = get_hardware_design_brief(agent)
 
+    if context_mode == "compact":
+        assert scheduler.detail_calls == []
+        assert len(context.prompt_section) <= 1000
+        assert "Available hardware feature keys" not in context.prompt_section
+        assert context.compact_context["hardware_feature_index"]["features"]
+        return
     assert scheduler.detail_calls == [("current", ["bf16"], 1)]
     assert "Available hardware feature keys linked to this hardware" in context.prompt_section
     assert "Selected hardware feature details for model_design" in context.prompt_section

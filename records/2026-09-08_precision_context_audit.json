@@ -1,0 +1,92 @@
+{
+  "source_database": "runs/20260828_154842_petfinder_sonnet5090_50nodes/logs/pipeline.sqlite3",
+  "source_node": "73940669b6a84cae94cb7a45b92f771c",
+  "source_prompt_sha256": "0b408ded90b4ccf6c5bac0be4095c8eb6b86b7223153820b9421bfbf1c620644",
+  "archive_prompt_aggregates": [
+    [
+      "debug",
+      2,
+      927,
+      5140,
+      3033.5
+    ],
+    [
+      "draft",
+      5,
+      191605,
+      210534,
+      199213.6
+    ],
+    [
+      "evolution",
+      1,
+      81394,
+      81394,
+      81394.0
+    ],
+    [
+      "improve",
+      13,
+      47105,
+      63896,
+      51868.38461538462
+    ]
+  ],
+  "archive_first_draft_calls": {
+    "model_design": 32265,
+    "datatype_precision": 42783,
+    "training_evaluation": 51629,
+    "merge": 65533
+  },
+  "evidence_tier": "CPU prompt construction only; no model calls or training; identical archived code in every cell",
+  "rows": [
+    {
+      "precision": "normal",
+      "context_mode": "full",
+      "prompt_chars": {
+        "decision": 22156,
+        "model_design": 20291,
+        "datatype_precision": 29894,
+        "training_evaluation": 39975,
+        "merge": 50911
+      },
+      "construction_seconds": 0.025258398993173614
+    },
+    {
+      "precision": "normal",
+      "context_mode": "compact",
+      "prompt_chars": {
+        "decision": 4867,
+        "model_design": 17371,
+        "datatype_precision": 26981,
+        "training_evaluation": 37069,
+        "merge": 40998
+      },
+      "construction_seconds": 0.021082709994516335
+    },
+    {
+      "precision": "conservative",
+      "context_mode": "full",
+      "prompt_chars": {
+        "decision": 14789,
+        "model_design": 21298,
+        "datatype_precision": 30118,
+        "training_evaluation": 41139,
+        "merge": 51495
+      },
+      "construction_seconds": 0.02074620001076255
+    },
+    {
+      "precision": "conservative",
+      "context_mode": "compact",
+      "prompt_chars": {
+        "decision": 5426,
+        "model_design": 18504,
+        "datatype_precision": 27329,
+        "training_evaluation": 38368,
+        "merge": 41723
+      },
+      "construction_seconds": 0.02102661099343095
+    }
+  ]
+}

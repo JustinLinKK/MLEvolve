@@ -19,6 +19,7 @@ from typing import List, Tuple, Dict, Any
 from llm import generate, compile_prompt_to_md
 from utils.response import extract_code, extract_text_up_to_code, wrap_code
 from utils.training_diagnostics import TRAINING_DIAGNOSTICS_INSTRUCTION
+from utils.precision_policy import CONSERVATIVE_PRECISION_INSTRUCTION
 from agents.planner.base_planner import (
     PLANNING_ALLOWED_MODULES,
     PLANNING_JSON_FORMAT,
@@ -88,6 +89,8 @@ class StepwiseContext:
         return "\n".join(lines) + "\n"
 
     def hardware_section_for_merge(self) -> str:
+        if "merge" in self.hardware_stage_sections:
+            return self.hardware_stage_sections["merge"]
         sections: list[str] = []
         for step_name in (
             "model_design",
@@ -197,6 +200,12 @@ class StepAgent:
             prev_summary = "This is the first step, no previous steps."
 
         guidelines_to_use = self.guidelines.copy()
+        if getattr(agent_instance.acfg, "precision_optimization_mode", "normal") == "conservative":
+            guidelines_to_use = [
+                guideline for guideline in guidelines_to_use
+                if not any(token in guideline for token in ("Transformer Engine", "TE FP8", "fp16, bf16", "Do NOT choose AMP"))
+            ]
+            guidelines_to_use.append(CONSERVATIVE_PRECISION_INSTRUCTION)
 
         use_pretrain = (
             hasattr(agent_instance, 'use_coldstart') and

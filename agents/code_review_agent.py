@@ -21,6 +21,7 @@ from agents.prompts import (
 from agents.prompts.validation_template_prompts import get_code_review_prompt
 from agents.review_contracts import ReviewDecision, ReviewOutcome
 from agents.precision_validation import merge_precision_review_issues, validate_training_precision
+from utils.precision_policy import CONSERVATIVE_PRECISION_INSTRUCTION
 from agents.runtime_dependencies import (
     execution_python_executable,
     merge_dependency_review_issues,
@@ -100,6 +101,8 @@ def _event(agent: Any, node: SearchNode, event_type: str, payload: dict[str, Any
 def _build_review_prompt(agent: Any, node: SearchNode, code: str) -> tuple[dict[str, Any], Any]:
     prompt = get_code_review_prompt(task_desc=agent.task_desc, code=code)
     instructions = prompt.pop("Instructions")
+    if getattr(agent.acfg, "precision_optimization_mode", "normal") == "conservative":
+        instructions["Conservative precision"] = [CONSERVATIVE_PRECISION_INSTRUCTION]
     data_preview = str(getattr(agent, "data_preview", "") or "").strip()
     if data_preview:
         prompt["Observed Dataset Manifest"] = data_preview

@@ -133,6 +133,8 @@ def run(agent, init_solution_path: Optional[str] = None) -> SearchNode | None:
     hardware_section = "\n".join(
         section for section in (hardware_design_brief.prompt_section, hardware_ctx.prompt_section) if section.strip()
     )
+    if getattr(agent.acfg, "hardware_context_mode", "full") == "compact":
+        hardware_section = hardware_ctx.prompt_section or hardware_design_brief.prompt_section
     cuda_docs_ctx = get_cuda_docs_context(
         agent, "draft", hardware_context=hardware_ctx
     )

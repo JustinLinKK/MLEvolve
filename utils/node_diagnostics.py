@@ -110,6 +110,7 @@ def build_node_diagnostics(cfg, node):
             "confidence": getattr(node, "scheduler_confidence", None),
         },
         "precision_optimization_mode": getattr(agent_cfg, "precision_optimization_mode", None),
+        "hardware_context_mode": getattr(agent_cfg, "hardware_context_mode", "full"),
         "inferred_training_settings": inferred,
         "runtime_observation_status": "reported" if latest else "missing",
         "runtime": latest,

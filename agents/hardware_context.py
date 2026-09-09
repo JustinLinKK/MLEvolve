@@ -12,6 +12,7 @@ from typing import Any
 from llm import generate
 from engine.script_introspection import introspect_training_script
 from utils.precision_policy import (
+    CONSERVATIVE_PRECISION_INSTRUCTION,
     PrecisionPolicy,
     precision_feature_visibility,
     resolve_precision_policy,
@@ -289,6 +290,11 @@ class HardwarePromptContext:
 def hardware_context_instructions(context: HardwarePromptContext | None = None) -> dict[str, list[str]]:
     if context is not None and not context.found:
         return {}
+    if context is not None and context.compact_context.get("hardware_context_mode") == "compact":
+        return {"Hardware/Profile reasoning rule": [
+            "Apply listed patterns only when relevant; task and precision constraints take precedence. "
+            "Keep task-appropriate defaults otherwise. Do not fetch additional hardware catalogs."
+        ]}
     return {
         "Hardware/Profile reasoning rule": [
             EVIDENCE_NOT_LAW_RULE,
@@ -348,7 +354,10 @@ def get_hardware_design_brief(agent: Any) -> HardwarePromptContext:
 
     raw_context = dict(raw_context or {})
     initial_compact = compact_model_design_context(raw_context)
-    selected_feature_ids = _select_hardware_feature_ids_for_design(agent, candidate, initial_compact)
+    selected_feature_ids = (
+        [] if getattr(agent.acfg, "hardware_context_mode", "full") == "compact"
+        else _select_hardware_feature_ids_for_design(agent, candidate, initial_compact)
+    )
     if selected_feature_ids and hasattr(scheduler_client, "get_hardware_feature_details"):
         try:
             raw_context["selected_hardware_feature_ids"] = selected_feature_ids
@@ -369,6 +378,7 @@ def get_hardware_design_brief(agent: Any) -> HardwarePromptContext:
         precision_policy=precision_policy,
     )
     max_chars = _safe_int(getattr(agent.acfg, "hardware_context_max_prompt_chars", 3500), default=3500)
+    _configure_hardware_prompt_view(agent, compact, filtered)
     prompt_section = format_hardware_design_brief(filtered, max_chars=max_chars)
     return HardwarePromptContext(
         candidate=candidate,
@@ -425,6 +435,7 @@ def get_hardware_context_for_stage(
         precision_policy=precision_policy,
     )
     max_chars = _safe_int(getattr(agent.acfg, "hardware_context_max_prompt_chars", 3500), default=3500)
+    _configure_hardware_prompt_view(agent, compact, filtered)
     prompt_section = format_hardware_prompt_section_for_stage(filtered, stage=stage, max_chars=max_chars)
     return HardwarePromptContext(
         candidate=candidate,
@@ -489,6 +500,17 @@ def build_stepwise_hardware_stage_sections(
     """Return focused hardware sections for the internal stepwise agents."""
     design_section = design_context.prompt_section if design_context is not None else ""
     compact = execution_context.compact_context if execution_context is not None else {}
+    if compact.get("precision_policy"):
+        policy = resolve_precision_policy(
+            (compact.get("precision_policy") or {}),
+            mode=(compact.get("precision_policy") or {}).get("mode", "normal"),
+        )
+        compact = filter_hardware_context_for_agent(compact, stage="stepwise", precision_policy=policy)
+    if compact.get("hardware_context_mode") == "compact":
+        return {
+            stage: format_compact_hardware_prompt_section(compact, stage=stage, max_chars=max_chars)
+            for stage in ("model_design", "datatype_precision", "training_evaluation", "merge")
+        }
     generic_section = format_hardware_prompt_section(compact, max_chars=max_chars) if compact else ""
     datatype_section = format_hardware_datatype_prompt_section(compact, max_chars=max_chars) if compact else ""
     training_section = format_hardware_training_prompt_section(compact, max_chars=max_chars) if compact else ""
@@ -854,6 +876,12 @@ def filter_hardware_context_for_agent(
         filtered["stage_hardware_features"] = _filter_precision_stage_features(
             filtered.get("stage_hardware_features") or {}, precision_policy
         )
+        filtered["recommendations"] = _filter_precision_recommendations(
+            list(filtered.get("recommendations") or []), precision_policy
+        )
+        filtered["vector_evidence"] = _filter_vector_evidence_for_role(
+            filtered.get("vector_evidence") or {}, role=role, precision_policy=precision_policy
+        )
         return filtered
 
     filtered: dict[str, Any] = {
@@ -879,6 +907,15 @@ def filter_hardware_context_for_agent(
         filtered["selected_hardware_features"] = _strip_feature_examples(
             list(compact.get("selected_hardware_features") or [])[:4]
         )
+        if precision_policy.mode == "conservative":
+            filtered["hardware_feature_index"]["features"] = [
+                item for item in filtered["hardware_feature_index"].get("features", [])
+                if _precision_evidence_allowed(item, precision_policy)
+            ]
+            filtered["selected_hardware_features"] = [
+                item for item in filtered["selected_hardware_features"]
+                if _precision_evidence_allowed(item, precision_policy)
+            ]
 
     graph = compact.get("graph_evidence") or {}
     exact = list(graph.get("exact_profiles") or [])
@@ -984,6 +1021,16 @@ def _filter_precision_stage_features(
     merged_feature_ids: list[str] = []
     for raw_stage in list(result.get("stages") or []):
         stage = copy.deepcopy(raw_stage)
+        if policy.mode == "conservative":
+            stage["features"] = [
+                item for item in stage.get("features") or []
+                if _precision_evidence_allowed(item, policy)
+            ]
+            node = dict(stage.get("node") or {})
+            for key, entries in node.items():
+                if isinstance(entries, list):
+                    node[key] = [item for item in entries if _precision_evidence_allowed({"summary_text": str(item)}, policy)]
+            stage["node"] = node
         stage_name = str(stage.get("stage") or "").strip().lower()
         if stage_name != "datatype_precision":
             stages.append(stage)
@@ -1087,6 +1134,10 @@ def _filter_vector_evidence_for_role(
 
 def _precision_evidence_allowed(entry: dict[str, Any], policy: PrecisionPolicy) -> bool:
     text = _evidence_entry_text(entry).lower().replace("-", "_")
+    if policy.mode == "conservative" and re.search(
+        r"\b(?:fp16|float16|bf16|bfloat16|fp64|float64|amp|autocast|gradscaler|quantiz\w*)\b", text
+    ):
+        return False
     disallowed = {
         "fp8": "fp8_te",
         "mxfp8": "mxfp8_te",
@@ -1198,6 +1249,9 @@ def _select_hardware_feature_ids_for_design(
     max_features: int = 4,
 ) -> list[str]:
     feature_index = list((compact.get("hardware_feature_index") or {}).get("features") or [])
+    policy = _precision_policy_for_context(agent, compact)
+    if policy.mode == "conservative":
+        feature_index = [item for item in feature_index if _precision_evidence_allowed(item, policy)]
     if not feature_index:
         return []
     available_ids = [str(item.get("feature_id") or "").strip() for item in feature_index if item.get("feature_id")]
@@ -1230,6 +1284,9 @@ def _select_hardware_feature_ids_for_design(
         "Available feature index:\n"
         + "\n".join(feature_lines)
     )
+    if policy.mode == "conservative":
+        prompt = prompt.replace('{"feature_ids": ["bf16"]}', '{"feature_ids": []}')
+        prompt += "\n" + CONSERVATIVE_PRECISION_INSTRUCTION
     try:
         response = generate(
             prompt=prompt,
@@ -1331,9 +1388,99 @@ def compact_model_design_context(raw_context: dict[str, Any] | None) -> dict[str
     return {key: value for key, value in compact.items() if value not in (None, {}, [], "")}
 
 
+def _configure_hardware_prompt_view(agent: Any, compact: dict[str, Any], filtered: dict[str, Any]) -> None:
+    if getattr(agent.acfg, "hardware_context_mode", "full") == "compact":
+        compact["hardware_context_mode"] = filtered["hardware_context_mode"] = "compact"
+
+
+def _compact_hardware_patterns(compact: dict[str, Any], stage: str) -> list[str]:
+    """Keep stage-local failure prevention and explicit restrictions, not tuning recipes."""
+    stages = _ROLE_STAGE_FILTERS.get(stage, (stage,))
+    if stage in {"", "merge", "stepwise"}:
+        stages = ("model_design", "datatype_precision", "training_evaluation")
+    policy_data = compact.get("precision_policy") or {}
+    policy = resolve_precision_policy(policy_data, mode=policy_data.get("mode", "normal"))
+    stage_context = compact.get("stage_hardware_features") or {}
+    evidence_policy = resolve_precision_policy(stage_context.get("hardware") or {}, mode=policy.mode)
+    if policy.compute_capability and evidence_policy.compute_capability and policy.compute_capability != evidence_policy.compute_capability:
+        return []
+    optimizer = re.compile(r"\b(?:optimizer\w*|muon|adam\w*|soap|ademamix|sgd|lion|rmsprop|adagrad)\b", re.I)
+    critical = re.compile(
+        r"\b(?:oom|out.of.memory|overflow|non.?finite|numerically sensitive|unsupported|incompatible|"
+        r"must|required|cannot|only (?:when|if|for)|do not|no|without)\b", re.I
+    )
+    selected: dict[str, list[str]] = {"avoid_patterns": [], "recommended_patterns": []}
+    for item in stage_context.get("stages") or []:
+        if item.get("stage") not in stages:
+            continue
+        sources = [item.get("node") or {}] + [
+            feature for feature in item.get("features") or []
+            if feature.get("verified") is True
+            and not optimizer.search(" ".join(str(feature.get(key) or "") for key in ("category", "feature_id", "name", "feature_name")).replace("_", " "))
+        ]
+        for source in sources:
+            for field_name, patterns in selected.items():
+                if field_name == "recommended_patterns" and source.get("recommended") is False:
+                    continue
+                for value in source.get(field_name) or []:
+                    pattern = " ".join(str(value).split())
+                    # Omit long advice rather than truncate away its condition or fallback.
+                    if not pattern or len(pattern) > 200 or optimizer.search(pattern.replace("_", " ")) or not critical.search(pattern):
+                        continue
+                    if not _precision_evidence_allowed({"summary_text": pattern}, policy):
+                        continue
+                    if any(
+                        required not in policy.allowed_policies and re.search(token, pattern, re.I)
+                        for token, required in ((r"\b(?:bf16|bfloat16)\b", "bf16_amp"),
+                                                (r"\b(?:fp16|float16)\b", "fp16_amp"), (r"\btf32\b", "tf32"))
+                    ):
+                        continue
+                    if pattern not in patterns and len(patterns) < 2:
+                        patterns.append(pattern)
+    lines = []
+    # Interleave prohibitions and recommendations so neither consumes the whole budget.
+    for index in range(2):
+        for field_name, label in (("avoid_patterns", "Avoid"), ("recommended_patterns", "Recommend")):
+            if index < len(selected[field_name]):
+                lines.append(f"- {label}: {selected[field_name][index]}")
+    return _render_prompt_lines(lines, max_chars=250).splitlines()
+
+
+def format_compact_hardware_prompt_section(
+    compact: dict[str, Any], *, stage: str, max_chars: int = 3500
+) -> str:
+    """Keep constraints and critical patterns; omit profiles and tuning catalogs."""
+    hardware = compact.get("hardware_context") or {}
+    policy = compact.get("precision_policy") or {}
+    backend = hardware.get("backend_capabilities") or {}
+    lines = [
+        HARDWARE_CONTEXT_HEADING,
+        f"- Stage: {stage}; hardware: {_short(hardware.get('summary') or 'unknown', 100)}.",
+        f"- Precision: {policy.get('mode', 'normal')}; allowed: {', '.join(policy.get('allowed_policies') or ['fp32'])}.",
+        "- Respect task/data/model-source/submission constraints; hardware-only tuning preserves model family and training budget.",
+        "- Run one subprocess on the configured backend; scheduler owns devices, launch, concurrency and memory limits.",
+    ]
+    if policy.get("mode") == "conservative":
+        lines.append("- Float32 model/input/state; no AMP/GradScaler. TF32 only on confirmed Ampere+; otherwise FP32.")
+    effective_backend = compact.get("effective_backend") or backend.get("effective_backend") or backend.get("packing_backend")
+    if effective_backend:
+        lines.append(f"- Effective backend: {effective_backend}.")
+    limits = hardware.get("scheduler_limits") or {}
+    if limits.get("safe_vram_budget_mb") is not None:
+        lines.append(f"- Safe VRAM budget: {limits['safe_vram_budget_mb']} MB.")
+    for rule in (compact.get("backend_guidance") or {}).get("hard_rules") or []:
+        lines.append(f"- Backend constraint: {_short(rule.get('summary_text') or rule.get('text') or rule.get('title') or '', 200)}")
+    lines.extend(_compact_hardware_patterns(compact, stage))
+    # All items are complete lines, in priority order. The same total budget
+    # applies to merge; it must not concatenate three separately bounded views.
+    return _render_prompt_lines(lines, max_chars=min(max_chars, 1000))
+
+
 def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 3500) -> str:
     if not compact:
         return ""
+    if compact.get("hardware_context_mode") == "compact":
+        return format_compact_hardware_prompt_section(compact, stage="model_design", max_chars=max_chars)
     lines = [HARDWARE_DESIGN_HEADING]
     effective_backend = compact.get("effective_backend")
     runner_contract = compact.get("runner_contract")
@@ -1456,6 +1603,8 @@ def format_hardware_design_brief(compact: dict[str, Any], *, max_chars: int = 35
 def format_hardware_prompt_section(compact: dict[str, Any], *, max_chars: int = 3500) -> str:
     if not compact:
         return ""
+    if compact.get("hardware_context_mode") == "compact":
+        return format_compact_hardware_prompt_section(compact, stage=compact.get("agent_hardware_role", ""), max_chars=max_chars)
 
     lines = [HARDWARE_CONTEXT_HEADING]
     hardware = compact.get("hardware_context") or {}
@@ -1549,6 +1698,8 @@ def format_hardware_prompt_section_for_stage(
 def format_hardware_datatype_prompt_section(compact: dict[str, Any], *, max_chars: int = 3500) -> str:
     if not compact:
         return ""
+    if compact.get("hardware_context_mode") == "compact":
+        return format_compact_hardware_prompt_section(compact, stage="datatype_precision", max_chars=max_chars)
 
     lines = [HARDWARE_DATATYPE_HEADING]
     hardware = compact.get("hardware_context") or {}
@@ -1617,6 +1768,8 @@ def format_hardware_datatype_prompt_section(compact: dict[str, Any], *, max_char
 def format_hardware_training_prompt_section(compact: dict[str, Any], *, max_chars: int = 3500) -> str:
     if not compact:
         return ""
+    if compact.get("hardware_context_mode") == "compact":
+        return format_compact_hardware_prompt_section(compact, stage="training_evaluation", max_chars=max_chars)
 
     lines = [HARDWARE_TRAINING_HEADING]
     hardware = compact.get("hardware_context") or {}
@@ -1693,6 +1846,9 @@ def _append_precision_policy(lines: list[str], policy: dict[str, Any]) -> None:
     allowed = list(policy.get("allowed_policies") or [])
     if allowed:
         lines.append(f"- Allowed native training precision policies: {', '.join(allowed)}")
+    if policy.get("mode") == "conservative":
+        lines.append(f"- Conservative precision: {CONSERVATIVE_PRECISION_INSTRUCTION}")
+        return
     if policy.get("preferred_policy") == "bf16_amp":
         lines.append(
             "- Starting precision recommendation: BF16 AMP on Ampere/A100 with FP32 model parameters, "
@@ -1742,6 +1898,7 @@ def _render_prompt_lines(lines: list[str], *, max_chars: int) -> str:
         "- Hardware:",
         "- Precision optimization mode:",
         "- Allowed native training precision policies:",
+        "- Conservative precision:",
         "- Integer capability indicators",
         "- Precision evidence rule:",
         "- Stage boundary:",

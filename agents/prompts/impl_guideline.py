@@ -6,6 +6,7 @@ import humanize
 
 from agents.runtime_dependencies import advertised_package_names
 from utils.training_diagnostics import TRAINING_DIAGNOSTICS_INSTRUCTION
+from utils.precision_policy import CONSERVATIVE_PRECISION_INSTRUCTION
 
 
 def get_impl_guideline_from_agent(agent):
@@ -16,7 +17,7 @@ def get_impl_guideline_from_agent(agent):
         exec_timeout = int(max(0, tot_time_remaining))
     else:
         exec_timeout = int(max(0, min(float(configured_timeout), tot_time_remaining)))
-    return get_impl_guideline(
+    guideline = get_impl_guideline(
         tot_time_remaining=tot_time_remaining,
         steps_remaining=agent.acfg.steps - agent.current_step,
         exec_timeout=exec_timeout,
@@ -25,6 +26,9 @@ def get_impl_guideline_from_agent(agent):
         pretrain_model_dir=getattr(agent.cfg, "pretrain_model_dir", ""),
         task_name=getattr(agent.cfg, "exp_id", ""),
     )
+    if getattr(agent.acfg, "precision_optimization_mode", "normal") == "conservative":
+        guideline["Conservative precision"] = [CONSERVATIVE_PRECISION_INSTRUCTION]
+    return guideline
 
 
 def _format_time(time_in_sec):

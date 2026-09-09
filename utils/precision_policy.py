@@ -14,9 +14,19 @@ from typing import Any, Mapping
 
 
 PRECISION_MODE_NORMAL = "normal"
+PRECISION_MODE_CONSERVATIVE = "conservative"
 PRECISION_MODE_AGGRESSIVE = "aggressive"
 PRECISION_OPTIMIZATION_MODES = frozenset(
-    {PRECISION_MODE_NORMAL, PRECISION_MODE_AGGRESSIVE}
+    {PRECISION_MODE_CONSERVATIVE, PRECISION_MODE_NORMAL, PRECISION_MODE_AGGRESSIVE}
+)
+
+CONSERVATIVE_PRECISION_INSTRUCTION = (
+    "Conservative precision is mandatory for candidate models: use float32 parameters, floating inputs, "
+    "optimizer state, training, validation, and inference. Keep integer indices/labels unchanged. "
+    "Disable AMP/autocast and GradScaler; do not use FP16, BF16, FP8, FP4, FP64, quantized models, "
+    "or lower-precision adapters. TF32 may accelerate float32 matmul/convolution only on confirmed "
+    "Ampere-or-newer CUDA hardware; otherwise use FP32. TF32 uses reduced internal mantissa precision "
+    "while tensors remain float32. This rule overrides inherited code and hardware recommendations."
 )
 
 _BASE_POLICIES = ("fp32", "disabled")
@@ -123,7 +133,10 @@ def resolve_precision_policy(
     capability = _first_text(capability_value)
     normalized_architecture = _normalize_architecture(architecture_value, capability)
     allowed = list(_BASE_POLICIES)
-    if normalized_architecture in {"volta", "turing"}:
+    if normalized_mode == PRECISION_MODE_CONSERVATIVE:
+        if normalized_architecture in {"ampere", "ada_lovelace", "hopper", "blackwell"}:
+            allowed.append("tf32")
+    elif normalized_architecture in {"volta", "turing"}:
         allowed.append("fp16_amp")
     elif normalized_architecture in {"ampere", "ada_lovelace", "hopper", "blackwell"}:
         allowed.extend(("tf32", "bf16_amp", "fp16_amp"))
@@ -174,13 +187,18 @@ def resolve_precision_policy(
         requires_transformer_engine=tuple(
             policy for policy in allowed if policy in {"fp8_te", "mxfp8_te", "nvfp4_te"}
         ),
-        preferred_policy="bf16_amp" if normalized_architecture == "ampere" else None,
+        preferred_policy=(
+            "fp32" if normalized_mode == PRECISION_MODE_CONSERVATIVE
+            else "bf16_amp" if normalized_architecture == "ampere" else None
+        ),
     )
 
 
 def precision_feature_visibility(feature_id: Any, policy: PrecisionPolicy) -> str:
     """Classify a precision feature for datatype-optimization prompts."""
     feature = str(feature_id or "").strip().lower().replace("-", "_")
+    if policy.mode == PRECISION_MODE_CONSERVATIVE and feature not in policy.permitted_features:
+        return "hidden"
     if feature in policy.recommended_features:
         return "recommendation"
     if feature in policy.permitted_features:

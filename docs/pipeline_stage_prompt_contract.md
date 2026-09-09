@@ -148,9 +148,45 @@ The contract is enabled by default:
 ```yaml
 agent:
   pipeline_decision_enabled: true
-  precision_optimization_mode: normal  # normal | aggressive
+  precision_optimization_mode: normal  # conservative | normal | aggressive
+  hardware_context_mode: full         # full | compact
 ```
 
 Set `agent.pipeline_decision_enabled=false` to restore the previous prompt flow
 without the extra structured decision call. This switch supports controlled
 A/B evaluation with the same branch, task, seed, model, and execution settings.
+
+`agent.precision_optimization_mode=conservative` requires float32 candidate
+models, floating inputs, optimizer state, training, validation and inference.
+AMP, GradScaler, lower-precision/quantized model paths and explicit FP64 are
+rejected. Integer labels and indices remain valid. TF32 is permitted only with
+confirmed Ampere-or-newer hardware; V100/T4 and unknown hardware use FP32.
+TF32 retains float32 tensors but uses reduced internal mantissa precision.
+This controls generated candidates, not the precision of the agent's LLM.
+The policy applies to origin/baseline modes too, independently of hardware
+context, pipeline decisions, code review and preflight availability. A configured
+local preflight target profile can establish hardware when the graph is absent.
+The conservative static guard checks explicit Python precision operations and
+declarations, including inherited lower-precision fallback code; it is not a
+runtime proof of arbitrary third-party or dynamically generated code.
+
+`agent.hardware_context_mode=compact` independently selects a short evidence
+view (at most 1,000 characters, or the smaller configured prompt character
+budget). It retains hardware/precision/backend constraints, then at most two
+critical recommended patterns and two avoid patterns from the relevant stage,
+within a shared 250-character pattern budget.
+Patterns must describe failure prevention or explicit restrictions; feature-level
+patterns also require verified evidence. Optimizer advice, generic speed recipes,
+profile/symptom dumps, references and patterns conflicting with the precision
+policy or a known target compute capability are omitted. Long patterns are
+omitted rather than truncated, preserving
+their conditions. Shared hardware instructions are shortened, and the feature
+catalog and feature-selection LLM call are skipped.
+The pipeline decision receives the rendered view instead of the full
+hardware JSON, and merge receives one bounded view rather than three joined
+stage views. Full evidence remains in node diagnostics. This setting does not
+reduce task/code context, lesson profiles, CUDA-documentation context or alter
+scheduler admission. The defaults remain `normal` and `full`.
+
+For the implementation audit, measured prompt savings and experiment limits,
+see [precision/context analysis](../records/2026-09-08_conservative_precision_context_analysis.md).

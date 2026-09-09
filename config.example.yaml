@@ -293,7 +293,8 @@ agent:
   pipeline_decision_enabled: true
   hardware_context_limit: 8
   hardware_context_max_prompt_chars: 3500
-  precision_optimization_mode: normal
+  hardware_context_mode: full  # full | compact (bounded evidence; no feature-selection LLM call)
+  precision_optimization_mode: normal  # conservative (FP32/TF32 only) | normal | aggressive
   # NVIDIA CUDA documentation enrichment is local-first and disabled by
   # default. Enable progressively: shadow -> prefetch_only -> debug_cached ->
   # debug_live. Only debug_live permits a blocking hosted lookup.

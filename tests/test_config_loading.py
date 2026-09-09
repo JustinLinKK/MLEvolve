@@ -22,6 +22,21 @@ def test_default_config_keeps_global_memory_off_the_scheduler_gpu() -> None:
     assert default_config["agent"]["memory_embedding_device"] == "cpu"
 
 
+@pytest.mark.parametrize("mode", ["origin", "baseline", "hardware_aware"])
+def test_conservative_and_compact_config_are_independent_of_experiment_mode(monkeypatch, tmp_path, mode) -> None:
+    path = tmp_path / "config.yaml"
+    _write_config(path, marker="conservative")
+    payload = yaml.safe_load(path.read_text())
+    payload["experiment"]["mode"] = mode
+    payload["agent"].update(precision_optimization_mode="conservative", hardware_context_mode="compact")
+    path.write_text(yaml.safe_dump(payload))
+    monkeypatch.setattr(sys, "argv", ["prog"])
+    cfg = mle_config.prep_cfg(mle_config._load_cfg(path, use_cli_args=True))
+    assert cfg.agent.precision_optimization_mode == "conservative"
+    assert cfg.agent.hardware_context_mode == "compact"
+    assert cfg.agent.hardware_context_enabled == (mode == "hardware_aware")
+
+
 def test_example_config_keeps_a_full_local_vllm_completion_without_capping_context() -> None:
     default_config = yaml.safe_load(
         (Path(__file__).parents[1] / "config.example.yaml").read_text()

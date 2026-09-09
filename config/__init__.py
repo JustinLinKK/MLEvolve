@@ -195,6 +195,7 @@ class AgentConfig:
     pipeline_decision_enabled: bool = True
     hardware_context_limit: int = 8
     hardware_context_max_prompt_chars: int = 3500
+    hardware_context_mode: str = "full"
     precision_optimization_mode: str = "normal"
     review: ReviewConfig = field(default_factory=ReviewConfig)
     cuda_docs: CudaDocsConfig = field(default_factory=CudaDocsConfig)
@@ -480,6 +481,9 @@ def prep_cfg(cfg: Config):
     cfg.agent.precision_optimization_mode = normalize_precision_optimization_mode(
         cfg.agent.precision_optimization_mode
     )
+    cfg.agent.hardware_context_mode = str(cfg.agent.hardware_context_mode).strip().lower()
+    if cfg.agent.hardware_context_mode not in {"full", "compact"}:
+        raise ValueError("agent.hardware_context_mode must be one of: full, compact")
     if cfg.experiment.mode in {EXPERIMENT_MODE_ORIGIN, EXPERIMENT_MODE_BASELINE}:
         cfg.agent.hardware_context_enabled = False
         if not cfg.lesson_profiles.enable_in_baseline_modes:
