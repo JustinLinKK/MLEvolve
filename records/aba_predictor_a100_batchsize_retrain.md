@@ -3,8 +3,9 @@
 - Date: 2026-09-08.
 - Host: `ssh ABA`.
 - Training source: latest `perfseer_optimized` source snapshot.
-- Upstream parent revision fetched: `d6310c0b`.
-- Predictor submodule revision fetched: `6d973d6`.
+- Predictor remote branch: `origin/v2`.
+- Predictor latest revision: `6d973d6`.
+- Verified model source checksum: `d57fcc35ac2e`.
 - Native architecture: separate metric heads.
 - Native current configuration: six separate heads.
 - Training extension: twelve separate one-output heads.
