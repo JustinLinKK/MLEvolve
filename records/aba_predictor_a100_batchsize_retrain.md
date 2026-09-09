@@ -4,15 +4,17 @@
 - Host: `ssh ABA`.
 - Training source: latest `perfseer_optimized` source snapshot.
 - Predictor remote branch: `origin/v2`.
-- Predictor latest revision: `6d973d6`.
+- Predictor latest revision: `8e521f6`.
 - Verified model source checksum: `d57fcc35ac2e`.
 - Server source directory: `/home/yufan/Predictor`.
-- MLEvolve predictor gitlink: `1a6203d`.
+- MLEvolve predictor gitlink: `ca38656`.
 - Six-head twelve-label architecture test: passed on ABA.
 - Largest graph: 11,964 nodes and 18,314 edges.
 - Fixed 16-item batches reached 191,424 graph nodes.
 - Fixed-batch run emitted a 1.52 GB CUDA allocation OOM warning.
-- Current sampler caps every training batch at 32,000 graph nodes.
+- Training and validation sampler cap: 16,000 graph nodes.
+- Fixed validation batches can reach 148,056 graph nodes.
+- Test sampler remains unbuilt when `--skip-test` is set.
 - CUDA allocator caches were retained across variable graph batches.
 - Current trainer releases unused CUDA cache after every batch.
 - Native architecture: six separate metric heads.
@@ -43,4 +45,4 @@
 - Held-out test cache: missing all 136 graph inputs.
 - Final test report: explicitly skipped, never imputed.
 - Rejected pre-epoch runs: twelve physical heads and staged source path.
-- Training output: `/data1/yufan/perfseer_v32_a100_bs_training_20260908/training_latest_predictor_six_heads_v12`.
+- Active training output: `/data1/yufan/perfseer_v32_a100_bs_training_20260908/training_latest_predictor_six_heads_v12_safe_16k_r3`.
