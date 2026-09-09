@@ -6,9 +6,9 @@
 - Predictor remote branch: `origin/v2`.
 - Predictor latest revision: `6d973d6`.
 - Verified model source checksum: `d57fcc35ac2e`.
-- Native architecture: separate metric heads.
-- Native current configuration: six separate heads.
-- Training extension: twelve separate one-output heads.
+- Native architecture: six separate metric heads.
+- Training extension: six heads with widths `3,1,3,2,1,2`.
+- Training extension output width: twelve labels.
 - Training metric: relative error against ground truth.
 - Per epoch: report each output within 5% and 10%.
 - Base corpus: 40,020 unique profile points.
@@ -33,4 +33,5 @@
 - Per-epoch validation: all twelve 5% and 10% accuracies.
 - Held-out test cache: missing all 136 graph inputs.
 - Final test report: explicitly skipped, never imputed.
-- Training output: `/data1/yufan/perfseer_v32_a100_bs_training_20260908/training_latest_separate_heads_v12`.
+- Rejected pre-epoch run: twelve physical heads.
+- Training output: `/data1/yufan/perfseer_v32_a100_bs_training_20260908/training_latest_six_heads_v12`.
