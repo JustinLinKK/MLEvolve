@@ -7,12 +7,14 @@
 - Predictor latest revision: `6d973d6`.
 - Verified model source checksum: `d57fcc35ac2e`.
 - Server source directory: `/home/yufan/Predictor`.
-- MLEvolve predictor gitlink: `ad9a645`.
+- MLEvolve predictor gitlink: `1a6203d`.
 - Six-head twelve-label architecture test: passed on ABA.
 - Largest graph: 11,964 nodes and 18,314 edges.
 - Fixed 16-item batches reached 191,424 graph nodes.
 - Fixed-batch run emitted a 1.52 GB CUDA allocation OOM warning.
 - Current sampler caps every training batch at 32,000 graph nodes.
+- CUDA allocator caches were retained across variable graph batches.
+- Current trainer releases unused CUDA cache after every batch.
 - Native architecture: six separate metric heads.
 - Training extension: six heads with widths `3,1,3,2,1,2`.
 - Training extension output width: twelve labels.
