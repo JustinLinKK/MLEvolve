@@ -1,0 +1,35 @@
+# ABA Predictor 12-Label Batch-Size Retraining
+
+- Date: 2026-09-08.
+- Host: `ssh ABA`.
+- Training source: latest `perfseer_optimized` source snapshot.
+- Upstream parent revision fetched: `d6310c0b`.
+- Predictor submodule revision fetched: `6d973d6`.
+- Native architecture: separate metric heads.
+- Native current configuration: six separate heads.
+- Training extension: twelve separate one-output heads.
+- Training metric: relative error against ground truth.
+- Per epoch: report each output within 5% and 10%.
+- Base corpus: 40,020 unique profile points.
+- Added batch-size corpus: 4,800 profile points.
+- Batch sizes: 16, 32, 64, 128.
+- Duplicate batch-size points: 0.
+- Missing batch-size model sources: 0.
+- Combined corpus: 44,820 unique profile points.
+- Exact duplicate measurements removed: 34,684.
+- New graph conversions required: 2,608.
+- Reused verified graph conversions: remaining base corpus.
+- Dataset workspace: `/data1/yufan/perfseer_v32_a100_bs_training_20260908`.
+- Verified split counts: 36,012 train, 4,544 validation, 4,264 test.
+- Verified graph inputs: 2,608.
+- Available A100 training: CUDA device 1 only.
+- GPU 0 is occupied by an unrelated process.
+- Teacher schedule: up to 800 epochs.
+- Local microbatch: 16.
+- Gradient accumulation: 8.
+- Effective predictor batch: 128.
+- Early stopping patience: 60 epochs.
+- Per-epoch validation: all twelve 5% and 10% accuracies.
+- Held-out test cache: missing all 136 graph inputs.
+- Final test report: explicitly skipped, never imputed.
+- Training output: `/data1/yufan/perfseer_v32_a100_bs_training_20260908/training_latest_separate_heads_v12`.
