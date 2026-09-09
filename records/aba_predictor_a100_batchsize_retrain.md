@@ -7,7 +7,8 @@
 - Predictor latest revision: `6d973d6`.
 - Verified model source checksum: `d57fcc35ac2e`.
 - Server source directory: `/home/yufan/Predictor`.
-- MLEvolve predictor gitlink: `6013ecd`.
+- MLEvolve predictor gitlink: `4800857`.
+- Six-head twelve-label architecture test: passed on ABA.
 - Native architecture: six separate metric heads.
 - Training extension: six heads with widths `3,1,3,2,1,2`.
 - Training extension output width: twelve labels.
