@@ -42,17 +42,17 @@
 - GPU 0 is occupied by an unrelated process.
 - Teacher schedule: up to 800 epochs.
 - Local microbatch: 16.
-- Gradient accumulation: 8.
-- Effective predictor batch: 128.
+- Gradient accumulation: 3.
+- Effective predictor batch: 48.
 - Early stopping patience: 60 epochs.
 - Per-epoch validation: all twelve 5% and 10% accuracies.
 - Held-out test cache: missing all 136 graph inputs.
 - Final test report: explicitly skipped, never imputed.
 - Rejected pre-epoch runs: twelve physical heads and staged source path.
-- Active training output: `/data1/yufan/perfseer_v32_a100_bs_training_20260908/training_latest_predictor_six_heads_v12_safe_32k_r6`.
-- Epoch 1 completed at `2026-09-09T14:47:58Z`.
+- Active training output: `/data1/yufan/perfseer_v32_a100_bs_training_20260908/training_latest_predictor_six_heads_v12_teacher_batch48_r7`.
+- Prior accumulation-8 diagnostic epoch 1 completed at `2026-09-09T14:47:58Z`.
 - Epoch 1 validation rows: 4,544.
-- Epoch 1 5% gate: false.
+- Prior diagnostic epoch 1 5% gate: false.
 - `train_step_wall_ms`: 5%=31.73%, 10%=58.03%.
 - `train_step_gpu_ms`: 5%=30.68%, 10%=57.02%.
 - `train_epoch_ms`: 5%=31.14%, 10%=58.85%.
