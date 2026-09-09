@@ -65,3 +65,18 @@
 - `infer_avg_sm_util_percent`: 5%=47.69%, 10%=82.35%.
 - `infer_avg_vram_mib`: 5%=92.10%, 10%=97.01%.
 - `infer_peak_vram_mib`: 5%=92.12%, 10%=97.03%.
+- Teacher-batch-48 epoch 1 completed at `2026-09-09T15:28:08Z`.
+- Teacher-batch-48 epoch 1 validation rows: 4,544.
+- Teacher-batch-48 epoch 1 5% gate: false.
+- `train_step_wall_ms`: 5%=29.69%, 10%=57.04%.
+- `train_step_gpu_ms`: 5%=30.59%, 10%=57.68%.
+- `train_epoch_ms`: 5%=27.77%, 10%=52.40%.
+- `train_avg_sm_util_percent`: 5%=29.38%, 10%=56.91%.
+- `train_avg_vram_mib`: 5%=93.09%, 10%=98.50%.
+- `train_peak_vram_mib`: 5%=93.09%, 10%=98.50%.
+- `train_peak_torch_allocated_mib`: 5%=75.59%, 10%=84.90%.
+- `infer_step_wall_ms`: 5%=43.09%, 10%=75.22%.
+- `infer_step_gpu_ms`: 5%=43.75%, 10%=74.96%.
+- `infer_avg_sm_util_percent`: 5%=49.58%, 10%=81.60%.
+- `infer_avg_vram_mib`: 5%=91.97%, 10%=98.24%.
+- `infer_peak_vram_mib`: 5%=91.99%, 10%=98.50%.
