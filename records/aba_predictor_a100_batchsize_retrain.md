@@ -50,3 +50,18 @@
 - Final test report: explicitly skipped, never imputed.
 - Rejected pre-epoch runs: twelve physical heads and staged source path.
 - Active training output: `/data1/yufan/perfseer_v32_a100_bs_training_20260908/training_latest_predictor_six_heads_v12_safe_32k_r6`.
+- Epoch 1 completed at `2026-09-09T14:47:58Z`.
+- Epoch 1 validation rows: 4,544.
+- Epoch 1 5% gate: false.
+- `train_step_wall_ms`: 5%=31.73%, 10%=58.03%.
+- `train_step_gpu_ms`: 5%=30.68%, 10%=57.02%.
+- `train_epoch_ms`: 5%=31.14%, 10%=58.85%.
+- `train_avg_sm_util_percent`: 5%=31.03%, 10%=58.14%.
+- `train_avg_vram_mib`: 5%=94.04%, 10%=95.99%.
+- `train_peak_vram_mib`: 5%=94.04%, 10%=95.99%.
+- `train_peak_torch_allocated_mib`: 5%=75.31%, 10%=87.26%.
+- `infer_step_wall_ms`: 5%=51.10%, 10%=80.35%.
+- `infer_step_gpu_ms`: 5%=48.72%, 10%=79.49%.
+- `infer_avg_sm_util_percent`: 5%=47.69%, 10%=82.35%.
+- `infer_avg_vram_mib`: 5%=92.10%, 10%=97.01%.
+- `infer_peak_vram_mib`: 5%=92.12%, 10%=97.03%.
