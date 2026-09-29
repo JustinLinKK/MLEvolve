@@ -6,3 +6,7 @@
 	path = nn-model-preflight-checker
 	url = https://github.com/JustinLinKK/nn-model-preflight-checker.git
 	branch = main
+[submodule "localml_scheduler"]
+	path = localml_scheduler
+	url = https://github.com/JustinLinKK/localml_scheduler.git
+	branch = main

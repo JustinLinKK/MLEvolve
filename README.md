@@ -5,7 +5,7 @@ This repository combines the MLEvolve search-agent framework with the hardware-a
 - **Agentic search runtime** (`agents/`, `engine/`, `llm/`, `run.py`) — plans, generates, reviews, selectively repairs, executes, and evolves ML solutions.
 - **Trace replay benchmark** (`scheduler_benchmark_test/`) — replays recorded MLEvolve candidate timelines against the scheduler and a multiprocess baseline, plus stress-test fixtures.
 - **Lesson Profile Database** (`lesson_profile_database/`) — independent SQLite/Qdrant/Redis memory built only from final-validated search nodes.
-- **Scheduler** (`localml_scheduler/`) — local machine-learning-job scheduler with profiling, prediction, early stopping, checkpointing, packing, and observability.
+- **Scheduler submodule** (`localml_scheduler/`) — pinned local machine-learning-job scheduler with profiling, prediction, early stopping, checkpointing, packing, and observability.
 
 ## Layout
 
@@ -14,7 +14,7 @@ This repository combines the MLEvolve search-agent framework with the hardware-a
 | `agents/`, `engine/`, `llm/`, `run.py` | MLEvolve planning, generation, stage-aware review/repair, MCTS search, and execution runtime |
 | `scheduler_benchmark_test/` | Trace replay entry points (`run_histopath_*.sh`), timeline extraction, stress-test data |
 | `replay_model_sources/` | Archived model-source traces used by the replay fixtures |
-| `localml_scheduler/` | Scheduler package (`client`, `scheduler/`, `execution/`, `prediction/`, `profiling/`, `storage/`, CLI) |
+| `localml_scheduler/` | Pinned scheduler submodule (`client`, `scheduler/`, `execution/`, `prediction/`, `profiling/`, `storage/`, CLI) |
 | `nn-model-preflight-checker/` | Pinned CPU model-preflight checker submodule used before GPU admission |
 | `hardware_knowledge_graph/` | HWKB client/store code (Neo4j + vector DB) |
 | `lesson_profile_database/` | Family/hardware observations, immutable revisions, role-scoped lessons, worker, CLI, and read-only MCP API |
@@ -101,6 +101,34 @@ python -c "import jsonschema, model_preflight; print('model preflight ready')"
 cp config.example.yaml config.yaml   # fill in hardware_knowledge, lesson_profiles, and scheduler settings
 bash docker_host_databases.sh        # local Neo4j + Qdrant + persistent Redis
 bash bootstrap.sh                    # checks services; initializes lesson SQLite/Qdrant indexes
+```
+
+### Scheduler submodule development
+
+`localml_scheduler/` is developed in the public
+[JustinLinKK/localml_scheduler](https://github.com/JustinLinKK/localml_scheduler)
+repository. Its checkout is also the Python package, so existing imports and
+commands keep the same paths. Run scheduler commands and integration tests
+from the MLEvolve root using this project's
+environment; the MLEvolve adapter and hardware-knowledge integration still use
+the host's `engine/`, `utils/`, and `schema/` files.
+
+After pulling MLEvolve changes, run `git submodule update --init --recursive`
+to check out the recorded revisions. To work on the scheduler, create a branch
+inside `localml_scheduler/`, then commit and publish its changes there first.
+Record the tested scheduler commit in MLEvolve with `git add localml_scheduler`
+and include that pointer update in the parent commit. Publish the scheduler
+commit before publishing a parent commit that references it.
+
+During the first migration, ignored caches or local runtime files can leave
+`localml_scheduler/` nonempty and prevent initialization. If Git reports this,
+move that directory to a backup outside the checkout, rerun the submodule
+update, and restore any local configuration or runtime files from the backup.
+
+```bash
+git -C localml_scheduler status
+git diff --submodule=log
+python -m pytest -q localml_scheduler/tests/test_client_surface.py tests/test_component_modularity.py
 ```
 
 ## Reducing End-to-End Run Time
