@@ -265,7 +265,7 @@ scheduler:
         default_omp_num_threads: 6
         default_mkl_num_threads: 6
 agent:
-  steps: 500
+  steps: 50
   time_limit: 172800
   initial_drafts: 3
   seed: 42

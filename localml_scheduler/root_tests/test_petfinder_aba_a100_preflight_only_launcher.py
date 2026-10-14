@@ -15,7 +15,7 @@ LAUNCHER = (
 def test_launcher_is_strict_preflight_only_ablation() -> None:
     launcher = LAUNCHER.read_text(encoding="utf-8")
 
-    assert 'node_budget="${PREFLIGHT_NODE_BUDGET:-20}"' in launcher
+    assert 'node_budget="${PREFLIGHT_NODE_BUDGET:-50}"' in launcher
     assert "agent.seed=42" in launcher
     assert "agent.initial_drafts=3" in launcher
     assert "agent.clean_task_description=true" in launcher

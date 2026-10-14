@@ -29,7 +29,7 @@ exec:
 # agent hyperparams
 agent:
   # how many improvement iterations to run
-  steps: 500
+  steps: 50
   # total time available to agent
   time_limit: 43200 # 12 hrs (purely informational, implementation is user's resp)
   # whether to instruct the agent to use CV (set to 1 to disable)
@@ -91,7 +91,6 @@ agent:
       alpha: 0.01
       phase_ratios: [0.85, 1]
     
-
 
 
 

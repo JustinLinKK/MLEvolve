@@ -25,7 +25,7 @@ if [[ "$phase" == baseline ]]; then
   node_budget="${BASELINE_NODE_BUDGET:-50}"
   phase_repo="$original_baseline_repo"
 else
-  node_budget="${SCHEDULER_NODE_BUDGET:-20}"
+  node_budget="${SCHEDULER_NODE_BUDGET:-50}"
   phase_repo="$current_repo"
 fi
 

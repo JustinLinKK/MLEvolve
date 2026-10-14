@@ -8,7 +8,7 @@ data_dir="${PETFINDER_DATA_DIR:-$cache_root/data/petfinder-pawpularity-score}"
 desc_file="${PETFINDER_DESC_FILE:-$data_dir/description.md}"
 agent_url="${QWEN_VLLM_URL:-http://127.0.0.1:8000/v1}"
 model_name="${QWEN_SERVED_MODEL_NAME:-qwen3.8-27b-int8-a100}"
-node_budget="${PREFLIGHT_NODE_BUDGET:-20}"
+node_budget="${PREFLIGHT_NODE_BUDGET:-50}"
 search_time_limit="${PETFINDER_SEARCH_TIME_LIMIT:-86400}"
 torch_hub_dir="${TORCH_HUB_DIR:-$cache_root/torch}"
 run_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -29,7 +29,7 @@ test -d "$data_dir/test"
 test -r "$desc_file"
 [[ "$node_budget" =~ ^[1-9][0-9]*$ ]]
 [[ "$search_time_limit" =~ ^[1-9][0-9]*$ ]]
-test "$node_budget" -eq 20
+test "$node_budget" -eq 50
 
 # Physical GPU 1 hosts the local Qwen vLLM service; physical GPU 0 is reserved
 # for candidate execution. Refuse to mix with an unidentified GPU 0 workload.
@@ -164,7 +164,7 @@ agent = SimpleNamespace(
     ),
     acfg=SimpleNamespace(
         time_limit=86400,
-        steps=20,
+        steps=50,
         prompt_compatibility_profile="original_mlevolve_20260924",
         expose_prediction=False,
         k_fold_validation=0,
