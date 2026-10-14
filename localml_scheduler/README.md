@@ -366,8 +366,8 @@ metrics. A matched exclusive solo control replays each time-aware selected
 batch so measured slowdown is not confounded by batch-size changes:
 
 ```bash
-python scheduler_benchmark_test/repeat_time_aware_benchmark.py \
-  --results-dir results/scheduler_benchmark_test/a10_time_aware \
+python localml_scheduler/benchmark_test/repeat_time_aware_benchmark.py \
+  --results-dir results/localml_scheduler/benchmark_test/a10_time_aware \
   --data-root /path/to/cassava/prepared/public \
   --repetitions 3
 ```

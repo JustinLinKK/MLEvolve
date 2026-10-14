@@ -147,6 +147,29 @@ class ColocationDecisionMixin:
                 "missing_member_ids": missing_members,
                 "evidence_deadline_at": trial.evidence_deadline_at,
             }
+            extended_deadline = (
+                self._extended_trial_deadline_from_observed_epochs(trial, all_jobs)
+                if not deadline_expired
+                else None
+            )
+            if extended_deadline is not None:
+                previous_deadline = trial.evidence_deadline_at
+                trial.evidence_deadline_at = extended_deadline
+                progress_payload["evidence_deadline_at"] = extended_deadline
+                self.store.update_job(
+                    candidate.job_id,
+                    metadata_updates={"colocation_trial": trial.to_dict()},
+                )
+                self.event_logger.emit(
+                    "colocation_trial_evidence_deadline_extended",
+                    job_id=candidate.job_id,
+                    payload={
+                        **progress_payload,
+                        "previous_deadline_at": previous_deadline,
+                        "observed_epoch_extension": True,
+                    },
+                )
+                self._persist_scheduler_decision_state()
             if candidate_remaining == 0:
                 decision = {
                     **trial.to_dict(),

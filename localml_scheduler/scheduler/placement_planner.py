@@ -219,6 +219,42 @@ class PlacementPlanner:
                     mandatory_anchor_job_id=mandatory.job_id if mandatory else None,
                     objective_version=self.settings.gpu_scheduler.objective.objective_version,
                 )
+            # A single, unknown-runtime job is still safe to launch through the
+            # configured packed backend.  This is a transport decision, not an
+            # admission of a second job: the scheduler retains one-job
+            # execution until it has profile evidence for colocation.  It is
+            # essential for MPS because the daemon's logical CUDA namespace is
+            # different from an exclusive worker's physical namespace.
+            packing_backend = self.settings.gpu_scheduler.packing_backend
+            packed_anchor = next(
+                (
+                    job
+                    for job in normal_window
+                    if backend_available.get(packing_backend, False)
+                    and self.compatibility.pack_eligible(
+                        job, backend_name=packing_backend
+                    )
+                ),
+                None,
+            )
+            if packed_anchor is not None:
+                backend_config: dict[str, object] = {}
+                if packing_backend == "mps_process":
+                    backend_config = {
+                        "allocation_percentages": [
+                            self.settings.gpu_scheduler.mps.default_primary_active_thread_pct,
+                            self.settings.gpu_scheduler.mps.default_secondary_active_thread_pct,
+                        ]
+                    }
+                return DispatchPlan(
+                    mode="stack_anchor",
+                    backend_name=packing_backend,
+                    job_ids=(packed_anchor.job_id,),
+                    reason="runtime estimate unavailable; packed-backend solo anchor",
+                    backend_config=backend_config,
+                    mandatory_anchor_job_id=mandatory.job_id if mandatory else None,
+                    objective_version=self.settings.gpu_scheduler.objective.objective_version,
+                )
             exclusive_candidates = [
                 (self._fastest_time_option(job, "exclusive"), job) for job in normal_window
             ]

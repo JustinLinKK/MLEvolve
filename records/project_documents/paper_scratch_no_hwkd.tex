@@ -1,0 +1,235 @@
+%%%%%%%% MLSys paper draft: methods and system design %%%%%%%%
+\documentclass{article}
+
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subfigure}
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\newcommand{\theHalgorithm}{\arabic{algorithm}}
+\usepackage{mlsys2025}
+
+\mlsystitlerunning{Profile-Guided Incremental Scheduling for Agentic ML Search}
+
+\newcommand{\method}{\textsc{BranchSched}}
+\newcommand{\mlevolve}{\textsc{MLEvolve}}
+\newcommand{\preflight}{\textsc{Preflight}}
+\newcommand{\predictor}{\textsc{Predictor-v3.2}}
+
+\begin{document}
+
+\twocolumn[
+\mlsystitle{Profile-Guided Incremental Scheduling for Agentic Machine Learning Search}
+
+\begin{mlsysauthorlist}
+\mlsysauthor{Anonymous Authors}{}
+\end{mlsysauthorlist}
+
+\mlsyskeywords{agentic machine learning, GPU scheduling, resource prediction, preflight validation}
+
+\vskip 0.3in
+
+\begin{abstract}
+Agentic machine-learning search continuously produces candidate training programs whose runtime, memory demand, and validity are unknown until execution. This makes fixed-concurrency scheduling unsafe and wasteful: a conservative cap leaves accelerators idle, while an aggressive cap risks out-of-memory (OOM) failure and destroys the causal trace of a search branch. We present \method, a scheduler for \mlevolve-style program search that combines candidate-level CPU preflight validation, source-derived resource prediction, and live GPU telemetry. \method admits work incrementally rather than configuring a fixed maximum number of parallel jobs; it schedules only candidates that are feasible under a current memory budget and ranks them using predicted execution time. Its decisions are derived from the candidate, observed branch profiles, the learned predictor, and measurements from the active device. This paper describes the problem formulation, system design, and implementation.
+\end{abstract}
+]
+
+\printAffiliationsAndNotice{}
+
+\section{Introduction}
+\label{sec:introduction}
+
+Automated machine-learning systems increasingly synthesize and evaluate complete training programs rather than selecting from a fixed hyperparameter grid~\cite{feurer2015automl}. In these systems, an agent proposes code, executes it, observes a validation metric and failure signals, and expands promising search branches. This closed loop is appealing because it can adapt architectures, data processing, and optimization jointly. It is also a systems problem: each candidate is an arbitrary program with an uncertain runtime, peak video random-access memory (VRAM) demand, and probability of failing before producing a metric.
+
+Naively executing candidates one at a time underutilizes a graphics processing unit (GPU). Conversely, launching a fixed number of candidates concurrently is not a reliable solution. Candidate resource demand varies substantially across model families, image sizes, batch sizes, data pipelines, and optimizer state. A fixed parallelism cap is both device-specific and workload-specific; it can be overly conservative for one set of candidates and trigger an OOM error for the next. More importantly, a failed candidate may reflect a program defect rather than a resource shortage, so conflating the two corrupts search feedback.
+
+This paper presents \method, a profile-guided scheduler for agentic ML search. The scheduler has three principles. First, it validates each generated candidate with a lightweight CPU preflight before reserving a GPU. Second, it obtains a candidate-specific profile---including estimated epoch time and memory demand---from \predictor, which consumes source-derived features and a learned model. Third, it admits jobs incrementally according to live GPU telemetry rather than using a configured \emph{Max Parallel Jobs} value. These choices let the controller distinguish invalid code, unsafe resource demand, and ordinary queueing.
+
+The scheduler bases each decision on (i) candidate source and declared training configuration, (ii) execution observations attached to the search branch, (iii) \predictor predictions, and (iv) device telemetry gathered at scheduling time. These signals make the provenance of each online profiling and scheduling decision explicit.
+
+The paper makes the following contributions:
+\begin{itemize}
+    \item We formulate agentic ML program search as online, uncertainty-aware GPU admission and scheduling.
+    \item We design a preflight-to-profile pipeline that prevents reproducible candidate defects from consuming accelerator slots.
+    \item We introduce incremental admission using predicted resource profiles and live telemetry, eliminating fixed job-concurrency caps.
+    \item We describe an implementation that preserves per-node traces and separates generated-program failures from scheduler decisions.
+\end{itemize}
+
+\section{Problem Setting}
+\label{sec:problem}
+
+An agentic search run produces a directed search tree. Each node $i$ contains a candidate program $c_i$, its parent branch, a proposed training configuration $h_i$, and, after execution, an outcome $y_i$. An outcome may contain a validation metric, a submission artifact, a runtime trace, or a failure classification. The controller repeatedly selects a frontier node, generates a child candidate, validates it, and chooses whether and when to execute it.
+
+At time $t$, let $\mathcal{Q}(t)$ be the ready candidates and $\mathcal{R}(t)$ the currently running candidates. For a candidate $i$, the scheduler seeks estimates
+\[
+  \hat{\tau}_i = \text{predicted execution time}, \qquad
+  \hat{m}_i = \text{predicted peak VRAM},
+\]
+as well as an admissibility decision $a_i\in\{0,1\}$. Let $M_{\mathrm{free}}(t)$ denote free GPU memory measured from the active device and let $\delta(t)$ be a telemetry-dependent safety reserve. A candidate is memory-feasible if
+\begin{equation}
+  \hat{m}_i + \sum_{j\in\mathcal{R}(t)} \hat{m}_j
+  \leq M_{\mathrm{free}}(t) + \sum_{j\in\mathcal{R}(t)}m_j(t) - \delta(t),
+  \label{eq:feasibility}
+\end{equation}
+where $m_j(t)$ is the observed memory currently attributed to job $j$. This expression uses live measurements to avoid treating historical predictions as ground truth.
+
+The objective is to maximize useful GPU work while preserving safe execution and trace fidelity. ``Useful'' excludes candidates rejected by preflight, candidates that fail before training begins, and work whose resource estimate is unavailable. The scheduler therefore does not solve a static bin-packing instance. It repeatedly observes, predicts, admits, dispatches, and updates profiles as the search evolves.
+
+\section{System Overview}
+\label{sec:overview}
+
+Figure~\ref{fig:overview} sketches the control path. A candidate emitted by the search agent first passes through \preflight. Admitted candidates are converted into source features and scored by \predictor. The scheduler combines those estimates with current GPU telemetry and submits only feasible jobs to an execution backend. Every stage emits a durable event so that the final trace can distinguish code rejection, scheduler deferral, execution failure, and successful training.
+
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.93\columnwidth}{\centering
+\small
+Search agent $\rightarrow$ candidate code $\rightarrow$ CPU preflight $\rightarrow$
+source capture and \predictor $\rightarrow$ incremental admission $\rightarrow$
+GPU execution $\rightarrow$ branch record and scheduler update}}
+\caption{Control path of \method. All scheduling inputs are generated online within the active run.}
+\label{fig:overview}
+\end{figure}
+
+\subsection{Search Controller and Trace Semantics}
+
+The search controller owns the logical search tree. It records the code revision, parent node, review history, preflight result, scheduler decision, execution outcome, and metric for each node. A node that fails a CPU preflight is a \emph{rejected candidate}; it is not an executed buggy node. A node that launches and terminates with a program error is an \emph{executed buggy node}. This distinction matters for both scheduler learning and later analysis: a rejected candidate consumed no GPU training slot, whereas an executed failure did.
+
+The controller can use a local OpenAI-compatible inference endpoint, for example one served by vLLM~\cite{kwon2023vllm}, for code generation and review. This service is outside the scheduling critical path after a candidate becomes ready: the scheduler operates only on validated candidate artifacts and measured device state. Keeping generation and execution traces separate prevents language-model latency from being mislabeled as training time.
+
+\subsection{Design Scope}
+
+\method is designed for a single active GPU or a set of independently scheduled GPUs. It supports process-based CUDA execution and can expose a multi-process service (MPS) backend through the same admission interface. This draft does not assume cross-device migration or a global cluster scheduler. The scheduler is therefore responsible for online decisions under the resources it can directly observe.
+
+\section{Candidate Preflight Validation}
+\label{sec:preflight}
+
+Generated ML code is frequently syntactically valid but operationally incomplete: it may depend on unavailable weights, use an incompatible tensor shape, mutate an optimizer incorrectly, or fail to emit a required artifact. Sending such code directly to a GPU wastes queue time and makes scheduler outcomes difficult to interpret. \preflight is a CPU-side admission gate that runs before GPU placement.
+
+Each candidate must expose a top-level \texttt{CandidateAdapter} with methods for constructing the real model and optimizer, creating train and validation batches, and performing one training and validation step. The adapter is not a mock. It calls the candidate's actual model, criterion, optimizer, transforms, and collation logic on a small fixture. The fixture carries the named modalities required by the task; for PetFinder, this includes an image tensor, tabular features, and a scalar regression target.
+
+\preflight checks the following properties:
+\begin{enumerate}
+    \item \textbf{Import safety.} The module can be imported offline without downloading models or data.
+    \item \textbf{Adapter contract.} The candidate provides the required no-argument adapter and returns a real \texttt{torch.nn.Module} and optimizer.
+    \item \textbf{Forward and backward validity.} Abstract, training, and validation paths complete with compatible shapes and a differentiable scalar loss.
+    \item \textbf{Artifact contract.} The program retains the expected validation-metric and submission behavior under its main guard.
+\end{enumerate}
+
+The preflight output is an admission summary and a structured list of diagnostics. If a diagnostic is attributable to the generated code, the controller may request a targeted repair and rerun preflight for a bounded number of rounds. The scheduler never dispatches a candidate whose code hash differs from the hash approved by preflight. This hash binding prevents a review or repair step from silently invalidating a prior admission decision.
+
+\section{Profile Construction and Prediction}
+\label{sec:prediction}
+
+Once a candidate is admitted, \method creates a profile from its source and branch context. The target prediction labels are training time per epoch, average and peak VRAM, and optionally average and peak power. The timing estimate is explicitly required: a missing estimate is represented as an unavailable profile rather than silently treated as zero or \texttt{None}. An unavailable profile causes conservative deferral or a profiling fallback; it must not be used as evidence that a candidate is cheap.
+
+\predictor receives source-derived features through a capture worker. The worker imports the candidate in an isolated process, constructs the model through the candidate contract, and extracts model and training descriptors. For multimodal candidates, the worker aligns the feature dimension of synthetic tabular inputs with the model's first compatible projection only for source capture; the execution program continues to use its real dataset features. This separation lets profiling tolerate static metadata that is narrower than the candidate's engineered feature vector without modifying candidate behavior.
+
+The predictor returns a profile
+\begin{equation}
+  p_i = (\hat{\tau}_{i,\mathrm{epoch}},\; \hat{m}_{i,\mathrm{avg}},\;
+  \hat{m}_{i,\mathrm{peak}},\; q_i),
+  \label{eq:profile}
+\end{equation}
+where $q_i$ summarizes profile validity or uncertainty. The estimated total time is computed from the selected training schedule,
+\begin{equation}
+  \hat{\tau}_i = \hat{\tau}_{i,\mathrm{epoch}}\,\hat{e}_i + \hat{\tau}_{i,\mathrm{setup}},
+\end{equation}
+with $\hat{e}_i$ equal to the planned number of epochs unless the candidate exposes an earlier stopping rule. During execution, observed epoch durations and memory samples are attached to the branch record. They provide online calibration signals without requiring a separate hardware-knowledge store.
+
+\section{Incremental GPU Scheduling}
+\label{sec:scheduling}
+
+The scheduler intentionally has no \texttt{Max Parallel Jobs} or \texttt{parallel\_job\_cap} parameter. Fixed caps encode a workload-independent concurrency policy and fail whenever candidate resource demand changes. Instead, \method re-evaluates admission after every submission, completion, failure, and telemetry update.
+
+\begin{algorithm}[t]
+\caption{Incremental profile-guided admission}
+\label{alg:admission}
+\begin{algorithmic}[1]
+\Require Ready queue $\mathcal{Q}$, running set $\mathcal{R}$, telemetry $z$
+\While{a scheduling event occurs}
+  \State Refresh free VRAM, utilization, and process state from $z$
+  \State Remove completed jobs from $\mathcal{R}$ and update their branch profiles
+  \ForAll{$i\in\mathcal{Q}$ without a current profile}
+    \State Run source capture and \predictor; mark unavailable profiles explicitly
+  \EndFor
+  \State $\mathcal{F} \gets \{i\in\mathcal{Q}: a_i=1 \land i\text{ satisfies Eq.~\eqref{eq:feasibility}}\}$
+  \If{$\mathcal{F}$ is nonempty}
+    \State $i^* \gets \arg\min_{i\in\mathcal{F}} \hat{\tau}_i$ subject to branch-priority ties
+    \State Dispatch $i^*$, record the decision and reservations, and add $i^*$ to $\mathcal{R}$
+  \Else
+    \State Defer admission; do not manufacture a concurrency cap
+  \EndIf
+\EndWhile
+\end{algorithmic}
+\end{algorithm}
+
+Algorithm~\ref{alg:admission} shows the central loop. A job must be preflight-admitted and memory-feasible. Among feasible candidates, the current implementation uses a shortest predicted remaining-time preference with deterministic branch-priority tie breaking. This policy is intentionally simple: it provides a testable baseline for the role of profiles and telemetry while preserving a complete event record for later scheduling-policy changes.
+
+\subsection{Telemetry and Safety Margin}
+
+Predicted memory is not exact, particularly for arbitrary generated code. The scheduler therefore measures GPU utilization, allocated memory, and process state before every dispatch through the NVIDIA Management Library (NVML)~\cite{nvidia-nvml}. The safety reserve $\delta(t)$ includes a fixed minimum guard plus a term that grows when observed memory variance or profile uncertainty is high. If the measurements and profile disagree, telemetry has priority for the immediate decision and the discrepancy is recorded for future calibration.
+
+The design does not claim that a learned predictor alone can prove absence of OOM. Its safety comes from incremental rather than bulk admission, a conservative reserve, and continuous observation. If an OOM nevertheless occurs, the result is recorded as an execution outcome and the scheduler updates the branch profile; it does not reinterpret the error as a successful resource estimate.
+
+\subsection{Execution Backends}
+
+The executor launches candidate code in an isolated CUDA process by default. This backend makes process ownership and VRAM attribution explicit, which simplifies failure classification and cleanup. The scheduler interface also permits an MPS backend when device sharing is desired. Backend choice is recorded with each submission because memory accounting and interference behavior are part of the execution context.
+
+\section{Implementation}
+\label{sec:implementation}
+
+\method is implemented as an extension of \mlevolve. The search controller writes node and pipeline events to durable records; the scheduler keeps a runtime SQLite database containing job payloads, state transitions, profile metadata, and decisions. It is initialized for the active run and populated only with observations produced in that run.
+
+The scheduler metadata for an admitted candidate includes the preflight code hash and status, source-capture result, profile source, estimated time, predicted average and peak memory, selected batch size, backend, and dispatch rationale. Crucially, profile provenance is explicit. A job is labeled \texttt{ml\_predictor} only when \predictor produced the estimate; a fallback is labeled separately along with its error. This prevents a missing predictor result from being mistaken for a learned prediction.
+
+For PetFinder, input images and CSV metadata are staged near the execution environment before training. This avoids treating remote filesystem metadata stalls as model runtime. The generated candidate is still responsible for its real data pipeline and submission artifact; staging changes only where the immutable task inputs are read from.
+
+\section{Failure Semantics and Reproducibility}
+\label{sec:failures}
+
+Agentic execution produces several qualitatively different failures. \method records at least four classes:
+\begin{enumerate}
+  \item \textbf{Preflight rejection:} a reproducible CPU-side contract or program defect; no GPU execution occurs.
+  \item \textbf{Execution bug:} the candidate launches but terminates with a program exception or invalid artifact.
+  \item \textbf{Resource failure:} the process encounters OOM or a related device-allocation failure.
+  \item \textbf{Infrastructure failure:} a backend, image-pull, mount, or service failure prevents ordinary candidate execution.
+\end{enumerate}
+
+These categories must remain separate in plots and aggregate metrics. In particular, a red Gantt interval denotes an executed buggy node, while a preflight rejection should be represented as a zero-GPU admission event rather than a training interval. Successful jobs are shown in blue. Each run stores its node records, scheduler database, logs, preflight reports, and generated artifacts so that a later replay can resume from the recorded search state rather than regenerate earlier branches.
+
+\section{Limitations and Future Work}
+\label{sec:limitations}
+
+The current scheduler depends on source capture and a learned predictor, both of which can be unavailable for unusual candidate programs. It also focuses on a directly observed GPU and does not yet solve cluster-wide placement, heterogeneous GPU migration, or fairness across independent users. MPS interference and non-memory bottlenecks, such as data-loader I/O, require additional modeling. Finally, the preflight adapter contract increases generated-code discipline; future work should reduce this burden through automatically synthesized adapters and stronger static analysis.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+\method treats agentic ML search as an online scheduling problem rather than a sequence of independent code executions. It combines CPU preflight validation, source-derived learned profiles, and live GPU telemetry to make incremental admission decisions without a fixed parallel-job cap. The system preserves enough provenance to distinguish invalid generated code from scheduling behavior and to make every admission decision traceable to its active-run inputs.
+
+\begin{thebibliography}{10}
+
+\bibitem{kwon2023vllm}
+W.~Kwon, Z.~Li, S.~Zhuang, Y.~Sheng, L.~Zheng, C.~H.~Yu, J.~Gonzalez,
+H.~Zhang, and I.~Stoica.
+\newblock Efficient memory management for large language model serving with PagedAttention.
+\newblock In \emph{Proceedings of the ACM Symposium on Operating Systems Principles}, 2023.
+
+\bibitem{nvidia-nvml}
+NVIDIA.
+\newblock NVIDIA Management Library (NVML).
+\newblock \url{https://developer.nvidia.com/nvidia-management-library-nvml}.
+
+\bibitem{feurer2015automl}
+M.~Feurer, A.~Klein, K.~Eggensperger, J.~Springenberg, M.~Blum, and F.~Hutter.
+\newblock Efficient and robust automated machine learning.
+\newblock In \emph{Advances in Neural Information Processing Systems}, 2015.
+
+\end{thebibliography}
+
+\end{document}

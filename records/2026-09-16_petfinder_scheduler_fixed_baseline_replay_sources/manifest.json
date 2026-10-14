@@ -1,0 +1,72 @@
+[
+  {
+    "index": 1,
+    "is_buggy_in_original": true,
+    "node_id": "087a2b11c8664636af381a25eb42ee2c",
+    "original_execution_seconds": 1164.3741183280945,
+    "path": "01_087a2b11c8664636af381a25eb42ee2c.py"
+  },
+  {
+    "index": 2,
+    "is_buggy_in_original": false,
+    "node_id": "3ca4b1d03bd042f381b8f5941032ecee",
+    "original_execution_seconds": 1341.9968767166138,
+    "path": "02_3ca4b1d03bd042f381b8f5941032ecee.py"
+  },
+  {
+    "index": 3,
+    "is_buggy_in_original": true,
+    "node_id": "81b7f4f93c7d4b02a50b64e05f81366c",
+    "original_execution_seconds": 1476.7616200447083,
+    "path": "03_81b7f4f93c7d4b02a50b64e05f81366c.py"
+  },
+  {
+    "index": 4,
+    "is_buggy_in_original": true,
+    "node_id": "788afea4333b4099863f222eaab69827",
+    "original_execution_seconds": 85.91876411437988,
+    "path": "04_788afea4333b4099863f222eaab69827.py"
+  },
+  {
+    "index": 5,
+    "is_buggy_in_original": false,
+    "node_id": "189ce7dc12fa4e5396a7e15c0f120bb8",
+    "original_execution_seconds": 1020.0937519073486,
+    "path": "05_189ce7dc12fa4e5396a7e15c0f120bb8.py"
+  },
+  {
+    "index": 6,
+    "is_buggy_in_original": false,
+    "node_id": "fafc1b2982964e689fc89e2e73b25230",
+    "original_execution_seconds": 64.30856084823608,
+    "path": "06_fafc1b2982964e689fc89e2e73b25230.py"
+  },
+  {
+    "index": 7,
+    "is_buggy_in_original": false,
+    "node_id": "d91d9e5d173d403d8c8d9806a79af3f7",
+    "original_execution_seconds": 995.2377860546112,
+    "path": "07_d91d9e5d173d403d8c8d9806a79af3f7.py"
+  },
+  {
+    "index": 8,
+    "is_buggy_in_original": true,
+    "node_id": "e4da53d61dc942d88c7546d0a4b1f621",
+    "original_execution_seconds": 2320.0568430423737,
+    "path": "08_e4da53d61dc942d88c7546d0a4b1f621.py"
+  },
+  {
+    "index": 9,
+    "is_buggy_in_original": false,
+    "node_id": "6035e6e10fe94b97911a93bcf9a4640d",
+    "original_execution_seconds": 243.84574723243713,
+    "path": "09_6035e6e10fe94b97911a93bcf9a4640d.py"
+  },
+  {
+    "index": 10,
+    "is_buggy_in_original": false,
+    "node_id": "32297cfc271a4a81a3b550064f83b6e7",
+    "original_execution_seconds": 2239.926337003708,
+    "path": "10_32297cfc271a4a81a3b550064f83b6e7.py"
+  }
+]

@@ -552,6 +552,19 @@ new state directory.
 
 ## Final baseline visualization
 
+## Historical 38-node checkpoint visualization
+
+`records/2026-09-14_petfinder_old_baseline_38node_gantt.png` reconstructs the
+baseline state recorded at 2026-09-01 06:52:41 UTC, when node
+`02e2285091954f90a600189e971429ab` completed and the run reached 38/50
+effective nodes.  It selects exactly the first 38 completed nodes from
+`.cache/petfinder_a100_a10_live/baseline_final_50_20260902/journal.json` using
+the original accounting contract: every successful execution counts; a buggy
+execution counts only after 60 seconds.  The chart therefore contains 38
+nodes, 25 scored nodes, 13 buggy nodes, best validation RMSE 17.9433, a 10.90
+hour span, and peak execution concurrency three.  Blue bars are successful
+executions; red bars are buggy nodes.
+
 The completed baseline journal was recovered to
 `.cache/petfinder_a100_a10_live/baseline_final_50_20260902/journal.json` and
 rendered as `records/2026-09-02_petfinder_baseline_gantt.png`. The upper panel

@@ -386,7 +386,7 @@ def test_exclusive_probe_is_first_class_and_waits_for_drain() -> None:
         assert plan.backend_name == "exclusive"
 
 
-def _sample(second: int, fraction: float) -> GpuTelemetrySample:
+def _sample(second: float, fraction: float) -> GpuTelemetrySample:
     captured = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=second)
     return GpuTelemetrySample(
         captured_at=captured.isoformat(),
@@ -407,6 +407,18 @@ def test_memory_gate_uses_full_window_hysteresis_without_pausing() -> None:
         assert gate.update(_sample(second, 0.80)) is None
     assert gate.update(_sample(26, 0.80)) == "opened"
     assert gate.is_open
+
+
+def test_memory_gate_closes_after_an_irregularly_sampled_full_window() -> None:
+    """Polling need not land exactly on the window's first timestamp."""
+    gate = MemoryAdmissionGate(window_seconds=10, stop_fraction=0.90, resume_fraction=0.85)
+    transition = None
+    for second in (0.0, 0.55, 1.10, 1.65, 2.20, 2.75, 3.30, 3.85, 4.40, 4.95,
+                   5.50, 6.05, 6.60, 7.15, 7.70, 8.25, 8.80, 9.35, 9.90, 10.45):
+        transition = gate.update(_sample(second, 0.914))
+
+    assert transition == "closed"
+    assert not gate.is_open
 
 
 def test_early_stopping_state_machine_supports_max_min_delta_and_restart() -> None:
@@ -708,6 +720,137 @@ def test_service_probe_reservation_blocks_normal_admission_until_drain() -> None
         assert normal.job_id not in supervisor.dispatched
 
 
+def test_active_vram_occupancy_prefers_live_samples_to_static_prediction() -> None:
+    """Admission must use measured GPU use after a job materializes."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        settings = _settings(tmpdir)
+        store = SQLiteStateStore(settings)
+        active = store.submit_job(_job("active-live-vram", "active-live-vram"))
+        store.set_job_status(active.job_id, JobStatus.RUNNING, reason="test", hold=False)
+        supervisor = _DrainSupervisor([active.job_id])
+        service = SchedulerService(settings, store=store, supervisor=supervisor)
+        service._active_runs["active-group"] = ActiveRun(
+            group_id="active-group",
+            mode="solo",
+            backend_name="cuda_process",
+            job_ids=(active.job_id,),
+            samples=[GpuTelemetrySample(memory_used_mb=9_200, memory_total_mb=10_000)],
+        )
+
+        assert service._active_vram_occupancy() == 9_200.0
+
+
+def test_cpu_only_active_job_does_not_block_ready_gpu_dispatch() -> None:
+    """A CPU replay candidate must not make the GPU planner see a fake pack."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        settings = _settings(tmpdir)
+        store = SQLiteStateStore(settings)
+        cpu = _job("cpu-active", "cpu-active-sig")
+        cpu.resource_requirements.requires_gpu = False
+        cpu.packing.eligible = False
+        cpu.packing.backend_allowlist = []
+        cpu = store.submit_job(cpu)
+        store.set_job_status(cpu.job_id, JobStatus.RUNNING, reason="test", hold=False)
+        gpu = store.submit_job(_job("gpu-ready", "gpu-ready-sig"))
+        store.set_job_status(gpu.job_id, JobStatus.READY, reason="test", hold=False)
+        supervisor = _DrainSupervisor([cpu.job_id])
+        service = SchedulerService(settings, store=store, supervisor=supervisor)
+        _seed_options(store, service.planner, gpu)
+        service._active_runs["cpu-group"] = ActiveRun(
+            group_id="cpu-group",
+            mode="exclusive",
+            backend_name="exclusive",
+            job_ids=(cpu.job_id,),
+        )
+
+        service._dispatch_pending_work()
+
+        assert supervisor.dispatched == [gpu.job_id]
+
+
+def test_active_vram_occupancy_uses_current_sample_after_a_copack_exits() -> None:
+    """A departed co-runner's peak must not permanently block replacement work."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        settings = _settings(tmpdir)
+        store = SQLiteStateStore(settings)
+        active = store.submit_job(_job("active-current-vram", "active-current-vram"))
+        store.set_job_status(active.job_id, JobStatus.RUNNING, reason="test", hold=False)
+        supervisor = _DrainSupervisor([active.job_id])
+        service = SchedulerService(settings, store=store, supervisor=supervisor)
+        service._active_runs["active-group"] = ActiveRun(
+            group_id="active-group",
+            mode="concurrent_group",
+            backend_name="cuda_process",
+            job_ids=(active.job_id,),
+            samples=[
+                GpuTelemetrySample(memory_used_mb=9_200, memory_total_mb=10_000),
+                GpuTelemetrySample(memory_used_mb=7_000, memory_total_mb=10_000),
+            ],
+        )
+
+        assert service._active_vram_occupancy() == 7_000.0
+
+
+def test_overlap_telemetry_refreshes_live_vram_for_every_active_run() -> None:
+    """The next packed admission must see the newest device-wide sample."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        settings = _settings(tmpdir)
+        store = SQLiteStateStore(settings)
+        first = store.submit_job(_job("first-live-vram", "first-live-vram"))
+        second = store.submit_job(_job("second-live-vram", "second-live-vram"))
+        for job in (first, second):
+            store.set_job_status(job.job_id, JobStatus.RUNNING, reason="test", hold=False)
+        supervisor = _DrainSupervisor([first.job_id, second.job_id])
+        service = SchedulerService(settings, store=store, supervisor=supervisor)
+        service._active_runs["first-group"] = ActiveRun(
+            group_id="first-group",
+            mode="solo",
+            backend_name="cuda_process",
+            job_ids=(first.job_id,),
+            samples=[GpuTelemetrySample(memory_used_mb=2_761, memory_total_mb=24_576)],
+        )
+        service._active_runs["second-group"] = ActiveRun(
+            group_id="second-group",
+            mode="solo",
+            backend_name="cuda_process",
+            job_ids=(second.job_id,),
+        )
+        service.telemetry_sampler = Mock()
+        service.telemetry_sampler.sample.return_value = GpuTelemetrySample(
+            memory_used_mb=21_041,
+            memory_total_mb=24_576,
+        )
+
+        service._poll_telemetry()
+
+        assert service._active_vram_occupancy() == 21_041.0
+
+
+def test_service_waits_for_an_active_job_epoch_before_considering_a_new_pack() -> None:
+    """An unmeasured active job is an admission barrier, not a guessed 512 MiB load."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        settings = _settings(tmpdir)
+        store = SQLiteStateStore(settings)
+        active = store.submit_job(_job("active-unmeasured", "active-unmeasured"))
+        store.set_job_status(active.job_id, JobStatus.RUNNING, reason="test", hold=False)
+        waiting = store.submit_job(_job("waiting", "waiting"))
+        store.set_job_status(waiting.job_id, JobStatus.READY, reason="test", hold=False)
+        supervisor = _DrainSupervisor([active.job_id])
+        service = SchedulerService(settings, store=store, supervisor=supervisor)
+        service._active_runs["active-group"] = ActiveRun(
+            group_id="active-group",
+            mode="solo",
+            backend_name="cuda_process",
+            job_ids=(active.job_id,),
+        )
+        service.planner.choose_plan = Mock()  # type: ignore[method-assign]
+
+        service._dispatch_pending_work()
+
+        assert supervisor.dispatched == []
+        service.planner.choose_plan.assert_not_called()
+
+
 def test_service_restores_admission_and_probe_reservation_state() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         settings = _settings(tmpdir)
@@ -715,12 +858,18 @@ def test_service_restores_admission_and_probe_reservation_state() -> None:
         first = SchedulerService(settings, store=store, supervisor=_DrainSupervisor([]))
         first._admission_gate.is_open = False
         first._admission_gate.average_fraction = 0.93
+        first._admission_gate.observation_started_at = datetime(
+            2026, 1, 1, tzinfo=timezone.utc
+        )
         first._exclusive_probe_job_id = "reserved-probe"
         first._persist_scheduler_decision_state()
 
         restored = SchedulerService(settings, store=store, supervisor=_DrainSupervisor([]))
         assert not restored._admission_gate.is_open
         assert restored._admission_gate.average_fraction == 0.93
+        assert restored._admission_gate.observation_started_at == datetime(
+            2026, 1, 1, tzinfo=timezone.utc
+        )
         assert restored._exclusive_probe_job_id == "reserved-probe"
 
         disabled_settings = _settings(
@@ -892,6 +1041,65 @@ def test_batch_estimates_are_batch_specific_and_sourced() -> None:
         assert all(option.source == "branch_profile" for option in options)
 
 
+def test_cold_queue_uses_backend_aware_planner_when_predictor_is_enabled() -> None:
+    """Cold jobs must be evaluated together when Predictor supplies their estimates."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        settings = _settings(tmpdir, scheduler_decision_mode="backend_aware")
+        store = SQLiteStateStore(settings)
+        planner = PlacementPlanner(settings, store, PriorityFifoPolicy(enable_priority_aging=False))
+        first = store.submit_job(_job("cold-first", "cold-first", priority=2))
+        second = store.submit_job(_job("cold-second", "cold-second", priority=1))
+        for job in (first, second):
+            store.set_job_status(job.job_id, JobStatus.READY, reason="test", hold=False)
+
+        expected = object()
+        planner.backend_aware.choose_empty = Mock(return_value=expected)  # type: ignore[method-assign]
+
+        plan = planner.choose_plan(
+            [store.get_job(first.job_id), store.get_job(second.job_id)],
+            backend_available={"cuda_process": True, "exclusive": True},
+            active_jobs=[],
+            active_vram_mb=0.0,
+        )
+
+        assert plan is expected
+        planner.backend_aware.choose_empty.assert_called_once()
+
+
+def test_cold_queue_falls_back_to_a_solo_anchor_when_no_safe_pair_exists() -> None:
+    """Failure to form a safe cold pair retains a single safe dispatch path."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        settings = _settings(tmpdir, scheduler_decision_mode="backend_aware")
+        store = SQLiteStateStore(settings)
+        planner = PlacementPlanner(settings, store, PriorityFifoPolicy(enable_priority_aging=False))
+        first = store.submit_job(_job("cold-failure-first", "cold-failure-first", priority=2))
+        second = store.submit_job(_job("cold-failure-second", "cold-failure-second", priority=1))
+        for job in (first, second):
+            store.set_job_status(job.job_id, JobStatus.READY, reason="test", hold=False)
+
+        captured: list[str] = []
+
+        def unavailable(job: TrainingJob, backend_name: str) -> None:
+            captured.append(job.job_id)
+            return None
+
+        planner._fastest_time_option = unavailable  # type: ignore[method-assign]
+        planner.backend_aware.choose_empty = Mock(return_value=None)  # type: ignore[method-assign]
+
+        plan = planner.choose_plan(
+            [store.get_job(first.job_id), store.get_job(second.job_id)],
+            backend_available={"cuda_process": True, "exclusive": True},
+            active_jobs=[],
+            active_vram_mb=0.0,
+        )
+
+        assert plan is not None
+        assert plan.job_ids == (first.job_id,)
+        assert plan.reason == "runtime estimate unavailable; packed-backend solo anchor"
+        assert captured == [first.job_id, first.job_id, second.job_id, second.job_id]
+        planner.backend_aware.choose_empty.assert_called_once()
+
+
 def test_remaining_runtime_uses_batch_profile_epoch_time_without_runtime_profile() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         settings = _settings(tmpdir)
@@ -990,6 +1198,16 @@ def test_runtime_estimate_reuses_completed_profile_within_same_branch() -> None:
             backend_name="exclusive",
         ) is None
 
+        origin_candidate = _job("origin", "origin-signature")
+        origin_candidate.max_epochs = origin_candidate.config.max_epochs = 4
+        origin_candidate.metadata.update(
+            shared_metadata | {"experiment_mode": "origin"}
+        )
+        assert planner.estimator.predicted_remaining_runtime_seconds(
+            origin_candidate,
+            backend_name="exclusive",
+        ) == 40.0
+
 
 def test_zero_runtime_profile_falls_back_to_branch_epoch_estimate() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -1045,6 +1263,21 @@ class _FailingBatchPredictor:
         raise JobPredictionError("test predictor failure")
 
 
+class _RecordingFailingBatchPredictor(_FailingBatchPredictor):
+    """Match the production Predictor's per-job failure bookkeeping."""
+
+    def __init__(self) -> None:
+        self.last_sources: dict[str, str] = {}
+        self.last_errors: dict[str, str] = {}
+
+    def predict_avg_vram_options(
+        self, job: TrainingJob, batch_sizes: list[int]
+    ) -> dict[int, float]:
+        self.last_sources[job.job_id] = "branch_profile"
+        self.last_errors[job.job_id] = "test predictor failure"
+        raise JobPredictionError("test predictor failure")
+
+
 class _SelectiveBatchPredictor:
     last_sources: dict[str, str] = {}
     last_errors: dict[str, str] = {}
@@ -1053,6 +1286,50 @@ class _SelectiveBatchPredictor:
         if job.job_id == "predictor-failure":
             raise JobPredictionError("one job is unsupported")
         return {batch_size: 700.0 + batch_size for batch_size in batch_sizes}
+
+
+class _StaticTimePredictor:
+    """Deliberately optimistic cold-start model output used for precedence tests."""
+
+    def predict_avg_vram_options(self, job: TrainingJob, batch_sizes: list[int]) -> dict[int, float]:
+        return {batch_size: 700.0 + batch_size for batch_size in batch_sizes}
+
+    def predict_seconds_per_epoch_options(
+        self, job: TrainingJob, batch_sizes: list[int]
+    ) -> dict[int, float]:
+        return {batch_size: 0.44 for batch_size in batch_sizes}
+
+
+def test_live_runtime_profile_overrides_static_predictor_time() -> None:
+    """A completed epoch is stronger evidence than a cold-start model estimate."""
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        settings = _settings(tmpdir)
+        store = SQLiteStateStore(settings)
+        planner = PlacementPlanner(settings, store, PriorityFifoPolicy(enable_priority_aging=False))
+        job = _job("live-over-static", "live-over-static-sig")
+        job.max_epochs = job.config.max_epochs = 8
+        _seed_options(store, planner, job)
+        store.upsert_runtime_profile(
+            RuntimeProfile.create(
+                signature=job.packing.signature or job.job_id,
+                hardware_key=store.hardware_key(),
+                backend_name="cuda_process",
+                resolved_batch_size=4,
+                strategy="epoch_1",
+                epoch_1_seconds=275.0,
+                estimated_total_runtime_seconds=2200.0,
+                confidence=0.75,
+                observations=1,
+                source="live_epoch",
+            )
+        )
+        planner.estimator.ml_predictor = _StaticTimePredictor()  # type: ignore[assignment]
+
+        option = planner.estimator.estimate_batch_options(job, "cuda_process", [4])[0]
+
+        assert option.seconds_per_epoch == 275.0
+        assert option.source == "ml_predictor+live_epoch"
 
 
 def test_predictor_failure_falls_back_per_job_to_branch_profiles() -> None:
@@ -1066,6 +1343,85 @@ def test_predictor_failure_falls_back_per_job_to_branch_profiles() -> None:
         options = planner.estimator.estimate_batch_options(job, "cuda_process", [1, 2, 4, 8, 16])
         assert len(options) == 5
         assert all(option.source == "branch_profile" for option in options)
+
+
+def test_required_ml_prediction_rejects_branch_profile_plan_before_dispatch() -> None:
+    """A Predictor-only experiment must not execute a fallback placement."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        settings = _settings(tmpdir)
+        settings.prediction.mode = "ml_predictor"
+        settings.prediction.require_ml_prediction = True
+        store = SQLiteStateStore(settings)
+        job = store.submit_job(_job("strict-ml", "strict-ml-sig"))
+        store.set_job_status(job.job_id, JobStatus.READY, reason="test", hold=False)
+        supervisor = _DrainSupervisor([])
+        service = SchedulerService(settings, store=store, supervisor=supervisor)
+        service.planner.estimator.ml_predictor = _RecordingFailingBatchPredictor()  # type: ignore[assignment]
+
+        plan = service.planner.choose_plan(
+            [store.get_job(job.job_id)],
+            backend_available={"cuda_process": True, "exclusive": True},
+            active_jobs=[],
+            active_vram_mb=0.0,
+        )
+
+        assert plan is not None
+        assert not service._dispatch_plan(plan)
+        rejected = store.get_job(job.job_id)
+        assert rejected is not None
+        assert rejected.status == JobStatus.FAILED
+        assert rejected.metadata["vram_prediction_source"] == "branch_profile"
+        assert rejected.metadata["ml_prediction_required"] is True
+
+
+def test_required_ml_prediction_does_not_reject_a_cpu_only_job() -> None:
+    """Predictor-only GPU admission must not discard a non-GPU baseline node."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        settings = _settings(tmpdir)
+        settings.prediction.mode = "ml_predictor"
+        settings.prediction.require_ml_prediction = True
+        store = SQLiteStateStore(settings)
+        job = _job("strict-cpu", "strict-cpu-sig")
+        job.resource_requirements.requires_gpu = False
+        job = store.submit_job(job)
+        store.set_job_status(job.job_id, JobStatus.READY, reason="test", hold=False)
+        service = SchedulerService(settings, store=store, supervisor=_DrainSupervisor([]))
+
+        assert not service._reject_missing_required_ml_prediction([job])
+        retained = store.get_job(job.job_id)
+        assert retained is not None
+        assert retained.status == JobStatus.READY
+
+
+def test_required_ml_prediction_finalizes_planner_skipped_failure() -> None:
+    """A failed source capture must not leave a Predictor-only job READY."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        settings = _settings(tmpdir)
+        settings.prediction.mode = "ml_predictor"
+        settings.prediction.require_ml_prediction = True
+        store = SQLiteStateStore(settings)
+        job = store.submit_job(_job("strict-ml-stale", "strict-ml-stale-sig"))
+        store.set_job_status(job.job_id, JobStatus.READY, reason="test", hold=False)
+        supervisor = _DrainSupervisor([])
+        service = SchedulerService(settings, store=store, supervisor=supervisor)
+        service.planner.estimator.ml_predictor = _RecordingFailingBatchPredictor()  # type: ignore[assignment]
+
+        # This is the same Predictor call the planner makes while enumerating
+        # options.  It records a per-job failure but intentionally returns no
+        # ML option, so the strict dispatcher must turn it terminal.
+        assert not service.planner.estimator.estimate_batch_options(
+            store.get_job(job.job_id), "cuda_process", [1]
+        )
+        assert service._reject_failed_required_ml_predictions(
+            [store.get_job(job.job_id)]
+        )
+
+        rejected = store.get_job(job.job_id)
+        assert rejected is not None
+        assert rejected.status == JobStatus.FAILED
+        assert rejected.metadata["ml_prediction_rejected"] is True
+        assert rejected.metadata["vram_prediction_error"] == "test predictor failure"
+        assert supervisor.dispatched == []
 
 
 def test_predictor_failure_for_one_job_does_not_poison_other_jobs() -> None:
@@ -1356,6 +1712,60 @@ def test_estimate_gain_resolves_mocked_singleton_tail_from_estimator() -> None:
         "cuda_process",
         [4],
     )
+
+
+def test_incremental_unknown_colocation_runs_opaque_scripts_nonpreemptively() -> None:
+    """Opaque MLEvolve scripts may overlap when admission is safe, never via pause/resume."""
+    settings = SchedulerSettings(
+        gpu_scheduler={"mode": "parallel_time_aware", "packing_backend": "cuda_process"},
+        graph_db={"enabled": False},
+        hardware_feature_db={"enabled": False},
+    )
+    estimator = Mock()
+    estimator.safe_budget_mb.return_value = 1024.0
+    estimator.repository.hardware_key.return_value = "mock-gpu"
+    estimator.repository.get_colocation_timing_profile.return_value = None
+
+    active = _job("opaque-active", "opaque-active-sig")
+    candidate = _job("opaque-candidate", "opaque-candidate-sig")
+    for job in (active, candidate):
+        job.max_epochs = job.config.max_epochs = 4
+        job.metadata.update({"resolved_batch_size": 4, "supports_checkpoint_resume": True})
+    active.metadata.update({"placement_backend": "cuda_process", "runtime_observed_epoch_seconds": 1.0})
+    candidate.metadata["supports_checkpoint_resume"] = False
+
+    def options(job, backend, batch_sizes):
+        return [
+            BatchOptionEstimate(
+                job_id=job.job_id,
+                batch_size=4,
+                avg_vram_mb=100.0,
+                seconds_per_epoch=1.0,
+                remaining_epochs=4,
+                remaining_runtime_seconds=4.0,
+                source="ml_predictor",
+                confidence=0.9,
+                estimate_version="test",
+            )
+        ]
+
+    estimator.estimate_batch_options.side_effect = options
+    compatibility = Mock()
+    compatibility.compatible_group.return_value = True
+    candidates = Mock()
+    candidates.candidate_batch_sizes.return_value = [4]
+    scorer = TimeAwareObjectiveScorer(settings, estimator, compatibility, candidates)
+
+    result = scorer.evaluate_incremental(
+        candidate,
+        backend_name="cuda_process",
+        active_jobs=[active],
+        active_vram_mb=100.0,
+        mandatory_anchor=None,
+    )
+    assert result is not None
+    assert result.score_breakdown["requires_live_trial"] is False
+    assert result.score_breakdown["non_preemptive_colocation"] is True
 
 
 def test_piecewise_drain_uses_mocked_subset_rates_for_three_jobs() -> None:

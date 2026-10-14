@@ -1,0 +1,232 @@
+"""Implementation guideline."""
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+import time
+
+import humanize
+
+from agents.runtime_dependencies import advertised_package_names
+
+
+@dataclass(frozen=True, slots=True)
+class PromptFeatureFlags:
+    scheduler_enabled: bool
+    preflight_enabled: bool
+    adapter_required: bool
+
+
+def _config_value(value, key: str, default=None):
+    if value is None:
+        return default
+    if isinstance(value, Mapping):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def prompt_feature_flags_from_agent(agent) -> PromptFeatureFlags:
+    """Resolve only the treatment features that may alter generated-code prompts."""
+    cfg = getattr(agent, "cfg", None)
+    scheduler = _config_value(cfg, "scheduler")
+    preflight = _config_value(cfg, "preflight")
+    scheduler_enabled = bool(_config_value(scheduler, "enabled", False))
+    preflight_enabled = bool(_config_value(preflight, "enabled", False))
+    preflight_prompt_contract = bool(
+        _config_value(preflight, "prompt_contract_enabled", True)
+    )
+    settings = _config_value(scheduler, "settings", {})
+    prediction = _config_value(settings, "prediction", {})
+    prediction_mode = str(_config_value(prediction, "mode", "")).strip().lower()
+    adapter_required = (preflight_enabled and preflight_prompt_contract) or (
+        scheduler_enabled and prediction_mode == "ml_predictor"
+    )
+    return PromptFeatureFlags(
+        scheduler_enabled=scheduler_enabled,
+        preflight_enabled=preflight_enabled,
+        adapter_required=adapter_required,
+    )
+
+
+def get_impl_guideline_from_agent(agent):
+    """Build implementation guideline from agent config."""
+    tot_time_remaining = agent.acfg.time_limit - (time.time() - agent.start_time)
+    configured_timeout = getattr(getattr(agent.cfg, "exec", None), "timeout", None)
+    if configured_timeout is None:
+        exec_timeout = int(max(0, tot_time_remaining))
+    else:
+        exec_timeout = int(max(0, min(float(configured_timeout), tot_time_remaining)))
+    feature_flags = prompt_feature_flags_from_agent(agent)
+    prompt_profile = str(
+        getattr(agent.acfg, "prompt_compatibility_profile", "current") or "current"
+    ).strip()
+    steps_remaining = agent.acfg.steps - agent.current_step
+    if prompt_profile == "original_mlevolve_20260924":
+        steps_remaining = 50 - agent.current_step
+    return get_impl_guideline(
+        tot_time_remaining=tot_time_remaining,
+        steps_remaining=steps_remaining,
+        exec_timeout=exec_timeout,
+        expose_prediction=getattr(agent.acfg, "expose_prediction", False),
+        k_fold_validation=getattr(agent.acfg, "k_fold_validation", 0),
+        pretrain_model_dir=getattr(agent.cfg, "pretrain_model_dir", ""),
+        task_name=getattr(agent.cfg, "exp_id", ""),
+        scheduler_contract_required=feature_flags.scheduler_enabled,
+        adapter_contract_required=feature_flags.adapter_required,
+        prompt_compatibility_profile=prompt_profile,
+    )
+
+
+def _format_time(time_in_sec):
+    """Format seconds for display."""
+    return f"{int(time_in_sec) // 3600}h {(int(time_in_sec) % 3600) // 60}m {int(time_in_sec) % 60}s"
+
+
+def get_impl_guideline(
+    tot_time_remaining: float,
+    steps_remaining: int,
+    exec_timeout: int,
+    expose_prediction: bool = False,
+    k_fold_validation: int = 0,
+    pretrain_model_dir: str = "",
+    task_name: str = "",
+    scheduler_contract_required: bool = True,
+    adapter_contract_required: bool = True,
+    prompt_compatibility_profile: str = "current",
+) -> dict:
+    """Build implementation guideline from time and config."""
+    runtime_packages = ", ".join(advertised_package_names())
+    impl_guideline = [
+        f"**Resource Budget**: Time left ≈ {_format_time(tot_time_remaining)} | Steps left = {steps_remaining} | Max execution time per run = {humanize.naturaldelta(exec_timeout)}",
+        "",
+        "**Note:** Code execution MUST complete within 9 hours (hard limit) — any solution exceeding this will be invalid. Within this constraint, prioritize performance and optimization.",
+        "🎯 **CRITICAL REQUIREMENTS** (Non-Negotiable):",
+        "",
+        "**1. Model Inference for ALL Predictions**",
+        "• EVERY prediction (validation & test) MUST come from trained model's forward pass",
+        "• Process: Load data → Preprocess → model.predict()/model.forward() → Save predictions",
+        "• ❌ FORBIDDEN: Constants, placeholders, dummy values, empty arrays, statistics, random numbers",
+        "• ❌ FORBIDDEN: Fake/mock metric functions (must use real sklearn.metrics or correct manual implementation)",
+        "• Why: Shortcuts create fake high validation scores but fail on test (CRITICAL SYSTEM FAILURE)",
+        "",
+        "**2. Generate submission.csv**",
+        "• Path: `./submission/submission.csv` (NOT ./working/submission.csv)",
+        "• Content: Model predictions on ALL test samples",
+        "• Format: Follow task description exactly",
+        "",
+        "**3. Print Validation Metric**",
+        "• MUST print: `print(f'Final Validation Score: {score}')`",
+        "• Score MUST be computed on hold-out validation set using proper metric formula",
+        "• CRITICAL CONSISTENCY REQUIREMENT: Ensure that validation and test inference use IDENTICAL processing logic. Any differences in how validation and test data are handled (such as post-processing, reconstruction, or formatting) can cause large performance gaps between validation and test sets. Maintain consistency across all data processing steps for both validation and test phases.",
+    ]
+    baseline_compatible = (
+        str(prompt_compatibility_profile or "current").strip()
+        == "original_mlevolve_20260924"
+    )
+    requirement_number = 4
+    if baseline_compatible:
+        impl_guideline.extend(
+            [
+                "",
+                "**4. Preserve Task Semantics in Local Validation**",
+                "• Your local validation must evaluate the SAME core task as the final submission, not an easier proxy sub-problem.",
+                "• ❌ FORBIDDEN: Silently redefining the task into a simpler objective (for example: multi-target -> single-target, detection -> presence-only classification, ranking -> plain classification, structured prediction -> one-field prediction).",
+                "• If the submission predicts structured outputs, your validation metric must cover the key predicted structure rather than only a weak sub-component.",
+                "• The validation target, prediction format, and post-processing logic must stay semantically aligned with the required submission format.",
+                "",
+                "**5. Make Validation Auditable**",
+                "• In code and logs, make the validation setup easy to audit: split method, metric formula, predicted target, and any threshold/post-processing used.",
+                "• The reported `Final Validation Score` must be computed with the official metric definition, or a task-faithful local implementation of that same metric.",
+                "• ❌ FORBIDDEN: Using a proxy metric as the main validation score for model comparison, search ranking, or best-solution selection.",
+                "• Do not report a validation score from a metric that ignores critical task dimensions required by the leaderboard.",
+            ]
+        )
+        requirement_number = 6
+    if scheduler_contract_required:
+        impl_guideline.extend(
+            [
+                "",
+                f"**{requirement_number}. Scheduler Model Family Contract**",
+                "• MUST define a top-level constant `MODEL_FAMILY = \"family_name\"` near the top of the file.",
+                "• Use a stable, architecture-specific name, for example `resnet50_224`, `swin_b_384`, or `lightgbm_tabular_v1`.",
+                "• If you switch the model architecture or input geometry in an improvement/evolution, update `MODEL_FAMILY` to a new distinct value.",
+                "• If there is no more specific model/backbone name in the script, set the model name/key variable to the same value as `MODEL_FAMILY`.",
+            ]
+        )
+        requirement_number += 1
+    if adapter_contract_required:
+        impl_guideline.extend(
+            [
+                "",
+                f"**{requirement_number}. CPU Model-Preflight Adapter Contract**",
+                "• The module MUST be import-safe: definitions and lightweight constants may be top-level, but all training, validation, inference, and submission execution MUST be called only inside `if __name__ == \"__main__\":`.",
+                "• MUST define a no-argument top-level `CandidateAdapter` class with methods `build_model(context)`, `build_optimizer(model, context)`, `build_train_batch(scenario, device)`, `build_validation_batch(scenario, device)`, `training_step(model, batch, context)`, and `validation_step(model, batch, context)`. build_model(context) MUST return the real torch.nn.Module used by training, never a dict, tuple, or metadata wrapper.",
+                "• `training_step` MUST return the real scalar loss tensor connected to model parameters; adapter methods must reuse the script's real model, loss, transforms, collate logic, and optimizer rather than mocks.",
+                "• Treat every caller-supplied `context` as a partial mapping: merge it over adapter defaults before reading optional keys, and preserve caller-provided values.",
+                "• CandidateAdapter context mutations do not persist between checker method calls; `training_step` and `validation_step` MUST resolve the script's real criterion when the partial context omits it or supplies `None`, rather than relying on `build_model` to mutate a local context.",
+                "• Batch builders MUST honor `scenario['batch_size']` and `device`; use `os.environ.get('MLEVOLVE_INPUT_DIR', './input')` to locate input fixtures during the isolated CPU check.",
+                "• When `scenario['fixture']` is non-empty, it is the authoritative named input contract: build every listed tensor with the declared non-batch shape, preserve those names in the returned mapping, and pass all model inputs to the real forward path. Do not collapse a multimodal fixture into one feature vector.",
+                "• Adapter construction and a one-batch CPU step must be lightweight and must not download weights or require CUDA.",
+            ]
+        )
+    package_guidance = (
+        "📦 **Packages & Internet**: numpy, pandas, sklearn, torch, transformers, timm, xgboost, lightgbm (all pre-installed). torch.hub.load(), HuggingFace, etc. available during development."
+        + (f" Offline models at `{pretrain_model_dir}`" if pretrain_model_dir else "")
+        if baseline_compatible
+        else f"📦 **Packages & Internet**: Guaranteed installed packages: {runtime_packages}. Do not assume unlisted third-party packages are installed; avoid them or provide an ImportError-guarded fallback. Never run pip from generated code. Generated code runs offline: do not download weights or data through torch.hub.load(), Hugging Face, timm, or another remote loader."
+        + (f" Use only explicitly supplied offline models at `{pretrain_model_dir}`." if pretrain_model_dir else " Use only verified local or cached weights.")
+    )
+    impl_guideline.extend(
+        [
+        "",
+        "📁 **Directories**: Input data in `./input/`, submission in `./submission/`, temp files in `./working/`",
+        "",
+        package_guidance,
+        "",
+        "⚠️ **API Compatibility**: LightGBM/XGBoost: ❌ `fit(..., early_stopping_rounds=...)` → ✅ LightGBM: `fit(..., callbacks=[lgb.early_stopping(...)])` ✅ XGBoost: `XGBClassifier(early_stopping_rounds=...)`",
+        "• AdamW: ❌ `from transformers import AdamW` (deprecated) → ✅ `from torch.optim import AdamW`",
+        "",
+        "🚫 **Execution Guidelines**:",
+        "• NO tqdm (not installed), NO verbose=1",
+        "• Print only 1 line per epoch (minimize logging)",
+        "• Use DataLoader with num_workers>=2 for speed",
+        "",
+        "⚠️  **Self-Check Before Finalizing**:",
+        "□ Did predictions pass through model's learned weights during inference? (If NO → INVALID)",
+        "□ Did I generate submission.csv in correct path with ALL test predictions?",
+        "□ Did I print validation metric as the last line?",
+        "□ Did I use the COMPLETE training dataset (not a tiny subset)?",
+        ]
+    )
+    if baseline_compatible:
+        impl_guideline.extend(
+            [
+                "□ Did my local validation preserve the original task semantics instead of a simpler proxy?",
+                "□ Is my reported `Final Validation Score` computed with the official metric definition rather than a proxy metric?",
+            ]
+        )
+    if adapter_contract_required:
+        impl_guideline.append(
+            "□ Is execution behind the main guard and is CandidateAdapter complete and CPU-safe?"
+        )
+    if expose_prediction:
+        impl_guideline.append(
+            "The implementation should include a predict() function, "
+            "allowing users to seamlessly reuse the code to make predictions on new data. "
+            "The prediction function should be well-documented, especially the function signature."
+        )
+
+    if k_fold_validation > 1:
+        impl_guideline.append(
+            f"The evaluation should be based on {k_fold_validation}-fold cross-validation but only if that's an appropriate evaluation for the task at hand."
+        )
+
+    if adapter_contract_required and task_name.strip().lower().replace("_", "-") == "petfinder-pawpularity-score":
+        impl_guideline.append(
+            "• PetFinder preflight fixture: return a mapping containing image [B, 3, 256, 256], "
+            "tabular [B, 12], and float32 target [B]; call the real model with both image "
+            "and tabular. The prepared public data columns are Subject Focus, Eyes, Face, "
+            "Near, Action, Accessory, Group, Collage, Human, Occlusion, Info, Blur; set "
+            "TABULAR_COLS to exactly these and set the model input width from len(TABULAR_COLS)."
+        )
+
+    return {"Implementation guideline": impl_guideline}

@@ -1,0 +1,1379 @@
+{
+  "ground_truth": "runtime error means exc_type is non-empty",
+  "journals": [
+    {
+      "false_rejections": [],
+      "journal": "/home/downeyflyfan/Research_Projects/AI/Agents/Agents_Scheduler/MLEvolve/.cache/petfinder_a100_a10_live/baseline_final_50_20260902/journal.json",
+      "metrics": {
+        "false_rejection_count": 0,
+        "false_rejection_rate": 0.0,
+        "node_count": 108,
+        "non_error_count": 33,
+        "recall": 1.0,
+        "runtime_error_count": 75,
+        "runtime_errors_caught": 75
+      },
+      "missed_runtime_errors": [],
+      "samples": [
+        {
+          "diagnostic_codes": [
+            "SRC_SKLEARN_SPLIT001",
+            "SRC_TEST_TARGET001"
+          ],
+          "exception_type": "ValueError",
+          "node_id": "d9a504a20d6646188baf6244398b2165",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TARGET_DTYPE001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "896a6f5a1a704365afe1d3191676e1de",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_PANDAS_DTYPE001",
+            "SRC_TEST_TARGET001"
+          ],
+          "exception_type": "TypeError",
+          "node_id": "d667e6a0ddbe4f9cb36c1ad9ac0eb425",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TEST_TARGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "621d0ea7b902483a99e9de6c4052363b",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TEST_TARGET001"
+          ],
+          "exception_type": "KeyError",
+          "node_id": "81b7f4f93c7d4b02a50b64e05f81366c",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "3ca4b1d03bd042f381b8f5941032ecee",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TEST_TARGET001"
+          ],
+          "exception_type": "KeyError",
+          "node_id": "087a2b11c8664636af381a25eb42ee2c",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "189ce7dc12fa4e5396a7e15c0f120bb8",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "d91d9e5d173d403d8c8d9806a79af3f7",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_IMAGE_SIZE001",
+            "SRC_RESOURCE_BUDGET001"
+          ],
+          "exception_type": "AssertionError",
+          "node_id": "d762f91f1206421bb42e68fbf5d1eae9",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RESOURCE_BUDGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "3514679ebf43435883cded33cd099e51",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_NUMERICAL_RISK001"
+          ],
+          "exception_type": "ValueError",
+          "node_id": "788afea4333b4099863f222eaab69827",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_GRADSCALER001",
+            "SRC_NUMERICAL_RISK001"
+          ],
+          "exception_type": "AssertionError",
+          "node_id": "a0b2660ff34542c9be37a07621ac254b",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "fafc1b2982964e689fc89e2e73b25230",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TORCHVISION_BATCH001"
+          ],
+          "exception_type": "TypeError",
+          "node_id": "e4da53d61dc942d88c7546d0a4b1f621",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "32297cfc271a4a81a3b550064f83b6e7",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "8ea07ffb1b294b5e9a711712d4550dfe",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_IMAGE_SIZE001"
+          ],
+          "exception_type": "AssertionError",
+          "node_id": "f94566a5a7464b7b90c4dea6ea8d3845",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "6035e6e10fe94b97911a93bcf9a4640d",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "cc64b9459862405c93734c3f9d3aa260",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "d632abbd727642ea84c87f9afb290e1c",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_LIST_INDEX001",
+            "SRC_RESOURCE_BUDGET001"
+          ],
+          "exception_type": "TypeError",
+          "node_id": "4c2136d8bfa940c28271a6100b0d5384",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RESOURCE_BUDGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "cf2105dfd36248129a203c2da2290439",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "c7258f34e8844b8faeb676df0e4c9eae",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RUNTIME_BUDGET001"
+          ],
+          "exception_type": "TimeoutError",
+          "node_id": "639d4d026610407fbb002993e45e5be7",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_BMM_RANK001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "d07fe0f9e7f14757bf6cc512d35ee838",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_BMM_RANK001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "d7dc16cabcb84d2c94c7ff190f8ca821",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "a8280db900254e7fbf04a1b44cc7b34c",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RESOURCE_BUDGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "a64d2556a52f4947817f2cb023139382",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "c9c43c1d996147cc8d8428a24b0ddae7",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_HUB_REF001"
+          ],
+          "exception_type": "ValueError",
+          "node_id": "6686cb96105348a6a54208ef8bb1bdba",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "86f898e57fb341129d87847175079d64",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "07a761dd53fc4ffd826ea08267450ccc",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "de01b9eae063453986c30b74330f27a5",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_CONVNEXT_API001"
+          ],
+          "exception_type": "AttributeError",
+          "node_id": "670bb8b5faf54c8b821541e600588069",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "523ac9bbca2147099d04806e4ccb6359",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TORCHVISION_API001"
+          ],
+          "exception_type": "TypeError",
+          "node_id": "948f4e387b9a4091a65386cd70b5c0d3",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "6b157ab5ca154992a297b1e50ab48843",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "34b38604162142d6926e597c17d56622",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TEST_TARGET001"
+          ],
+          "exception_type": "AttributeError",
+          "node_id": "4a368b0442454a65a02c2229b64af7eb",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TEST_TARGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "14052bcacddb44e692b0342598e3863e",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TEST_TARGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "ad3f91d319504a7abb1a25df1c313002",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "82d404b056aa4ea19f42e86a3d469cc1",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RESOURCE_BUDGET001",
+            "SRC_TIMM_MODEL001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "eeef84ef3fed4b9ead67a97cc28e387b",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RESOURCE_BUDGET001"
+          ],
+          "exception_type": "TimeoutError",
+          "node_id": "6bbb77cb72314ebfa309f926b57b5a99",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_IMAGE_SIZE001",
+            "SRC_PANDAS_DTYPE001",
+            "SRC_SKLEARN_API001"
+          ],
+          "exception_type": "TypeError",
+          "node_id": "9824d15156f44fbdb73b2ad3a6257d80",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_IMAGE_SIZE001",
+            "SRC_SKLEARN_API001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "d821c9898be042fcbb7d7729ce37e4ff",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TIMM_MODEL001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "4fa3bec81027449cac697a0a72945154",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_IMAGE_SIZE001",
+            "SRC_SKLEARN_API001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "214861c1537b4b2b83240eade64def07",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TARGET_DTYPE001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "7a4b2f5b06d54c91a8d1dcff1b1b429a",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_PANDAS_DTYPE001",
+            "SRC_TARGET_DTYPE001"
+          ],
+          "exception_type": "TypeError",
+          "node_id": "ec66976a585f412b8b99197888df67c9",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_IMAGE_SIZE001",
+            "SRC_TARGET_DTYPE001"
+          ],
+          "exception_type": "AssertionError",
+          "node_id": "533f57d38a2942e79fc7857a4aeec9b0",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TARGET_DTYPE001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "0fb650552ec44c3bb5f9688fdd0a5039",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TARGET_DTYPE001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "5dfa76384b6e4cfeaebe8854bafd1806",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TARGET_DTYPE001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "b2a40313e6964f20974f1155a2733eab",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_IMAGE_SIZE001",
+            "SRC_SKLEARN_API001"
+          ],
+          "exception_type": "TypeError",
+          "node_id": "b70969d1fb7049e18b7235361ac7cede",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RESOURCE_BUDGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "8b58173af3544e8c8a218aa17c4e01cd",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RESOURCE_BUDGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "7805aa90fab74238a41a93c9fb9e4898",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RESOURCE_BUDGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "446d4c4c96174fe7b6bb68188c477a6c",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TIMM_MODEL001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "39562afb7b9b440aa6a7f2a4a7d5b998",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "73176972ad114f43bba3edcb8210a2f0",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TARGET_DTYPE001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "9a35fda7be9e4753a678d83eb77de891",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TARGET_DTYPE001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "42aed04f9b304397b50bd4dd81df53a0",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TIMM_MODEL001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "46bbdbcdf87b432f8f41b315f7b3b598",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RESOURCE_BUDGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "a710306e1bbf45b9b3625a41553346f2",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TIMM_MODEL001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "eaf393543e6d487fab8572cb9c2cab88",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "a551cfd9bd3447479ded3ea740f50a4c",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RUNTIME_BUDGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "a47976e2b4544b2cad5e08b5c4a2d623",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RESOURCE_BUDGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "1cab40c44cba466d9e2ce5dade563a8d",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RUNTIME_BUDGET001"
+          ],
+          "exception_type": "TimeoutError",
+          "node_id": "9ec5186f92dc4ef2af014c50c5b38882",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_IMAGE_SIZE001",
+            "SRC_NUMERICAL_RISK001"
+          ],
+          "exception_type": "AssertionError",
+          "node_id": "0763456566f34524a795b18760d0500a",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_NUMERICAL_RISK001"
+          ],
+          "exception_type": "ValueError",
+          "node_id": "7a7249730a6a40cbaacc4c752685fab3",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_NUMERICAL_RISK001"
+          ],
+          "exception_type": "ValueError",
+          "node_id": "fb5553764e844ad4a04e89fdd4e3bc74",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TENSOR_SLICE001"
+          ],
+          "exception_type": "ValueError",
+          "node_id": "eee741ef762d472392c2395e35b7f564",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "a8061185e78b4b7781f27380cc8bd89e",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "95cc279bf8e04816a903c76aa66262cf",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TORCH_API002"
+          ],
+          "exception_type": "TypeError",
+          "node_id": "463c3f331f724710a82c8c640ceed3a3",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "f5ac7ee367294a9c9102be603100eb1a",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_BACKBONE_DIM001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "cbf0460d775d49b882362eb91c3ed8e0",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "9df3e28f3c744b5686ab0287c4d068f0",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "9dc0c2b68d314e5d8f6a82834338eeb8",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "02e2285091954f90a600189e971429ab",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RESOURCE_BUDGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "ffdacdef085b4a1f9f3c22e83d58e36c",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RESOURCE_BUDGET001",
+            "SRC_TIMM_MODEL001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "53c70664d58341d08c8f783087a2b29b",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RESOURCE_BUDGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "312641e954c14c04a86ba7ae11fec64d",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "9ee33b0a37e848abbb4e53d07beedc21",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TARGET_DTYPE001",
+            "SRC_TEST_TARGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "21ff28211ca24db9b1936097c6b82461",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_COLLATE_TYPE001",
+            "SRC_TORCHVISION_API001"
+          ],
+          "exception_type": "TypeError",
+          "node_id": "df369e3a16834a65b29b553b14cf521a",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "820ba19acacc484dabca9518dcf3050d",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_COLLATE_TYPE001"
+          ],
+          "exception_type": "TypeError",
+          "node_id": "0f450c90214a410997470150a59a8b15",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TIMM_MODEL001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "c9dd4cd27f0943b99ac5b0786610198c",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "ec2a83faf6ca45e1bdc6d9dd110b7e3b",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_RESOURCE_BUDGET001"
+          ],
+          "exception_type": "TimeoutError",
+          "node_id": "98e3bb33b8cb40feb72db57751001f32",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_CUDA_API001",
+            "SRC_TARGET_DTYPE001",
+            "SRC_TEST_TARGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "160e12b1a5a94b7d9358bfc5687865fa",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TARGET_DTYPE001",
+            "SRC_TEST_TARGET001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "011adf686eb9486b9ec3e6d30cfbf35d",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TEST_TARGET001"
+          ],
+          "exception_type": "KeyError",
+          "node_id": "2a87c2d0c00e4a049c8a04de822fcd47",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_DEFINITION_ORDER001"
+          ],
+          "exception_type": "NameError",
+          "node_id": "11b65ea3c15e420d93f2877d576e911d",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TEST_TARGET001",
+            "SRC_TIMM_HEAD001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "d2fdc185327e428da80fd81a7d153c7e",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "6e71cab1e0824fb0b7fbf5efa974d7ab",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TEST_TARGET001"
+          ],
+          "exception_type": "KeyError",
+          "node_id": "be33cba81aa04b1b809c60e2b08d64ae",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_TIMM_MODEL001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "8316a458919a450788c667f2bc3e9ded",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "ce219f4091bb4c3f840556cf83cbe999",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "c66c45f366514906a68529230f81be91",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "b1ba66c47e16417496720d4a5bd29a97",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "9710e9846a244173b8c7d638f71791d5",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_BACKBONE_DIM001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "ee89bfaa18244a0e80e0a711ec640501",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_DEPENDENCY001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "e42f72d8446d4859992504bcc478033c",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "e86b2caa005a488a9a19a70c9eae6946",
+          "rejected": false,
+          "runtime_error": false
+        }
+      ]
+    },
+    {
+      "false_rejections": [],
+      "journal": "/home/downeyflyfan/Research_Projects/AI/Agents/Agents_Scheduler/MLEvolve/.cache/petfinder_terra_a100_20260905/upstream_60_mpsuuid/journal.json",
+      "metrics": {
+        "false_rejection_count": 0,
+        "false_rejection_rate": 0.0,
+        "node_count": 52,
+        "non_error_count": 27,
+        "recall": 1.0,
+        "runtime_error_count": 25,
+        "runtime_errors_caught": 25
+      },
+      "missed_runtime_errors": [],
+      "samples": [
+        {
+          "diagnostic_codes": [
+            "SRC_ENV001",
+            "SRC_PATH_CALLBACK001"
+          ],
+          "exception_type": "AttributeError",
+          "node_id": "ad1a854b5cd04b7ba4ff8539f46df4ff",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_LOCAL_DEP001"
+          ],
+          "exception_type": "FileNotFoundError",
+          "node_id": "44c1788ae59748a38ec46c5b60ea73e0",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_ENV001"
+          ],
+          "exception_type": "KeyError",
+          "node_id": "273ea9267a3a4f259eb7379b0ad88a04",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_ENV001"
+          ],
+          "exception_type": "KeyError",
+          "node_id": "4ae1b3c626e54a9c890d4e3b2c9afbeb",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "bf751fd9a8554af1a309beb029fdb547",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_LOCAL_DEP001"
+          ],
+          "exception_type": "FileNotFoundError",
+          "node_id": "09290c39f5ae459aa5649def8cce7ab4",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_IMAGE_SIZE001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "891c5ed0570f46609b047df93616dbd9",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "d827dade397547f28474efc17ca7ba6e",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "10ddb49c903a43cb9abafc78dbe0a238",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "ab7f4d2544f7403097d1ab3935fda345",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "1d9131a2e3ac40dba5621a341cf25abf",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "b12ddf3ad02c4fce870660faebd38a53",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "086354b98882468eb09c3a16adb5be04",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "5d8392ed3dcd4f45b033820f666beffa",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "8064774331d44c2bb119abf0d27e4f04",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "05f72bdabc9f484b9cffe47aa0db1a57",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "3b0e249d657b45fd9cf886ceaf18116c",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "bab17ca72cfa41998ac71d9242cb5ddc",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "5760fd66ab98486f988f44a9f6758779",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "2e4a5b15dd854d619946e10adb1e5d17",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "5e2f40b150b947ef8ebabfde7baaae9a",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_CONVNEXT_RANK001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "f675db2e1b81409c85911fe99e7c0157",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "a6098a13e2264561939f33a38df133a9",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "0e1a1fbd82484b42a078abbc92cccb99",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "e3ff18706eee4342adbb0c9516559c75",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "5791113d6184433fa5c36f1cb529bee2",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "84569e8d914d4bf6a6f10d5e4ce94033",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "efebf889765f4968a4a50ef33205f80b",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "a6df29a681a94f6587892801ddd1d7b7",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "733b6395aece4ba68cf08c3613f83c35",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "90ac7d9d28f84fcf81b17985d828ff0a",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "38508182c34843e4a0d682d62820d34f",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_SKLEARN_API001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "88e596d771ca4e779488416a3fc5dde6",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_SKLEARN_API001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "37678a1582d8457790a86cf48102bedb",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "ccc916b2924147a383f6e1ff752e4800",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "484e06fbdee743b988f3cce79896b339",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "4fdf02f18e7c4f3bada577f31b451347",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "c303976d26984b09b6358d0439324e77",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "884696d21599477b98c5e17ae12f8aa3",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "af6a3f8873ce4fa99ddd8d713cbe38f7",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "9777e6e0664742a4a16dc5d5142b8e0d",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "ad6fc4325a1d472eae7fb26bf9238453",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "4f760b40d1c8446e9b4acea118f2d39b",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "2d97c3713d1a46ac8d5ea43ff411b87d",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "8040504406064911bd53c115b5bef31e",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "aa8f301cdd64482dbba486a14f1228f9",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "5af43303976d43c5ab676f4d0b38c6b7",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "4ed96976d5304fe6bba384eb8b2a81e3",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "dc75e171724c4bf9924256641210148d",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [
+            "SRC001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "9e0da926bc9b4208be693472124cddaa",
+          "rejected": true,
+          "runtime_error": true
+        },
+        {
+          "diagnostic_codes": [],
+          "exception_type": null,
+          "node_id": "f055c37b58a34f60bbc8a0b598418974",
+          "rejected": false,
+          "runtime_error": false
+        },
+        {
+          "diagnostic_codes": [
+            "SRC_BATCH_MEMORY001"
+          ],
+          "exception_type": "RuntimeError",
+          "node_id": "c4e8b6189df14cfeafb34e9a290d2de4",
+          "rejected": true,
+          "runtime_error": true
+        }
+      ]
+    }
+  ]
+}

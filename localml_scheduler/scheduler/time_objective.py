@@ -701,6 +701,26 @@ class TimeAwareObjectiveScorer:
                 and not self.settings.gpu_scheduler.colocation.live_trial_enabled
             ):
                 continue
+            supports_checkpoint_resume = all(
+                bool(job.metadata.get("supports_checkpoint_resume", False))
+                for job in [*active_jobs, candidate]
+            )
+            requires_live_trial = bool(
+                not rejected
+                and self.settings.gpu_scheduler.colocation.live_trial_enabled
+                and (predicted_gain is None or predicted_below_threshold)
+                and supports_checkpoint_resume
+            )
+            # Opaque MLEvolve scripts cannot be paused and restored safely.  They
+            # still may share a GPU when dynamic VRAM admission accepts the pack;
+            # mark that placement non-preemptive rather than turning the lack of a
+            # checkpoint API into an implicit serial-execution policy.
+            non_preemptive_colocation = bool(
+                not rejected
+                and self.settings.gpu_scheduler.colocation.live_trial_enabled
+                and (predicted_gain is None or predicted_below_threshold)
+                and not supports_checkpoint_resume
+            )
             breakdown: dict[str, object] = {
                 "score": predicted_gain if predicted_gain is not None else 1.0,
                 "gain": predicted_gain,
@@ -732,7 +752,8 @@ class TimeAwareObjectiveScorer:
                     now=profile_now,
                 ),
                 "colocation_rejected": rejected,
-                "requires_live_trial": not rejected and self.settings.gpu_scheduler.colocation.live_trial_enabled,
+                "requires_live_trial": requires_live_trial,
+                "non_preemptive_colocation": non_preemptive_colocation,
                 "preexisting_job_ids": [job.job_id for job in active_jobs],
                 "objective_version": self.settings.gpu_scheduler.objective.objective_version,
                 "backend_config": dict(backend_config or {}),

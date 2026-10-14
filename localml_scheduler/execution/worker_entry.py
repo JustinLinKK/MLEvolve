@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import argparse
 
+from utils.seed import set_global_seed
+
+from ..backend_mode import normalize_runtime_backend
 from ..observability.events import EventLogger
 from ..observability.logging_utils import setup_scheduler_logger
 from ..profiling.batch_probe import run_batch_probe_preflight
@@ -21,6 +24,17 @@ from .worker_runtime import (
 )
 
 
+def _runtime_backend_name(job: object) -> str:
+    """Use the scheduler-selected transport when recording worker lifecycle events."""
+    metadata = getattr(job, "metadata", {})
+    if not isinstance(metadata, dict):
+        return "exclusive"
+    selected = metadata.get("placement_backend") or metadata.get("effective_backend")
+    if not selected:
+        return "exclusive"
+    return normalize_runtime_backend(selected)
+
+
 def _run_job(runtime_root: str, job_id: str) -> int:
     settings = load_runtime_settings(runtime_root)
     store = StateStore(settings)
@@ -29,7 +43,11 @@ def _run_job(runtime_root: str, job_id: str) -> int:
     context, job = create_runner_context(settings, store, event_logger, job_id)
     if context is None or job is None:
         raise KeyError(f"Unknown job_id: {job_id}")
-    mark_job_started(settings, store, event_logger, job_id, backend_name="exclusive")
+    backend_name = _runtime_backend_name(job)
+    mark_job_started(settings, store, event_logger, job_id, backend_name=backend_name)
+
+    if job.config.seed is not None:
+        set_global_seed(int(job.config.seed))
 
     try:
         context.job = run_batch_probe_preflight(context)
@@ -42,11 +60,11 @@ def _run_job(runtime_root: str, job_id: str) -> int:
         return 0
     except EarlyStopRequested as exc:
         logger.info("Job %s early-stopped successfully at a safe point", job_id)
-        return mark_job_completed(settings, store, event_logger, job_id, exc.result, backend_name="exclusive")
+        return mark_job_completed(settings, store, event_logger, job_id, exc.result, backend_name=backend_name)
     except Exception as exc:
-        return mark_job_failed(settings, store, event_logger, job_id, exc, backend_name="exclusive")
+        return mark_job_failed(settings, store, event_logger, job_id, exc, backend_name=backend_name)
 
-    return mark_job_completed(settings, store, event_logger, job_id, result, backend_name="exclusive")
+    return mark_job_completed(settings, store, event_logger, job_id, result, backend_name=backend_name)
 
 
 def main() -> int:

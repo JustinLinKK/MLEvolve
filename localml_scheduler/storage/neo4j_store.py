@@ -90,7 +90,11 @@ class Neo4jStateStore:
 
     def _apply_constraints(self) -> None:
         schema_path = (
-            Path(__file__).resolve().parents[2] / "schema" / "neo4j_constraints.cypher"
+            Path(__file__).resolve().parents[2]
+            / "HWKD"
+            / "schema"
+            / "job_evidence"
+            / "neo4j_constraints.cypher"
         )
         if not schema_path.exists():
             return

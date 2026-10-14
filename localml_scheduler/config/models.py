@@ -255,7 +255,9 @@ class SourceTrialRankingSettings:
     schema_version: int = 2
     policy: str = "pareto"
     ready_window_size: int = 10
-    max_group_size: int = 2
+    # None means that admission is bounded by live resource evidence, never by
+    # a fixed count of concurrent jobs.
+    max_group_size: int | None = None
     amortization_factor: float = 3.0
     estimated_setup_seconds: float = 0.0
     require_live_trial_for_unknown: bool = True
@@ -279,11 +281,10 @@ class SourceTrialRankingSettings:
         if self.policy != "pareto":
             raise ValueError("source_trial_ranking.policy must be pareto")
         self.ready_window_size = max(2, int(self.ready_window_size))
-        self.max_group_size = int(self.max_group_size)
-        if self.max_group_size != 2:
-            raise ValueError(
-                "source_trial_ranking.max_group_size currently supports only 2"
-            )
+        if self.max_group_size is not None:
+            self.max_group_size = int(self.max_group_size)
+            if self.max_group_size < 2:
+                raise ValueError("source_trial_ranking.max_group_size must be at least 2")
         self.amortization_factor = float(self.amortization_factor)
         self.estimated_setup_seconds = float(self.estimated_setup_seconds)
         if self.amortization_factor < 0:
@@ -626,7 +627,12 @@ class BaselineCacheSettings:
 @dataclass(slots=True)
 class PredictionSettings:
     mode: str = PREDICTION_MODE_BRANCH_PROFILE
+    require_ml_prediction: bool = False
     registry_path: str | None = None
+    v32_source_root: str | None = None
+    v32_artifact_path: str | None = None
+    v32_capture_device: str = "cpu"
+    v32_async_source_capture: bool = False
     conversion_timeout_seconds: float = 15.0
     cache_size: int = 1024
     test_override_enabled: bool = False
@@ -634,12 +640,21 @@ class PredictionSettings:
 
     def __post_init__(self) -> None:
         self.mode = normalize_prediction_mode(self.mode)
+        self.require_ml_prediction = bool(self.require_ml_prediction)
+        self.v32_async_source_capture = bool(self.v32_async_source_capture)
         self.conversion_timeout_seconds = max(
             0.1, float(self.conversion_timeout_seconds)
         )
         self.cache_size = max(1, int(self.cache_size))
+        self.v32_capture_device = str(self.v32_capture_device or "cpu").strip().lower()
+        if self.v32_capture_device not in {"cpu", "cuda"}:
+            raise ValueError("v32_capture_device must be 'cpu' or 'cuda'")
         if not self.test_override_enabled:
             self.test_model_path = None
+        if bool(self.v32_source_root) != bool(self.v32_artifact_path):
+            raise ValueError(
+                "v32_source_root and v32_artifact_path must be configured together"
+            )
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any] | None) -> "PredictionSettings":
@@ -660,8 +675,13 @@ class PredictionSettings:
     def to_dict(self) -> dict[str, Any]:
         return {
             "mode": self.mode,
+            "require_ml_prediction": self.require_ml_prediction,
             "ml": {
                 "registry_path": self.registry_path,
+                "v32_source_root": self.v32_source_root,
+                "v32_artifact_path": self.v32_artifact_path,
+                "v32_capture_device": self.v32_capture_device,
+                "v32_async_source_capture": self.v32_async_source_capture,
                 "source_conversion_timeout_seconds": self.conversion_timeout_seconds,
                 "cache_size": self.cache_size,
                 "test_override_enabled": self.test_override_enabled,

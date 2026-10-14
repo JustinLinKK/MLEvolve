@@ -1,0 +1,131 @@
+{
+  "admission_average_fraction": 0.18338001563314227,
+  "admission_below_resume_since": null,
+  "admission_open": true,
+  "admission_samples": [
+    {
+      "captured_at": "2026-09-14T21:02:16.715303+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 3,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-14T21:02:17.361261+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 3,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-14T21:02:18.023770+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 3,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-14T21:02:18.677251+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 3,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-14T21:02:19.336523+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 365,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-14T21:02:19.996960+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 419,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-14T21:02:20.640499+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 895,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-14T21:02:21.280371+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 895,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-14T21:02:21.922303+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 895,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-14T21:02:22.566725+00:00",
+      "gpu_utilization": 0.06,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 7491,
+      "memory_utilization": 0.04
+    },
+    {
+      "captured_at": "2026-09-14T21:02:23.211886+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 10363,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-14T21:02:23.857764+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 14903,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-14T21:02:24.507227+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 15661,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-14T21:02:25.151857+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 15661,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-14T21:02:25.979650+00:00",
+      "gpu_utilization": 1.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 3,
+      "memory_utilization": 0.1
+    },
+    {
+      "captured_at": "2026-09-14T21:02:26.419421+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 3,
+      "memory_utilization": 0.0
+    }
+  ],
+  "colocation_stall": null,
+  "colocation_trial": null,
+  "exclusive_probe_job_id": null,
+  "placement_replay": {
+    "observations": [],
+    "pending_observation": null,
+    "suppressed_decisions": 0,
+    "suppressed_probes": 0,
+    "suppressed_trials": 0,
+    "template": null
+  },
+  "updated_at": "2026-09-14T21:02:26.419501+00:00"
+}

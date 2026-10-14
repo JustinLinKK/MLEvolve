@@ -85,7 +85,7 @@ def _ensure_gpu_execution_slot_available(device_index: int) -> None:
             [
                 nvidia_smi,
                 f"--id={selector}",
-                "--query-compute-apps=pid",
+                "--query-compute-apps=pid,process_name",
                 "--format=csv,noheader",
             ],
             check=False,
@@ -95,7 +95,18 @@ def _ensure_gpu_execution_slot_available(device_index: int) -> None:
         )
     except (OSError, subprocess.SubprocessError):
         return
-    if processes.returncode == 0 and processes.stdout.strip():
+    active_processes = [
+        line.strip().lower()
+        for line in processes.stdout.splitlines()
+        if line.strip()
+    ]
+    # NVIDIA's MPS daemon intentionally owns the one CUDA context under
+    # Exclusive_Process mode; its clients are the scheduler's own workloads.
+    # It is not an external owner and must not block MPS-backed dispatch.
+    non_mps_owners = [
+        line for line in active_processes if "nvidia-cuda-mps-server" not in line
+    ]
+    if processes.returncode == 0 and non_mps_owners:
         raise RuntimeError(
             f"CUDA device {selector} is occupied under {mode}; "
             "deferring GPU job until its exclusive owner exits"
@@ -190,6 +201,11 @@ class MPSBackend:
     def _client_envs(self, jobs: list[TrainingJob]) -> list[dict[str, str]]:
         mps_settings = self.settings.gpu_scheduler.mps
         pipe_env = {
+            # The daemon is launched with one physical device masked in. MPS
+            # renumbers that visible set to a single logical device, so every
+            # client must address it as zero rather than reusing the parent's
+            # physical CUDA selector.
+            "CUDA_VISIBLE_DEVICES": "0",
             "CUDA_MPS_PIPE_DIRECTORY": mps_settings.pipe_directory,
             "CUDA_MPS_LOG_DIRECTORY": mps_settings.log_directory,
             "OMP_NUM_THREADS": str(mps_settings.default_omp_num_threads),
@@ -203,6 +219,13 @@ class MPSBackend:
         )
         if isinstance(configured_percentages, list) and len(configured_percentages) == len(jobs):
             percentages = [int(value) for value in configured_percentages]
+        elif (
+            len(jobs) == 1
+            and isinstance(configured_percentages, list)
+            and isinstance(jobs[0].metadata.get("placement_mps_slot"), int)
+        ):
+            slot = int(jobs[0].metadata["placement_mps_slot"])
+            percentages = [int(configured_percentages[slot])] if 0 <= slot < len(configured_percentages) else [100]
         elif len(jobs) == 1:
             percentages = [100]
         elif len(jobs) == 2:

@@ -1,0 +1,26 @@
+{
+  "admission_average_fraction": 0.05319610908459267,
+  "admission_below_resume_since": null,
+  "admission_open": true,
+  "admission_samples": [
+    {
+      "captured_at": "2026-09-15T21:03:10.448741+00:00",
+      "gpu_utilization": 1.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 1225,
+      "memory_utilization": 0.1
+    }
+  ],
+  "colocation_stall": null,
+  "colocation_trial": null,
+  "exclusive_probe_job_id": null,
+  "placement_replay": {
+    "observations": [],
+    "pending_observation": null,
+    "suppressed_decisions": 0,
+    "suppressed_probes": 0,
+    "suppressed_trials": 0,
+    "template": null
+  },
+  "updated_at": "2026-09-15T21:03:10.448817+00:00"
+}

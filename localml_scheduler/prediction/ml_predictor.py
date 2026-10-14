@@ -7,15 +7,18 @@ from dataclasses import dataclass
 from hashlib import sha256
 import json
 import logging
+import math
 import multiprocessing
 from pathlib import Path
 import sys
+import time
 from typing import Any, Sequence
 
 from ..config import PredictionSettings
 from ..domain import TrainingJob
 from ..hardware import HardwareProfile
 from .source_worker import convert_source_options_worker, convert_source_worker
+from .v32_source_worker import predict_v32_source_options_worker
 
 
 LOGGER = logging.getLogger(__name__)
@@ -28,25 +31,41 @@ class JobPredictionError(RuntimeError):
     """One job could not be converted or predicted and must use branch profiling."""
 
 
+class JobPredictionPending(JobPredictionError):
+    """Source capture is running; the scheduler must retry on a later tick."""
+
+
+@dataclass
+class _PendingV32Capture:
+    receiver: Any
+    process: Any
+    keys: tuple[str, ...]
+    deadline: float
+
+
 @dataclass(frozen=True)
 class ModelSpecification:
     source_path: Path
+    working_directory: Path
     entry: str
     input_shapes: tuple[tuple[int, ...], ...]
     input_dtypes: tuple[str, ...]
     precision: str
     constructor_args: tuple[Any, ...]
     constructor_kwargs: dict[str, Any]
+    steps_per_epoch: int | None = None
 
     def worker_request(self) -> dict[str, Any]:
         return {
             "source_path": str(self.source_path),
+            "working_directory": str(self.working_directory),
             "entry": self.entry,
             "input_shapes": [list(shape) for shape in self.input_shapes],
             "input_dtypes": list(self.input_dtypes),
             "precision": self.precision,
             "constructor_args": list(self.constructor_args),
             "constructor_kwargs": self.constructor_kwargs,
+            "steps_per_epoch": self.steps_per_epoch,
         }
 
 
@@ -101,6 +120,18 @@ def model_specification_for_job(job: TrainingJob, batch_size: int) -> ModelSpeci
         source_path = (Path.cwd() / source_path).resolve()
     if not source_path.is_file() or source_path.suffix != ".py":
         raise JobPredictionError(f"model source is not a Python file: {source_path}")
+    raw_working_directory = job.config.runner_kwargs.get("working_dir")
+    working_directory = (
+        Path(str(raw_working_directory)).expanduser()
+        if raw_working_directory
+        else source_path.parent
+    )
+    if not working_directory.is_absolute():
+        working_directory = (Path.cwd() / working_directory).resolve()
+    if not working_directory.is_dir():
+        raise JobPredictionError(
+            f"model execution directory is not a directory: {working_directory}"
+        )
 
     raw_shapes = metadata.get("input_shapes")
     if raw_shapes is None:
@@ -117,14 +148,37 @@ def model_specification_for_job(job: TrainingJob, batch_size: int) -> ModelSpeci
     if len(input_dtypes) != len(input_shapes):
         raise JobPredictionError("input_dtypes must contain one value or match input_shapes")
 
+    raw_steps_per_epoch = metadata.get("steps_per_epoch") or job.metadata.get(
+        "steps_per_epoch"
+    )
+    try:
+        steps_per_epoch = int(raw_steps_per_epoch)
+    except (TypeError, ValueError):
+        steps_per_epoch = 0
+    if steps_per_epoch <= 0:
+        raw_dataset_size = metadata.get("dataset_size") or job.metadata.get(
+            "dataset_size"
+        )
+        try:
+            dataset_size = int(raw_dataset_size)
+        except (TypeError, ValueError):
+            dataset_size = 0
+        steps_per_epoch = (
+            int(math.ceil(dataset_size / max(1, int(batch_size))))
+            if dataset_size > 0
+            else 0
+        )
+
     return ModelSpecification(
         source_path=source_path,
+        working_directory=working_directory,
         entry=str(metadata.get("entry") or "build_model"),
         input_shapes=input_shapes,
         input_dtypes=input_dtypes,
         precision=_normalize_precision(metadata.get("precision") or job.metadata.get("precision")),
         constructor_args=tuple(metadata.get("constructor_args") or ()),
         constructor_kwargs=dict(metadata.get("constructor_kwargs") or {}),
+        steps_per_epoch=steps_per_epoch or None,
     )
 
 
@@ -143,14 +197,33 @@ class MLVramPredictor:
         self._cache: OrderedDict[str, Any] = OrderedDict()
         self._job_values: dict[str, float] = {}
         self._job_epoch_seconds: dict[str, float] = {}
+        self._v32_predictions: dict[str, dict[str, float]] = {}
+        self._v32_pending_capture: _PendingV32Capture | None = None
         self._job_failures: dict[str, str] = {}
         self._target_names: tuple[str, ...] = ()
         self.last_sources: dict[str, str] = {}
         self.last_errors: dict[str, str] = {}
         self._initialize()
 
+    def close(self) -> None:
+        """Release an unfinished source-capture worker without delaying shutdown."""
+        pending = self._v32_pending_capture
+        self._v32_pending_capture = None
+        if pending is None:
+            return
+        try:
+            pending.receiver.close()
+        finally:
+            if pending.process.is_alive():
+                pending.process.terminate()
+            pending.process.join(timeout=0.0)
+
     def _initialize(self) -> None:
         try:
+            if self.settings.v32_source_root:
+                self._initialize_v32()
+                self.available = True
+                return
             if not PERFSEER_SRC.is_dir():
                 raise RuntimeError(f"PerfSeer submodule source is missing: {PERFSEER_SRC}")
             if str(PERFSEER_SRC) not in sys.path:
@@ -192,6 +265,204 @@ class MLVramPredictor:
             self.unavailable_reason = f"{type(exc).__name__}: {exc}"
             LOGGER.warning("ML predictor unavailable; using branch profiles: %s", self.unavailable_reason)
 
+    def _initialize_v32(self) -> None:
+        """Validate the external v3.2 package before any source capture runs."""
+        source_root = Path(str(self.settings.v32_source_root)).expanduser().resolve()
+        artifact_path = Path(str(self.settings.v32_artifact_path)).expanduser().resolve()
+        if not source_root.is_dir():
+            raise RuntimeError(f"PerfSeer v3.2 source is missing: {source_root}")
+        if not artifact_path.is_file():
+            raise RuntimeError(f"PerfSeer v3.2 artifact is missing: {artifact_path}")
+        if str(source_root) not in sys.path:
+            sys.path.insert(0, str(source_root))
+        import torch
+
+        artifact = torch.load(artifact_path, map_location="cpu", weights_only=False)
+        target_names = tuple(str(name) for name in artifact.get("target_names") or ())
+        required_targets = {"train_epoch_ms", "train_peak_vram_mib"}
+        if artifact.get("version") != "perfseer_v32_checkpoint_v2":
+            raise RuntimeError("predictor artifact is not a PerfSeer v3.2 checkpoint")
+        if not required_targets.issubset(target_names):
+            raise RuntimeError("v3.2 artifact lacks scheduler time or peak-VRAM targets")
+        self.model_id = "perfseer_v32_student"
+        self.artifact_hash = sha256(artifact_path.read_bytes()).hexdigest()
+        self._target_names = target_names
+        self._runtime = "v32"
+
+    def _predict_v32_options(
+        self,
+        job: TrainingJob,
+        specifications: list[ModelSpecification],
+        keys: list[str],
+    ) -> None:
+        missing = [index for index, key in enumerate(keys) if key not in self._v32_predictions]
+        if not missing:
+            return
+        if self.settings.v32_async_source_capture:
+            self._poll_v32_capture()
+            missing = [index for index, key in enumerate(keys) if key not in self._v32_predictions]
+            if not missing:
+                return
+        # Once the baseline batch has an estimate, let the planner admit that
+        # unchanged training configuration.  Capturing every optional batch
+        # variant serially would keep the entire queue cold.
+        if any(key in self._v32_predictions for key in keys):
+            return
+        missing = self._v32_primary_capture_indices(job, specifications, missing)
+        if self.settings.v32_async_source_capture:
+            if self._v32_pending_capture is not None:
+                raise JobPredictionPending("v3.2 source capture is still running")
+            self._start_v32_capture(specifications, keys, missing)
+            raise JobPredictionPending("v3.2 source capture started")
+        context = multiprocessing.get_context("spawn")
+        receiver, sender = context.Pipe(duplex=False)
+        process = context.Process(
+            target=predict_v32_source_options_worker,
+            args=(
+                sender,
+                str(self.settings.v32_source_root),
+                str(self.settings.v32_artifact_path),
+                [specifications[index].worker_request() for index in missing],
+                self.settings.v32_capture_device,
+            ),
+            # Candidate modules may construct DataLoader workers at import
+            # time.  A daemon process cannot create those children, whereas
+            # this bounded worker is joined/terminated explicitly below.
+            daemon=False,
+        )
+        process.start()
+        sender.close()
+        timeout_seconds = self.settings.conversion_timeout_seconds * max(1, len(missing))
+        try:
+            if not receiver.poll(timeout_seconds):
+                process.terminate()
+                process.join(timeout=2.0)
+                raise JobPredictionError(f"v3.2 source capture exceeded {timeout_seconds:.1f}s")
+            response = receiver.recv()
+        except EOFError as exc:
+            raise JobPredictionError("v3.2 source worker exited without a result") from exc
+        finally:
+            receiver.close()
+            if process.is_alive():
+                process.join(timeout=2.0)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=2.0)
+        if not response.get("ok"):
+            raise JobPredictionError(str(response.get("error") or "v3.2 source capture failed"))
+        predictions = list(response.get("predictions") or [])
+        if len(predictions) != len(missing):
+            raise JobPredictionError("v3.2 source worker returned an incomplete option set")
+        for index, prediction in zip(missing, predictions, strict=True):
+            peak_vram = float(prediction["train_peak_vram_mib"])
+            epoch_ms = float(prediction["train_epoch_ms"])
+            if not (0.0 < peak_vram < float("inf") and 0.0 < epoch_ms < float("inf")):
+                raise JobPredictionError("v3.2 prediction is non-positive or non-finite")
+            self._v32_predictions[keys[index]] = {
+                "train_peak_vram_mib": peak_vram,
+                "train_epoch_ms": epoch_ms,
+            }
+
+    @staticmethod
+    def _v32_primary_capture_indices(
+        job: TrainingJob,
+        specifications: list[ModelSpecification],
+        missing: list[int],
+    ) -> list[int]:
+        """Capture only the candidate's existing training batch at cold start."""
+        configured_batch = job.config.runner_kwargs.get(
+            "batch_size", job.requested_batch_size
+        )
+        try:
+            configured_batch = int(configured_batch)
+        except (TypeError, ValueError):
+            configured_batch = None
+        if configured_batch is not None:
+            for index in missing:
+                shapes = specifications[index].input_shapes
+                if shapes and int(shapes[0][0]) == configured_batch:
+                    return [index]
+        return [missing[0]]
+
+    def _start_v32_capture(
+        self,
+        specifications: list[ModelSpecification],
+        keys: list[str],
+        missing: list[int],
+    ) -> None:
+        """Start one CPU-side V3.2 capture and return immediately to the service."""
+        context = multiprocessing.get_context("spawn")
+        receiver, sender = context.Pipe(duplex=False)
+        process = context.Process(
+            target=predict_v32_source_options_worker,
+            args=(
+                sender,
+                str(self.settings.v32_source_root),
+                str(self.settings.v32_artifact_path),
+                [specifications[index].worker_request() for index in missing],
+                self.settings.v32_capture_device,
+            ),
+            daemon=False,
+        )
+        process.start()
+        sender.close()
+        timeout_seconds = self.settings.conversion_timeout_seconds * max(1, len(missing))
+        self._v32_pending_capture = _PendingV32Capture(
+            receiver=receiver,
+            process=process,
+            keys=tuple(keys[index] for index in missing),
+            deadline=time.monotonic() + timeout_seconds,
+        )
+
+    def _poll_v32_capture(self) -> None:
+        """Consume a ready capture result without blocking the scheduler tick."""
+        pending = self._v32_pending_capture
+        if pending is None:
+            return
+        if not pending.receiver.poll(0.0):
+            # A child can die before it writes to the pipe (for example while
+            # importing a generated source).  Waiting for the nominal timeout
+            # leaves Scheduler status permanently "pending" even though no
+            # capture is running.  Surface that condition immediately so the
+            # caller can record a fallback and continue admission.
+            if not pending.process.is_alive():
+                self._v32_pending_capture = None
+                pending.receiver.close()
+                pending.process.join(timeout=0.0)
+                raise JobPredictionError("v3.2 source worker exited without a result")
+            if time.monotonic() < pending.deadline:
+                return
+            self._v32_pending_capture = None
+            pending.receiver.close()
+            if pending.process.is_alive():
+                pending.process.terminate()
+            pending.process.join(timeout=0.0)
+            raise JobPredictionError("v3.2 source capture exceeded its configured deadline")
+        self._v32_pending_capture = None
+        try:
+            response = pending.receiver.recv()
+        except EOFError as exc:
+            raise JobPredictionError("v3.2 source worker exited without a result") from exc
+        finally:
+            pending.receiver.close()
+            if pending.process.is_alive():
+                pending.process.terminate()
+            pending.process.join(timeout=0.0)
+        if not response.get("ok"):
+            raise JobPredictionError(str(response.get("error") or "v3.2 source capture failed"))
+        predictions = list(response.get("predictions") or [])
+        if len(predictions) != len(pending.keys):
+            raise JobPredictionError("v3.2 source worker returned an incomplete option set")
+        for key, prediction in zip(pending.keys, predictions, strict=True):
+            peak_vram = float(prediction["train_peak_vram_mib"])
+            epoch_ms = float(prediction["train_epoch_ms"])
+            if not (0.0 < peak_vram < float("inf") and 0.0 < epoch_ms < float("inf")):
+                raise JobPredictionError("v3.2 prediction is non-positive or non-finite")
+            self._v32_predictions[key] = {
+                "train_peak_vram_mib": peak_vram,
+                "train_epoch_ms": epoch_ms,
+            }
+
     def _smoke_test_runtime(self) -> None:
         import torch
 
@@ -210,12 +481,14 @@ class MLVramPredictor:
         source_digest = sha256(specification.source_path.read_bytes()).hexdigest()
         payload = {
             "source_sha256": source_digest,
+            "working_directory": str(specification.working_directory),
             "entry": specification.entry,
             "input_shapes": specification.input_shapes,
             "input_dtypes": specification.input_dtypes,
             "precision": specification.precision,
             "constructor_args": specification.constructor_args,
             "constructor_kwargs": specification.constructor_kwargs,
+            "steps_per_epoch": specification.steps_per_epoch,
             "artifact_sha256": self.artifact_hash,
         }
         return sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
@@ -357,13 +630,47 @@ class MLVramPredictor:
             self.last_errors[job.job_id] = unavailable_error
             raise JobPredictionError(unavailable_error)
         ordered_sizes = [int(value) for value in dict.fromkeys(batch_sizes)]
-        specifications = [model_specification_for_job(job, batch_size) for batch_size in ordered_sizes]
+        try:
+            specifications = [
+                model_specification_for_job(job, batch_size)
+                for batch_size in ordered_sizes
+            ]
+        except Exception as exc:
+            prediction_error = (
+                exc
+                if isinstance(exc, JobPredictionError)
+                else JobPredictionError(f"{type(exc).__name__}: {exc}")
+            )
+            self.last_sources[job.job_id] = "branch_profile"
+            self.last_errors[job.job_id] = str(prediction_error)
+            raise prediction_error
         keys = [self._prediction_key(job, batch_size, spec) for batch_size, spec in zip(ordered_sizes, specifications, strict=True)]
         failed = next((self._job_failures[key] for key in keys if key in self._job_failures), None)
         if failed is not None:
             self.last_sources[job.job_id] = "branch_profile"
             self.last_errors[job.job_id] = failed
             raise JobPredictionError(failed)
+        if self._runtime == "v32":
+            try:
+                self._predict_v32_options(job, specifications, keys)
+            except JobPredictionPending as exc:
+                self.last_sources[job.job_id] = "branch_profile"
+                self.last_errors[job.job_id] = str(exc)
+                raise
+            except Exception as exc:
+                prediction_error = exc if isinstance(exc, JobPredictionError) else JobPredictionError(f"{type(exc).__name__}: {exc}")
+                for key in keys:
+                    self._job_failures[key] = str(prediction_error)
+                self.last_sources[job.job_id] = "branch_profile"
+                self.last_errors[job.job_id] = str(prediction_error)
+                raise prediction_error
+            self.last_sources[job.job_id] = "ml_predictor"
+            self.last_errors.pop(job.job_id, None)
+            return {
+                batch_size: self._v32_predictions[key]["train_peak_vram_mib"]
+                for batch_size, key in zip(ordered_sizes, keys, strict=True)
+                if key in self._v32_predictions
+            }
         missing_indices = [index for index, key in enumerate(keys) if key not in self._job_values]
         try:
             missing_encoded = (
@@ -403,8 +710,33 @@ class MLVramPredictor:
             raise JobPredictionError(self.unavailable_reason or "ML predictor unavailable")
         epoch_index = self._target_names.index("train_epoch_ms")
         ordered_sizes = [int(value) for value in dict.fromkeys(batch_sizes)]
-        specifications = [model_specification_for_job(job, batch_size) for batch_size in ordered_sizes]
+        try:
+            specifications = [
+                model_specification_for_job(job, batch_size)
+                for batch_size in ordered_sizes
+            ]
+        except Exception as exc:
+            prediction_error = (
+                exc
+                if isinstance(exc, JobPredictionError)
+                else JobPredictionError(f"{type(exc).__name__}: {exc}")
+            )
+            self.last_sources[job.job_id] = "branch_profile"
+            self.last_errors[job.job_id] = str(prediction_error)
+            raise prediction_error
         keys = [self._prediction_key(job, batch_size, spec) for batch_size, spec in zip(ordered_sizes, specifications, strict=True)]
+        if self._runtime == "v32":
+            try:
+                self._predict_v32_options(job, specifications, keys)
+            except Exception as exc:
+                if isinstance(exc, JobPredictionError):
+                    raise
+                raise JobPredictionError(f"{type(exc).__name__}: {exc}") from exc
+            return {
+                batch_size: self._v32_predictions[key]["train_epoch_ms"] / 1000.0
+                for batch_size, key in zip(ordered_sizes, keys, strict=True)
+                if key in self._v32_predictions
+            }
         missing = [index for index, key in enumerate(keys) if key not in self._job_epoch_seconds]
         try:
             encoded_options = self._convert_many([specifications[index] for index in missing]) if missing else []

@@ -64,6 +64,15 @@ from .profiles import (
     SoloProfile,
 )
 from .progress import JobProgress, PlacementAssignment, ProgressSnapshot
+from .predictions import (
+    GroupPrediction,
+    PredictedScalar,
+    PredictionObservation,
+    PredictionRequest,
+    PredictionSource,
+    ResourcePrediction,
+    prediction_timestamp,
+)
 
 __all__ = [
     "_to_primitive",
@@ -78,6 +87,7 @@ __all__ = [
     "CombinationProfile",
     "ColocationTimingProfile",
     "DispatchResult",
+    "GroupPrediction",
     "JobCommand",
     "JobConfig",
     "JobProgress",
@@ -89,10 +99,15 @@ __all__ = [
     "PlacementAssignment",
     "PlacementDecision",
     "PreloadSource",
+    "PredictedScalar",
+    "PredictionObservation",
+    "PredictionRequest",
+    "PredictionSource",
     "ProgressSnapshot",
     "RUNTIME_PROBE_STRATEGY_EPOCH_1",
     "RUNTIME_PROBE_STRATEGY_STEP_WINDOW",
     "ResourceRequirements",
+    "ResourcePrediction",
     "RunProfile",
     "RuntimeProfile",
     "RuntimeProbeSpec",
@@ -119,6 +134,7 @@ __all__ = [
     "normalize_colocation_members",
     "normalize_runtime_probe_strategy",
     "parse_timestamp",
+    "prediction_timestamp",
     "stable_job_id",
     "to_primitive",
     "utc_now",

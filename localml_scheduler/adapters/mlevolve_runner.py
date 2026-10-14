@@ -19,12 +19,13 @@ import time
 
 import humanize
 
-from engine.script_introspection import (
+from .script_introspection import (
     GRADIENT_ACCUMULATION_PARAM_NAMES,
     LEARNING_RATE_PARAM_NAMES,
     SCHEDULER_TOTAL_STEPS_PARAM_NAMES,
     WARMUP_STEPS_PARAM_NAMES,
     analyze_training_batch_contract,
+    detect_epoch_count,
 )
 
 from ..execution.runner_protocol import RunnerContext
@@ -54,6 +55,27 @@ _GRADIENT_ACCUMULATION_OVERRIDE_VAR = "_MLEVOLVE_GRADIENT_ACCUMULATION_OVERRIDE"
 _LEARNING_RATE_OVERRIDE_VAR = "_MLEVOLVE_LEARNING_RATE_OVERRIDE"
 _WARMUP_STEPS_OVERRIDE_VAR = "_MLEVOLVE_WARMUP_STEPS_OVERRIDE"
 _SCHEDULER_TOTAL_STEPS_OVERRIDE_VAR = "_MLEVOLVE_SCHEDULER_TOTAL_STEPS_OVERRIDE"
+_JOB_SEED_ENV_VAR = "MLEVOLVE_JOB_SEED"
+_STAGE_EPOCH_PATTERN = re.compile(r"\bstage\s*(\d+)\s+epoch\b", re.IGNORECASE)
+
+
+def _infer_planned_epochs(script_path: Path) -> int | None:
+    """Read a literal epoch budget from generated-script source when available."""
+    try:
+        source = script_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    matches = re.findall(
+        r"(?:['\"](?:epochs|max_epochs|num_epochs)['\"]\s*:\s*|\b(?:epochs|max_epochs|num_epochs)\b(?:\s*:\s*[^=\n]+)?\s*=\s*)(\d+)",
+        source,
+        re.IGNORECASE,
+    )
+    for value in matches:
+        try:
+            return max(1, int(value))
+        except ValueError:
+            continue
+    return detect_epoch_count(source)
 
 
 def _request_process_stop(proc: subprocess.Popen) -> None:
@@ -64,6 +86,12 @@ def _request_process_stop(proc: subprocess.Popen) -> None:
             proc.send_signal(signal.SIGINT)
     except (OSError, ValueError):
         proc.terminate()
+
+
+def _candidate_python_executable(context: RunnerContext) -> str:
+    """Select an optional historical interpreter for the opaque candidate only."""
+    configured = context.job.config.runner_kwargs.get("candidate_python_executable")
+    return str(configured) if configured else (context.job.config.python_executable or sys.executable)
 
 
 @dataclass(slots=True)
@@ -320,6 +348,36 @@ class _BatchOverrideTransformer(ast.NodeTransformer):
         return node
 
 
+class _LocalCheckpointLoadTransformer(ast.NodeTransformer):
+    """Preserve generated scripts' own checkpoint reloads on PyTorch 2.6+.
+
+    PyTorch changed ``torch.load`` to ``weights_only=True`` by default.  A
+    candidate's locally written training checkpoint commonly contains NumPy
+    scheduler state and therefore needs the legacy loader.  Restrict this
+    compatibility rewrite to direct ``torch.load(checkpoint_*)`` calls, which
+    are explicit local checkpoint reloads; unrelated model paths retain
+    PyTorch's safer default.
+    """
+
+    def visit_Call(self, node: ast.Call) -> ast.Call:
+        node = self.generic_visit(node)
+        if not (
+            isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "torch"
+            and node.func.attr == "load"
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+            and "checkpoint" in node.args[0].id.lower()
+            and not any(keyword.arg == "weights_only" for keyword in node.keywords)
+        ):
+            return node
+        node.keywords.append(
+            ast.keyword(arg="weights_only", value=ast.Constant(value=False))
+        )
+        return node
+
+
 def _materialize_instrumented_script(
     script_path: Path, working_dir: Path
 ) -> InstrumentedScript:
@@ -335,12 +393,34 @@ def _materialize_instrumented_script(
     }
     transformer = _BatchOverrideTransformer(training_sites)
     module = transformer.visit(module)
+    module = _LocalCheckpointLoadTransformer().visit(module)
     ast.fix_missing_locations(module)
-    if not transformer.modified:
-        return InstrumentedScript(path=script_path, had_batch_rewrite=False)
-
     helper_module = ast.parse(
         "import os\n"
+        f"_MLEVOLVE_JOB_SEED = os.environ.get('{_JOB_SEED_ENV_VAR}')\n"
+        "if _MLEVOLVE_JOB_SEED is not None:\n"
+        "    try:\n"
+        "        _mlevolve_seed = int(_MLEVOLVE_JOB_SEED)\n"
+        "    except ValueError:\n"
+        "        _mlevolve_seed = None\n"
+        "    if _mlevolve_seed is not None:\n"
+        "        import random as _mlevolve_random\n"
+        "        _mlevolve_random.seed(_mlevolve_seed)\n"
+        "        try:\n"
+        "            import numpy as _mlevolve_numpy\n"
+        "            _mlevolve_numpy.random.seed(_mlevolve_seed)\n"
+        "        except Exception:\n"
+        "            pass\n"
+        "        try:\n"
+        "            import torch as _mlevolve_torch\n"
+        "            _mlevolve_torch.manual_seed(_mlevolve_seed)\n"
+        "            if _mlevolve_torch.cuda.is_available():\n"
+        "                _mlevolve_torch.cuda.manual_seed_all(_mlevolve_seed)\n"
+        "            _mlevolve_torch.backends.cudnn.benchmark = False\n"
+        "            _mlevolve_torch.backends.cudnn.deterministic = True\n"
+        "            _mlevolve_torch.use_deterministic_algorithms(True)\n"
+        "        except Exception:\n"
+        "            pass\n"
         f"{_BATCH_OVERRIDE_VAR} = os.environ.get('MLEVOLVE_BATCH_SIZE_OVERRIDE')\n"
         f"{_PROBE_MODE_VAR} = os.environ.get('MLEVOLVE_PROBE_MODE') == '1'\n"
         f"{_EPOCH_OVERRIDE_VAR} = int(os.environ['MLEVOLVE_PROBE_MAX_EPOCHS']) if os.environ.get('MLEVOLVE_PROBE_MAX_EPOCHS') else None\n"
@@ -348,6 +428,20 @@ def _materialize_instrumented_script(
         f"{_LEARNING_RATE_OVERRIDE_VAR} = os.environ.get('MLEVOLVE_LEARNING_RATE_OVERRIDE')\n"
         f"{_WARMUP_STEPS_OVERRIDE_VAR} = os.environ.get('MLEVOLVE_WARMUP_STEPS_OVERRIDE')\n"
         f"{_SCHEDULER_TOTAL_STEPS_OVERRIDE_VAR} = os.environ.get('MLEVOLVE_SCHEDULER_TOTAL_STEPS_OVERRIDE')\n"
+        "_MLEVOLVE_FORCE_NUM_WORKERS = int(os.environ['MLEVOLVE_FORCE_NUM_WORKERS']) if os.environ.get('MLEVOLVE_FORCE_NUM_WORKERS') else None\n"
+        "def _mlevolve_force_data_loader_workers():\n"
+        "    if _MLEVOLVE_FORCE_NUM_WORKERS is None:\n"
+        "        return\n"
+        "    try:\n"
+        "        from torch.utils.data import DataLoader\n"
+        "    except Exception:\n"
+        "        return\n"
+        "    _original_init = DataLoader.__init__\n"
+        "    def _safe_init(self, *args, **kwargs):\n"
+        "        kwargs['num_workers'] = _MLEVOLVE_FORCE_NUM_WORKERS\n"
+        "        return _original_init(self, *args, **kwargs)\n"
+        "    DataLoader.__init__ = _safe_init\n"
+        "_mlevolve_force_data_loader_workers()\n"
         "_MLEVOLVE_PROBE_MAX_TRAIN_BATCHES = int(os.environ['MLEVOLVE_PROBE_MAX_TRAIN_BATCHES']) if os.environ.get('MLEVOLVE_PROBE_MAX_TRAIN_BATCHES') else None\n"
         "def _mlevolve_apply_probe_limits():\n"
         "    if not _MLEVOLVE_PROBE_MODE or _MLEVOLVE_PROBE_MAX_TRAIN_BATCHES is None:\n"
@@ -401,6 +495,7 @@ def _materialize_instrumented_script(
 def _base_script_env(
     batch_size_override: int | None = None,
     *,
+    seed: int | None = None,
     gradient_accumulation_override: int | None = None,
     learning_rate_override: float | None = None,
     warmup_steps_override: int | None = None,
@@ -408,8 +503,13 @@ def _base_script_env(
     probe_mode: bool = False,
     probe_max_epochs: int | None = None,
     probe_max_train_batches: int | None = None,
+    force_num_workers: int | None = None,
 ) -> dict[str, str]:
     env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    if seed is not None:
+        env[_JOB_SEED_ENV_VAR] = str(int(seed))
+    else:
+        env.pop(_JOB_SEED_ENV_VAR, None)
     if batch_size_override is not None:
         env["MLEVOLVE_BATCH_SIZE_OVERRIDE"] = str(int(batch_size_override))
     if gradient_accumulation_override is not None:
@@ -432,7 +532,24 @@ def _base_script_env(
         env["MLEVOLVE_PROBE_MAX_TRAIN_BATCHES"] = str(
             max(1, int(probe_max_train_batches))
         )
+    if force_num_workers is not None:
+        env["MLEVOLVE_FORCE_NUM_WORKERS"] = str(max(0, int(force_num_workers)))
+    else:
+        # Do not inherit an ambient override into a new experiment.  The
+        # candidate's own DataLoader setting is part of its executable design.
+        env.pop("MLEVOLVE_FORCE_NUM_WORKERS", None)
     return env
+
+
+def _effective_job_seed(context: RunnerContext) -> int | None:
+    """Return the scheduler job seed, falling back to the captured script seed."""
+    raw_seed = context.job.config.seed
+    if raw_seed is None:
+        raw_seed = context.job.metadata.get("random_seed")
+    try:
+        return int(raw_seed) if raw_seed is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _resolved_batch_size(context: RunnerContext) -> int | None:
@@ -690,22 +807,98 @@ def _record_live_epoch_metric(
     context: RunnerContext, line: str, *, started_at: float
 ) -> None:
     """Persist a duration prediction as soon as a generated script ends an epoch."""
-    if "MLEVOLVE_EPOCH_METRIC" not in line:
-        return
-    payload_text = line.split("MLEVOLVE_EPOCH_METRIC", 1)[1].lstrip(" :")
+    source = "mlevolve_stdout_epoch_marker"
+    if "MLEVOLVE_EPOCH_METRIC" in line:
+        payload_text = line.split("MLEVOLVE_EPOCH_METRIC", 1)[1].lstrip(" :")
+        try:
+            payload = json.loads(payload_text)
+            epoch = max(1, int(payload["epoch"]))
+            metric = float(payload["metric"])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return
+    else:
+        epoch_match = re.search(
+            r"\bepoch\s*[:#]?\s*(\d+)(?:\s*/\s*(\d+))?",
+            line,
+            re.IGNORECASE,
+        )
+        if epoch_match is None:
+            return
+        epoch = max(1, int(epoch_match.group(1)))
+        metric_match = re.search(
+            r"\b((?:val|valid|validation)[_\s-]*(?:score|metric|loss|accuracy|auc|f1|rmse|mae|mse))\s*[:=]\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)",
+            line,
+            re.IGNORECASE,
+        )
+        payload: dict[str, Any] = {
+            "epoch": epoch,
+            "metric_name": (
+                metric_match.group(1).strip().replace(" ", "_")
+                if metric_match is not None
+                else "validation_metric"
+            ),
+        }
+        if epoch_match.group(2) is not None:
+            payload["total_epochs"] = max(epoch, int(epoch_match.group(2)))
+        metric = float(metric_match.group(2)) if metric_match is not None else 0.0
+        source = "mlevolve_stdout_standard_epoch"
+
+    persisted_job = context.store.get_job(context.job.job_id)
+    persisted_metadata = dict(persisted_job.metadata if persisted_job is not None else {})
+    raw_epoch = epoch
+    stage_match = _STAGE_EPOCH_PATTERN.search(line)
+    stage_label = stage_match.group(1) if stage_match is not None else None
+    previous_stage = persisted_metadata.get("runtime_reported_stage")
+    previous_raw_epoch = persisted_metadata.get("runtime_reported_raw_epoch")
+    previous_completed_epoch = persisted_metadata.get("last_completed_epoch", 0)
     try:
-        payload = json.loads(payload_text)
-        epoch = max(1, int(payload["epoch"]))
-        metric = float(payload["metric"])
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-        return
+        previous_completed_epoch = max(0, int(previous_completed_epoch))
+    except (TypeError, ValueError):
+        previous_completed_epoch = 0
+    try:
+        previous_raw_epoch = int(previous_raw_epoch) if previous_raw_epoch is not None else None
+    except (TypeError, ValueError):
+        previous_raw_epoch = None
+    try:
+        stage_offset = max(0, int(persisted_metadata.get("runtime_stage_epoch_offset", 0)))
+    except (TypeError, ValueError):
+        stage_offset = 0
+    # Candidate scripts often print independent `Stage1 Epoch 1/...` and
+    # `Stage2 Epoch 1/...` counters.  The scheduler needs one monotonic
+    # counter for remaining-time and colocation accounting.  Detect an
+    # explicit stage transition (or a counter reset when no label exists) and
+    # carry the already completed epochs forward.
+    is_new_stage = (
+        (stage_label is not None and stage_label != previous_stage)
+        or (
+            stage_label is None
+            and previous_raw_epoch is not None
+            and raw_epoch < previous_raw_epoch
+        )
+    )
+    if is_new_stage:
+        stage_offset = previous_completed_epoch
+    epoch = stage_offset + raw_epoch
 
     elapsed = max(0.001, time.time() - started_at)
     total_epochs = (
-        context.job.max_epochs
+        (persisted_job.max_epochs if persisted_job is not None else None)
+        or (persisted_job.config.max_epochs if persisted_job is not None else None)
+        or (
+            persisted_job.metadata.get("proposed_epochs")
+            if persisted_job is not None
+            else None
+        )
+        or (
+            persisted_job.metadata.get("planned_epochs")
+            if persisted_job is not None
+            else None
+        )
+        or context.job.max_epochs
         or context.job.config.max_epochs
         or context.job.metadata.get("proposed_epochs")
         or context.job.metadata.get("planned_epochs")
+        or payload.get("total_epochs")
     )
     try:
         total_epochs = max(epoch, int(total_epochs)) if total_epochs is not None else epoch
@@ -713,42 +906,66 @@ def _record_live_epoch_metric(
         total_epochs = epoch
     backend_name = str(context.job.metadata.get("placement_backend") or "exclusive")
     existing = context.get_runtime_profile(backend_name=backend_name)
-    estimate = (
-        float(existing.estimated_total_runtime_seconds)
-        if existing is not None and existing.estimated_total_runtime_seconds is not None
-        else None
-    )
-    if estimate is None and context.job.runtime_probe.enabled:
+    estimate = None
+    if context.job.runtime_probe.enabled:
+        observed_epoch_seconds = elapsed / float(epoch)
         estimate = estimate_total_runtime_from_epoch_1(
             startup_seconds=0.0,
-            epoch_1_seconds=elapsed / float(epoch),
+            epoch_1_seconds=observed_epoch_seconds,
             total_epochs=int(total_epochs),
         )
         context.upsert_runtime_profile(
             backend_name=backend_name,
             strategy="epoch_1",
             startup_seconds=0.0,
-            epoch_1_seconds=elapsed / float(epoch),
+            epoch_1_seconds=observed_epoch_seconds,
             steps_per_epoch=None,
             avg_step_time_ms=None,
             estimated_total_runtime_seconds=estimate,
-            confidence=0.75,
-            source="mlevolve_stdout_epoch_marker",
-            observations=1,
+            confidence=min(0.95, 0.75 + 0.05 * max(0, epoch - 1)),
+            source=source,
+            observations=(int(existing.observations) + 1) if existing is not None else 1,
             metadata={"epoch": epoch, "metric_name": payload.get("metric_name")},
         )
 
-    remaining = max(0.0, float(estimate) - elapsed) if estimate is not None else None
     heartbeat_at = utc_now()
+    previous_elapsed = persisted_metadata.get("runtime_live_elapsed_seconds")
+    try:
+        previous_elapsed_seconds = max(0.0, float(previous_elapsed))
+    except (TypeError, ValueError):
+        previous_elapsed_seconds = 0.0
+    epoch_seconds = max(0.001, elapsed - previous_elapsed_seconds)
+    history = list(persisted_metadata.get("runtime_epoch_timing_history") or [])
+    history.append(
+        {
+            "epoch": int(epoch),
+            "seconds": epoch_seconds,
+            "started_at": persisted_metadata.get("runtime_epoch_interval_finished_at"),
+            "finished_at": heartbeat_at,
+            "source": "mlevolve_stdout_epoch",
+        }
+    )
+    remaining = max(0.0, float(estimate) - elapsed) if estimate is not None else None
     context.store.update_job(
         context.job.job_id,
         last_heartbeat_at=heartbeat_at,
         metadata_updates={
             "last_completed_epoch": epoch,
+            "planned_epochs": total_epochs,
+            "runtime_observed_epoch_seconds": elapsed / float(epoch),
+            "runtime_live_elapsed_seconds": elapsed,
+            "runtime_epoch_interval_started_at": persisted_metadata.get(
+                "runtime_epoch_interval_finished_at"
+            ),
+            "runtime_epoch_interval_finished_at": heartbeat_at,
+            "runtime_epoch_timing_history": history[-16:],
             "runtime_estimated_total_runtime_seconds": estimate,
             "runtime_remaining_runtime_seconds": remaining,
             "runtime_profile_strategy": "epoch_1" if estimate is not None else None,
             "runtime_profile_confidence": 0.75 if estimate is not None else None,
+            "runtime_reported_stage": stage_label,
+            "runtime_reported_raw_epoch": raw_epoch,
+            "runtime_stage_epoch_offset": stage_offset,
         },
     )
     context.control_hook.control_plane.write_heartbeat(
@@ -759,7 +976,7 @@ def _record_live_epoch_metric(
             phase="train",
             metrics={str(payload.get("metric_name") or "validation_metric"): metric},
             last_safe_point="epoch",
-            message="MLEVOLVE_EPOCH_METRIC",
+            message=source,
             estimated_total_runtime_seconds=estimate,
             remaining_runtime_seconds=remaining,
             heartbeat_at=heartbeat_at,
@@ -888,6 +1105,7 @@ def _run_probe_subprocess(
     script_path: Path,
     working_dir: Path,
     batch_size: int,
+    seed: int | None,
     timeout_seconds: int,
     poll_interval_seconds: float,
     device_index: int,
@@ -911,6 +1129,7 @@ def _run_probe_subprocess(
             bufsize=1,
             env=_base_script_env(
                 batch_size_override=batch_size,
+                seed=seed,
                 probe_mode=True,
                 probe_max_epochs=probe_max_epochs,
                 probe_max_train_batches=probe_max_train_batches,
@@ -956,7 +1175,7 @@ def probe_mlevolve_script_job(
     kwargs = context.job.config.runner_kwargs
     script_path = Path(kwargs["script_path"]).resolve()
     working_dir = Path(kwargs["working_dir"]).resolve()
-    python_executable = context.job.config.python_executable or sys.executable
+    python_executable = _candidate_python_executable(context)
     instrumented = _materialize_instrumented_script(script_path, working_dir)
 
     if not instrumented.had_batch_rewrite:
@@ -980,6 +1199,7 @@ def probe_mlevolve_script_job(
         script_path=instrumented.path,
         working_dir=working_dir,
         batch_size=int(batch_size),
+        seed=_effective_job_seed(context),
         timeout_seconds=timeout_seconds,
         poll_interval_seconds=poll_interval_seconds,
         device_index=context.settings.gpu_scheduler.device_index,
@@ -1017,7 +1237,24 @@ def run_mlevolve_script_job(context: RunnerContext) -> dict[str, Any]:
     result_path = Path(kwargs["result_path"]).resolve()
     configured_timeout = kwargs.get("timeout")
     timeout = int(configured_timeout) if configured_timeout is not None else None
-    python_executable = context.job.config.python_executable or sys.executable
+    python_executable = _candidate_python_executable(context)
+
+    epoch_budget = (
+        context.job.max_epochs
+        or context.job.config.max_epochs
+        or context.job.metadata.get("proposed_epochs")
+        or context.job.metadata.get("planned_epochs")
+        or _infer_planned_epochs(script_path)
+    )
+    try:
+        epoch_budget = int(epoch_budget) if epoch_budget is not None else None
+    except (TypeError, ValueError):
+        epoch_budget = None
+    if epoch_budget is not None and epoch_budget > 0:
+        context.job.max_epochs = epoch_budget
+        context.job.config.max_epochs = epoch_budget
+        context.job.metadata["planned_epochs"] = epoch_budget
+        context.store.save_job(context.job)
 
     instrumented = _materialize_instrumented_script(script_path, working_dir)
     executable_script = instrumented.path
@@ -1038,6 +1275,7 @@ def run_mlevolve_script_job(context: RunnerContext) -> dict[str, Any]:
         bufsize=1,
         env=_base_script_env(
             batch_size_override=batch_size_override,
+            seed=_effective_job_seed(context),
             gradient_accumulation_override=parameter_resolution.get(
                 "gradient_accumulation_steps"
             ),

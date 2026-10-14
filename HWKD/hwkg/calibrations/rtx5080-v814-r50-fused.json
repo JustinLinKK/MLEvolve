@@ -1,0 +1,99 @@
+{
+  "schema": "hwkg-optimizer-calibration-v1",
+  "quality_verified": false,
+  "full_pipeline_gain_verified": false,
+  "host": {
+    "gpu_name": "NVIDIA GeForce RTX 5080",
+    "capability": [
+      12,
+      0
+    ],
+    "torch": "2.14.1+cu130",
+    "cuda": "13.0",
+    "torchvision": "0.29.1+cu130"
+  },
+  "runtime_flags": {
+    "torchvision": "0.29.1+cu130",
+    "float32_matmul_precision": "high",
+    "cudnn_benchmark": true,
+    "cudnn_deterministic": false,
+    "cudnn_allow_tf32": true,
+    "matmul_allow_tf32": true,
+    "deterministic_algorithms": false
+  },
+  "workload": {
+    "model": "torchvision.resnet50",
+    "optimizer": "AdamW",
+    "batch": 64,
+    "input_shape": [
+      3,
+      128,
+      128
+    ],
+    "forwards_per_update": 1,
+    "weights": "ResNet50_Weights.IMAGENET1K_V2",
+    "classifier_classes": 100,
+    "loss": {
+      "kind": "cross_entropy",
+      "label_smoothing": 0.1,
+      "reduction": "mean"
+    },
+    "optimizer_options": {
+      "lr": 0.0003,
+      "betas": [
+        0.9,
+        0.999
+      ],
+      "eps": 1e-08,
+      "weight_decay": 0.05,
+      "amsgrad": false,
+      "maximize": false,
+      "foreach": null,
+      "capturable": false,
+      "differentiable": false,
+      "fused": null
+    }
+  },
+  "training_dtype": "bfloat16",
+  "model_input_layout": "channels_last",
+  "profiles": {
+    "default": {
+      "step_seconds": 0.01527215037998758,
+      "step_seconds_min": 0.015161967509993702,
+      "step_seconds_max": 0.015326477079997857,
+      "setup_seconds_max": 2.534798075997969,
+      "setup_seconds_min": 0.41900199099836755,
+      "normal_updates_per_trial": 200,
+      "repeats": 5,
+      "finite_scope": "all_losses_last_warmup_grad_final_parameters",
+      "finite_assertions_completed": true,
+      "peak_allocated_bytes_max": 1348416512
+    },
+    "fused": {
+      "step_seconds": 0.013718259234992728,
+      "step_seconds_min": 0.013608908754995354,
+      "step_seconds_max": 0.013799301729995932,
+      "setup_seconds_max": 0.40229012300187605,
+      "setup_seconds_min": 0.3891540350014111,
+      "normal_updates_per_trial": 200,
+      "repeats": 5,
+      "finite_scope": "all_losses_last_warmup_grad_final_parameters",
+      "finite_assertions_completed": true,
+      "peak_allocated_bytes_max": 1348498944
+    }
+  },
+  "provenance": {
+    "public_data_sha256": {
+      "train.csv": "f1b51d760c3619051e6466bab74f91afd8a513270de2f1dcbdd8f18d5162ee3f",
+      "train_images.npy": "dc32c4873b7847e05928d8dcef51e02ce6535ba40259a66cb917330f66ff9ccd"
+    },
+    "weights_sha256": "11ad3fa62ca79e40addfd354a8ec4b7c75143b3038b8d2a807fbc68deab379ca",
+    "probe_script_sha256": "6b3d8d0fa33a4bf2cb531d50de22522f09b0a7a9d7a58f2470a44d3571f9be1f",
+    "probe_FINISHED_sha256": "723489c7ac8f41bf02320936aa22e063af7bf55c9f8f91f0fb5bbea8b4f9aba3",
+    "study_scope": "long-window5repeat single-optimizer implementation, same primitive recipe/host uint8 input; not full candidate/dataflow equivalence",
+    "prior_short_factorial_spread_net_was_negative": true,
+    "FP16_fused_scale_skip_observed": true,
+    "repeated_spread_is_CI": false,
+    "marginal_LLM_cost_measured": false
+  }
+}

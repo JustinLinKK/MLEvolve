@@ -256,6 +256,269 @@ class InterpreterSchedulerBridgeTest(unittest.TestCase):
                 "localml_scheduler.adapters.mlevolve_runner:load_raw_file",
             )
 
+    def test_scheduler_submission_uses_cpu_requirement_detected_from_script(self) -> None:
+        """CPU-only candidates must not reserve a CUDA scheduling slot."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_root = Path(tmpdir) / "runtime"
+            workdir = Path(tmpdir) / "workdir"
+            workdir.mkdir(parents=True, exist_ok=True)
+            settings = SchedulerSettings(
+                runtime_root=runtime_root,
+                gpu_scheduler={
+                    "submission_defaults": {
+                        "requires_gpu": True,
+                        "batch_probe_enabled": False,
+                        "runtime_probe_enabled": False,
+                    }
+                },
+            )
+            fake_api = _FakeSchedulerClient(settings)
+            interpreter = Interpreter(working_dir=workdir, timeout=10, max_parallel_run=1)
+            interpreter.attach_scheduler(
+                fake_api,
+                SimpleNamespace(wait_timeout_seconds=5, wait_poll_interval_seconds=0.01),
+            )
+
+            code = (
+                "import cv2\n"
+                "import lightgbm as lgb\n"
+                "model = lgb.LGBMRegressor(n_jobs=-1, random_state=42)\n"
+            )
+            result = interpreter._run_scheduler_job(
+                code=code,
+                id="cpu-only-node",
+                working_dir=str(workdir),
+            )
+
+            self.assertIsNone(result.exc_type)
+            self.assertEqual(len(fake_api.submitted_jobs), 1)
+            self.assertFalse(fake_api.submitted_jobs[0].resource_requirements.requires_gpu)
+
+    def test_scheduler_submission_exposes_static_petfinder_model_to_v32_predictor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workdir = Path(tmpdir) / "workdir"
+            workdir.mkdir(parents=True, exist_ok=True)
+            settings = SchedulerSettings(runtime_root=Path(tmpdir) / "runtime")
+            interpreter = Interpreter(working_dir=workdir, timeout=10, max_parallel_run=1)
+            fake_api = _FakeSchedulerClient(settings)
+            interpreter.attach_scheduler(
+                fake_api,
+                SimpleNamespace(wait_timeout_seconds=5, wait_poll_interval_seconds=0.01),
+            )
+            code = """
+import torch.nn as nn
+IMAGE_SIZE = 256
+TABULAR_COLUMNS = ['Accessory', 'Action', 'Blur']
+class PawpularityModel(nn.Module):
+    def forward(self, image, tabular):
+        return image.mean(dim=(1, 2, 3)) + tabular.mean(dim=1)
+def build_model(context=None):
+    return PawpularityModel()
+"""
+
+            result = interpreter._run_scheduler_job(
+                code=code,
+                id="node-v32-petfinder",
+                working_dir=str(workdir),
+            )
+
+            self.assertIsNone(result.exc_type)
+            submitted = fake_api.submitted_jobs[0]
+            predictor_spec = submitted.metadata["perfseer_model"]
+            self.assertEqual(predictor_spec["entry"], "build_model")
+            self.assertEqual(
+                predictor_spec["input_shapes"],
+                [["$batch", 3, 256, 256], ["$batch", 3]],
+            )
+            self.assertEqual(predictor_spec["input_dtypes"], ["float32", "float32"])
+            self.assertEqual(Path(predictor_spec["source_path"]).parent, workdir)
+            self.assertEqual(Path(predictor_spec["source_path"]).suffix, ".py")
+
+    def test_v32_predictor_source_excludes_top_level_dataset_execution(self) -> None:
+        """Predictor capture must import a model graph, not run a candidate task."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workdir = Path(tmpdir) / "workdir"
+            workdir.mkdir(parents=True, exist_ok=True)
+            interpreter = Interpreter(working_dir=workdir, timeout=10, max_parallel_run=1)
+            fake_api = _FakeSchedulerClient(SchedulerSettings(runtime_root=Path(tmpdir) / "runtime"))
+            interpreter.attach_scheduler(
+                fake_api,
+                SimpleNamespace(wait_timeout_seconds=5, wait_poll_interval_seconds=0.01),
+            )
+            code = """
+import pandas as pd
+import torch.nn as nn
+train_frame = pd.read_csv('./input/train.csv')
+IMG_SIZE = 256
+class SafeModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.head = nn.Linear(3, 1)
+    def forward(self, images):
+        return self.head(images.mean(dim=(2, 3)))
+def build_model():
+    return SafeModel()
+"""
+
+            result = interpreter._run_scheduler_job(
+                code=code,
+                id="node-v32-top-level-data",
+                working_dir=str(workdir),
+            )
+
+            self.assertIsNone(result.exc_type)
+            predictor_source = Path(
+                fake_api.submitted_jobs[0].metadata["perfseer_model"]["source_path"]
+            ).read_text()
+            self.assertIn("class SafeModel", predictor_source)
+            self.assertNotIn("pd.read_csv", predictor_source)
+
+    def test_scheduler_submission_detects_petfinder_num_tabular_constant(self) -> None:
+        """PetFinder candidates commonly expose NUM_TABULAR rather than TABULAR_COLUMNS."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workdir = Path(tmpdir) / "workdir"
+            workdir.mkdir(parents=True, exist_ok=True)
+            interpreter = Interpreter(working_dir=workdir, timeout=10, max_parallel_run=1)
+            fake_api = _FakeSchedulerClient(SchedulerSettings(runtime_root=Path(tmpdir) / "runtime"))
+            interpreter.attach_scheduler(
+                fake_api,
+                SimpleNamespace(wait_timeout_seconds=5, wait_poll_interval_seconds=0.01),
+            )
+            code = """
+import torch.nn as nn
+IMG_SIZE = 256
+NUM_TABULAR = 12
+class PawpularityModel(nn.Module):
+    def forward(self, image, tabular):
+        return image.mean(dim=(1, 2, 3)) + tabular.mean(dim=1)
+def build_model(context=None):
+    return PawpularityModel()
+"""
+
+            result = interpreter._run_scheduler_job(
+                code=code,
+                id="node-v32-num-tabular",
+                working_dir=str(workdir),
+            )
+
+            self.assertIsNone(result.exc_type)
+            self.assertEqual(
+                fake_api.submitted_jobs[0].metadata["perfseer_model"]["input_shapes"],
+                [["$batch", 3, 256, 256], ["$batch", 12]],
+            )
+
+    def test_scheduler_submission_detects_petfinder_tabular_dim_constant(self) -> None:
+        """PetFinder fusion candidates may expose TABULAR_DIM rather than NUM_TABULAR."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workdir = Path(tmpdir) / "workdir"
+            workdir.mkdir(parents=True, exist_ok=True)
+            interpreter = Interpreter(working_dir=workdir, timeout=10, max_parallel_run=1)
+            fake_api = _FakeSchedulerClient(SchedulerSettings(runtime_root=Path(tmpdir) / "runtime"))
+            interpreter.attach_scheduler(
+                fake_api,
+                SimpleNamespace(wait_timeout_seconds=5, wait_poll_interval_seconds=0.01),
+            )
+            code = """
+import torch.nn as nn
+IMG_SIZE = 256
+TABULAR_DIM = 12
+class PawpularityModel(nn.Module):
+    def forward(self, image, tabular):
+        return image.mean(dim=(1, 2, 3)) + tabular.mean(dim=1)
+def build_model(context=None):
+    return PawpularityModel()
+"""
+
+            result = interpreter._run_scheduler_job(
+                code=code,
+                id="node-v32-tabular-dim",
+                working_dir=str(workdir),
+            )
+
+            self.assertIsNone(result.exc_type)
+            self.assertEqual(
+                fake_api.submitted_jobs[0].metadata["perfseer_model"]["input_shapes"],
+                [["$batch", 3, 256, 256], ["$batch", 12]],
+            )
+
+    def test_scheduler_submission_detects_petfinder_tab_cols_alias(self) -> None:
+        """Generated PetFinder code often abbreviates TABULAR_COLS to TAB_COLS."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workdir = Path(tmpdir) / "workdir"
+            workdir.mkdir(parents=True, exist_ok=True)
+            interpreter = Interpreter(working_dir=workdir, timeout=10, max_parallel_run=1)
+            fake_api = _FakeSchedulerClient(SchedulerSettings(runtime_root=Path(tmpdir) / "runtime"))
+            interpreter.attach_scheduler(
+                fake_api,
+                SimpleNamespace(wait_timeout_seconds=5, wait_poll_interval_seconds=0.01),
+            )
+            code = """
+import torch.nn as nn
+IMAGE_SIZE = 256
+TAB_COLS = ['Subject Focus', 'Eyes', 'Face']
+class PawpularityModel(nn.Module):
+    def forward(self, image, tabular):
+        return image.mean(dim=(1, 2, 3)) + tabular.mean(dim=1)
+def build_model(context=None):
+    return PawpularityModel()
+"""
+
+            result = interpreter._run_scheduler_job(
+                code=code,
+                id="node-v32-tab-cols",
+                working_dir=str(workdir),
+            )
+
+            self.assertIsNone(result.exc_type)
+            self.assertEqual(
+                fake_api.submitted_jobs[0].metadata["perfseer_model"]["input_shapes"],
+                [["$batch", 3, 256, 256], ["$batch", 3]],
+            )
+
+    def test_scheduler_submission_wraps_candidate_adapter_for_v32_predictor(self) -> None:
+        """Preflight's CandidateAdapter must remain capturable by Predictor v3.2."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workdir = Path(tmpdir) / "workdir"
+            workdir.mkdir(parents=True, exist_ok=True)
+            interpreter = Interpreter(working_dir=workdir, timeout=10, max_parallel_run=1)
+            fake_api = _FakeSchedulerClient(SchedulerSettings(runtime_root=Path(tmpdir) / "runtime"))
+            interpreter.attach_scheduler(
+                fake_api,
+                SimpleNamespace(wait_timeout_seconds=5, wait_poll_interval_seconds=0.01),
+            )
+            code = """
+import torch
+import torch.nn as nn
+IMG_SIZE = 256
+NUM_CLASSES_META = 12
+class PawpularityModel(nn.Module):
+    def __init__(self, num_meta=NUM_CLASSES_META):
+        super().__init__()
+        self.linear = nn.Linear(3 + num_meta, 1)
+    def forward(self, images, meta):
+        return self.linear(torch.cat((images.mean(dim=(2, 3)), meta), dim=1))
+class CandidateAdapter:
+    def build_model(self, context=None):
+        return PawpularityModel()
+"""
+
+            result = interpreter._run_scheduler_job(
+                code=code,
+                id="node-v32-candidate-adapter",
+                working_dir=str(workdir),
+            )
+
+            self.assertIsNone(result.exc_type)
+            predictor_spec = fake_api.submitted_jobs[0].metadata["perfseer_model"]
+            self.assertEqual(predictor_spec["entry"], "build_model")
+            self.assertEqual(
+                predictor_spec["input_shapes"],
+                [["$batch", 3, 256, 256], ["$batch", 12]],
+            )
+            predictor_source = Path(predictor_spec["source_path"])
+            self.assertNotEqual(predictor_source, Path(fake_api.submitted_jobs[0].config.runner_kwargs["script_path"]))
+            self.assertIn("CandidateAdapter().build_model", predictor_source.read_text())
+
     def test_scheduler_submission_uses_native_probe_for_model_family(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             runtime_root = Path(tmpdir) / "runtime"

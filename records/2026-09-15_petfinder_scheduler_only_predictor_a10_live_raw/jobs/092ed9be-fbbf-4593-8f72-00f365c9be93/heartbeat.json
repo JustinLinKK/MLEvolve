@@ -1,0 +1,20 @@
+{
+  "avg_step_time_ms": null,
+  "checkpoint_path": null,
+  "epoch": 15,
+  "epoch_interval_finished_at": null,
+  "epoch_interval_started_at": null,
+  "estimated_total_runtime_seconds": 851.8786804676056,
+  "global_step": 0,
+  "heartbeat_at": "2026-09-15T10:08:46.387809+00:00",
+  "job_id": "092ed9be-fbbf-4593-8f72-00f365c9be93",
+  "last_safe_point": "epoch",
+  "message": "mlevolve_stdout_standard_epoch",
+  "metrics": {
+    "Val_RMSE": 25.5978
+  },
+  "observed_epoch_seconds": null,
+  "phase": "train",
+  "remaining_runtime_seconds": 0.0,
+  "steps_per_epoch": null
+}

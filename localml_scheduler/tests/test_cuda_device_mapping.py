@@ -98,6 +98,22 @@ def test_exclusive_process_owner_blocks_gpu_dispatch(monkeypatch) -> None:
     assert "--id=2" in run.call_args_list[0].args[0]
 
 
+def test_mps_daemon_is_not_treated_as_an_external_exclusive_owner(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "localml_scheduler.execution.backends.shutil.which",
+        lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None,
+    )
+    responses = [
+        SimpleNamespace(returncode=0, stdout="Exclusive_Process\n"),
+        SimpleNamespace(returncode=0, stdout="3357756, nvidia-cuda-mps-server\n"),
+    ]
+
+    with patch(
+        "localml_scheduler.execution.backends.subprocess.run", side_effect=responses
+    ):
+        _ensure_gpu_execution_slot_available(0)
+
+
 def test_default_compute_mode_does_not_block_gpu_dispatch(monkeypatch) -> None:
     monkeypatch.setattr(
         "localml_scheduler.execution.backends.shutil.which",

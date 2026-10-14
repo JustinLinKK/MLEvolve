@@ -8,9 +8,13 @@ import time
 import unittest
 
 from localml_scheduler.adapters.mlevolve_runner import (
+    _base_script_env,
+    _infer_planned_epochs,
+    _record_live_epoch_metric,
     probe_mlevolve_script_job,
     run_mlevolve_script_job,
 )
+from localml_scheduler.adapters.mlevolve import build_mlevolve_job
 from localml_scheduler.checkpointing.manager import CheckpointManager
 from localml_scheduler.execution.control import ControlPlane, TrainingControlHook
 from localml_scheduler.execution.runner_protocol import RunnerContext
@@ -50,6 +54,224 @@ def _build_context(settings: SchedulerSettings, job: TrainingJob) -> RunnerConte
 
 
 class MLEvolveRunnerTest(unittest.TestCase):
+    def test_mlevolve_job_propagates_configured_seed_to_subprocess_runner(self) -> None:
+        job = build_mlevolve_job(
+            workflow_id="seeded-workflow",
+            baseline_model_id="seeded-script",
+            baseline_model_path="/tmp/candidate.py",
+            runner_target="localml_scheduler.adapters.mlevolve_runner:run_mlevolve_script_job",
+            seed=42,
+        )
+
+        self.assertEqual(job.config.seed, 42)
+        self.assertFalse(job.metadata["supports_checkpoint_resume"])
+
+    def test_instrumented_raw_script_sets_python_numpy_and_torch_seed(self) -> None:
+        """A subprocess must not rely on the controller process's random state."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            working_dir = Path(tmpdir) / "workspace"
+            working_dir.mkdir()
+            script_path = working_dir / "candidate.py"
+            result_path = working_dir / "result.json"
+            script_path.write_text(
+                "import json\n"
+                "import random\n"
+                "import numpy as np\n"
+                "import torch\n"
+                "print(json.dumps([random.random(), float(np.random.rand()), float(torch.rand(1))]))\n"
+                "print('determinism', torch.are_deterministic_algorithms_enabled(), torch.backends.cudnn.deterministic, torch.backends.cudnn.benchmark)\n",
+                encoding="utf-8",
+            )
+
+            settings = SchedulerSettings(runtime_root=Path(tmpdir) / "runtime")
+            job = TrainingJob.create(
+                runner_target="localml_scheduler.adapters.mlevolve_runner:run_mlevolve_script_job",
+                baseline_model_id="seeded-raw-script",
+                baseline_model_path=str(script_path),
+                runner_kwargs={
+                    "script_path": str(script_path),
+                    "working_dir": str(working_dir),
+                    "result_path": str(result_path),
+                    "timeout": 30,
+                },
+                packing=PackingSpec(signature="seeded-raw-script"),
+                seed=42,
+            )
+            context = _build_context(settings, job)
+            run_mlevolve_script_job(context)
+            execution = json.loads(result_path.read_text(encoding="utf-8"))
+            values_line = next(
+                line for line in execution["term_out"] if line.lstrip().startswith("[")
+            )
+            python_value, numpy_value, torch_value = json.loads(values_line)
+
+            self.assertAlmostEqual(python_value, 0.6394267984578837)
+            self.assertAlmostEqual(numpy_value, 0.3745401188473625)
+            self.assertAlmostEqual(torch_value, 0.8822692632675171)
+            self.assertTrue(
+                any(
+                    "determinism True True False" in line
+                    for line in execution["term_out"]
+                )
+            )
+
+    def test_runtime_env_preserves_candidate_loader_worker_setting_by_default(self) -> None:
+        """The runner must not silently turn a GPU input pipeline into serial CPU loading."""
+
+        self.assertNotIn("MLEVOLVE_FORCE_NUM_WORKERS", _base_script_env())
+
+    def test_runner_infers_typed_dataclass_epoch_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            script_path = Path(tmpdir) / "candidate.py"
+            script_path.write_text(
+                "from dataclasses import dataclass\n"
+                "@dataclass\n"
+                "class TrainConfig:\n"
+                "    epochs: int = 45\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(_infer_planned_epochs(script_path), 45)
+
+    def test_runner_infers_argparse_epoch_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            script_path = Path(tmpdir) / "candidate.py"
+            script_path.write_text(
+                "parser = argparse.ArgumentParser()\n"
+                "parser.add_argument('--epochs', type=int, default=40)\n"
+                "args = parser.parse_args()\n"
+                "for epoch in range(1, args.epochs + 1):\n"
+                "    pass\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(_infer_planned_epochs(script_path), 40)
+
+    def test_live_epoch_metric_keeps_store_canonical_epoch_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = SchedulerSettings(runtime_root=Path(tmpdir) / "runtime")
+            job = TrainingJob.create(
+                runner_target="pkg.runner:train",
+                baseline_model_id="stale-epoch-context",
+                baseline_model_path="/tmp/candidate.py",
+                runtime_probe=RuntimeProbeSpec(enabled=True),
+                packing=PackingSpec(signature="stale-epoch-context"),
+                metadata={"placement_backend": "exclusive", "planned_epochs": 4},
+            )
+            context = _build_context(settings, job)
+            persisted = context.store.get_job(job.job_id)
+            assert persisted is not None
+            persisted.max_epochs = 45
+            persisted.config.max_epochs = 45
+            persisted.metadata["planned_epochs"] = 45
+            context.store.save_job(persisted)
+
+            _record_live_epoch_metric(
+                context,
+                "Epoch 6: train_loss=0.4 valid_rmse=0.3",
+                started_at=time.time() - 12.0,
+            )
+
+            live = context.store.get_job(job.job_id)
+            assert live is not None
+            self.assertEqual(live.max_epochs, 45)
+            self.assertEqual(live.config.max_epochs, 45)
+            self.assertEqual(live.metadata["planned_epochs"], 45)
+            self.assertEqual(live.metadata["last_completed_epoch"], 6)
+
+    def test_live_epoch_metric_recalibrates_runtime_from_later_epochs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = SchedulerSettings(runtime_root=Path(tmpdir) / "runtime")
+            job = TrainingJob.create(
+                runner_target="pkg.runner:train",
+                baseline_model_id="runtime-recalibration",
+                baseline_model_path="/tmp/candidate.py",
+                max_epochs=45,
+                runtime_probe=RuntimeProbeSpec(enabled=True),
+                packing=PackingSpec(signature="runtime-recalibration"),
+                metadata={"placement_backend": "exclusive"},
+            )
+            context = _build_context(settings, job)
+
+            _record_live_epoch_metric(
+                context,
+                "Epoch 1: train_loss=0.4 valid_rmse=0.3",
+                started_at=time.time() - 2.0,
+            )
+            _record_live_epoch_metric(
+                context,
+                "Epoch 6: train_loss=0.3 valid_rmse=0.2",
+                started_at=time.time() - 120.0,
+            )
+
+            profile = context.get_runtime_profile(backend_name="exclusive")
+            assert profile is not None
+            self.assertGreater(float(profile.estimated_total_runtime_seconds or 0.0), 800.0)
+
+    def test_live_epoch_metric_uses_monotonic_count_across_named_stages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = SchedulerSettings(runtime_root=Path(tmpdir) / "runtime")
+            job = TrainingJob.create(
+                runner_target="pkg.runner:train",
+                baseline_model_id="two-stage-script",
+                baseline_model_path="/tmp/candidate.py",
+                max_epochs=20,
+                runtime_probe=RuntimeProbeSpec(enabled=True),
+                packing=PackingSpec(signature="two-stage-script"),
+                metadata={"placement_backend": "exclusive"},
+            )
+            context = _build_context(settings, job)
+
+            _record_live_epoch_metric(
+                context,
+                "Stage1 Epoch 5/5 | Val RMSE: 0.4",
+                started_at=time.time() - 50.0,
+            )
+            _record_live_epoch_metric(
+                context,
+                "Stage2 Epoch 1/15 | Val RMSE: 0.3",
+                started_at=time.time() - 60.0,
+            )
+
+            persisted = context.store.get_job(job.job_id)
+            assert persisted is not None
+            self.assertEqual(persisted.metadata["last_completed_epoch"], 6)
+            self.assertEqual(persisted.metadata["planned_epochs"], 20)
+            self.assertEqual(persisted.metadata["runtime_stage_epoch_offset"], 5)
+
+    def test_live_epoch_metric_records_epoch_intervals_for_colocation_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = SchedulerSettings(runtime_root=Path(tmpdir) / "runtime")
+            job = TrainingJob.create(
+                runner_target="pkg.runner:train",
+                baseline_model_id="colocation-live-epochs",
+                baseline_model_path="/tmp/candidate.py",
+                runtime_probe=RuntimeProbeSpec(enabled=True),
+                packing=PackingSpec(signature="colocation-live-epochs"),
+                metadata={"placement_backend": "cuda_process"},
+            )
+            context = _build_context(settings, job)
+
+            _record_live_epoch_metric(
+                context,
+                "Epoch 1: valid_rmse=0.4",
+                started_at=time.time() - 2.0,
+            )
+            _record_live_epoch_metric(
+                context,
+                "Epoch 2: valid_rmse=0.3",
+                started_at=time.time() - 4.0,
+            )
+
+            persisted = context.store.get_job(job.job_id)
+            assert persisted is not None
+            history = persisted.metadata["runtime_epoch_timing_history"]
+            self.assertEqual([sample["epoch"] for sample in history], [1, 2])
+            self.assertGreater(history[1]["seconds"], 0.0)
+            self.assertEqual(history[1]["started_at"], history[0]["finished_at"])
+            self.assertIsNotNone(history[1]["finished_at"])
+
     def test_runtime_profile_is_persisted_before_script_exits(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             runtime_root = Path(tmpdir) / "runtime"
@@ -110,6 +332,70 @@ class MLEvolveRunnerTest(unittest.TestCase):
             self.assertGreaterEqual(
                 float(calibrated[0].estimated_total_runtime_seconds or 0.0), 0.9
             )
+
+    def test_standard_epoch_output_creates_live_runtime_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_root = Path(tmpdir) / "runtime"
+            working_dir = Path(tmpdir) / "workspace"
+            working_dir.mkdir(parents=True, exist_ok=True)
+            script_path = working_dir / "candidate.py"
+            script_path.write_text(
+                "\n".join(
+                    [
+                        "import time",
+                        "epochs = 4",
+                        "print('Epoch 1: train_loss=0.7 valid_rmse=0.5', flush=True)",
+                        "time.sleep(1.0)",
+                        "print('Epoch 2: train_loss=0.6 valid_rmse=0.4', flush=True)",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            settings = SchedulerSettings(runtime_root=runtime_root)
+            job = TrainingJob.create(
+                runner_target="localml_scheduler.adapters.mlevolve_runner:run_mlevolve_script_job",
+                baseline_model_id="standard-epoch-script",
+                baseline_model_path=str(script_path),
+                runner_kwargs={
+                    "script_path": str(script_path),
+                    "working_dir": str(working_dir),
+                    "result_path": str(working_dir / "result.json"),
+                    "timeout": 30,
+                },
+                runtime_probe=RuntimeProbeSpec(enabled=True),
+                packing=PackingSpec(signature="standard-epoch-runtime-profile"),
+                metadata={
+                    "placement_backend": "exclusive",
+                    "planned_epochs": 4,
+                },
+            )
+            context = _build_context(settings, job)
+            result: dict[str, object] = {}
+            worker = threading.Thread(
+                target=lambda: result.update(run_mlevolve_script_job(context))
+            )
+            worker.start()
+            deadline = time.monotonic() + 0.8
+            profiles = []
+            while time.monotonic() < deadline:
+                profiles = context.store.list_runtime_profiles(
+                    signature="standard-epoch-runtime-profile"
+                )
+                live = context.store.get_job(job.job_id)
+                if profiles and live is not None and "last_completed_epoch" in live.metadata:
+                    break
+                time.sleep(0.02)
+            self.assertTrue(worker.is_alive())
+            self.assertEqual(len(profiles), 1)
+            self.assertIsNotNone(profiles[0].estimated_total_runtime_seconds)
+            live = context.store.get_job(job.job_id)
+            self.assertEqual(live.metadata["last_completed_epoch"], 1)
+            self.assertEqual(live.metadata["planned_epochs"], 4)
+            self.assertEqual(live.max_epochs, 4)
+            self.assertEqual(live.config.max_epochs, 4)
+            worker.join(timeout=5)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(result["candidate_returncode"], 0)
 
     def test_run_script_resolves_coupled_training_parameters_and_quality(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

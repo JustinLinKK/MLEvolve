@@ -142,6 +142,66 @@ class ColocationEvidenceMixin:
         )
         return (started + timedelta(seconds=timeout)).isoformat()
 
+    def _extended_trial_deadline_from_observed_epochs(
+        self,
+        trial: ColocationTrialState,
+        jobs: list[TrainingJob],
+        *,
+        now: datetime | None = None,
+    ) -> str | None:
+        """Extend an unexpired trial when its real epochs exceed the predictor rate.
+
+        The initial window is deliberately conservative only when the predictor is
+        accurate.  A real first epoch can be much slower because of data loading,
+        compilation, or an unseen model family.  In that case, retain the existing
+        absolute maximum trial duration but grant enough time for the required fresh
+        samples instead of treating the predictor error as failed colocation.
+        """
+        started = self._parsed_timestamp(trial.started_at)
+        current_deadline = self._parsed_timestamp(trial.evidence_deadline_at)
+        if started is None or current_deadline is None:
+            return None
+        observed_rates: list[float] = []
+        for job in jobs:
+            baseline_epoch = trial.member_start_epochs.get(job.job_id)
+            if baseline_epoch is None:
+                continue
+            for sample in list(job.metadata.get("runtime_epoch_timing_history") or []):
+                if not isinstance(sample, dict):
+                    continue
+                try:
+                    epoch = int(sample.get("epoch", 0))
+                    seconds = float(sample.get("seconds", 0.0))
+                except (TypeError, ValueError):
+                    continue
+                finished_at = self._parsed_timestamp(sample.get("finished_at"))
+                if (
+                    epoch > baseline_epoch
+                    and isfinite(seconds)
+                    and seconds > 0
+                    and finished_at is not None
+                    and finished_at >= started
+                ):
+                    observed_rates.append(seconds)
+        if not observed_rates:
+            return None
+        checked_at = now or datetime.now(timezone.utc)
+        if checked_at.tzinfo is None:
+            checked_at = checked_at.replace(tzinfo=timezone.utc)
+        settings = self.settings.gpu_scheduler.colocation
+        timeout = self._trial_evidence_timeout_seconds(
+            max(observed_rates), {}
+        )
+        maximum_deadline = started + timedelta(
+            seconds=settings.trial_evidence_timeout_max_seconds
+        )
+        proposed_deadline = min(
+            maximum_deadline, checked_at + timedelta(seconds=timeout)
+        )
+        if proposed_deadline <= current_deadline:
+            return None
+        return proposed_deadline.isoformat()
+
     def _persist_colocation_timing_profile(
         self,
         jobs: list[TrainingJob],

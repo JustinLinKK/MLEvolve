@@ -1,0 +1,232 @@
+{
+  "finished_at_unix": 1789603599.1845417,
+  "jobs": [
+    {
+      "agent_id": null,
+      "baseline_model_id": "petfinder-recorded-194c2a0ffe96472da4c988d308625906",
+      "baseline_model_path": "/dev/shm/mlevolve_petfinder_fixed_scheduler_replay_20260917_000300/workspace/01_194c2a0ffe96472da4c988d308625906/candidate.py",
+      "batch_probe": {
+        "batch_param_name": "batch_size",
+        "enabled": false,
+        "model_key": null,
+        "probe_target": null,
+        "shape_hints": {}
+      },
+      "checkpoint_policy": {
+        "keep_last_n": 3,
+        "pause_mode": "step",
+        "save_every_epoch": false,
+        "save_every_n_steps": null
+      },
+      "config": {
+        "env": {},
+        "loader_target": null,
+        "max_epochs": 4,
+        "max_steps": null,
+        "python_executable": null,
+        "runner_kwargs": {
+          "batch_size": 32,
+          "candidate_python_executable": "/dev/shm/mlevolve_a10_clean_venv/bin/python",
+          "effective_batch_size": 32,
+          "gradient_accumulation_steps": 1,
+          "result_path": "/dev/shm/mlevolve_petfinder_fixed_scheduler_replay_20260917_000300/workspace/01_194c2a0ffe96472da4c988d308625906/scheduler_results/194c2a0ffe96472da4c988d308625906.json",
+          "script_path": "/dev/shm/mlevolve_petfinder_fixed_scheduler_replay_20260917_000300/workspace/01_194c2a0ffe96472da4c988d308625906/candidate.py",
+          "timeout": 7200,
+          "working_dir": "/dev/shm/mlevolve_petfinder_fixed_scheduler_replay_20260917_000300/workspace/01_194c2a0ffe96472da4c988d308625906"
+        },
+        "runner_target": "localml_scheduler.adapters.mlevolve_runner:run_mlevolve_script_job",
+        "seed": 42
+      },
+      "finished_at": "2026-09-17T00:06:38.770463+00:00",
+      "hold": false,
+      "job_id": "93b9e068-e117-428f-acbf-8a454eddad09",
+      "last_dispatched_at": "2026-09-17T00:03:13.041866+00:00",
+      "last_heartbeat_at": "2026-09-17T00:06:32.811238+00:00",
+      "latest_checkpoint_path": null,
+      "max_epochs": 4,
+      "max_steps": null,
+      "metadata": {
+        "best_epoch": 4,
+        "best_metric": 39.79413884390671,
+        "completed_epochs": 4,
+        "convergence_curve": [
+          {
+            "epoch": 1,
+            "metric": 47.0636,
+            "metric_name": "Val_RMSE"
+          },
+          {
+            "epoch": 2,
+            "metric": 41.3349,
+            "metric_name": "Val_RMSE"
+          },
+          {
+            "epoch": 3,
+            "metric": 40.0328,
+            "metric_name": "Val_RMSE"
+          },
+          {
+            "epoch": 4,
+            "metric": 39.7941,
+            "metric_name": "Val_RMSE"
+          }
+        ],
+        "effective_backend": "cuda_process",
+        "effective_batch_size": 32,
+        "fixed_candidate_replay": true,
+        "last_completed_epoch": 4,
+        "mlevolve_node_id": "194c2a0ffe96472da4c988d308625906",
+        "original_candidate_runtime_bug": false,
+        "original_execution_seconds": 212.4028136730194,
+        "perfseer_model": {
+          "dataset_size": 8920,
+          "entry": "build_model",
+          "input_dtypes": [
+            "float32",
+            "float32"
+          ],
+          "input_shapes": [
+            [
+              "$batch",
+              3,
+              224,
+              224
+            ],
+            [
+              "$batch",
+              12
+            ]
+          ],
+          "precision": "fp32",
+          "source_path": "/dev/shm/mlevolve_petfinder_fixed_scheduler_replay_20260917_000300/workspace/01_194c2a0ffe96472da4c988d308625906/candidate_perfseer_v32.py"
+        },
+        "placement_backend": "cuda_process",
+        "placement_backend_config": {},
+        "placement_batch_param_name": "batch_size",
+        "placement_batch_size": 32,
+        "placement_group_id": "5dd28ba2db13",
+        "placement_mandatory_anchor_job_id": null,
+        "placement_mode": "stack_anchor",
+        "placement_mps_slot": null,
+        "placement_objective_breakdown": {
+          "remaining_runtime_seconds": 1.6098753662109375,
+          "requires_live_trial": false,
+          "seconds_per_epoch": 0.4024688415527344
+        },
+        "placement_objective_version": "time_v6_verified_piecewise_drain",
+        "placement_role": "solo",
+        "placement_trial_metadata": {},
+        "planned_epochs": 4,
+        "preserve_candidate_batch_contract": true,
+        "proposed_epochs": 4,
+        "resolved_batch_size": 32,
+        "resolved_effective_batch_size": 32,
+        "resolved_gradient_accumulation_steps": 1,
+        "resolved_learning_rate": null,
+        "resolved_scheduler_total_steps": null,
+        "resolved_warmup_steps": null,
+        "runner_contract": "subprocess_job_v1",
+        "runtime_epoch_interval_finished_at": "2026-09-17T00:06:32.811238+00:00",
+        "runtime_epoch_interval_started_at": "2026-09-17T00:05:44.278097+00:00",
+        "runtime_epoch_timing_history": [
+          {
+            "epoch": 1,
+            "finished_at": "2026-09-17T00:04:07.610985+00:00",
+            "seconds": 52.4628586769104,
+            "source": "mlevolve_stdout_epoch",
+            "started_at": null
+          },
+          {
+            "epoch": 2,
+            "finished_at": "2026-09-17T00:04:56.102493+00:00",
+            "seconds": 48.52336359024048,
+            "source": "mlevolve_stdout_epoch",
+            "started_at": "2026-09-17T00:04:07.610985+00:00"
+          },
+          {
+            "epoch": 3,
+            "finished_at": "2026-09-17T00:05:44.278097+00:00",
+            "seconds": 48.17611074447632,
+            "source": "mlevolve_stdout_epoch",
+            "started_at": "2026-09-17T00:04:56.102493+00:00"
+          },
+          {
+            "epoch": 4,
+            "finished_at": "2026-09-17T00:06:32.811238+00:00",
+            "seconds": 48.53320527076721,
+            "source": "mlevolve_stdout_epoch",
+            "started_at": "2026-09-17T00:05:44.278097+00:00"
+          }
+        ],
+        "runtime_estimated_total_runtime_seconds": 203.64710354804993,
+        "runtime_live_elapsed_seconds": 197.6955382823944,
+        "runtime_observed_epoch_seconds": 49.4238845705986,
+        "runtime_profile_confidence": 0.95,
+        "runtime_profile_strategy": "completed_wall_clock",
+        "runtime_remaining_runtime_seconds": 0.0,
+        "runtime_reported_raw_epoch": 4,
+        "runtime_reported_stage": null,
+        "runtime_stage_epoch_offset": 0,
+        "supports_checkpoint_resume": false,
+        "training_parameter_resolution": {
+          "effective_batch_size": 32,
+          "gradient_accumulation_steps": 1,
+          "learning_rate": null,
+          "learning_rate_scaling_policy": "fixed",
+          "physical_batch_size": 32,
+          "scheduler_total_steps": null,
+          "warmup_steps": null
+        },
+        "vram_prediction_error": null,
+        "vram_prediction_source": "ml_predictor"
+      },
+      "packing": {
+        "backend_allowlist": [
+          "cuda_process"
+        ],
+        "eligible": true,
+        "family": "petfinder-recorded-candidate",
+        "max_slowdown_ratio": null,
+        "signature": "petfinder-recorded:194c2a0ffe96472da4c988d308625906"
+      },
+      "preload_source": null,
+      "priority": 0,
+      "queue_sequence": 1,
+      "requested_batch_size": 32,
+      "resource_requirements": {
+        "estimated_avg_vram_mb": null,
+        "estimated_ram_mb": null,
+        "estimated_vram_mb": null,
+        "gpu_slots": 1,
+        "requires_gpu": true
+      },
+      "resume_from_checkpoint": null,
+      "runtime_probe": {
+        "enabled": true,
+        "model_key": null,
+        "probe_target": null,
+        "strategy": "epoch_1"
+      },
+      "scheduling_class": "normal",
+      "started_at": "2026-09-17T00:03:13.041866+00:00",
+      "status": "COMPLETED",
+      "status_reason": "mlevolve script executed",
+      "status_timestamps": {
+        "COMPLETED": "2026-09-17T00:06:38.770463+00:00",
+        "PENDING": "2026-09-17T00:03:02.929533+00:00",
+        "RUNNING": "2026-09-17T00:03:13.041866+00:00"
+      },
+      "submitted_at": "2026-09-17T00:03:02.928913+00:00",
+      "task_type": "mlevolve_recorded_candidate",
+      "workflow_id": "petfinder-fixed-baseline-scheduler-replay",
+      "workload_identity": {
+        "architecture_family": "petfinder-recorded-candidate",
+        "architecture_key": "petfinder-recorded-candidate",
+        "dataset_key": null,
+        "task_key": null
+      }
+    }
+  ],
+  "requested_nodes": 1,
+  "started_at_unix": 1789603382.829619
+}

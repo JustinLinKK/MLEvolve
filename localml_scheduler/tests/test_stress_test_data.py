@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from scheduler_benchmark_test.standard import STRESS_TEST_DATA_JOB_COUNT
-from scheduler_benchmark_test.standard.stress_test_data import (
+from localml_scheduler.benchmark_test.standard import STRESS_TEST_DATA_JOB_COUNT
+from localml_scheduler.benchmark_test.standard.stress_test_data import (
     A10_ARTIFACT,
     BLACKWELL_ARTIFACT,
     verify_predictions,

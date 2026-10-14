@@ -26,7 +26,14 @@ from localml_scheduler.scheduler.supervisor import WorkerSupervisor
 
 ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT = ROOT / "PerfSeer-predictor" / "models" / "nvidia_a10" / "student_a10_cpu.torchscript.pt"
-JOBLIST = ROOT / "scheduler_benchmark_test" / "fixtures" / "perfseer_ml_12_job_1_epoch" / "joblist.json"
+JOBLIST = (
+    ROOT
+    / "localml_scheduler"
+    / "benchmark_test"
+    / "fixtures"
+    / "perfseer_ml_12_job_1_epoch"
+    / "joblist.json"
+)
 SUPPORTED_SOURCE = Path(__file__).parent / "fixtures" / "perfseer_stress_models.py"
 UNSUPPORTED_SOURCE = Path(__file__).parent / "fixtures" / "perfseer_unsupported.py"
 

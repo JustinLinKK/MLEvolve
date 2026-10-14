@@ -66,6 +66,7 @@ def build_mlevolve_job(
     runtime_probe: RuntimeProbeSpec | None = None,
     max_steps: int | None = None,
     max_epochs: int | None = None,
+    seed: int | None = None,
     preload_source: PreloadSource | None = None,
     metadata: dict[str, Any] | None = None,
     workload_identity: WorkloadIdentity | dict[str, Any] | None = None,
@@ -93,6 +94,15 @@ def build_mlevolve_job(
             strategy="epoch_1",
         )
     job_metadata = dict(metadata or {})
+    # A raw generated script is executed as an opaque subprocess.  The generic
+    # runner can observe epoch output, but cannot serialize and restore the
+    # candidate's optimizer/model state.  It must therefore never be selected
+    # for a live colocation trial whose rejection requires a safe pause/resume.
+    # Integrations with a real checkpoint loader may explicitly opt in.
+    if runner_target == "localml_scheduler.adapters.mlevolve_runner:run_mlevolve_script_job":
+        job_metadata.setdefault("supports_checkpoint_resume", False)
+    else:
+        job_metadata.setdefault("supports_checkpoint_resume", True)
     supplied_identity = (
         WorkloadIdentity.from_dict(workload_identity)
         if isinstance(workload_identity, dict)
@@ -142,6 +152,7 @@ def build_mlevolve_job(
         runtime_probe=default_runtime_probe,
         max_steps=max_steps,
         max_epochs=max_epochs,
+        seed=seed,
         metadata=job_metadata,
     )
 

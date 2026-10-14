@@ -67,9 +67,11 @@ class MemoryAdmissionGate:
     samples: list[GpuTelemetrySample] = field(default_factory=list)
     below_resume_since: datetime | None = None
     average_fraction: float | None = None
+    observation_started_at: datetime | None = None
 
     def update(self, sample: GpuTelemetrySample) -> str | None:
         captured = parse_timestamp(sample.captured_at) or datetime.now(timezone.utc)
+        self.observation_started_at = self.observation_started_at or captured
         cutoff = captured.timestamp() - self.window_seconds
         self.samples.append(sample)
         self.samples = [item for item in self.samples if (parse_timestamp(item.captured_at) or captured).timestamp() >= cutoff]
@@ -78,11 +80,11 @@ class MemoryAdmissionGate:
             self.average_fraction = None
             return None
         self.average_fraction = sum(fractions) / len(fractions)
-        oldest = min(
-            (parse_timestamp(item.captured_at) or captured for item in self.samples),
-            default=captured,
+        complete_window = (
+            self.observation_started_at is not None
+            and (captured - self.observation_started_at).total_seconds()
+            >= self.window_seconds
         )
-        complete_window = (captured - oldest).total_seconds() >= self.window_seconds
         if self.is_open:
             if complete_window and self.average_fraction >= self.stop_fraction:
                 self.is_open = False

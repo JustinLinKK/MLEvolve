@@ -1,0 +1,4 @@
+controller_pid=400273
+stop_reason=ready_jobs_while_single_solo_anchor_runtime_estimate_unavailable
+stopped_at=2026-09-15T21:24:30Z
+controller_status=still_running

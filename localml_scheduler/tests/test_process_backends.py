@@ -6,11 +6,16 @@ from unittest.mock import Mock, patch
 import pytest
 
 from localml_scheduler.config import SchedulerSettings
-from localml_scheduler.domain import TrainingJob
+from localml_scheduler.domain import ResourceRequirements, TrainingJob
 from localml_scheduler.execution.backend_registry import BackendRegistry
 from localml_scheduler.execution.backends import CudaProcessBackend, MPSBackend
 from localml_scheduler.execution.executor import WorkerProcessHandle
-from localml_scheduler.scheduler.supervisor import WorkerSupervisor
+from localml_scheduler.scheduler.supervisor import (
+    ManagedWorker,
+    PlacementGroupHandle,
+    WorkerSupervisor,
+)
+from localml_scheduler.storage.sqlite_store import SQLiteStateStore
 
 
 def _job(name: str) -> TrainingJob:
@@ -82,6 +87,7 @@ def test_mps_process_launches_independent_clients_with_fixed_allocations(
         env["CUDA_MPS_ACTIVE_THREAD_PERCENTAGE"] for _job_id, env in executor.calls
     ] == ["60", "40"]
     assert all("CUDA_MPS_PIPE_DIRECTORY" in env for _job_id, env in executor.calls)
+    assert all(env["CUDA_VISIBLE_DEVICES"] == "0" for _job_id, env in executor.calls)
 
 
 def test_mps_unavailable_fail_policy_is_explicit(tmp_path: Path) -> None:
@@ -130,3 +136,54 @@ def test_mps_unavailable_exclusive_policy_keeps_only_safe_fallback(
     assert availability["exclusive"] is True
     assert availability["mps_process"] is False
     assert supervisor._overlap_allowed_for_backend("cuda_process") is False
+
+
+def test_cpu_only_active_group_does_not_block_cuda_process_admission(
+    tmp_path: Path,
+) -> None:
+    """CPU work must not make an otherwise idle GPU appear exclusive-busy."""
+    settings = SchedulerSettings(
+        runtime_root=tmp_path,
+        gpu_scheduler={"packing_backend": "cuda_process"},
+    )
+    store = SQLiteStateStore(settings)
+    cpu_job = _job("cpu-only")
+    cpu_job.resource_requirements = ResourceRequirements(requires_gpu=False)
+    gpu_job = _job("gpu-waiting")
+    gpu_job.resource_requirements = ResourceRequirements(requires_gpu=True)
+    store.submit_job(cpu_job)
+    store.submit_job(gpu_job)
+    supervisor = WorkerSupervisor(
+        settings,
+        store=store,
+        backends={
+            "exclusive": Mock(available=Mock(return_value=True)),
+            "cuda_process": Mock(available=Mock(return_value=True)),
+            "mps_process": Mock(available=Mock(return_value=False)),
+        },
+    )
+    process = Mock()
+    process.poll.return_value = None
+    supervisor._groups["cpu"] = PlacementGroupHandle(
+        group_id="cpu",
+        mode="exclusive",
+        backend_name="exclusive",
+        workers={
+            cpu_job.job_id: ManagedWorker(
+                job_id=cpu_job.job_id,
+                handle=WorkerProcessHandle(
+                    job_id=cpu_job.job_id,
+                    process=process,
+                    stdout_path=tmp_path / "cpu.out",
+                    stderr_path=tmp_path / "cpu.err",
+                ),
+                role="solo",
+            )
+        },
+    )
+
+    decision = supervisor.placement_for(
+        "stack_anchor", "cuda_process", [gpu_job.job_id]
+    )
+
+    assert decision.can_run

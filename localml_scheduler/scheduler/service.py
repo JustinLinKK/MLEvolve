@@ -134,6 +134,11 @@ class SchedulerService(
                 if self._admission_gate.below_resume_since is not None
                 else None
             ),
+            "admission_observation_started_at": (
+                self._admission_gate.observation_started_at.isoformat()
+                if self._admission_gate.observation_started_at is not None
+                else None
+            ),
             "admission_samples": [
                 {
                     "captured_at": sample.captured_at,
@@ -173,6 +178,9 @@ class SchedulerService(
             )
             self._admission_gate.below_resume_since = parse_timestamp(
                 payload.get("admission_below_resume_since")
+            )
+            self._admission_gate.observation_started_at = parse_timestamp(
+                payload.get("admission_observation_started_at")
             )
             self._admission_gate.samples = [
                 GpuTelemetrySample(**sample)
@@ -289,6 +297,10 @@ class SchedulerService(
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=3.0)
+        predictor = getattr(self.planner.estimator, "ml_predictor", None)
+        close = getattr(predictor, "close", None)
+        if callable(close):
+            close()
         self.supervisor.shutdown()
         self.cache_server.stop()
         self._write_service_heartbeat("stopped")
@@ -460,7 +472,15 @@ class SchedulerService(
 
     def _warm_cache(self) -> None:
         """Preload likely baseline models while respecting cache capacity."""
-        jobs = self._runnable_jobs()
+        jobs = [
+            job
+            for job in self._runnable_jobs()
+            if not (
+                job.preload_source is None
+                and job.config.runner_target
+                == "localml_scheduler.adapters.mlevolve_runner:run_mlevolve_script_job"
+            )
+        ]
         cache_stats = self.cache.stats()
         cached_model_ids = {
             entry["model_id"] for entry in self.cache.snapshot_entries()
@@ -536,6 +556,11 @@ class SchedulerService(
         else:
             for run in self._active_runs.values():
                 run.overlapped = True
+                # The sample is device-wide rather than per-process, so each
+                # active run must retain it.  Admission reads ActiveRun.samples;
+                # persisting it only to the log store leaves that path on a
+                # stale pre-overlap value and can admit an unsafe extra job.
+                run.samples.append(sample)
                 self.log_store.record_gpu_metric_sample(
                     group_id=run.group_id,
                     created_at=sample.captured_at,

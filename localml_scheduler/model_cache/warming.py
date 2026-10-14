@@ -35,7 +35,9 @@ def select_models_to_warm(
     estimate_target_bytes: Callable[[PreloadSource], int | None] | None = None,
 ) -> list[PreloadSource]:
     """Choose baseline models worth preloading from the pending queue."""
-    if not jobs:
+    # Configuration normalizes negative values to zero.  Zero is the explicit
+    # off switch, not a request to preload one item before the limit check.
+    if not jobs or top_k == 0:
         return []
     selection_policy = str(selection_policy or "top_k").strip().lower()
     target_resolver = resolve_target or _default_target

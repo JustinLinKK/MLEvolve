@@ -1,0 +1,239 @@
+{
+  "aging_interval_seconds": 120,
+  "aging_priority_increment": 1,
+  "auto_resume_recoverable": false,
+  "baseline_cache": {
+    "entry_capacity": 0,
+    "max_ram_percent": 0,
+    "memory_budget_bytes": 0,
+    "warm_queue_policy": "budget_only",
+    "warm_queue_top_k": 0
+  },
+  "cache_server_host": "127.0.0.1",
+  "cache_server_port": 8765,
+  "cache_socket_name": "cache_server.sock",
+  "command_poll_limit": 100,
+  "early_stopping": {
+    "enabled": true,
+    "metric_name": "loss",
+    "min_delta": 0.001,
+    "min_epochs": 10,
+    "missing_metric_policy": "ignore",
+    "mode": "min",
+    "patience_epochs": 5,
+    "restore_best_checkpoint": false,
+    "save_best_checkpoint": true
+  },
+  "enable_priority_aging": true,
+  "gpu_scheduler": {
+    "batch_options": {
+      "exponent_offsets": [
+        -2,
+        -1,
+        0,
+        1,
+        2
+      ],
+      "require_power_of_two_original": true
+    },
+    "batch_probe_enabled": true,
+    "batch_probe_max_batch_size": null,
+    "batch_probe_target_memory_fraction": 0.97,
+    "colocation": {
+      "decision_replay": {
+        "enabled": true,
+        "min_stable_observations": 3,
+        "training_time_change_fraction": 0.25,
+        "vram_change_fraction": 0.25
+      },
+      "live_trial_enabled": true,
+      "min_gain": 1.0,
+      "profile_rejection_min_bad_trials": 2,
+      "profile_rejection_ttl_seconds": 86400.0,
+      "trial_decision_timeout_seconds": 30.0,
+      "trial_epochs": 2,
+      "trial_evidence_timeout_max_seconds": 1800.0,
+      "trial_evidence_timeout_min_seconds": 300.0
+    },
+    "cuda_process": {
+      "default_mkl_num_threads": 6,
+      "default_omp_num_threads": 6,
+      "enabled": true
+    },
+    "device_index": 0,
+    "enabled": true,
+    "exclusive_fallback_enabled": true,
+    "exclusive_probe": {
+      "drain_without_preemption": true,
+      "enabled": true
+    },
+    "fallback_cooldown_seconds": 900,
+    "memory": {
+      "admission_average_window_seconds": 10,
+      "gpu_vram_gib": null,
+      "live_admission_resume_fraction": 0.85,
+      "live_admission_stop_fraction": 0.9,
+      "predicted_budget_fraction": 0.85
+    },
+    "mode": "parallel_time_aware",
+    "mps": {
+      "compute_mode": "EXCLUSIVE_PROCESS",
+      "default_mkl_num_threads": 6,
+      "default_omp_num_threads": 6,
+      "default_primary_active_thread_pct": 60,
+      "default_secondary_active_thread_pct": 40,
+      "enabled": true,
+      "log_directory": "/tmp/nvidia-mps-log",
+      "pipe_directory": "/tmp/nvidia-mps"
+    },
+    "mps_unavailable_policy": "exclusive",
+    "objective": {
+      "objective_version": "time_v6_verified_piecewise_drain",
+      "priority_weight": 0.1
+    },
+    "oldest_window_size": 4,
+    "packing_backend": "cuda_process",
+    "parallel_job_cap": null,
+    "priority_window_size": 8,
+    "profiling": {
+      "pair_probe_steps": 60,
+      "reuse_profile_if_confidence_ge": 0.8,
+      "solo_probe_steps": 80,
+      "warmup_steps": 30
+    },
+    "scheduler_decision_mode": "backend_awared",
+    "source_trial_ranking": {
+      "amortization_factor": 3.0,
+      "estimated_setup_seconds": 0.0,
+      "max_group_size": null,
+      "mode_overhead_mb": {
+        "cuda_process": 512.0,
+        "mps_process": 384.0
+      },
+      "mps_allocation_templates": [
+        [
+          50,
+          50
+        ],
+        [
+          60,
+          40
+        ],
+        [
+          40,
+          60
+        ]
+      ],
+      "policy": "pareto",
+      "ready_window_size": 10,
+      "require_live_trial_for_unknown": true,
+      "schema_version": 2,
+      "source_analysis": {
+        "cache_enabled": true,
+        "max_source_bytes": 2000000,
+        "max_unknown_operator_fraction_for_high_confidence": 0.05,
+        "max_unknown_operator_fraction_for_medium_confidence": 0.25,
+        "memory_bandwidth_gbps": null,
+        "peak_tflops_by_dtype": {}
+      }
+    },
+    "startpoint_probe_enabled": false,
+    "startpoint_probe_max_models": null,
+    "starvation_timeout_seconds": 1800.0,
+    "submission_defaults": {
+      "backend_allowlist": [
+        "cuda_process"
+      ],
+      "batch_probe_enabled": true,
+      "batch_probe_model_key": null,
+      "estimated_avg_vram_mb": null,
+      "estimated_ram_mb": null,
+      "estimated_vram_mb": null,
+      "packing_eligible": true,
+      "packing_family": "mlevolve_script",
+      "packing_max_slowdown_ratio": null,
+      "requires_gpu": true,
+      "runtime_probe_enabled": true,
+      "runtime_probe_model_key": null,
+      "runtime_probe_strategy": "epoch_1",
+      "runtime_probe_target": null
+    },
+    "telemetry": {
+      "device_poll_ms": 500,
+      "pair_recheck_every_steps": 20
+    }
+  },
+  "graph_db": {
+    "allow_sqlite_fallback": true,
+    "bootstrap_constraints": true,
+    "database": "neo4j",
+    "enabled": true,
+    "import_sqlite_evidence": true,
+    "mode": "mirror",
+    "password_env": "LOCALML_SCHEDULER_NEO4J_PASSWORD",
+    "provider": "neo4j",
+    "sqlite_evidence_path": "/dev/shm/mlevolve_petfinder_scheduler_v32_a10_20260916_081524/scheduler_runtime/db/scheduler.sqlite3",
+    "uri": "bolt://127.0.0.1:7687",
+    "username": "neo4j"
+  },
+  "hardware_feature_db": {
+    "api_key_env": "LOCALML_SCHEDULER_QDRANT_API_KEY",
+    "api_symbol_collection_name": "api_symbol_chunks",
+    "backend_guidance_collection_name": "backend_guidance_rules",
+    "code_doc_collection_name": "code_doc_chunks",
+    "collection_name": "hardware_feature_knowledge",
+    "distance": "Cosine",
+    "embedding_device": "cpu",
+    "embedding_model_name": "BAAI/bge-base-en-v1.5",
+    "embedding_model_type": "local",
+    "enabled": false,
+    "optimization_recipe_collection_name": "optimization_recipe_chunks",
+    "provider": "qdrant",
+    "url": "http://127.0.0.1:6333"
+  },
+  "hardware_knowledge_graph": {
+    "database": "neo4j",
+    "enabled": false,
+    "password_env": "HARDWARE_KNOWLEDGE_NEO4J_PASSWORD",
+    "provider": "neo4j",
+    "uri": "bolt://127.0.0.1:7688",
+    "username": "neo4j"
+  },
+  "log_db": {
+    "dsn_env": "LOCALML_SCHEDULER_LOG_DSN",
+    "enabled": false,
+    "provider": "postgres",
+    "schema": "scheduler_logs"
+  },
+  "prediction": {
+    "ml": {
+      "cache_size": 1024,
+      "registry_path": null,
+      "source_conversion_timeout_seconds": 60.0,
+      "test_model_path": null,
+      "test_override_enabled": false,
+      "v32_artifact_path": "/tmp/mlevolve_exec_staging_preflightfixturefix_20260915/predictor_v3.2/weights/predictor_v3.2_student.pt",
+      "v32_async_source_capture": false,
+      "v32_capture_device": "cuda",
+      "v32_source_root": "/tmp/mlevolve_exec_staging_preflightfixturefix_20260915/predictor_v3.2/source"
+    },
+    "mode": "ml_predictor",
+    "require_ml_prediction": true
+  },
+  "preempt_check_interval_seconds": 0.2,
+  "python_executable": "/dev/shm/mlevolve_a10_clean_venv/bin/python",
+  "redis_cache": {
+    "cache_graph_queries": true,
+    "cache_vector_queries": true,
+    "enabled": false,
+    "key_prefix": "localml_scheduler",
+    "max_entries": 4096,
+    "socket_timeout_seconds": 0.2,
+    "ttl_seconds": 300,
+    "url": "redis://127.0.0.1:6379/0",
+    "url_env": "LOCALML_SCHEDULER_REDIS_URL"
+  },
+  "runtime_root": "/dev/shm/mlevolve_petfinder_scheduler_v32_a10_20260916_081524/scheduler_runtime",
+  "scheduler_poll_interval_seconds": 0.2,
+  "sqlite_busy_timeout_ms": 10000
+}

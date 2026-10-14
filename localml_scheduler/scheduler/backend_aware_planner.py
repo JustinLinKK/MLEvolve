@@ -341,10 +341,21 @@ class BackendAwarePlacementPlanner:
         selected = ranked[0]
         first, second = selected.jobs
         first_fingerprint, second_fingerprint = selected.fingerprints
+        supports_checkpoint_resume = all(
+            bool(job.metadata.get("supports_checkpoint_resume", False))
+            for job in selected.jobs
+        )
         requires_trial = bool(
             selected.exact_profile_status == "unknown"
             and self.config.require_live_trial_for_unknown
             and self.settings.gpu_scheduler.colocation.live_trial_enabled
+            and supports_checkpoint_resume
+        )
+        non_preemptive_colocation = bool(
+            selected.exact_profile_status == "unknown"
+            and self.config.require_live_trial_for_unknown
+            and self.settings.gpu_scheduler.colocation.live_trial_enabled
+            and not supports_checkpoint_resume
         )
         backend_config = selected.backend_config.to_dict()
         ranking_table = self._candidate_record_table(ranked, selected)
@@ -374,6 +385,7 @@ class BackendAwarePlacementPlanner:
             "trusted_rejection_profile": selected.exact_profile_status == "bad",
             "colocation_rejected": False,
             "requires_live_trial": requires_trial,
+            "non_preemptive_colocation": non_preemptive_colocation,
             "preexisting_job_ids": [second.job_id],
             "backend_config": backend_config,
             "scheduler_decision_mode": "backend_awared",
@@ -385,6 +397,7 @@ class BackendAwarePlacementPlanner:
         }
         trial_metadata = {
             "requires_live_trial": requires_trial,
+            "non_preemptive_colocation": non_preemptive_colocation,
             "candidate_job_id": first.job_id,
             "preexisting_job_ids": [second.job_id],
             "profile_key": selected.profile_key,
@@ -432,7 +445,10 @@ class BackendAwarePlacementPlanner:
         backend_candidates: list[str],
         effective_priority: Callable[[TrainingJob], int],
     ) -> DispatchPlan | None:
-        if len(active_jobs) + 1 > self.config.max_group_size:
+        if (
+            self.config.max_group_size is not None
+            and len(active_jobs) + 1 > self.config.max_group_size
+        ):
             return None
         candidates: list[TrialCandidate] = []
         rejected_memory = rejected_amortization = 0
@@ -591,15 +607,27 @@ class BackendAwarePlacementPlanner:
         candidate_job = selected.extra["candidate_job"]
         if not isinstance(candidate_job, TrainingJob):
             return None
+        supports_checkpoint_resume = all(
+            bool(job.metadata.get("supports_checkpoint_resume", False))
+            for job in selected.jobs
+        )
         requires_trial = bool(
             selected.exact_profile_status == "unknown"
             and self.config.require_live_trial_for_unknown
             and self.settings.gpu_scheduler.colocation.live_trial_enabled
+            and supports_checkpoint_resume
+        )
+        non_preemptive_colocation = bool(
+            selected.exact_profile_status == "unknown"
+            and self.config.require_live_trial_for_unknown
+            and self.settings.gpu_scheduler.colocation.live_trial_enabled
+            and not supports_checkpoint_resume
         )
         breakdown = dict(evaluated.score_breakdown)
         breakdown.update(
             {
                 "requires_live_trial": requires_trial,
+                "non_preemptive_colocation": non_preemptive_colocation,
                 "backend_config": selected.backend_config.to_dict(),
                 "scheduler_decision_mode": "backend_awared",
                 "optimistic_makespan_gain_seconds": selected.optimistic_makespan_gain_seconds,
@@ -611,6 +639,7 @@ class BackendAwarePlacementPlanner:
         )
         trial_metadata = {
             "requires_live_trial": requires_trial,
+            "non_preemptive_colocation": non_preemptive_colocation,
             "candidate_job_id": candidate_job.job_id,
             "preexisting_job_ids": list(breakdown.get("preexisting_job_ids", [])),
             "profile_key": breakdown.get("colocation_profile_key"),

@@ -71,6 +71,20 @@ class ResourceEstimator:
             return True
         return self.predicted_remaining_runtime_seconds(job, backend_name=backend_name) is not None
 
+    def has_observed_runtime(self, job: TrainingJob, backend_name: str) -> bool:
+        """Return whether a persisted profile already supplies epoch time.
+
+        This deliberately does not call the machine-learning predictor.  The
+        placement planner uses it to recognize a cold queue before deciding
+        whether it is safe to enumerate every queued candidate.
+        """
+        seconds, _source, _confidence = self._seconds_per_epoch(
+            job,
+            self.resolved_batch_size(job),
+            backend_name,
+        )
+        return seconds is not None and seconds > 0.0
+
     def predicted_remaining_runtime_seconds(self, job: TrainingJob, *, backend_name: str) -> float | None:
         if job.metadata.get("runtime_remaining_runtime_seconds") is not None:
             try:
@@ -146,14 +160,29 @@ class ResourceEstimator:
             )
             if memory_mb <= 0:
                 continue
-            if int(batch_size) in ml_epoch_predictions:
+            measured_seconds, measured_source, measured_confidence = self._seconds_per_epoch(
+                job, batch_size, backend_name
+            )
+            if measured_seconds is not None and measured_seconds > 0:
+                # A runtime profile or batch observation is direct evidence for
+                # this hardware and takes precedence over cold-start inference.
+                seconds_per_epoch, runtime_source, confidence = (
+                    measured_seconds,
+                    measured_source,
+                    measured_confidence,
+                )
+            elif int(batch_size) in ml_epoch_predictions:
                 seconds_per_epoch, runtime_source, confidence = (
                     float(ml_epoch_predictions[int(batch_size)]),
                     "ml_predictor",
                     None,
                 )
             else:
-                seconds_per_epoch, runtime_source, confidence = self._seconds_per_epoch(job, batch_size, backend_name)
+                seconds_per_epoch, runtime_source, confidence = (
+                    measured_seconds,
+                    measured_source,
+                    measured_confidence,
+                )
             if seconds_per_epoch is None or seconds_per_epoch <= 0:
                 continue
             source = runtime_source if runtime_source == memory_source else f"{memory_source}+{runtime_source}"
@@ -436,7 +465,10 @@ class ResourceEstimator:
         backend_name: str,
     ) -> RuntimeProfile | None:
         """Reuse timing only for the same workflow branch and model family."""
-        if str(job.metadata.get("experiment_mode") or "") != "hardware_aware":
+        # Search mode controls prompt/context behavior, not whether an explicitly
+        # enabled scheduler may reuse its measured branch profile.  Only a true
+        # baseline run is intentionally excluded from scheduler-derived timing.
+        if str(job.metadata.get("experiment_mode") or "") == "baseline":
             return None
         workflow_id = str(job.workflow_id or job.metadata.get("workflow_id") or "")
         branch_id = job.metadata.get("branch_id")

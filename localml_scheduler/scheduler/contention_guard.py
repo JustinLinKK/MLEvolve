@@ -1,7 +1,7 @@
 """Optional admission guard that protects long-running jobs from contention.
 
 This is the online-implementable half of the critical-path scheduler evaluated
-offline in scheduler_benchmark_test/compare_dag_schedulers.py. That policy had
+offline in localml_scheduler/benchmark_test/compare_dag_schedulers.py. That policy had
 two parts:
 
     ordering    rank by subtree cost, the total work in a node's descendants

@@ -182,7 +182,36 @@ class WorkerSupervisor:
                 batch_overrides=batch_overrides or {},
                 fallback_order=fallback_order or [],
             )
-        if not self._groups:
+        # The supervisor also launches CPU-only MLEvolve candidates so their
+        # lifecycle is recorded uniformly.  They do not reserve a CUDA device:
+        # treating an ``exclusive`` CPU worker as an exclusive GPU group leaves
+        # the accelerator idle and prevents a READY GPU job from starting.
+        # Missing job metadata is handled conservatively as GPU work.
+        def requires_gpu(job_id: str) -> bool:
+            job = self.store.get_job(job_id)
+            return job is None or bool(job.resource_requirements.requires_gpu)
+
+        requested_gpu = any(requires_gpu(job_id) for job_id in job_ids)
+        active_gpu_groups = [
+            group
+            for group in self._groups.values()
+            if any(
+                self._worker_is_alive(worker) and requires_gpu(active_job_id)
+                for active_job_id, worker in group.workers.items()
+            )
+        ]
+        if not requested_gpu:
+            return PlacementDecision(
+                can_run=True,
+                reason="CPU-only work does not consume a GPU slot",
+                gpu_slot=0,
+                mode=plan_mode,
+                backend_name=plan_backend_name,
+                job_ids=job_ids,
+                batch_overrides=batch_overrides or {},
+                fallback_order=fallback_order or [],
+            )
+        if not active_gpu_groups:
             return PlacementDecision(
                 can_run=True,
                 reason="GPU slot available",
@@ -195,7 +224,12 @@ class WorkerSupervisor:
             )
 
         if not self._concurrency_enabled():
-            active_jobs = self.active_job_ids()
+            active_jobs = [
+                job_id
+                for group in active_gpu_groups
+                for job_id, worker in group.workers.items()
+                if self._worker_is_alive(worker)
+            ]
             return PlacementDecision(
                 can_run=False,
                 reason=f"GPU busy with jobs {', '.join(active_jobs)}",
@@ -231,7 +265,7 @@ class WorkerSupervisor:
                 fallback_order=fallback_order or [],
             )
 
-        for active_group in self._groups.values():
+        for active_group in active_gpu_groups:
             if not self._overlap_allowed_for_backend(active_group.backend_name):
                 return PlacementDecision(
                     can_run=False,

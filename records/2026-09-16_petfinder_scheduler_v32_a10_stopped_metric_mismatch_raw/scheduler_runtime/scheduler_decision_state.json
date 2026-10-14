@@ -1,0 +1,145 @@
+{
+  "admission_average_fraction": 0.1517138555960859,
+  "admission_below_resume_since": null,
+  "admission_open": true,
+  "admission_samples": [
+    {
+      "captured_at": "2026-09-16T22:55:38.649005+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 4491,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-16T22:55:39.187985+00:00",
+      "gpu_utilization": 0.61,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 4491,
+      "memory_utilization": 0.57
+    },
+    {
+      "captured_at": "2026-09-16T22:55:39.728857+00:00",
+      "gpu_utilization": 0.34,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 4491,
+      "memory_utilization": 0.34
+    },
+    {
+      "captured_at": "2026-09-16T22:55:40.270719+00:00",
+      "gpu_utilization": 0.18,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 4491,
+      "memory_utilization": 0.16
+    },
+    {
+      "captured_at": "2026-09-16T22:55:40.818304+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 4491,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-16T22:55:41.360974+00:00",
+      "gpu_utilization": 0.99,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 4491,
+      "memory_utilization": 0.96
+    },
+    {
+      "captured_at": "2026-09-16T22:55:41.917241+00:00",
+      "gpu_utilization": 0.95,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 4491,
+      "memory_utilization": 0.88
+    },
+    {
+      "captured_at": "2026-09-16T22:55:42.457302+00:00",
+      "gpu_utilization": 0.94,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 4491,
+      "memory_utilization": 0.89
+    },
+    {
+      "captured_at": "2026-09-16T22:55:43.018051+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 4491,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-16T22:55:43.564787+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 4491,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-16T22:55:44.119033+00:00",
+      "gpu_utilization": 0.99,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 4491,
+      "memory_utilization": 0.93
+    },
+    {
+      "captured_at": "2026-09-16T22:55:44.662471+00:00",
+      "gpu_utilization": 0.99,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 4491,
+      "memory_utilization": 0.97
+    },
+    {
+      "captured_at": "2026-09-16T22:55:45.209469+00:00",
+      "gpu_utilization": 0.99,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 4491,
+      "memory_utilization": 0.9
+    },
+    {
+      "captured_at": "2026-09-16T22:55:45.758019+00:00",
+      "gpu_utilization": 0.94,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 4491,
+      "memory_utilization": 0.92
+    },
+    {
+      "captured_at": "2026-09-16T22:55:46.327845+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 3,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-16T22:55:47.097969+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 3,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-16T22:55:47.560516+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 3,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-16T22:55:48.245493+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 3,
+      "memory_utilization": 0.0
+    }
+  ],
+  "colocation_stall": null,
+  "colocation_trial": null,
+  "exclusive_probe_job_id": null,
+  "placement_replay": {
+    "observations": [],
+    "pending_observation": null,
+    "suppressed_decisions": 0,
+    "suppressed_probes": 0,
+    "suppressed_trials": 0,
+    "template": null
+  },
+  "updated_at": "2026-09-16T22:55:48.245599+00:00"
+}

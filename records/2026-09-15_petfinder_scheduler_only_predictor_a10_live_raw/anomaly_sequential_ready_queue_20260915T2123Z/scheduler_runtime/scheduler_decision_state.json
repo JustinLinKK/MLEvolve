@@ -1,0 +1,96 @@
+{
+  "admission_average_fraction": 0.11624978287302415,
+  "admission_below_resume_since": null,
+  "admission_open": true,
+  "admission_samples": [
+    {
+      "captured_at": "2026-09-15T21:23:47.400027+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 2677,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-15T21:23:50.981232+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 2677,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-15T21:23:51.888580+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 2677,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-15T21:23:52.364438+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 2677,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-15T21:23:53.165431+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 2677,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-15T21:23:54.066379+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 2677,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-15T21:23:54.686008+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 2677,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-15T21:23:55.184937+00:00",
+      "gpu_utilization": 0.31,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 2677,
+      "memory_utilization": 0.28
+    },
+    {
+      "captured_at": "2026-09-15T21:23:55.661844+00:00",
+      "gpu_utilization": 0.44,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 2677,
+      "memory_utilization": 0.43
+    },
+    {
+      "captured_at": "2026-09-15T21:23:56.484606+00:00",
+      "gpu_utilization": 0.0,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 2677,
+      "memory_utilization": 0.0
+    },
+    {
+      "captured_at": "2026-09-15T21:23:57.288462+00:00",
+      "gpu_utilization": 0.25,
+      "memory_total_mb": 23028,
+      "memory_used_mb": 2677,
+      "memory_utilization": 0.22
+    }
+  ],
+  "colocation_stall": null,
+  "colocation_trial": null,
+  "exclusive_probe_job_id": null,
+  "placement_replay": {
+    "observations": [],
+    "pending_observation": null,
+    "suppressed_decisions": 0,
+    "suppressed_probes": 0,
+    "suppressed_trials": 0,
+    "template": null
+  },
+  "updated_at": "2026-09-15T21:23:57.288549+00:00"
+}

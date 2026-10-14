@@ -4,15 +4,21 @@
 - Host: `ssh ABA`.
 - Training source: latest `perfseer_optimized` source snapshot.
 - Predictor remote branch: `origin/v2`.
-- Predictor latest revision: `6d973d6`.
+- Predictor latest revision: `25d8116`.
 - Verified model source checksum: `d57fcc35ac2e`.
 - Server source directory: `/home/yufan/Predictor`.
-- MLEvolve predictor gitlink: `1a6203d`.
+- MLEvolve predictor gitlink: `b9b6d48`.
 - Six-head twelve-label architecture test: passed on ABA.
 - Largest graph: 11,964 nodes and 18,314 edges.
 - Fixed 16-item batches reached 191,424 graph nodes.
 - Fixed-batch run emitted a 1.52 GB CUDA allocation OOM warning.
-- Current sampler caps every training batch at 32,000 graph nodes.
+- Training and validation sampler cap: 16,000 graph nodes.
+- Fixed validation batches can reach 148,056 graph nodes.
+- Test sampler remains unbuilt when `--skip-test` is set.
+- Active run uses 32,000 graph-node training batches.
+- Measured GPU 1 use: 56.3 GiB, below 60 GiB ceiling.
+- Graph loader workers: 4.
+- CUDA cache releases only at the 60 GiB ceiling.
 - CUDA allocator caches were retained across variable graph batches.
 - Current trainer releases unused CUDA cache after every batch.
 - Native architecture: six separate metric heads.
@@ -36,11 +42,126 @@
 - GPU 0 is occupied by an unrelated process.
 - Teacher schedule: up to 800 epochs.
 - Local microbatch: 16.
-- Gradient accumulation: 8.
-- Effective predictor batch: 128.
+- Gradient accumulation: 3.
+- Effective predictor batch: 48.
 - Early stopping patience: 60 epochs.
 - Per-epoch validation: all twelve 5% and 10% accuracies.
 - Held-out test cache: missing all 136 graph inputs.
 - Final test report: explicitly skipped, never imputed.
 - Rejected pre-epoch runs: twelve physical heads and staged source path.
-- Training output: `/data1/yufan/perfseer_v32_a100_bs_training_20260908/training_latest_predictor_six_heads_v12`.
+- Active training output: `/data1/yufan/perfseer_v32_a100_bs_training_20260908/training_latest_predictor_six_heads_v12_teacher_batch48_r7`.
+- Prior accumulation-8 diagnostic epoch 1 completed at `2026-09-09T14:47:58Z`.
+- Epoch 1 validation rows: 4,544.
+- Prior diagnostic epoch 1 5% gate: false.
+- `train_step_wall_ms`: 5%=31.73%, 10%=58.03%.
+- `train_step_gpu_ms`: 5%=30.68%, 10%=57.02%.
+- `train_epoch_ms`: 5%=31.14%, 10%=58.85%.
+- `train_avg_sm_util_percent`: 5%=31.03%, 10%=58.14%.
+- `train_avg_vram_mib`: 5%=94.04%, 10%=95.99%.
+- `train_peak_vram_mib`: 5%=94.04%, 10%=95.99%.
+- `train_peak_torch_allocated_mib`: 5%=75.31%, 10%=87.26%.
+- `infer_step_wall_ms`: 5%=51.10%, 10%=80.35%.
+- `infer_step_gpu_ms`: 5%=48.72%, 10%=79.49%.
+- `infer_avg_sm_util_percent`: 5%=47.69%, 10%=82.35%.
+- `infer_avg_vram_mib`: 5%=92.10%, 10%=97.01%.
+- `infer_peak_vram_mib`: 5%=92.12%, 10%=97.03%.
+- Teacher-batch-48 epoch 1 completed at `2026-09-09T15:28:08Z`.
+- Teacher-batch-48 epoch 1 validation rows: 4,544.
+- Teacher-batch-48 epoch 1 5% gate: false.
+- `train_step_wall_ms`: 5%=29.69%, 10%=57.04%.
+- `train_step_gpu_ms`: 5%=30.59%, 10%=57.68%.
+- `train_epoch_ms`: 5%=27.77%, 10%=52.40%.
+- `train_avg_sm_util_percent`: 5%=29.38%, 10%=56.91%.
+- `train_avg_vram_mib`: 5%=93.09%, 10%=98.50%.
+- `train_peak_vram_mib`: 5%=93.09%, 10%=98.50%.
+- `train_peak_torch_allocated_mib`: 5%=75.59%, 10%=84.90%.
+- `infer_step_wall_ms`: 5%=43.09%, 10%=75.22%.
+- `infer_step_gpu_ms`: 5%=43.75%, 10%=74.96%.
+- `infer_avg_sm_util_percent`: 5%=49.58%, 10%=81.60%.
+- `infer_avg_vram_mib`: 5%=91.97%, 10%=98.24%.
+- `infer_peak_vram_mib`: 5%=91.99%, 10%=98.50%.
+- Teacher-batch-48 epoch 2 validation rows: 4,544.
+- Teacher-batch-48 epoch 2 5% gate: false.
+- `train_step_wall_ms`: 5%=34.49%, 10%=62.57%.
+- `train_step_gpu_ms`: 5%=33.05%, 10%=62.54%.
+- `train_epoch_ms`: 5%=30.26%, 10%=58.82%.
+- `train_avg_sm_util_percent`: 5%=30.85%, 10%=56.82%.
+- `train_avg_vram_mib`: 5%=93.73%, 10%=98.50%.
+- `train_peak_vram_mib`: 5%=94.23%, 10%=98.50%.
+- `train_peak_torch_allocated_mib`: 5%=83.41%, 10%=90.96%.
+- `infer_step_wall_ms`: 5%=61.99%, 10%=84.51%.
+- `infer_step_gpu_ms`: 5%=61.16%, 10%=84.64%.
+- `infer_avg_sm_util_percent`: 5%=49.93%, 10%=79.45%.
+- `infer_avg_vram_mib`: 5%=93.44%, 10%=97.87%.
+- `infer_peak_vram_mib`: 5%=93.46%, 10%=97.89%.
+- Teacher-batch-48 epoch 3 validation rows: 4,544.
+- Teacher-batch-48 epoch 3 5% gate: false.
+- `train_step_wall_ms`: 5%=35.67%, 10%=63.82%.
+- `train_step_gpu_ms`: 5%=36.00%, 10%=64.41%.
+- `train_epoch_ms`: 5%=30.41%, 10%=59.02%.
+- `train_avg_sm_util_percent`: 5%=30.68%, 10%=55.33%.
+- `train_avg_vram_mib`: 5%=93.79%, 10%=98.97%.
+- `train_peak_vram_mib`: 5%=93.79%, 10%=98.97%.
+- `train_peak_torch_allocated_mib`: 5%=85.85%, 10%=94.34%.
+- `infer_step_wall_ms`: 5%=55.06%, 10%=86.75%.
+- `infer_step_gpu_ms`: 5%=55.48%, 10%=86.49%.
+- `infer_avg_sm_util_percent`: 5%=46.50%, 10%=77.62%.
+- `infer_avg_vram_mib`: 5%=98.13%, 10%=98.15%.
+- `infer_peak_vram_mib`: 5%=97.67%, 10%=98.17%.
+- Teacher-batch-48 epoch 4 validation rows: 4,544.
+- Teacher-batch-48 epoch 4 5% gate: false.
+- `train_step_wall_ms`: 5%=31.47%, 10%=56.89%.
+- `train_step_gpu_ms`: 5%=31.36%, 10%=56.84%.
+- `train_epoch_ms`: 5%=32.28%, 10%=59.62%.
+- `train_avg_sm_util_percent`: 5%=31.93%, 10%=58.54%.
+- `train_avg_vram_mib`: 5%=92.32%, 10%=97.95%.
+- `train_peak_vram_mib`: 5%=92.32%, 10%=97.95%.
+- `train_peak_torch_allocated_mib`: 5%=84.55%, 10%=88.23%.
+- `infer_step_wall_ms`: 5%=53.87%, 10%=85.87%.
+- `infer_step_gpu_ms`: 5%=53.54%, 10%=86.16%.
+- `infer_avg_sm_util_percent`: 5%=50.20%, 10%=82.00%.
+- `infer_avg_vram_mib`: 5%=94.17%, 10%=98.61%.
+- `infer_peak_vram_mib`: 5%=94.19%, 10%=98.64%.
+- Teacher-batch-48 epoch 5 validation rows: 4,544.
+- Teacher-batch-48 epoch 5 5% gate: false.
+- `train_step_wall_ms`: 5%=34.57%, 10%=62.41%.
+- `train_step_gpu_ms`: 5%=34.38%, 10%=62.46%.
+- `train_epoch_ms`: 5%=31.05%, 10%=59.24%.
+- `train_avg_sm_util_percent`: 5%=31.62%, 10%=58.58%.
+- `train_avg_vram_mib`: 5%=93.79%, 10%=95.99%.
+- `train_peak_vram_mib`: 5%=92.80%, 10%=95.99%.
+- `train_peak_torch_allocated_mib`: 5%=85.01%, 10%=90.65%.
+- `infer_step_wall_ms`: 5%=59.22%, 10%=82.17%.
+- `infer_step_gpu_ms`: 5%=58.98%, 10%=82.09%.
+- `infer_avg_sm_util_percent`: 5%=49.56%, 10%=78.83%.
+- `infer_avg_vram_mib`: 5%=93.71%, 10%=98.15%.
+- `infer_peak_vram_mib`: 5%=93.73%, 10%=98.17%.
+- Teacher-batch-48 epoch 6 validation rows: 4,544.
+- Teacher-batch-48 epoch 6 5% gate: false.
+- `train_step_wall_ms`: 5%=29.71%, 10%=55.52%.
+- `train_step_gpu_ms`: 5%=29.60%, 10%=54.89%.
+- `train_epoch_ms`: 5%=27.53%, 10%=48.28%.
+- `train_avg_sm_util_percent`: 5%=33.43%, 10%=60.43%.
+- `train_avg_vram_mib`: 5%=93.02%, 10%=96.48%.
+- `train_peak_vram_mib`: 5%=93.27%, 10%=96.48%.
+- `train_peak_torch_allocated_mib`: 5%=77.93%, 10%=88.23%.
+- `infer_step_wall_ms`: 5%=57.72%, 10%=82.17%.
+- `infer_step_gpu_ms`: 5%=57.66%, 10%=82.20%.
+- `infer_avg_sm_util_percent`: 5%=48.61%, 10%=82.20%.
+- `infer_avg_vram_mib`: 5%=97.14%, 10%=97.51%.
+- `infer_peak_vram_mib`: 5%=97.16%, 10%=97.54%.
+- Training stopped after epoch 6: exact input-information ceiling measured.
+- Rows: 44,820; unique input hashes: 1,088; singleton inputs: 0.
+- Oracle uses the best constant for each identical input group.
+- `train_step_wall_ms`: 5%=58.99%, 10%=78.83%.
+- `train_step_gpu_ms`: 5%=58.98%, 10%=78.82%.
+- `train_epoch_ms`: 5%=58.99%, 10%=78.83%.
+- `train_avg_sm_util_percent`: 5%=56.29%, 10%=77.12%.
+- `train_avg_vram_mib`: 5%=98.15%, 10%=99.89%.
+- `train_peak_vram_mib`: 5%=98.15%, 10%=99.89%.
+- `train_peak_torch_allocated_mib`: 5%=98.56%, 10%=98.72%.
+- `infer_step_wall_ms`: 5%=83.49%, 10%=96.80%.
+- `infer_step_gpu_ms`: 5%=83.49%, 10%=96.79%.
+- `infer_avg_sm_util_percent`: 5%=80.95%, 10%=95.47%.
+- `infer_avg_vram_mib`: 5%=99.04%, 10%=100.00%.
+- `infer_peak_vram_mib`: 5%=99.05%, 10%=100.00%.

@@ -130,6 +130,7 @@ def test_scheduler_decision_mode_defaults_to_baseline_and_validates() -> None:
     serialized = default.gpu_scheduler.to_dict()
     assert serialized["scheduler_decision_mode"] == "baseline"
     assert serialized["source_trial_ranking"]["policy"] == "pareto"
+    assert serialized["source_trial_ranking"]["max_group_size"] is None
     assert serialized["source_trial_ranking"]["mode_overhead_mb"]["cuda_process"] > 0
     with pytest.raises(ValueError, match="scheduler_decision_mode"):
         SchedulerSettings(gpu_scheduler={"scheduler_decision_mode": "random"})
@@ -299,6 +300,22 @@ def test_backend_config_is_exact_cache_identity_and_mps_launch_input() -> None:
         "60",
         "40",
     ]
+    assert [env["CUDA_VISIBLE_DEVICES"] for env in envs] == ["0", "0"]
+
+
+def test_mps_solo_anchor_uses_its_reserved_allocation_slot() -> None:
+    job = TrainingJob.create("pkg:run", "anchor", "/tmp/anchor.py", max_epochs=1)
+    job.metadata.update(
+        {
+            "placement_backend_config": {"allocation_percentages": [60, 40]},
+            "placement_mps_slot": 0,
+        }
+    )
+    backend = MPSBackend(SchedulerSettings(), executor=object(), mps_binary="mps")
+
+    envs = backend._client_envs([job])
+
+    assert [env["CUDA_MPS_ACTIVE_THREAD_PERCENTAGE"] for env in envs] == ["60"]
 
 
 def test_active_mps_allocations_are_immutable_and_templates_are_not_reenumerated() -> None:
@@ -382,7 +399,11 @@ def test_backend_aware_mode_jointly_selects_pair_and_baseline_does_not() -> None
             aware_plan.objective_breakdown["scheduler_decision_mode"]
             == "backend_awared"
         )
-        assert aware_plan.objective_breakdown["requires_live_trial"] is True
+        # Raw scripts do not expose a checkpoint contract. They still run
+        # concurrently when VRAM-safe, but the scheduler must not try to pause
+        # and resume them as a live trial.
+        assert aware_plan.objective_breakdown["requires_live_trial"] is False
+        assert aware_plan.objective_breakdown["non_preemptive_colocation"] is True
         assert (
             aware_plan.objective_breakdown["source_trial_ranking"][0]["selected"]
             is True
@@ -532,3 +553,41 @@ def test_backend_aware_active_group_ranks_all_newcomers_before_selection() -> No
             "continuous",
             "gap",
         }
+
+
+def test_backend_aware_admission_grows_a_vram_safe_group_past_two() -> None:
+    """Dynamic admission must not turn an implementation limit into a job cap."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        source = root / "model.py"
+        source.write_text("layer = torch.nn.Linear(16, 16)\n", encoding="utf-8")
+        first = _job("first", source, source_kind="compute")
+        second = _job("second", source, source_kind="compute")
+        candidate = _job("candidate", source, source_kind="compute")
+        for active in (first, second):
+            active.metadata.update(
+                {
+                    "placement_backend": "cuda_process",
+                    "runtime_observed_epoch_seconds": 10.0,
+                }
+            )
+        candidate.queue_sequence = 1
+
+        settings = _settings(root / "runtime", decision_mode="backend_awared")
+        store = SQLiteStateStore(settings)
+        planner = PlacementPlanner(
+            settings, store, PriorityFifoPolicy(enable_priority_aging=False)
+        )
+        for job in (first, second, candidate):
+            _seed_options(store, planner, job)
+
+        plan = planner.choose_plan(
+            [candidate],
+            active_jobs=[first, second],
+            active_vram_mb=808.0,
+            backend_available={"cuda_process": True, "exclusive": True},
+        )
+
+        assert plan is not None
+        assert plan.mode == "concurrent_group"
+        assert plan.job_ids == ("candidate",)

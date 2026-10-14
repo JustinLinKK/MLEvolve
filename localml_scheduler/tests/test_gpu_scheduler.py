@@ -5,6 +5,7 @@ import tempfile
 import time
 import unittest
 from unittest import mock
+from types import SimpleNamespace
 
 from localml_scheduler.adapters.mlevolve import build_mlevolve_job, build_packing_signature
 from localml_scheduler.config import SchedulerSettings
@@ -200,6 +201,72 @@ class GpuSchedulerUnitTest(unittest.TestCase):
             self.assertEqual(plan.job_ids, (jobs[0].job_id,))
             self.assertIn("runtime estimate unavailable", plan.reason)
 
+    def test_planner_uses_configured_mps_transport_for_unknown_solo_anchor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = SchedulerSettings(
+                runtime_root=tmpdir,
+                gpu_scheduler={"packing_backend": "mps_process"},
+            )
+            store = SQLiteStateStore(settings)
+            planner = PlacementPlanner(
+                settings,
+                store,
+                PriorityFifoPolicy(enable_priority_aging=False),
+            )
+            job = build_mlevolve_job(
+                workflow_id="wf",
+                baseline_model_id="baseline",
+                baseline_model_path="/tmp/model.pt",
+                runner_target="pkg.runner:train",
+                packing_family="toy",
+                packing_eligible=True,
+                packing_backend_allowlist=["mps_process"],
+            )
+
+            plan = planner.choose_plan(
+                [job],
+                backend_available={"exclusive": True, "mps_process": True},
+            )
+
+            self.assertEqual(plan.mode, "stack_anchor")
+            self.assertEqual(plan.backend_name, "mps_process")
+            self.assertEqual(plan.job_ids, (job.job_id,))
+            self.assertEqual(
+                plan.backend_config,
+                {"allocation_percentages": [
+                    settings.gpu_scheduler.mps.default_primary_active_thread_pct,
+                    settings.gpu_scheduler.mps.default_secondary_active_thread_pct,
+                ]},
+            )
+
+    def test_dispatch_marks_mps_solo_anchor_as_primary_reserved_slot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = SchedulerSettings(runtime_root=tmpdir)
+            store = SQLiteStateStore(settings)
+            job = TrainingJob.create(
+                "pkg.runner:train", "anchor", "/tmp/anchor.py", max_epochs=1
+            )
+            store.submit_job(job)
+            store.set_job_status(job.job_id, JobStatus.READY, reason="test", hold=False)
+            service = SchedulerService(settings, store=store)
+            service.supervisor = mock.Mock()
+            service.supervisor.dispatch.return_value = SimpleNamespace(
+                can_run=True, group_id="mps-anchor"
+            )
+            plan = DispatchPlan(
+                mode="stack_anchor",
+                backend_name="mps_process",
+                job_ids=(job.job_id,),
+                reason="test MPS reservation",
+                backend_config={"allocation_percentages": [60, 40]},
+            )
+
+            with mock.patch.object(service, "_preload_job_baseline"):
+                self.assertTrue(service._dispatch_plan(plan))
+
+            launched_job = service.supervisor.dispatch.call_args.args[0][0]
+            self.assertEqual(launched_job.metadata["placement_mps_slot"], 0)
+
     def test_measurements_and_time_aware_profiles_are_hardware_scoped(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = SchedulerSettings(runtime_root=tmpdir)
@@ -293,6 +360,53 @@ class GpuSchedulerUnitTest(unittest.TestCase):
             entries = service.cache.snapshot_entries()
             self.assertEqual(len(entries), 1)
             self.assertEqual(entries[0]["model_id"], "tree-startpoint")
+
+    def test_raw_script_without_explicit_preload_source_skips_cache_preload(self) -> None:
+        """Executable MLEvolve source is not a model-cache artifact."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = SchedulerSettings(runtime_root=Path(tmpdir) / "runtime")
+            store = SQLiteStateStore(settings)
+            service = SchedulerService(settings, store=store)
+            job = build_mlevolve_job(
+                workflow_id="wf",
+                baseline_model_id="candidate-script",
+                baseline_model_path="/tmp/candidate.py",
+                runner_target="localml_scheduler.adapters.mlevolve_runner:run_mlevolve_script_job",
+            )
+            service.cache.preload = mock.Mock()
+
+            service._preload_job_baseline(job)
+
+            service.cache.preload.assert_not_called()
+
+    def test_raw_script_with_explicit_preload_source_still_preloads_startpoint(self) -> None:
+        """A submitted checkpoint remains eligible for dispatch-time warming."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = SchedulerSettings(runtime_root=Path(tmpdir) / "runtime")
+            store = SQLiteStateStore(settings)
+            service = SchedulerService(settings, store=store)
+            startpoint = PreloadSource(
+                model_id="shared-startpoint",
+                model_path="/tmp/startpoint.ckpt",
+                loader_target="localml_scheduler.adapters.mlevolve_runner:load_raw_file",
+            )
+            job = build_mlevolve_job(
+                workflow_id="wf",
+                baseline_model_id="candidate-script",
+                baseline_model_path="/tmp/candidate.py",
+                runner_target="localml_scheduler.adapters.mlevolve_runner:run_mlevolve_script_job",
+                preload_source=startpoint,
+            )
+            service.cache.preload = mock.Mock(return_value=True)
+
+            service._preload_job_baseline(job)
+
+            service.cache.preload.assert_called_once_with(
+                "shared-startpoint",
+                "/tmp/startpoint.ckpt",
+                loader_target="localml_scheduler.adapters.mlevolve_runner:load_raw_file",
+                metadata={"source": "dispatch", "job_id": job.job_id},
+            )
 
     def test_exclusive_gpu_owner_defers_dispatch_without_hot_retry(self) -> None:
         """A busy exclusive GPU leaves the job runnable and records a retry delay."""

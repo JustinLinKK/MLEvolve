@@ -176,7 +176,17 @@ class SchedulerClient:
         job.metadata["runner_contract"] = RUNNER_CONTRACT_SUBPROCESS_V1
         return job
 
+    def _persist_runtime_settings(self) -> None:
+        """Publish the resolved client settings before an external worker starts."""
+        self.settings.ensure_runtime_layout()
+        path = self.settings.runtime_root / "scheduler_settings.json"
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(self.settings.to_dict(), handle, indent=2, sort_keys=True)
+        temporary.replace(path)
+
     def submit(self, request: SubmitJobRequest | JobSpec | TrainingJob) -> TrainingJob:
+        self._persist_runtime_settings()
         if isinstance(request, TrainingJob):
             return self.store.submit_job(self._apply_backend_contract(request))
         if isinstance(request, JobSpec):

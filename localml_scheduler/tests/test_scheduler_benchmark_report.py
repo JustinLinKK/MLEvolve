@@ -7,14 +7,14 @@ import pytest
 
 from localml_scheduler.domain import JobStatus, TrainingJob
 from localml_scheduler.hardware import HardwareProfile
-from scheduler_benchmark_test.repeat_time_aware_benchmark import (
+from localml_scheduler.benchmark_test.repeat_time_aware_benchmark import (
     aggregate_summaries,
     attach_matched_batch_slowdown,
     hardware_matches,
     markdown_report,
     write_matched_batch_trace,
 )
-from scheduler_benchmark_test.replay_scheduler import _trace_metrics, build_settings
+from localml_scheduler.benchmark_test.replay_scheduler import _trace_metrics, build_settings
 
 
 def _hardware(name: str = "NVIDIA A10") -> HardwareProfile:

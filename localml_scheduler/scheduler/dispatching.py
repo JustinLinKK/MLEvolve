@@ -77,6 +77,17 @@ class DispatchMixin:
 
     def _preload_job_baseline(self, job: TrainingJob) -> None:
         """Best-effort preload the model needed by an imminent dispatch."""
+        # A raw MLEvolve script is executable source, not a serializable model
+        # checkpoint.  Unless the submitter explicitly supplied a separate
+        # preload source, sending the script to BaselineModelCache makes its
+        # loader search for checkpoint markers and emits a misleading warning.
+        # The child process loads the script itself, so skip that non-action.
+        if (
+            job.preload_source is None
+            and job.config.runner_target
+            == "localml_scheduler.adapters.mlevolve_runner:run_mlevolve_script_job"
+        ):
+            return
         target = self._resolve_preload_target(job)
         try:
             self.cache.preload(
@@ -94,7 +105,34 @@ class DispatchMixin:
             )
 
     def _active_vram_occupancy(self) -> float:
-        """Estimate VRAM currently occupied by materialized run groups."""
+        """Return conservative live VRAM when it is available.
+
+        Predictor output is a cold-start estimate.  Once a worker has
+        materialized, the device sample is stronger evidence and must gate the
+        next admission; otherwise a severely under-predicted first job can be
+        treated as a tiny allocation and cause an avoidable packed Out Of
+        Memory (OOM) failure.
+        """
+        live_samples = [
+            sample
+            for run in self._active_runs.values()
+            for sample in run.samples
+            if sample.memory_total_mb > 0
+        ]
+        if live_samples:
+            # Samples represent the entire device, not individual workers.
+            # A finished co-runner therefore must be allowed to reduce the
+            # occupied capacity; retaining its historical peak would make a
+            # later READY job permanently inadmissible.  Use the newest device
+            # observation, retaining the largest value only for tied samples.
+            newest_at = max(sample.captured_at for sample in live_samples)
+            return float(
+                max(
+                    sample.memory_used_mb
+                    for sample in live_samples
+                    if sample.captured_at == newest_at
+                )
+            )
         active_vram_mb = 0.0
         for group_id, run in self._active_runs.items():
             jobs = [
@@ -129,6 +167,97 @@ class DispatchMixin:
             "vram_prediction_error": None,
         }
 
+    def _reject_missing_required_ml_prediction(
+        self, jobs: list[TrainingJob]
+    ) -> bool:
+        """Terminally reject an unprofiled job in an explicitly Predictor-only run."""
+        if not bool(
+            getattr(self.settings.prediction, "require_ml_prediction", False)
+        ):
+            return False
+        rejected = False
+        for job in jobs:
+            if not job.resource_requirements.requires_gpu:
+                continue
+            prediction = self._prediction_metadata(job.job_id)
+            source = str(prediction.get("vram_prediction_source") or "branch_profile")
+            if source == "ml_predictor":
+                continue
+            detail = prediction.get("vram_prediction_error") or "no usable ML Predictor estimate"
+            reason = (
+                "ML Predictor is required for this experiment; scheduler refused "
+                f"{source} fallback ({detail})"
+            )
+            self.store.update_job(
+                job.job_id,
+                status=JobStatus.FAILED,
+                reason=reason,
+                hold=True,
+                metadata_updates={
+                    "vram_prediction_source": source,
+                    "vram_prediction_error": prediction.get("vram_prediction_error"),
+                    "ml_prediction_required": True,
+                    "ml_prediction_rejected": True,
+                },
+            )
+            self.event_logger.emit(
+                "job_rejected_ml_prediction",
+                job_id=job.job_id,
+                payload={"source": source, "error": prediction.get("vram_prediction_error")},
+            )
+            rejected = True
+        return rejected
+
+    def _reject_failed_required_ml_predictions(
+        self, jobs: list[TrainingJob]
+    ) -> bool:
+        """Finalize Predictor failures that the planner could not select.
+
+        The placement planner correctly omits a candidate whose source capture
+        or Predictor inference failed, because it has no trustworthy resource
+        option.  In a Predictor-only experiment that omission must not leave
+        the job in ``READY`` forever: it blocks queue accounting and looks like
+        a scheduler stall.  Only reject a job after the Predictor has actually
+        recorded an error.  An untouched job has ``error is None`` and remains
+        eligible for its first prediction attempt.
+        """
+        if not bool(
+            getattr(self.settings.prediction, "require_ml_prediction", False)
+        ):
+            return False
+        rejected = False
+        for job in jobs:
+            if not job.resource_requirements.requires_gpu:
+                continue
+            prediction = self._prediction_metadata(job.job_id)
+            source = str(prediction.get("vram_prediction_source") or "branch_profile")
+            error = prediction.get("vram_prediction_error")
+            if source == "ml_predictor" or not error:
+                continue
+            reason = (
+                "ML Predictor is required for this experiment; scheduler refused "
+                f"the candidate after Predictor failure ({error})"
+            )
+            self.store.update_job(
+                job.job_id,
+                status=JobStatus.FAILED,
+                reason=reason,
+                hold=True,
+                metadata_updates={
+                    "vram_prediction_source": source,
+                    "vram_prediction_error": error,
+                    "ml_prediction_required": True,
+                    "ml_prediction_rejected": True,
+                },
+            )
+            self.event_logger.emit(
+                "job_rejected_ml_prediction",
+                job_id=job.job_id,
+                payload={"source": source, "error": error},
+            )
+            rejected = True
+        return rejected
+
     def _dispatch_plan(self, plan: DispatchPlan) -> bool:
         """Apply a chosen plan and register its workers as one active run.
 
@@ -143,6 +272,8 @@ class DispatchMixin:
             if job is None:
                 return False
             selected_jobs.append(job)
+        if self._reject_missing_required_ml_prediction(selected_jobs):
+            return False
         if plan.batch_overrides:
             selected_jobs = [
                 self._apply_batch_override(
@@ -163,11 +294,28 @@ class DispatchMixin:
                 plan.trial_metadata.get("source_fingerprint_signatures") or {}
             )
             configured_jobs: list[TrainingJob] = []
-            for job in selected_jobs:
+            for index, job in enumerate(selected_jobs):
+                mps_slot: int | None = None
+                allocation_percentages = plan.backend_config.get("allocation_percentages")
+                if (
+                    plan.backend_name == "mps_process"
+                    and isinstance(allocation_percentages, list)
+                    and allocation_percentages
+                ):
+                    mps_slot = (
+                        index
+                        if len(selected_jobs) > 1
+                        else (0 if plan.mode == "stack_anchor" else 1)
+                    )
                 updated = job.copy(
                     metadata={
                         **job.metadata,
                         "placement_backend_config": dict(plan.backend_config),
+                        **(
+                            {"placement_mps_slot": mps_slot}
+                            if mps_slot is not None
+                            else {}
+                        ),
                         "placement_start_delay_seconds": float(
                             delay_by_job.get(job.job_id, 0.0)
                         ),
@@ -423,6 +571,7 @@ class DispatchMixin:
                     "placement_objective_breakdown": plan.objective_breakdown,
                     "placement_trial_metadata": plan.trial_metadata,
                     "placement_backend_config": dict(plan.backend_config),
+                    "placement_mps_slot": job.metadata.get("placement_mps_slot"),
                     "placement_mandatory_anchor_job_id": plan.mandatory_anchor_job_id,
                     **self._prediction_metadata(job.job_id),
                 },
@@ -523,7 +672,28 @@ class DispatchMixin:
             ]
             if not runnable:
                 return
-            active_jobs = self._active_jobs()
+            # CPU-only candidates share the worker lifecycle but do not share
+            # CUDA memory, execution compatibility, or GPU timing.  Including
+            # one here makes the planner reject every GPU candidate as an
+            # incompatible mixed CPU/GPU pack, leaving an otherwise idle GPU
+            # unused until that CPU process exits.
+            active_jobs = [
+                job
+                for job in self._active_jobs()
+                if job.resource_requirements.requires_gpu
+            ]
+            # A newly-started job has no trustworthy measured footprint yet.
+            # Do not turn a static sub-GiB Predictor estimate into permission
+            # to pack another unknown training program.  This is an evidence
+            # barrier, not a fixed parallel-job cap: after one observed epoch,
+            # live telemetry drives every further admission.
+            if any(
+                job.resource_requirements.requires_gpu
+                and float(job.metadata.get("runtime_observed_epoch_seconds") or 0.0)
+                <= 0.0
+                for job in active_jobs
+            ):
+                return
             backend_available = self.supervisor.available_backends()
             replay_handled, replay_plan = self._choose_placement_replay_plan(
                 runnable,
@@ -590,11 +760,18 @@ class DispatchMixin:
                 packing_admission_stalled=self._colocation_stall is not None,
                 trial_pending=self._colocation_trial is not None,
             )
+            # ``choose_plan`` asks the Predictor for every candidate it
+            # considers.  It may therefore discover an unsupported source
+            # while still returning a valid plan for another candidate.  Make
+            # that recorded failure terminal before the next scheduling round
+            # instead of silently retaining a forever-READY job.
+            if self._reject_failed_required_ml_predictions(runnable):
+                continue
             if plan is None:
                 return
             if (
                 concurrent_mode
-                and self._active_runs
+                and active_jobs
                 and plan.backend_name == "exclusive"
             ):
                 return
