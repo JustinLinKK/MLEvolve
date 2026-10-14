@@ -2,8 +2,9 @@
 
 The module has five sections: dataset formats, TensorFlow Record parsing,
 competition fixtures, source rules, and command-line entry points. ``check``
-applies the controlled-corpus rules; ``check_source`` only checks syntax for
-arbitrary agent code. Neither function imports or executes candidate code.
+applies the controlled-corpus rules; ``check_source_syntax_only`` retains the
+original source gate, while ``check_source`` adds bounded Pyright analysis.
+Neither function imports or executes candidate code.
 """
 
 from __future__ import annotations
@@ -15,6 +16,9 @@ import csv
 import io
 import json
 import math
+import os
+import select
+import shutil
 import struct
 import subprocess
 import sys
@@ -1252,8 +1256,8 @@ def local_unknowns(function, global_names):
     return unknown
 
 
-def check_source(source: str, filename: str = "<candidate>") -> dict:
-    """Bounded admission check for arbitrary agent-generated Python scripts.
+def check_source_syntax_only(source: str, filename: str = "<candidate>") -> dict:
+    """Original source gate, retained for compatibility and comparison.
 
     The corpus-specific model and dataset rules below require a declared task
     contract and must not be applied to unrelated ML-Master/MLEvolve scripts.
@@ -1276,6 +1280,207 @@ def check_source(source: str, filename: str = "<candidate>") -> dict:
         "assurance": "syntax_only",
         "issues": [],
         "diagnostics": [],
+    }
+
+
+class PyrightSourceChecker:
+    """Analyze one in-memory candidate over the language-server protocol."""
+
+    REJECT_CODES = {
+        "reportMissingImports",
+        "reportUndefinedVariable",
+        "reportUnboundVariable",
+        "reportPossiblyUnboundVariable",
+        "reportArgumentType",
+        "reportCallIssue",
+        "reportAttributeAccessIssue",
+    }
+
+    def __init__(self, executable: str, workspace: Path, timeout: float):
+        self.executable = executable
+        self.workspace = workspace
+        self.timeout = timeout
+        self.buffer = b""
+
+    @staticmethod
+    def _send(process, message: dict) -> None:
+        body = json.dumps(message, separators=(",", ":")).encode("utf-8")
+        process.stdin.write(f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
+        process.stdin.flush()
+
+    def _receive(self, process, deadline: float) -> dict:
+        while True:
+            header_end = self.buffer.find(b"\r\n\r\n")
+            if header_end >= 0:
+                headers = self.buffer[:header_end].split(b"\r\n")
+                lengths = [
+                    int(line.split(b":", 1)[1].strip())
+                    for line in headers
+                    if line.lower().startswith(b"content-length:")
+                ]
+                if len(lengths) != 1 or not 0 <= lengths[0] <= 8 * 1024 * 1024:
+                    raise ValueError("invalid language-server message length")
+                end = header_end + 4 + lengths[0]
+                if len(self.buffer) >= end:
+                    body, self.buffer = self.buffer[header_end + 4:end], self.buffer[end:]
+                    return json.loads(body)
+            if len(self.buffer) > 8 * 1024 * 1024:
+                raise ValueError("language-server response too large")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Pyright analysis exceeded its time limit")
+            ready, _, _ = select.select([process.stdout], [], [], remaining)
+            if not ready:
+                raise TimeoutError("Pyright analysis exceeded its time limit")
+            chunk = os.read(process.stdout.fileno(), 65536)
+            if not chunk:
+                raise RuntimeError("Pyright language server exited before diagnostics")
+            self.buffer += chunk
+
+    def check(self, source: str, filename: str) -> list[dict]:
+        deadline = time.monotonic() + self.timeout
+        name = Path(filename).name
+        if not name.endswith(".py") or name.startswith("<"):
+            name = "candidate.py"
+        uri = (self.workspace / name).as_uri()
+        process = subprocess.Popen(
+            [self.executable, "--stdio"],
+            cwd=self.workspace,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            bufsize=0,
+        )
+        try:
+            self._send(process, {
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {
+                    "processId": None,
+                    "rootUri": self.workspace.as_uri(),
+                    "workspaceFolders": [{
+                        "uri": self.workspace.as_uri(),
+                        "name": self.workspace.name,
+                    }],
+                    "capabilities": {
+                        "textDocument": {"publishDiagnostics": {}},
+                        "workspace": {"configuration": True},
+                    },
+                },
+            })
+            while True:
+                message = self._receive(process, deadline)
+                if message.get("id") == 1:
+                    if "error" in message:
+                        raise RuntimeError(str(message["error"]))
+                    break
+                self._reply_to_server_request(process, message)
+            self._send(process, {"jsonrpc": "2.0", "method": "initialized", "params": {}})
+            self._send(process, {
+                "jsonrpc": "2.0", "method": "textDocument/didOpen",
+                "params": {"textDocument": {
+                    "uri": uri, "languageId": "python", "version": 1, "text": source,
+                }},
+            })
+            while True:
+                message = self._receive(process, deadline)
+                if message.get("method") == "textDocument/publishDiagnostics":
+                    params = message.get("params", {})
+                    if params.get("uri") == uri:
+                        return params.get("diagnostics", [])
+                self._reply_to_server_request(process, message)
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=0.5)
+
+    @staticmethod
+    def _reply_to_server_request(process, message: dict) -> None:
+        if "id" not in message or "method" not in message:
+            return
+        result = None
+        if message["method"] == "workspace/configuration":
+            result = []
+            for item in message.get("params", {}).get("items", []):
+                section = item.get("section")
+                if section == "python":
+                    result.append({"pythonPath": sys.executable})
+                elif section == "python.analysis":
+                    result.append({"typeCheckingMode": "basic", "diagnosticMode": "openFilesOnly"})
+                else:
+                    result.append({})
+        PyrightSourceChecker._send(process, {
+            "jsonrpc": "2.0", "id": message["id"], "result": result,
+        })
+
+
+def _incomplete_source_analysis(report: dict, status: str, message: str) -> dict:
+    return {
+        **report,
+        "analysis_status": status,
+        "diagnostics": [{
+            "code": "pyright_unavailable" if status == "unavailable" else "pyright_timeout",
+            "message": message,
+            "line": None,
+            "severity": 2,
+        }],
+    }
+
+
+def check_source(
+    source: str,
+    filename: str = "<candidate>",
+    *,
+    pyright_executable: str | None = None,
+    workspace: Path | None = None,
+    analysis_timeout: float = 8.0,
+) -> dict:
+    """Check source without running it, retaining the original syntax gate."""
+    report = check_source_syntax_only(source, filename)
+    if not report["admitted"]:
+        return report
+    executable = pyright_executable or os.environ.get("PYRIGHT_LANGSERVER")
+    if not executable:
+        executable = shutil.which("pyright-langserver")
+    if not executable:
+        bundled = ROOT.parent / ".cache/pyright/node_modules/.bin/pyright-langserver"
+        executable = str(bundled) if bundled.is_file() else None
+    if not executable:
+        return _incomplete_source_analysis(
+            report, "unavailable", "Pyright language server is not installed"
+        )
+    workspace = Path(workspace or Path.cwd()).resolve()
+    try:
+        raw = PyrightSourceChecker(executable, workspace, analysis_timeout).check(source, filename)
+    except TimeoutError as exc:
+        return _incomplete_source_analysis(report, "timeout", str(exc))
+    except (OSError, RuntimeError, ValueError) as exc:
+        return _incomplete_source_analysis(report, "unavailable", str(exc))
+    diagnostics = []
+    for item in raw:
+        code = item.get("code", "pyright_diagnostic")
+        if isinstance(code, dict):
+            code = code.get("value", "pyright_diagnostic")
+        diagnostics.append({
+            "code": str(code),
+            "message": item.get("message", ""),
+            "line": item.get("range", {}).get("start", {}).get("line", 0) + 1,
+            "severity": item.get("severity"),
+        })
+    errors = [
+        item for item in diagnostics
+        if item["severity"] == 1
+        and item["code"] in PyrightSourceChecker.REJECT_CODES
+    ]
+    return {
+        "status": "rejected" if errors else "static_checked",
+        "admitted": not errors,
+        "assurance": "syntax_and_pyright",
+        "issues": sorted({item["code"] for item in errors}),
+        "diagnostics": diagnostics,
+        "analysis_status": "complete",
     }
 
 

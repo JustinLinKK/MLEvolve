@@ -20,7 +20,11 @@ class PreflightPlugin:
 
         node_dir = self.workspace / "working" / "preflight" / str(node_id)
         node_dir.mkdir(parents=True, exist_ok=True)
-        report = check_source(code, filename=f"ml-master-node-{node_id}.py")
+        report = check_source(
+            code,
+            filename=f"ml-master-node-{node_id}.py",
+            workspace=self.workspace,
+        )
         report_path = node_dir / "report.json"
         report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         return {**report, "report_path": str(report_path)}

@@ -180,7 +180,11 @@ class Interpreter:
         """
         if self.preflight_check is not None:
             run_wd = Path(working_dir).resolve() if working_dir is not None else self.working_dir
-            report = self.preflight_check(code, filename=f"mlevolve-node-{id}.py")
+            report = self.preflight_check(
+                code,
+                filename=f"mlevolve-node-{id}.py",
+                workspace=run_wd,
+            )
             report_dir = run_wd / "preflight" / str(id)
             report_dir.mkdir(parents=True, exist_ok=True)
             report_path = report_dir / "report.json"
@@ -409,4 +413,3 @@ class Interpreter:
                 if process_id is not None:
                     self.status_map[process_id] = 0
                     self.current_parallel_run -= 1
-
