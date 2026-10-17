@@ -10,3 +10,7 @@
 	path = Preflight_checker
 	url = git@github.com:JustinLinKK/nn-model-preflight-checker.git
 	branch = main
+[submodule "HWKD"]
+	path = HWKD
+	url = git@github.com:AYPatrL04/MLEvolve.git
+	branch = hwkd-only
