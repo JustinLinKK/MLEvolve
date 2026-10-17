@@ -6,3 +6,7 @@
 	path = PerfSeer-predictor
 	url = git@github.com:JustinLinKK/PerfSeer-predictor.git
 	branch = main
+[submodule "Preflight_checker"]
+	path = Preflight_checker
+	url = git@github.com:JustinLinKK/nn-model-preflight-checker.git
+	branch = main
