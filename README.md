@@ -2,10 +2,10 @@
 
 This repository keeps two machine-learning agents under `Agent/`:
 
-The four shared components live at the repository root: `HWKD/` (Hardware
-Knowledge Database, extracted from the isolated HWKG branch),
-`nn-model-preflight-checker/`, `localml_scheduler/`, and `PerfSeer-predictor/`
-(a Git submodule pinned to its `main` branch). 
+The shared components live at the repository root: `HWKD/` (Hardware Knowledge
+Database), `Preflight_checker/`, and `PerfSeer-predictor/` are Git submodules;
+`localml_scheduler/` belongs to this repository. Initialize the dependencies
+after cloning with `git submodule update --init --recursive`.
 
 ML-Master plugins are opt-in through `LIGHTNING_PLUGINS`, e.g.
 `LIGHTNING_PLUGINS=preflight,scheduler,predictor,hwkd`. The preflight adapter

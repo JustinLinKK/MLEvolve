@@ -45,7 +45,7 @@ def test_bundled_checker_source_is_exported_for_isolated_workers(monkeypatch):
     monkeypatch.delenv("PYTHONPATH", raising=False)
     _load_model_preflight()
 
-    bundled_src = REPO_ROOT / "nn-model-preflight-checker" / "src"
+    bundled_src = REPO_ROOT / "Preflight_checker" / "src"
     assert str(bundled_src) in os.environ["PYTHONPATH"].split(os.pathsep)
 from engine.search_node import SearchNode
 from engine.executor import ExecutionResult

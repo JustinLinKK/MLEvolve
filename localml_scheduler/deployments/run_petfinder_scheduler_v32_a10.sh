@@ -8,7 +8,7 @@ execution_repo="${MLEVOLVE_EXECUTION_REPO:-$repo}"
 python_bin="${A10_PYTHON_BIN:-/root/downeyflyfan/mlevolve_a10_baseline_20260829/.venv/bin/python}"
 predictor_root="${PREDICTOR_V32_SOURCE_ROOT:-/tmp/Predictor/predictor_v3.2/source}"
 predictor_weights="${PREDICTOR_V32_WEIGHTS:-/tmp/Predictor/predictor_v3.2/weights/predictor_v3.2_student.pt}"
-preflight_root="${MODEL_PREFLIGHT_SOURCE_ROOT:-$execution_repo/nn-model-preflight-checker/src}"
+preflight_root="${MODEL_PREFLIGHT_SOURCE_ROOT:-$execution_repo/Preflight_checker/src}"
 # This Scheduler-only study still includes the local pre-flight checker.  It
 # screens generated-code faults before GPU admission; HWKD remains disabled
 # separately in the launch arguments below.

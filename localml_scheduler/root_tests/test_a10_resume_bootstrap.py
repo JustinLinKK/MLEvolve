@@ -31,4 +31,4 @@ def test_resume_script_exposes_the_checked_out_preflight_package():
         / "resume_petfinder_scheduler_on_a10_boot.sh"
     ).read_text()
 
-    assert 'PYTHONPATH="$repo/nn-model-preflight-checker/src' in script
+    assert 'PYTHONPATH="$repo/Preflight_checker/src' in script
